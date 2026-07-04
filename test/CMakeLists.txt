@@ -3,7 +3,7 @@ target_include_directories(test_qwrt PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_qwrt qwrt qwrt_mock)
 # NOTE: tests run via ctest (see add_test below), NOT as a POST_BUILD step.
 # A POST_BUILD test run aborts the entire build on a single test failure,
-# blocking unrelated targets (incl. the ace-core tests) from building.
+# blocking unrelated targets (incl. the upper-layer tests) from building.
 
 # ============================================================================
 # Google Test targets (optional)
@@ -77,21 +77,7 @@ add_executable(bench_wamr_vs_node bench_wamr_vs_node.c)
 target_include_directories(bench_wamr_vs_node PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(bench_wamr_vs_node qwrt qwrt_mock)
 
-add_executable(test_ace_integration test_ace_integration.c)
-target_include_directories(test_ace_integration PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(test_ace_integration qwrt qwrt_mock)
 # Bake source dir at compile time — no relative path guessing at runtime
-target_compile_definitions(test_ace_integration PRIVATE
-    ACE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-
-add_executable(test_fetch_stream test_fetch_stream.c)
-target_include_directories(test_fetch_stream PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(test_fetch_stream qwrt qwrt_mock)
-
-    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test")
-add_test(NAME test_ace_integration COMMAND test_ace_integration
-    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test")
-
 if(QWRT_WITH_LIBUV AND LIBUV_FOUND)
     add_executable(test_compress_bench test_compress_bench.c)
     target_include_directories(test_compress_bench PRIVATE
@@ -181,13 +167,3 @@ if(QWRT_WITH_LIBUV AND LIBUV_FOUND)
 
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
 
-    add_executable(test_ace_core test_ace_core.c)
-    target_include_directories(test_ace_core PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${LIBUV_INCLUDE_DIRS}
-    )
-    target_link_libraries(test_ace_core ace_core qwrt qwrt_uv ${LIBUV_LIBRARIES})
-    add_test(NAME test_ace_core COMMAND test_ace_core
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
-
-    endif()
