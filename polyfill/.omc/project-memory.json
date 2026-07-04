@@ -1,0 +1,68 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1780230915807,
+  "projectRoot": "/home/gem/project/ace/qwrt/polyfill",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "esbuild",
+        "version": "0.21.0",
+        "category": "build"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "cd /home/gem/project/ace/qwrt/polyfill && npm run build 2>&1 | tail -3",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {
+      "build": "node build.js",
+      "watch": "node build.js --watch"
+    }
+  },
+  "conventions": {
+    "namingStyle": "camelCase/PascalCase",
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "src"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 14,
+      "lastAccessed": 1780230915799,
+      "keyFiles": [
+        "abort.js",
+        "console.js",
+        "crypto.js",
+        "encoding.js",
+        "event-target.js"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}
