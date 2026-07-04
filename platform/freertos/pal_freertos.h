@@ -76,8 +76,8 @@ int pal_freertos_run_cycle(pal_freertos_t *pf, int timeout_ms);
  *
  * The runtime pointer is used by pal_freertos_run_cycle to drain deferred
  * callbacks (timer/HTTP completions) back into the qwrt thread via
- * qwrt_defer_callback. Call this after qwrt_create() (or ace_create(),
- * which creates qwrt internally — use ace_get_qwrt() to obtain it).
+ * qwrt_defer_callback. Call this after qwrt_create() (
+ * which creates qwrt internally).
  */
 void pal_freertos_set_runtime(pal_freertos_t *pf, struct qwrt_t *rt);
 

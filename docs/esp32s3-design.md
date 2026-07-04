@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 > **Date:** 2026-06-29
-> **Scope:** Port qwrt runtime (QuickJS + PAL) to ESP32-S3. ace-core porting is a separate follow-on spec.
+> **Scope:** Port qwrt runtime (QuickJS + PAL) to ESP32-S3. upper-layer application porting is a separate follow-on spec.
 
 ## 1. Architecture Overview
 
@@ -30,7 +30,7 @@
 
 **Key insight:** qwrt.c has zero libuv dependencies. The only libuv coupling is in:
 1. `pal_uv.c` — the libuv PAL implementation (replaced by `pal_freertos.c`)
-2. `ace.c` — ace-core's poll loop (not in scope for this spec)
+2. upper-layer poll loop (not in scope for this spec)
 
 qwrt itself only needs `qwrt_pal_t` — a table of function pointers. Porting qwrt = implementing those function pointers on FreeRTOS.
 
@@ -292,12 +292,12 @@ as standalone functions (`pal_freertos_run_cycle`, `pal_freertos_drain_deferred`
 in `pal_freertos.h`, not as PAL function pointers. This keeps the PAL interface
 minimal — qwrt doesn't need to know about event loops.
 
-### 3.4 Integration with ace-core (future)
+### 3.4 Integration with upper-layer applications (future)
 
-When ace-core is ported on top of qwrt, the event loop becomes:
+When an upper-layer application is ported on top of qwrt, the event loop becomes:
 
 ```c
-// ace_poll_blocking on FreeRTOS
+// upper-layer poll loop on FreeRTOS
 while (!done) {
     pal_freertos_run_cycle(pf, timeout_ms);
     pal_freertos_drain_deferred(pf, rt);
@@ -484,7 +484,7 @@ ESP-IDF builds require the Xtensa toolchain (~200MB download). Not suitable for 
 
 ## 9. Out of Scope
 
-- **ace-core porting** — requires the `run_cycle` function exported by `pal_freertos.h`; separate spec
+- **Upper-layer porting** — requires the `run_cycle` function exported by `pal_freertos.h`; separate spec
 - **WiFi provisioning** — embedder responsibility; example main.c will show basic WiFi connect
 - **OTA updates** — embedder responsibility
 - **Power management** — embedder responsibility

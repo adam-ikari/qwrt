@@ -17,7 +17,7 @@
 | **对标 WASI**      | PAL 类似 WASI 的 syscall 级接口     | 宿主提供实现，运行时只消费接口               |
 | **可嵌入**         | 宿主完全控制运行时生命周期          | qwrt_create/tick/eval/destroy API            |
 | **Web 标准**       | 用户 JS 看到 WinterCG 标准 API      | polyfill bundle 基于 `pal.*` 原语封装        |
-| **可复用**         | 独立于任何应用，不绑定 ACE 品牌     | qwrt 是通用运行时，ace-core 是其上的 JS 应用 |
+| **可复用**         | 独立于任何应用，不绑定特定品牌     | qwrt 是通用运行时，上层应用在其上构建 |
 
 ---
 

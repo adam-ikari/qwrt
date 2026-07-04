@@ -63,7 +63,7 @@ refactor: unify WASM engine initialization
 - [ ] No tabs in source files (spaces only)
 - [ ] No trailing whitespace
 - [ ] Commit messages follow Conventional Commits
-- [ ] No `ace` references — qwrt is independent
+- [ ] No references to upper-layer applications — qwrt is standalone
 
 ## Release Process
 
