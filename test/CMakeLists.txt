@@ -162,8 +162,5 @@ if(QWRT_WITH_LIBUV AND LIBUV_FOUND)
         ${LIBUV_INCLUDE_DIRS}
     )
     target_link_libraries(test_fetch_llm qwrt qwrt_uv ${LIBUV_LIBRARIES})
-
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
-
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+endif()
 
