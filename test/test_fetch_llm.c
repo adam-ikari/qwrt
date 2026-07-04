@@ -1,5 +1,5 @@
 /*
- * Minimal fetch-to-LLM test — isolates the HTTP layer from ace-core
+ * Minimal fetch-to-LLM test — isolates the HTTP layer from higher layers
  */
 #define _POSIX_C_SOURCE 200809L
 

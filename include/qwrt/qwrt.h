@@ -49,11 +49,11 @@ struct qwrt_pal_t {
      * Closes the in-flight TCP connection and any associated timers,
      * delivering an error/abort to the stream's on_end callback so the
      * caller's fetch Promise rejects promptly. Safe to call when no
-     * stream is active (no-op). Used to implement ace_cancel() aborting
+     * stream is active (no-op). Used to implement the caller aborting
      * an in-flight LLM stream.
      *
      * OPTIONAL: platforms without streaming HTTP may leave this NULL;
-     * ace_cancel() then only sets its cancellation flag (the next poll
+     * the caller then only sets its cancellation flag (the next poll
      * iteration observes it) without forcing the underlying request down.
      */
     void (*http_abort)(qwrt_pal_t *pal);
@@ -99,10 +99,10 @@ struct qwrt_pal_t {
      * or -1 if the loop was asked to stop (host should exit its poll loop).
      *
      * OPTIONAL: NULL means the PAL exposes no event loop to drive (the
-     * embedder is responsible for pumping qwrt_tick another way). ace_poll
+     * embedder is responsible for pumping qwrt_tick another way). qwrt_poll
      * treats NULL as "no PAL work" and just sleeps between ticks.
      *
-     * This decouples hosts (e.g. ace-core) from a specific loop library
+     * This decouples hosts (e.g. host applications) from a specific loop library
      * (libuv / FreeRTOS): pal_uv wraps uv_run, pal_freertos wraps its
      * event-group wait + deferred queue drain.
      */
