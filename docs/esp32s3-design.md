@@ -331,7 +331,7 @@ QuickJS's `JS_NewRuntime()` accepts custom allocation functions via `JSMallocFun
 
 ### 4.3 Bytecode in Flash
 
-The polyfill bytecode (`qwrt_default_polyfill`, ~501KB) and ace bundle bytecode (~371KB) are `const uint8_t` arrays. The compiler places them in `.rodata` which lives in flash. They are NOT copied to RAM — QuickJS reads them directly from flash via memory-mapped access (ESP32-S3 supports MMAP for flash).
+The polyfill bytecode (`qwrt_default_polyfill`, ~501KB) and app bundle bytecode (~371KB) are `const uint8_t` arrays. The compiler places them in `.rodata` which lives in flash. They are NOT copied to RAM — QuickJS reads them directly from flash via memory-mapped access (ESP32-S3 supports MMAP for flash).
 
 **This is the key reason no bundle trimming is needed:** bytecode sits in flash, not SRAM or PSRAM.
 
@@ -480,7 +480,7 @@ ESP-IDF builds require the Xtensa toolchain (~200MB download). Not suitable for 
 
 3. **Filesystem:** **LittleFS, full implementation.** The example partition table includes a `littlefs` partition. All five `fs_*` PAL functions map to LittleFS VFS calls (`fopen`/`fread`/`fwrite`/`stat`/`unlink`/`readdir`). ESP-IDF's VFS layer provides POSIX-compatible wrappers — the implementation is essentially standard C file I/O.
 
-4. **`run_cycle`:** **Standalone function, not a PAL pointer.** `pal_freertos_run_cycle` and `pal_freertos_drain_deferred` are standalone functions in `pal_freertos.h`, not added to `qwrt_pal_t`. This keeps the PAL interface minimal — qwrt doesn't need to know about event loops. ace-core will call these directly when ported.
+4. **`run_cycle`:** **Standalone function, not a PAL pointer.** `pal_freertos_run_cycle` and `pal_freertos_drain_deferred` are standalone functions in `pal_freertos.h`, not added to `qwrt_pal_t`. This keeps the PAL interface minimal — qwrt doesn't need to know about event loops. upper-layer applications will call these directly.
 
 ## 9. Out of Scope
 
