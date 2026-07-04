@@ -51,14 +51,14 @@
 ┌─────────────────────────────────────────────────────────────┐
 │              qwrt C 层 (薄桥接 ~500行)                       │
 │                                                             │
-│   ace_pal_t 函数指针 → pal 内部 JS 对象（不挂 globalThis）   │
+│   qwrt_pal_t 函数指针 → pal 内部 JS 对象（不挂 globalThis）   │
 │   async PAL 回调     → JS Promise resolve/reject            │
 │   JS_ExecutePendingJob ← qwrt_tick() 触发                   │
 └────────────────────────┬────────────────────────────────────┘
                          │ 调用
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              ace_pal_t (PAL C 接口)                          │
+│              qwrt_pal_t (PAL C 接口)                          │
 │   http_request / fs_* / storage_* / timer / time / log / mem│
 └────────────────────────┬────────────────────────────────────┘
                          │ 实现
@@ -69,18 +69,18 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**与 ace-core 的关系：**
+**与上层应用的关系：**
 
 ```
 qwrt (可嵌入 C 库)         ← 通用运行时，任何项目可复用
   │
   ├── QuickJS-NG            ← JS 引擎
-  ├── PAL (ace_pal_t)       ← 平台抽象层
+  ├── PAL (qwrt_pal_t)       ← 平台抽象层
   ├── C 桥接层              ← PAL → pal 内部对象（闭包注入）
   └── WinterCG polyfill     ← pal.* → 标准 Web API
       │
       ▼
-ace-core (JS 层)            ← 用 qwrt 提供的 Web 标准 API 开发的 Agent 引擎
+上层应用 (JS 层)            ← 用 qwrt 提供的 Web 标准 API 开发的应用层
   │
   ├── LLMClient             ← 基于 fetch()
   ├── Memory                ← 基于 storage API
@@ -96,7 +96,7 @@ qwrt 不知道 ace-core 的存在。ace-core 是跑在 qwrt 上的 JS 应用。
 
 ### 3.1 第一层：PAL 原语（qwrt C 层注册，对用户 JS 完全隐藏）
 
-C 桥接层将 ace_pal_t 函数注册到一个内部 `pal` 对象，通过闭包注入给 polyfill bundle。
+C 桥接层将 qwrt_pal_t 函数注册到一个内部 `pal` 对象，通过闭包注入给 polyfill bundle。
 PAL 原语**不挂载到 `globalThis`**，用户 JS 无法访问或绕过。
 
 ```javascript
@@ -160,7 +160,7 @@ WinterCG 没有定义 fs 和 storage 的标准。提供接近现有生态的 API
 
 ---
 
-## 4. ace_pal_t C 接口
+## 4. qwrt_pal_t C 接口
 
 ### 4.1 回调类型
 
@@ -176,46 +176,46 @@ typedef void (*ace_pal_cb_t)(void *user_data, int status,
 ### 4.2 完整接口
 
 ```c
-typedef struct ace_pal_t {
+typedef struct qwrt_pal_t {
     void *user_data;
 
     /* 异步操作 */
-    void (*http_request)(struct ace_pal_t *pal,
+    void (*http_request)(struct qwrt_pal_t *pal,
                          const char *url, const char *method,
                          const char *headers,
                          const char *body, size_t body_len,
                          ace_pal_cb_t cb, void *cb_data);
 
-    void (*fs_read)(struct ace_pal_t *pal, const char *path,
+    void (*fs_read)(struct qwrt_pal_t *pal, const char *path,
                     ace_pal_cb_t cb, void *cb_data);
-    void (*fs_write)(struct ace_pal_t *pal, const char *path,
+    void (*fs_write)(struct qwrt_pal_t *pal, const char *path,
                      const char *data, size_t data_len,
                      ace_pal_cb_t cb, void *cb_data);
-    void (*fs_exists)(struct ace_pal_t *pal, const char *path,
+    void (*fs_exists)(struct qwrt_pal_t *pal, const char *path,
                       ace_pal_cb_t cb, void *cb_data);
-    void (*fs_remove)(struct ace_pal_t *pal, const char *path,
+    void (*fs_remove)(struct qwrt_pal_t *pal, const char *path,
                       ace_pal_cb_t cb, void *cb_data);
-    void (*fs_list)(struct ace_pal_t *pal, const char *path,
+    void (*fs_list)(struct qwrt_pal_t *pal, const char *path,
                     ace_pal_cb_t cb, void *cb_data);
 
-    void (*storage_get)(struct ace_pal_t *pal, const char *key,
+    void (*storage_get)(struct qwrt_pal_t *pal, const char *key,
                         ace_pal_cb_t cb, void *cb_data);
-    void (*storage_set)(struct ace_pal_t *pal, const char *key,
+    void (*storage_set)(struct qwrt_pal_t *pal, const char *key,
                         const char *val, size_t val_len,
                         ace_pal_cb_t cb, void *cb_data);
-    void (*storage_del)(struct ace_pal_t *pal, const char *key,
+    void (*storage_del)(struct qwrt_pal_t *pal, const char *key,
                         ace_pal_cb_t cb, void *cb_data);
 
-    void* (*timer_start)(struct ace_pal_t *pal, uint64_t delay_ms,
+    void* (*timer_start)(struct qwrt_pal_t *pal, uint64_t delay_ms,
                          int repeat, ace_pal_cb_t cb, void *cb_data);
-    void (*timer_stop)(struct ace_pal_t *pal, void *handle);
+    void (*timer_stop)(struct qwrt_pal_t *pal, void *handle);
 
     /* 同步操作 */
-    uint64_t (*time_now)(struct ace_pal_t *pal);
-    void (*log)(struct ace_pal_t *pal, int level, const char *msg);
-    void* (*mem_alloc)(struct ace_pal_t *pal, size_t size);
-    void (*mem_free)(struct ace_pal_t *pal, void *ptr);
-} ace_pal_t;
+    uint64_t (*time_now)(struct qwrt_pal_t *pal);
+    void (*log)(struct qwrt_pal_t *pal, int level, const char *msg);
+    void* (*mem_alloc)(struct qwrt_pal_t *pal, size_t size);
+    void (*mem_free)(struct qwrt_pal_t *pal, void *ptr);
+} qwrt_pal_t;
 ```
 
 ### 4.3 错误码
@@ -252,7 +252,7 @@ typedef struct ace_pal_t {
 
 ```c
 typedef struct qwrt_config_t {
-    const ace_pal_t *pal;       /* PAL 实现（必须） */
+    const qwrt_pal_t *pal;       /* PAL 实现（必须） */
     const uint8_t *polyfill;    /* WinterCG polyfill bundle（可选，内含默认） */
     size_t polyfill_len;
     int debug;                  /* 0=正常, 1=打印JS错误栈 */
@@ -337,7 +337,7 @@ qwrt_free(result);
 
 ## 6. C 桥接层实现
 
-C 桥接层负责：1）将 ace_pal_t 函数注册到一个内部 `pal` JS 对象（**不挂载到 `globalThis`**）；
+C 桥接层负责：1）将 qwrt_pal_t 函数注册到一个内部 `pal` JS 对象（**不挂载到 `globalThis`**）；
 2）通过闭包注入给 polyfill bundle；3）管理 PAL 回调 → JS Promise 的转换。
 
 PAL 原语对用户 JS **完全隐藏**——用户无法绕过 WinterCG API 直接调原语。
@@ -648,7 +648,7 @@ typedef struct {
     ace_hashmap_t *store;  // storage 模拟
 } pal_uv_t;
 
-static void pal_uv_http_request(ace_pal_t *pal, const char *url,
+static void pal_uv_http_request(qwrt_pal_t *pal, const char *url,
                                  const char *method, const char *headers,
                                  const char *body, size_t body_len,
                                  ace_pal_cb_t cb, void *cb_data) {
@@ -665,11 +665,11 @@ static void pal_uv_http_request(ace_pal_t *pal, const char *url,
                    &w->req, http_work_cb, http_done_cb);
 }
 
-static uint64_t pal_uv_time_now(ace_pal_t *pal) {
+static uint64_t pal_uv_time_now(qwrt_pal_t *pal) {
     return (uint64_t)(uv_hrtime() / 1000000);
 }
 
-static void* pal_uv_timer_start(ace_pal_t *pal, uint64_t delay_ms,
+static void* pal_uv_timer_start(qwrt_pal_t *pal, uint64_t delay_ms,
                                  int repeat, ace_pal_cb_t cb, void *cb_data) {
     uv_timer_t *t = malloc(sizeof(*t));
     timer_data_t *d = malloc(sizeof(*d));
@@ -687,7 +687,7 @@ static void* pal_uv_timer_start(ace_pal_t *pal, uint64_t delay_ms,
 ### 8.2 Mock PAL（测试）
 
 ```c
-static void pal_mock_http_request(ace_pal_t *pal, const char *url,
+static void pal_mock_http_request(qwrt_pal_t *pal, const char *url,
                                    const char *method, const char *headers,
                                    const char *body, size_t body_len,
                                    ace_pal_cb_t cb, void *cb_data) {
@@ -696,7 +696,7 @@ static void pal_mock_http_request(ace_pal_t *pal, const char *url,
     cb(cb_data, 0, resp, strlen(resp));
 }
 
-static void pal_mock_storage_set(ace_pal_t *pal, const char *key,
+static void pal_mock_storage_set(qwrt_pal_t *pal, const char *key,
                                   const char *val, size_t val_len,
                                   ace_pal_cb_t cb, void *cb_data) {
     hashmap_set(mock_store, key, val, val_len);
@@ -718,7 +718,7 @@ int main(int argc, char *argv[]) {
 
     // 创建 PAL
     pal_uv_t pal_data = { .loop = loop, .store = NULL };
-    ace_pal_t pal = {
+    qwrt_pal_t pal = {
         .user_data   = &pal_data,
         .http_request = pal_uv_http_request,
         .fs_read      = pal_uv_fs_read,
@@ -785,7 +785,7 @@ qwrt/
 │   └── qwrt.h              # 公共 API 头文件
 ├── src/
 │   ├── qwrt.c              # qwrt_create/destroy/tick/eval/call
-│   ├── pal.h               # ace_pal_t 定义
+│   ├── pal.h               # qwrt_pal_t 定义
 │   ├── bridge.c            # PAL → pal 内部对象 + 回调→Promise
 │   └── pal_uv.c            # libuv PAL 实现（可选模块）
 ├── polyfill/
@@ -831,7 +831,7 @@ qwrt/
 
 ### 阶段 1：C 层框架
 
-- [ ] 定义 ace_pal_t 结构体 (`pal.h`)
+- [ ] 定义 qwrt_pal_t 结构体 (`pal.h`)
 - [ ] 实现 C 桥接层 (`bridge.c`) — PAL → pal 内部对象注册
 - [ ] 实现 qwrt 公共 API (`qwrt.c`)
 - [ ] 实现 libuv PAL 适配器 (`pal_uv.c`)
