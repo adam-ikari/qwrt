@@ -18,7 +18,7 @@ option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
 option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 
 if(QWRT_WITH_TLS)
-    set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls")
+    set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mbedtls")
 
     # Try source build first, then system paths
     find_path(MBEDTLS_INCLUDE_DIR mbedtls/ssl.h
@@ -74,7 +74,7 @@ endif()
 # miniz dependency (compression extension)
 # ============================================================================
 if(QWRT_WITH_COMPRESS)
-    set(MINIZ_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz")
+    set(MINIZ_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/miniz")
     # Set PIC globally so miniz (added via add_subdirectory) compiles with -fPIC,
     # needed when linked into the ace_node SHARED library.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -87,7 +87,7 @@ endif()
 # Crypto extension (mbedTLS for native crypto.subtle)
 # ============================================================================
 if(QWRT_WITH_CRYPTO_EXT)
-    set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mbedtls")
+    set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mbedtls")
 
     find_path(MBEDCRYPTO_INCLUDE_DIR mbedtls/md.h
         PATHS ${MBEDTLS_SRC_DIR}/include /usr/include /usr/local/include /opt/homebrew/include
@@ -118,7 +118,7 @@ endif()
 # ============================================================================
 # QuickJS-NG dependency
 # ============================================================================
-set(QUICKJS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/quickjs-ng")
+set(QUICKJS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng")
 set(QUICKJS_BUILD_DIR "${QUICKJS_DIR}/build")
 
 # Build QuickJS if needed
@@ -138,7 +138,7 @@ endif()
 # WAMR dependency (optional)
 # ============================================================================
 if(QWRT_WITH_WAMR)
-    set(WAMR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wamr")
+    set(WAMR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wamr")
     set(WAMR_BUILD_DIR "${WAMR_DIR}/build_lib")
     if(NOT EXISTS "${WAMR_BUILD_DIR}/libvmlib.a")
         message(FATAL_ERROR "WAMR not built. Run: cmake -B ${WAMR_BUILD_DIR} -S ${WAMR_DIR} -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_WASM_C_API=1 -DWAMR_BUILD_LIBC_BUILTIN=1 && cmake --build ${WAMR_BUILD_DIR}")
@@ -150,7 +150,7 @@ endif()
 # wasm3 dependency (optional)
 # ============================================================================
 if(QWRT_WITH_WASM3)
-    set(WASM3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wasm3")
+    set(WASM3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wasm3")
     set(WASM3_BUILD_DIR "${WASM3_DIR}/build_lib")
     if(NOT EXISTS "${WASM3_BUILD_DIR}/source/libm3.a")
         message(FATAL_ERROR "wasm3 not built. Run: cmake -B ${WASM3_BUILD_DIR} -S ${WASM3_DIR} -DCMAKE_BUILD_TYPE=Release && cmake --build ${WASM3_BUILD_DIR}")
