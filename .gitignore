@@ -1,6 +1,42 @@
+# Build artifacts
 build/
+build_*/
 *.o
 *.a
 *.so
+*.dylib
+*.dll
+
+# Generated files
 dist/
+src/polyfill_default.c.bak
+
+# Node.js
 node_modules/
+package-lock.json
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Coverage
+coverage/
+*.gcov
+*.gcda
+*.gcno
+
+# Debug / sanitizer
+build_asan/
+build_check/
+*.asan
+*.lsan
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake

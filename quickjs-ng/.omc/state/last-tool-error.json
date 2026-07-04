@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd /home/gem/project/ace/qwrt/build && cmake .. 2>&1 && make -j$(nproc) 2>&1\",\"timeout\":120000,\"description\":\"Reconfigure CMake and rebuild qwrt\"}",
-  "error": "Exit code 2\n-- Configuring done\n-- Generating done\n-- Build files have been written to: /home/gem/project/ace/qwrt/build\nConsolidate compiler generated dependencies of target qwrt\n[ 17%] Building C object CMakeFiles/qwrt.dir/src/context.c.o\n[ 17%] Building C object CMakeFiles/qwrt.dir/src/extension.c.o\n[ 17%] Building C object CMakeFiles/qwrt.dir/src/qwrt.c.o\n[ 23%] Building C object CMakeFiles/qwrt.dir/src/bridge.c.o\nIn file included from /home/gem/project/ace/qwrt/src/qwrt_internal.h:4,\n      ...",
-  "timestamp": "2026-06-02T02:21:27.194Z",
-  "retry_count": 1
-}
