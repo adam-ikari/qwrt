@@ -84,7 +84,7 @@ typedef struct pal_uv_t {
      * Set in pal_uv_http_request_stream, cleared in pal_uv_http_stream_cleanup
      * (the teardown shared by normal completion, error, and abort). Used by
      * pal_uv_http_abort to reach the in-flight TCP/timer handles so an
-     * ace_cancel() can tear down an in-flight request promptly.
+     * host cancel() can tear down an in-flight request promptly.
      */
     struct pal_uv_http_op_t *active_stream;
 } pal_uv_t;
@@ -2116,7 +2116,7 @@ static void pal_uv_http_stream_cleanup(pal_uv_http_op_t *op)
  * Abort the currently-active streaming HTTP request (if any).
  * Delivers an on_end error to the stream consumer (so the fetch Promise
  * rejects) and tears down the TCP connection + timers. Must be called on
- * the loop thread (ace-core calls it from the poll loop's cancel branch,
+ * the loop thread (host calls it from the poll loop's cancel branch,
  * which runs on the owner thread).
  */
 static void pal_uv_http_abort(qwrt_pal_t *pal)
@@ -2132,7 +2132,7 @@ static void pal_uv_http_abort(qwrt_pal_t *pal)
 
     /* Deliver a cancellation error to the JS consumer before teardown so
      * the fetch Promise rejects rather than hanging. Use -7 (CANCELLED)
-     * to mirror ace_error_t. */
+     * to mirror error codes. */
     if (op->stream_ops.on_end) {
         op->stream_ops.on_end(op->stream_ops.user_data, -7);
     }
@@ -2903,7 +2903,7 @@ static void pal_uv_http_request_stream(qwrt_pal_t *pal,
     /*
      * Only now is the op committed to async I/O (getaddrinfo submitted) with
      * a callback that will run later. Track it as the active stream so
-     * pal_uv_http_abort can reach it. ace-core is single-run, so at most one
+     * pal_uv_http_abort can reach it. host is single-run, so at most one
      * stream is active at a time; any prior active_stream should already have
      * been cleared by its own stream_cleanup.
      */
@@ -3360,7 +3360,7 @@ uv_loop_t *pal_uv_get_loop(qwrt_pal_t *pal)
  *   timeout_ms > 0  → UV_RUN_ONCE, but only if the loop actually has a
  *                     pending deadline (uv_backend_timeout > 0); otherwise
  *                     UV_RUN_NOWAIT (nothing to block on). This preserves the
- *                     historical ace_poll_blocking behavior where a pending
+ *                     historical poll_blocking behavior where a pending
  *                     async tool with closing HTTP handles would otherwise
  *                     busy-spin.
  *

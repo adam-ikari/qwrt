@@ -1816,7 +1816,7 @@ int pal_freertos_run_cycle(pal_freertos_t *pf, int timeout_ms)
 
 /*
  * PAL run_cycle wrapper: recovers the pal_freertos_t from the qwrt_pal_t
- * and delegates to pal_freertos_run_cycle. This lets ace-core drive the
+ * and delegates to pal_freertos_run_cycle. This lets host applications drive the
  * FreeRTOS event loop through the PAL interface without knowing about
  * pal_freertos_t.
  */

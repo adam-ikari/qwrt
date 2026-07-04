@@ -745,11 +745,11 @@ int main(int argc, char *argv[]) {
 
     // 加载应用 JS（在 qwrt 提供的 WinterCG API 上运行）
     extern const uint8_t app_js[];
-    extern const size_t ace_core_js_len;
-    qwrt_eval(rt, (const char *)ace_core_js, NULL);
+    extern const size_t app_js_len;
+    qwrt_eval(rt, (const char *)app_js, NULL);
 
-    // 初始化 ace-core
-    char *config = read_file("ace.config.json");
+    // 初始化应用
+    char *config = read_file("app.config.json");
     char *sid = NULL;
     qwrt_call(rt, "ACE.createSession", config, &sid);
     free(config);
@@ -814,15 +814,15 @@ qwrt/
 | 方面           | v1.0 (PAL 暴露)           | v2.0 (qwrt)                      |
 | -------------- | ------------------------- | -------------------------------- |
 | 运行时名称     | 未命名                    | qwrt                             |
-| PAL 暴露方式   | ace.pal.* 直接暴露给 JS  | pal 内部对象，闭包注入 polyfill |
-| 用户 JS 看到的 | ace.pal.httpRequest       | fetch() — WinterCG 标准         |
-| LLMClient      | 调用 ace.pal.httpRequest  | 调用 fetch()                    |
+| PAL 暴露方式   | app.pal.* 直接暴露给 JS  | pal 内部对象，闭包注入 polyfill |
+| 用户 JS 看到的 | app.fetch       | fetch() — WinterCG 标准         |
+| LLMClient      | 调用 app.fetch  | 调用 fetch()                    |
 | Web API 实现   | C 层实现                  | JS polyfill（基于 pal.*）       |
 | C 代码量       | 大（每个 Web API 都写 C） | 小（只注册原语 ~500行）          |
-| 可复用性       | 绑定 ace 品牌             | 独立通用运行时                   |
+| 可复用性       | 绑定特定品牌             | 独立通用运行时                   |
 | 参考来源       | 无                        | txiki.js 模块移植                |
-| fs API         | ace.pal.fsRead            | fs.readFile（node:fs 风格）     |
-| storage API    | ace.pal.storageGet        | storage.get（简洁 KV）          |
+| fs API         | app.fsRead            | fs.readFile（node:fs 风格）     |
+| storage API    | app.storageGet        | storage.get（简洁 KV）          |
 | AceNative      | 存在                      | 删除，由 WinterCG API 替代       |
 
 ---
@@ -848,13 +848,13 @@ qwrt/
 - [ ] 实现 storage._（基于 \_\_pal_storage_）
 - [ ] 打包为 qwrt-polyfill.js
 
-### 阶段 3：ace-core 迁移
+### 阶段 3：上层应用迁移
 
 - [ ] 删除 AceNative 接口
 - [ ] LLMClient 改用 fetch()
 - [ ] Memory 改用 storage API
 - [ ] Tool 改用 fs API
-- [ ] 更新 ace-quickjs.js bundle
+- [ ] 更新应用 JS bundle
 
 ### 阶段 4：REPL 重写
 
