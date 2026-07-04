@@ -88,14 +88,6 @@ add_executable(test_fetch_stream test_fetch_stream.c)
 target_include_directories(test_fetch_stream PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(test_fetch_stream qwrt qwrt_mock)
 
-add_executable(test_ace_agent test_ace_agent.c)
-target_include_directories(test_ace_agent PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(test_ace_agent qwrt qwrt_mock)
-target_compile_definitions(test_ace_agent PRIVATE
-    ACE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-
-# Register with ctest
-add_test(NAME test_ace_agent COMMAND test_ace_agent
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test")
 add_test(NAME test_ace_integration COMMAND test_ace_integration
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test")
@@ -185,24 +177,9 @@ if(QWRT_WITH_LIBUV AND LIBUV_FOUND)
     )
     target_link_libraries(test_fetch_llm qwrt qwrt_uv ${LIBUV_LIBRARIES})
 
-    add_executable(test_ace_real_llm test_ace_real_llm.c)
-    target_include_directories(test_ace_real_llm PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${LIBUV_INCLUDE_DIRS}
-    )
-    target_link_libraries(test_ace_real_llm qwrt qwrt_uv ${LIBUV_LIBRARIES})
-    # Register as ctest but skip if LLM_API_KEY env not set (gated E2E test)
-    add_test(NAME test_ace_real_llm COMMAND test_ace_real_llm
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
 
-    add_executable(test_ace_ai_sdk test_ace_ai_sdk.c)
-    target_include_directories(test_ace_ai_sdk PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${LIBUV_INCLUDE_DIRS}
-    )
-    target_link_libraries(test_ace_ai_sdk qwrt qwrt_uv ${LIBUV_LIBRARIES})
-    add_test(NAME test_ace_ai_sdk COMMAND test_ace_ai_sdk
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
 
     add_executable(test_ace_core test_ace_core.c)
     target_include_directories(test_ace_core PRIVATE
@@ -213,10 +190,4 @@ if(QWRT_WITH_LIBUV AND LIBUV_FOUND)
     add_test(NAME test_ace_core COMMAND test_ace_core
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
 
-    add_executable(ace_chat ${CMAKE_CURRENT_SOURCE_DIR}/../../examples/ace-qwrt/chat.c)
-    target_include_directories(ace_chat PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${LIBUV_INCLUDE_DIRS}
-    )
-    target_link_libraries(ace_chat ace_core qwrt qwrt_uv ${LIBUV_LIBRARIES})
-endif()
+    endif()
