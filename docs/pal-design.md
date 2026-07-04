@@ -88,7 +88,7 @@ qwrt (可嵌入 C 库)         ← 通用运行时，任何项目可复用
   └── ...
 ```
 
-qwrt 不知道 ace-core 的存在。ace-core 是跑在 qwrt 上的 JS 应用。
+qwrt 是独立的运行时，不知道上层应用的存在。
 
 ---
 
@@ -165,7 +165,7 @@ WinterCG 没有定义 fs 和 storage 的标准。提供接近现有生态的 API
 ### 4.1 回调类型
 
 ```c
-typedef void (*ace_pal_cb_t)(void *user_data, int status,
+typedef void (*qwrt_pal_cb_t)(void *user_data, int status,
                               const char *data, size_t data_len);
 ```
 
@@ -184,30 +184,30 @@ typedef struct qwrt_pal_t {
                          const char *url, const char *method,
                          const char *headers,
                          const char *body, size_t body_len,
-                         ace_pal_cb_t cb, void *cb_data);
+                         qwrt_pal_cb_t cb, void *cb_data);
 
     void (*fs_read)(struct qwrt_pal_t *pal, const char *path,
-                    ace_pal_cb_t cb, void *cb_data);
+                    qwrt_pal_cb_t cb, void *cb_data);
     void (*fs_write)(struct qwrt_pal_t *pal, const char *path,
                      const char *data, size_t data_len,
-                     ace_pal_cb_t cb, void *cb_data);
+                     qwrt_pal_cb_t cb, void *cb_data);
     void (*fs_exists)(struct qwrt_pal_t *pal, const char *path,
-                      ace_pal_cb_t cb, void *cb_data);
+                      qwrt_pal_cb_t cb, void *cb_data);
     void (*fs_remove)(struct qwrt_pal_t *pal, const char *path,
-                      ace_pal_cb_t cb, void *cb_data);
+                      qwrt_pal_cb_t cb, void *cb_data);
     void (*fs_list)(struct qwrt_pal_t *pal, const char *path,
-                    ace_pal_cb_t cb, void *cb_data);
+                    qwrt_pal_cb_t cb, void *cb_data);
 
     void (*storage_get)(struct qwrt_pal_t *pal, const char *key,
-                        ace_pal_cb_t cb, void *cb_data);
+                        qwrt_pal_cb_t cb, void *cb_data);
     void (*storage_set)(struct qwrt_pal_t *pal, const char *key,
                         const char *val, size_t val_len,
-                        ace_pal_cb_t cb, void *cb_data);
+                        qwrt_pal_cb_t cb, void *cb_data);
     void (*storage_del)(struct qwrt_pal_t *pal, const char *key,
-                        ace_pal_cb_t cb, void *cb_data);
+                        qwrt_pal_cb_t cb, void *cb_data);
 
     void* (*timer_start)(struct qwrt_pal_t *pal, uint64_t delay_ms,
-                         int repeat, ace_pal_cb_t cb, void *cb_data);
+                         int repeat, qwrt_pal_cb_t cb, void *cb_data);
     void (*timer_stop)(struct qwrt_pal_t *pal, void *handle);
 
     /* 同步操作 */
@@ -298,7 +298,7 @@ int qwrt_eval(qwrt_t *rt, const char *code, char **result);
 /**
  * 调用 JS 函数
  *
- * @param func       函数路径（如 "ace.session.chat"）
+ * @param func       函数路径（如 "myApp.session.chat"）
  * @param args_json  参数 JSON
  * @param result     输出结果（需 qwrt_free）
  * @return 0=成功, <0=错误
@@ -645,13 +645,13 @@ globalThis.storage = {
 ```c
 typedef struct {
     uv_loop_t *loop;
-    ace_hashmap_t *store;  // storage 模拟
+    qwrt_hashmap_t *store;  // storage 模拟
 } pal_uv_t;
 
 static void pal_uv_http_request(qwrt_pal_t *pal, const char *url,
                                  const char *method, const char *headers,
                                  const char *body, size_t body_len,
-                                 ace_pal_cb_t cb, void *cb_data) {
+                                 qwrt_pal_cb_t cb, void *cb_data) {
     http_work_t *w = calloc(1, sizeof(*w));
     w->url = strdup(url);
     w->method = strdup(method);
@@ -670,7 +670,7 @@ static uint64_t pal_uv_time_now(qwrt_pal_t *pal) {
 }
 
 static void* pal_uv_timer_start(qwrt_pal_t *pal, uint64_t delay_ms,
-                                 int repeat, ace_pal_cb_t cb, void *cb_data) {
+                                 int repeat, qwrt_pal_cb_t cb, void *cb_data) {
     uv_timer_t *t = malloc(sizeof(*t));
     timer_data_t *d = malloc(sizeof(*d));
     d->cb = cb;
@@ -690,7 +690,7 @@ static void* pal_uv_timer_start(qwrt_pal_t *pal, uint64_t delay_ms,
 static void pal_mock_http_request(qwrt_pal_t *pal, const char *url,
                                    const char *method, const char *headers,
                                    const char *body, size_t body_len,
-                                   ace_pal_cb_t cb, void *cb_data) {
+                                   qwrt_pal_cb_t cb, void *cb_data) {
     // 立即回调预设响应
     const char *resp = "{\"status\":200,\"headers\":{},\"body\":\"mock\"}";
     cb(cb_data, 0, resp, strlen(resp));
@@ -698,7 +698,7 @@ static void pal_mock_http_request(qwrt_pal_t *pal, const char *url,
 
 static void pal_mock_storage_set(qwrt_pal_t *pal, const char *key,
                                   const char *val, size_t val_len,
-                                  ace_pal_cb_t cb, void *cb_data) {
+                                  qwrt_pal_cb_t cb, void *cb_data) {
     hashmap_set(mock_store, key, val, val_len);
     cb(cb_data, 0, NULL, 0);
 }
@@ -743,8 +743,8 @@ int main(int argc, char *argv[]) {
         .debug = 0,
     });
 
-    // 加载 ace-core JS（在 qwrt 提供的 WinterCG API 上运行）
-    extern const uint8_t ace_core_js[];
+    // 加载应用 JS（在 qwrt 提供的 WinterCG API 上运行）
+    extern const uint8_t app_js[];
     extern const size_t ace_core_js_len;
     qwrt_eval(rt, (const char *)ace_core_js, NULL);
 
