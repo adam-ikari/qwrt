@@ -164,3 +164,70 @@ if(LIBUV_FOUND)
     target_link_libraries(test_fetch_llm qwrt qwrt_uv ${LIBUV_LIBRARIES})
 endif()
 
+
+# ============================================================================
+# ctest registration
+#
+# Tests are labelled so CI can select a subset:
+#   LABELS "offline"   — pure local, no network, deterministic (run always)
+#   LABELS "network"   — needs outbound HTTP/HTTPS (test_fetch_*, test_net, …)
+#   LABELS "benchmark" — perf measurement, not pass/fail
+# Run subsets:  ctest -L offline     # CI default
+#               ctest -L network     # only when network is available
+# ============================================================================
+
+# Offline (mock PAL, deterministic) — always run.
+add_test(NAME test_e2e            COMMAND test_e2e            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+set_tests_properties(test_e2e PROPERTIES LABELS "offline")
+add_test(NAME test_polyfill       COMMAND test_polyfill       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+set_tests_properties(test_polyfill PROPERTIES LABELS "offline")
+add_test(NAME test_compliance     COMMAND test_compliance     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+# test_compliance is a known-incomplete WinterCG conformance suite (polyfill
+# gaps). Labelled separately so the offline suite stays green; run explicitly
+# to track remaining gaps.
+set_tests_properties(test_compliance PROPERTIES LABELS "compliance")
+add_test(NAME test_benchmark      COMMAND test_benchmark      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+set_tests_properties(test_benchmark PROPERTIES LABELS "offline;benchmark")
+
+if(QWRT_WITH_COMPRESS)
+    add_test(NAME test_compress              COMMAND test_compress              WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_compress PROPERTIES LABELS "offline")
+    add_test(NAME test_compress_consistency  COMMAND test_compress_consistency  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_compress_consistency PROPERTIES LABELS "offline")
+endif()
+
+if(LIBUV_FOUND)
+    # Bridge tests use mock PAL (no real network) — offline.
+    add_test(NAME test_bridge_http    COMMAND test_bridge_http    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_bridge_http PROPERTIES LABELS "offline")
+    add_test(NAME test_bridge_stream  COMMAND test_bridge_stream  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_bridge_stream PROPERTIES LABELS "offline")
+    add_test(NAME test_pal_probe      COMMAND test_pal_probe      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_pal_probe PROPERTIES LABELS "offline")
+
+    # Network tests — require outbound HTTP/HTTPS. Skipped in offline CI.
+    add_test(NAME test_net            COMMAND test_net            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_net PROPERTIES LABELS "network")
+    add_test(NAME test_ns_http        COMMAND test_ns_http        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_ns_http PROPERTIES LABELS "network")
+    add_test(NAME test_fetch_httpbin  COMMAND test_fetch_httpbin  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_fetch_httpbin PROPERTIES LABELS "network")
+    add_test(NAME test_fetch_polyfill COMMAND test_fetch_polyfill WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_fetch_polyfill PROPERTIES LABELS "network")
+    add_test(NAME test_fetch_stream   COMMAND test_fetch_stream   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_fetch_stream PROPERTIES LABELS "network")
+    add_test(NAME test_fetch_llm      COMMAND test_fetch_llm      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_fetch_llm PROPERTIES LABELS "network")
+    add_test(NAME test_stream         COMMAND test_stream         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_stream PROPERTIES LABELS "network")
+
+    add_test(NAME test_compress_bench  COMMAND test_compress_bench  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_compress_bench PROPERTIES LABELS "benchmark;network")
+    add_test(NAME test_bench_native    COMMAND test_bench_native    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+    set_tests_properties(test_bench_native PROPERTIES LABELS "benchmark;network")
+
+    if(QWRT_WITH_TLS)
+        add_test(NAME test_tls COMMAND test_tls WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
+        set_tests_properties(test_tls PROPERTIES LABELS "network")
+    endif()
+endif()

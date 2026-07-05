@@ -48,6 +48,14 @@ Vendored deps that *require* C11 (quickjs-ng, libuv) are built via
 `QWRT_UNUSED(x)` (qwrt_internal.h) marks QuickJS-callback fixed-signature
 params that would otherwise trip `-Wunused-parameter`.
 
+**No mutable file-scope state.** `src/*.c` contains zero mutable globals —
+all per-runtime state (QuickJS class IDs, wasm3 environment) lives on
+`qwrt_t` (per-runtime, since one qwrt_t owns one JSRuntime and QuickJS
+classes are runtime-scoped). Recover `qwrt_t*` from a `JSContext*` via
+`get_rt_from_ctx(ctx)`, or from a `JSRuntime*` (finalizers) via
+`qwrt_get_rt_from_jsrt(jsrt)`. Deterministic lookup tables (e.g. CRC32) are
+`static const`.
+
 Tests link `qwrt` + `qwrt_mock` by default; network/TLS/stream tests additionally
 link `qwrt_uv` and are gated behind `LIBUV_FOUND`/`QWRT_WITH_TLS`. A few
 tests are GoogleTest `.cpp` (fetched via FetchContent).
