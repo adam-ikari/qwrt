@@ -94,9 +94,11 @@ The runtime is layered. Read these together to understand it:
   deferred-callback queue.
 - **`src/ext_*.c`** — native extensions (compress/crypto/textcodec/wasm3/wamr),
   each implementing `qwrt_ext_t`.
-- **`platform/{uv,mock,freertos}/pal_*.c`** — PAL implementations. `pal_mock`
-  is always built; `pal_uv` needs libuv (+ mbedTLS for HTTPS); `pal_freertos`
-  targets ESP-IDF.
+- **`platform/{uv,mock,freertos}/pal_*.c`** — PAL implementations. Each is gated
+  by a `QWRT_PAL_*` option (see below): `pal_mock` (`QWRT_PAL_MOCK`, default ON,
+  host-toolchain friendly, used by tests), `pal_uv` (`QWRT_PAL_UV`, default ON,
+  needs libuv + mbedTLS for HTTPS), `pal_freertos` (`QWRT_PAL_FREERTOS`, default
+  OFF, ESP-IDF-only).
 
 ### Key execution model
 
@@ -118,7 +120,8 @@ The runtime is layered. Read these together to understand it:
 - Conventional Commits (`feat(qwrt):`, `fix(pal_uv):`, …).
 - Adding a **PAL**: `platform/<name>/pal_<name>.{c,h}`, implement required
   `qwrt_pal_t` pointers (optional ones like `http_abort`/`run_cycle` may be
-  NULL), add a `QWRT_WITH_<NAME>` option + target, test against `pal_mock`.
+  NULL), add a `QWRT_PAL_<NAME>` option + `qwrt_<name>` target (default OFF for
+  platform-specific, ON for host-friendly), test against `pal_mock`.
 - Adding an **extension**: `src/ext_<name>.c` + `include/qwrt/ext_<name>.h`,
   implement `qwrt_ext_t` (at least `init`+`destroy`), register JS via
   `JS_SetPropertyStr` in `init`, add a `QWRT_WITH_<NAME>` option, list it in the
@@ -128,7 +131,9 @@ The runtime is layered. Read these together to understand it:
 
 ## Repo layout notes
 
-- `mbedtls/`, `miniz/`, `libuv/` are git submodules; `quickjs-ng/` is the engine checkout.
+- `libuv/` is a git submodule (the only true submodule). `mbedtls/`, `miniz/`,
+  and `quickjs-ng/` are **vendored source — checked directly into the repo as
+  trees, NOT submodules** (so `git submodule update --init` does not touch them).
   **All dependencies are built from source — qwrt links no system libraries.**
   At configure time qwrt auto-builds (via `execute_process` into each dep's
   `build/`): `quickjs-ng/build/libqjs.a`, `libuv/build/libuv.a` (when

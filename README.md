@@ -196,17 +196,17 @@ full interface.
 
 ## Dependencies
 
-All dependencies are built from their vendored submodules at configure time —
-qwrt never links system libraries. Fetch submodules with `git submodule update
---init --recursive`.
+All dependencies are built from source at configure time — qwrt never links
+system libraries. Most are vendored directly in the repo; only `libuv/` is a
+git submodule (fetch it with `git submodule update --init libuv`).
 
 | Dependency | Source | Required | Purpose |
 |------------|--------|----------|---------|
-| QuickJS-ng | submodule | Yes | JS engine (auto-built to quickjs-ng/build/) |
-| mbedTLS | submodule | No (QWRT_WITH_TLS) | TLS / crypto (auto-built to mbedtls/build/) |
-| miniz | submodule | No (QWRT_WITH_COMPRESS) | Compression |
-| libuv | submodule | No (QWRT_PAL_UV) | Event loop, pal_uv (auto-built to libuv/build/) |
-| wasm3 | submodule | No (QWRT_WITH_WASM3) | WebAssembly |
+| QuickJS-ng | vendored source | Yes | JS engine (auto-built to quickjs-ng/build/) |
+| mbedTLS | vendored source | No (QWRT_WITH_TLS) | TLS / crypto (auto-built to mbedtls/build/) |
+| miniz | vendored source | No (QWRT_WITH_COMPRESS) | Compression |
+| libuv | git submodule | No (QWRT_PAL_UV) | Event loop, pal_uv (auto-built to libuv/build/) |
+| wasm3 | vendored source | No (QWRT_WITH_WASM3) | WebAssembly (must be pre-built by hand) |
 
 ## Thread Safety
 
