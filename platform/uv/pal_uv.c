@@ -6,7 +6,7 @@
  * carry the PAL callback + callback data alongside the uv request.
  */
 
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE  /* putenv, etc. (not exposed by _POSIX_C_SOURCE alone) */
 
 #include "pal_uv.h"
 #include <stdio.h>
@@ -307,6 +307,7 @@ static void tls_free_op(pal_uv_http_op_t *op) {
 }
 
 static void tls_write_cb(uv_write_t *req, int status) {
+    (void)status;  /* write result unused — buffer freed regardless */
     free(req->data); /* free the copied buffer */
     free(req);
 }

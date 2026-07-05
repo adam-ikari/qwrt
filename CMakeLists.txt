@@ -178,6 +178,14 @@ target_include_directories(qwrt PUBLIC
     ${QUICKJS_DIR}
 )
 
+# Warn-hardening for qwrt's own sources (PRIVATE so vendored deps built via
+# add_subdirectory — miniz — and the execute_process sub-builds are unaffected).
+# bridge.c marks QuickJS-callback fixed-signature params with QWRT_UNUSED.
+function(qwrt_enable_warnings target)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+endfunction()
+qwrt_enable_warnings(qwrt)
+
 # Conditional WAMR/wasm3 includes
 if(QWRT_WITH_WAMR)
     target_include_directories(qwrt PUBLIC
@@ -267,6 +275,7 @@ if(QWRT_PAL_UV)
             ${LIBUV_INCLUDE_DIRS}
         )
         target_link_libraries(qwrt_uv PUBLIC qwrt ${LIBUV_LIBRARIES})
+        qwrt_enable_warnings(qwrt_uv)
     else()
         set(LIBUV_FOUND FALSE)
         message(STATUS "QWRT_PAL_UV=ON but libuv source not found -- pal_uv skipped. "
@@ -293,6 +302,7 @@ if(QWRT_PAL_MOCK)
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/mock
     )
     target_link_libraries(qwrt_mock PUBLIC qwrt)
+    qwrt_enable_warnings(qwrt_mock)
 endif()
 
 # ============================================================================
@@ -356,6 +366,7 @@ if(LIBUV_FOUND OR QWRT_PAL_MOCK)
         list(APPEND _qwrt_full_libs ${LIBUV_LIBRARIES})
     endif()
     target_link_libraries(qwrt_full PUBLIC ${_qwrt_full_libs})
+    qwrt_enable_warnings(qwrt_full)
 
     if(QWRT_WITH_COMPRESS)
         target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_COMPRESS=1)

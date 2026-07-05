@@ -317,6 +317,7 @@ static void pal_async_cb(void *user_data, int status, const char *data, size_t d
 
 static JSValue js_pal_time_now(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.time_now not available");
@@ -331,6 +332,7 @@ static JSValue js_pal_time_now(JSContext *ctx, JSValueConst this_val, int argc, 
 
 static JSValue js_pal_hrtime(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.hrtime not available");
@@ -345,6 +347,7 @@ static JSValue js_pal_hrtime(JSContext *ctx, JSValueConst this_val, int argc, JS
 
 static JSValue js_pal_log(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.log not available");
@@ -382,6 +385,7 @@ static JSValue js_pal_log(JSContext *ctx, JSValueConst this_val, int argc, JSVal
 
 static JSValue js_pal_timer_stop(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.timer_stop not available");
@@ -436,6 +440,7 @@ static JSValue js_pal_timer_stop(JSContext *ctx, JSValueConst this_val, int argc
 
 static void pal_timer_cb(void *user_data, int status, const char *data, size_t data_len)
 {
+    QWRT_UNUSED(data); QWRT_UNUSED(data_len);
     pal_cb_data_t *cbd = (pal_cb_data_t *)user_data;
     JSContext *jsctx = cbd->ctx;
     qwrt_t *rt = cbd->rt;
@@ -481,6 +486,7 @@ static void pal_timer_cb(void *user_data, int status, const char *data, size_t d
 
 static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.timer_start not available");
@@ -588,6 +594,7 @@ static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int arg
 
 static JSValue js_pal_http_request(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.http_request not available");
@@ -663,6 +670,7 @@ static JSValue js_pal_http_request(JSContext *ctx, JSValueConst this_val, int ar
 
 static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.http_request_stream not available");
@@ -781,6 +789,7 @@ static bool bridge_validate_path(const char *path)
 
 static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_read not available");
@@ -832,6 +841,7 @@ static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, J
 
 static JSValue js_pal_fs_write(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_write not available");
@@ -893,6 +903,7 @@ static JSValue js_pal_fs_write(JSContext *ctx, JSValueConst this_val, int argc, 
 
 static JSValue js_pal_fs_exists(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_exists not available");
@@ -944,6 +955,7 @@ static JSValue js_pal_fs_exists(JSContext *ctx, JSValueConst this_val, int argc,
 
 static JSValue js_pal_fs_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_remove not available");
@@ -995,6 +1007,7 @@ static JSValue js_pal_fs_remove(JSContext *ctx, JSValueConst this_val, int argc,
 
 static JSValue js_pal_fs_list(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_list not available");
@@ -1046,6 +1059,7 @@ static JSValue js_pal_fs_list(JSContext *ctx, JSValueConst this_val, int argc, J
 
 static JSValue js_pal_storage_get(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.storage_get not available");
@@ -1091,6 +1105,7 @@ static JSValue js_pal_storage_get(JSContext *ctx, JSValueConst this_val, int arg
 
 static JSValue js_pal_storage_set(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.storage_set not available");
@@ -1146,6 +1161,7 @@ static JSValue js_pal_storage_set(JSContext *ctx, JSValueConst this_val, int arg
 
 static JSValue js_pal_storage_del(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.storage_del not available");
@@ -1196,6 +1212,7 @@ static JSValue js_pal_storage_del(JSContext *ctx, JSValueConst this_val, int arg
 
 static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
+    QWRT_UNUSED(this_val);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.randomBytes not available");
@@ -1234,6 +1251,7 @@ static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int ar
 
 JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
 {
+    QWRT_UNUSED(rt);
     JSContext *jsctx = ctx->jsctx;
     JSValue pal = JS_NewObject(jsctx);
     if (JS_IsException(pal)) {

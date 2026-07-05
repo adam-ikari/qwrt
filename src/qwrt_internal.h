@@ -16,6 +16,10 @@
 /* Magic sentinel for qwrt_t validation — "QWRT" in ASCII */
 #define QWRT_MAGIC 0x51575254U
 
+/* Silence -Wunused-parameter for fixed-signature callbacks (e.g. QuickJS
+ * JSCFunction prototypes require this_val/argc/argv even when unused). */
+#define QWRT_UNUSED(x) ((void)(x))
+
 /* Forward declaration */
 struct qwrt_ext_t;
 

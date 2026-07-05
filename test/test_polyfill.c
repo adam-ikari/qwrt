@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>   /* unlink */
 
 /* ================================================================
  * Global polyfill data (loaded in main, used by test helpers)
