@@ -2401,7 +2401,12 @@ int main(void) {
 #endif
         qwrt_t *wasm_rt = create_runtime_with_ext(&wasm_pal, wasm_exts);
         if (wasm_rt) {
+#if defined(QWRT_HAS_WAMR) || defined(QWRT_HAS_WASM3)
             test_wasm(wasm_rt);
+#else
+            printf("\n--- TC55: WebAssembly (SKIP — no WASM engine built) ---\n");
+            (void)wasm_exts;
+#endif
             qwrt_destroy(wasm_rt);
             pal_mock_destroy(wasm_pal);
         } else {

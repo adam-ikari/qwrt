@@ -182,10 +182,9 @@ set_tests_properties(test_e2e PROPERTIES LABELS "offline")
 add_test(NAME test_polyfill       COMMAND test_polyfill       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
 set_tests_properties(test_polyfill PROPERTIES LABELS "offline")
 add_test(NAME test_compliance     COMMAND test_compliance     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
-# test_compliance is a known-incomplete WinterCG conformance suite (polyfill
-# gaps). Labelled separately so the offline suite stays green; run explicitly
-# to track remaining gaps.
-set_tests_properties(test_compliance PROPERTIES LABELS "compliance")
+# WinterCG conformance. WebAssembly subtests are skipped when no WASM engine
+# is built (QWRT_HAS_WASM3/WAMR undefined), so this passes offline.
+set_tests_properties(test_compliance PROPERTIES LABELS "offline")
 add_test(NAME test_benchmark      COMMAND test_benchmark      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test)
 set_tests_properties(test_benchmark PROPERTIES LABELS "offline;benchmark")
 

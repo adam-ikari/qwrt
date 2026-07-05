@@ -32,8 +32,3 @@ jobs:
       - name: Test (offline)
         run: ctest -L offline --output-on-failure
         working-directory: build
-
-      - name: Test (compliance, allowed-fail)
-        run: |
-          ctest -L compliance --output-on-failure || true
-        working-directory: build
