@@ -3,6 +3,7 @@ project(qwrt C CXX)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)   # pure -std=c99, no GNU extensions (deps use their own)
 
 # ============================================================================
 # Options
@@ -26,39 +27,33 @@ option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 
 if(QWRT_WITH_TLS)
     set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mbedtls")
-    set(MBEDTLS_BUILD_DIR "${MBEDTLS_SRC_DIR}/build")
     set(MBEDTLS_INCLUDE_DIR "${MBEDTLS_SRC_DIR}/include")
-    set(MBEDTLS_LIB "${MBEDTLS_BUILD_DIR}/library/libmbedtls.a")
-    set(MBEDX509_LIB "${MBEDTLS_BUILD_DIR}/library/libmbedx509.a")
-    set(MBEDCRYPTO_LIB "${MBEDTLS_BUILD_DIR}/library/libmbedcrypto.a")
 
-    # Build mbedTLS from source (vendored submodule) — never link the system lib.
-    if(NOT EXISTS "${MBEDTLS_LIB}" OR NOT EXISTS "${MBEDX509_LIB}" OR NOT EXISTS "${MBEDCRYPTO_LIB}")
-        if(NOT EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
-            message(FATAL_ERROR "QWRT_WITH_TLS=ON but mbedTLS source not found. "
-                "Run: git submodule update --init mbedtls")
-        endif()
-        message(STATUS "Building mbedTLS from source...")
-        file(MAKE_DIRECTORY "${MBEDTLS_BUILD_DIR}")
-        execute_process(COMMAND ${CMAKE_COMMAND} ${MBEDTLS_SRC_DIR}
-                            -DCMAKE_BUILD_TYPE=Release
-                            -DENABLE_PROGRAMS=OFF
-                            -DENABLE_TESTING=OFF
-                            -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
-                        WORKING_DIRECTORY "${MBEDTLS_BUILD_DIR}")
-        execute_process(COMMAND ${CMAKE_COMMAND} --build .
-                        WORKING_DIRECTORY "${MBEDTLS_BUILD_DIR}")
-        if(NOT EXISTS "${MBEDTLS_LIB}")
-            message(FATAL_ERROR "Failed to build mbedTLS from source")
-        endif()
+    if(EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
+        # mbedTLS via add_subdirectory. Its CMake already sets CMAKE_C_STANDARD
+        # 99 + CMAKE_C_EXTENSIONS OFF (matching qwrt), so no isolation needed.
+        # Disable programs/tests/shared; link the *_static targets.
+        set(ENABLE_PROGRAMS               OFF CACHE BOOL "" FORCE)
+        set(ENABLE_TESTING                OFF CACHE BOOL "" FORCE)
+        set(USE_SHARED_MBEDTLS_LIBRARY    OFF CACHE BOOL "" FORCE)
+        set(MBEDTLS_FATAL_WARNINGS        OFF CACHE BOOL "" FORCE)
+
+        add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+
+        # Static targets — names are mbedtls/mbedx509/mbedcrypto (the _static
+        # suffix is only added when BOTH static and shared are built).
+        set(MBEDTLS_LIB   mbedtls)
+        set(MBEDX509_LIB  mbedx509)
+        set(MBEDCRYPTO_LIB mbedcrypto)
+        set(MBEDCRYPTO_INCLUDE_DIR "${MBEDTLS_INCLUDE_DIR}")
+        set(MBEDTLS_FOUND TRUE)
+
+        message(STATUS "TLS support enabled (mbedTLS, source-built via add_subdirectory)")
+    else()
+        set(MBEDTLS_FOUND FALSE)
+        message(FATAL_ERROR "QWRT_WITH_TLS=ON but mbedTLS source not found. "
+            "Run: git submodule update --init mbedtls")
     endif()
-
-    set(MBEDCRYPTO_INCLUDE_DIR "${MBEDTLS_INCLUDE_DIR}")
-    message(STATUS "TLS support enabled (mbedTLS, source-built)")
-    message(STATUS "  include:  ${MBEDTLS_INCLUDE_DIR}")
-    message(STATUS "  mbedtls:  ${MBEDTLS_LIB}")
-    message(STATUS "  mbedx509: ${MBEDX509_LIB}")
-    message(STATUS "  mbedcrypto: ${MBEDCRYPTO_LIB}")
 endif()
 
 # ============================================================================
@@ -81,56 +76,58 @@ endif()
 # is OFF but crypto-ext is ON, build just libmbedcrypto from the same source.
 # ============================================================================
 if(QWRT_WITH_CRYPTO_EXT)
+    # crypto-ext needs mbedcrypto. If QWRT_WITH_TLS is ON, the TLS block above
+    # already added mbedtls via add_subdirectory and set MBEDCRYPTO_LIB to the
+    # mbedcrypto_static target. Otherwise add the subdir here for crypto-only.
     if(NOT QWRT_WITH_TLS)
         set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mbedtls")
-        set(MBEDTLS_BUILD_DIR "${MBEDTLS_SRC_DIR}/build")
         set(MBEDCRYPTO_INCLUDE_DIR "${MBEDTLS_SRC_DIR}/include")
-        set(MBEDCRYPTO_LIB "${MBEDTLS_BUILD_DIR}/library/libmbedcrypto.a")
 
-        if(NOT EXISTS "${MBEDCRYPTO_LIB}")
-            if(NOT EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
-                message(FATAL_ERROR "QWRT_WITH_CRYPTO_EXT=ON but mbedTLS source not found. "
-                    "Run: git submodule update --init mbedtls")
-            endif()
-            message(STATUS "Building mbedcrypto from source (crypto ext only)...")
-            file(MAKE_DIRECTORY "${MBEDTLS_BUILD_DIR}")
-            execute_process(COMMAND ${CMAKE_COMMAND} ${MBEDTLS_SRC_DIR}
-                                -DCMAKE_BUILD_TYPE=Release
-                                -DENABLE_PROGRAMS=OFF
-                                -DENABLE_TESTING=OFF
-                                -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
-                            WORKING_DIRECTORY "${MBEDTLS_BUILD_DIR}")
-            execute_process(COMMAND ${CMAKE_COMMAND} --build .
-                                --target mbedcrypto
-                            WORKING_DIRECTORY "${MBEDTLS_BUILD_DIR}")
-            if(NOT EXISTS "${MBEDCRYPTO_LIB}")
-                message(FATAL_ERROR "Failed to build mbedcrypto from source")
-            endif()
+        if(EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
+            set(ENABLE_PROGRAMS            OFF CACHE BOOL "" FORCE)
+            set(ENABLE_TESTING             OFF CACHE BOOL "" FORCE)
+            set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+            set(MBEDTLS_FATAL_WARNINGS     OFF CACHE BOOL "" FORCE)
+
+            add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+            set(MBEDCRYPTO_LIB mbedcrypto)
+        else()
+            message(FATAL_ERROR "QWRT_WITH_CRYPTO_EXT=ON but mbedTLS source not found. "
+                "Run: git submodule update --init mbedtls")
         endif()
     endif()
 
     message(STATUS "Crypto extension enabled (mbedTLS, source-built)")
-    message(STATUS "  include: ${MBEDCRYPTO_INCLUDE_DIR}")
-    message(STATUS "  library: ${MBEDCRYPTO_LIB}")
 endif()
 
 # ============================================================================
-# QuickJS-NG dependency
+# QuickJS-NG dependency — built from source via add_subdirectory (not a system
+# lib). quickjs-ng's CMake mutates global CMAKE_C_STANDARD (→11) / CMAKE_BUILD_TYPE
+# and adds install rules, so we save+restore those around the add_subdirectory
+# and disable its install/programs/tests/CLI to keep qwrt's build clean.
 # ============================================================================
 set(QUICKJS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng")
-set(QUICKJS_BUILD_DIR "${QUICKJS_DIR}/build")
 
-# Build QuickJS if needed
-if(NOT EXISTS "${QUICKJS_BUILD_DIR}/libqjs.a")
-    message(STATUS "Building QuickJS-NG...")
-    file(MAKE_DIRECTORY "${QUICKJS_BUILD_DIR}")
-    execute_process(COMMAND ${CMAKE_COMMAND} ${QUICKJS_DIR} -DCMAKE_BUILD_TYPE=Release
-                    WORKING_DIRECTORY "${QUICKJS_BUILD_DIR}")
-    execute_process(COMMAND ${CMAKE_COMMAND} --build .
-                    WORKING_DIRECTORY "${QUICKJS_BUILD_DIR}")
-    if(NOT EXISTS "${QUICKJS_BUILD_DIR}/libqjs.a")
-        message(FATAL_ERROR "Failed to build QuickJS-NG")
-    endif()
+set(_qwrt_saved_c_standard       ${CMAKE_C_STANDARD})
+set(_qwrt_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
+set(_qwrt_saved_c_visibility     ${CMAKE_C_VISIBILITY_PRESET})
+set(_qwrt_saved_build_type       ${CMAKE_BUILD_TYPE})
+
+set(QJS_ENABLE_INSTALL       OFF CACHE BOOL "" FORCE)
+set(QJS_BUILD_EXAMPLES       OFF CACHE BOOL "" FORCE)
+set(QJS_BUILD_CLI_STATIC     OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS        OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(${QUICKJS_DIR} ${CMAKE_BINARY_DIR}/quickjs-ng EXCLUDE_FROM_ALL)
+
+set(CMAKE_C_STANDARD         ${_qwrt_saved_c_standard})
+set(CMAKE_C_EXTENSIONS       ${_qwrt_saved_c_extensions})
+set(CMAKE_C_VISIBILITY_PRESET ${_qwrt_saved_c_visibility})
+set(CMAKE_BUILD_TYPE         ${_qwrt_saved_build_type})
+
+# qjs is the static lib target quickjs-ng produces (libqjs.a).
+if(NOT TARGET qjs)
+    message(FATAL_ERROR "quickjs-ng add_subdirectory did not define target 'qjs'")
 endif()
 
 # ============================================================================
@@ -178,11 +175,20 @@ target_include_directories(qwrt PUBLIC
     ${QUICKJS_DIR}
 )
 
-# Warn-hardening for qwrt's own sources (PRIVATE so vendored deps built via
-# add_subdirectory — miniz — and the execute_process sub-builds are unaffected).
-# bridge.c marks QuickJS-callback fixed-signature params with QWRT_UNUSED.
+# ext_compress.c includes the vendored miniz.h, whose static-inline helpers
+# (zError/crc32/inflate/…) trigger -Wunused-function under our -Werror. Relax
+# just that warning for this one file (third-party header, not qwrt code).
+set_source_files_properties(src/ext_compress.c PROPERTIES
+    COMPILE_OPTIONS "-Wno-unused-function")
+
+# Warn-hardening + strict C99 for qwrt's own sources (PRIVATE so vendored deps
+# built via add_subdirectory — miniz, quickjs-ng — are unaffected; they use
+# their own C standard). _POSIX_C_SOURCE exposes strdup/putenv/etc. that qwrt
+# uses, since pure -std=c99 hides them. bridge.c marks QuickJS-callback
+# fixed-signature params with QWRT_UNUSED.
 function(qwrt_enable_warnings target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+    target_compile_definitions(${target} PRIVATE _POSIX_C_SOURCE=200809L)
 endfunction()
 qwrt_enable_warnings(qwrt)
 
@@ -213,7 +219,7 @@ if(QWRT_WITH_TEXTCODEC)
 endif()
 
 target_link_libraries(qwrt PUBLIC
-    ${QUICKJS_BUILD_DIR}/libqjs.a
+    qjs
     m
     pthread
     dl
@@ -243,30 +249,32 @@ endif()
 # ============================================================================
 if(QWRT_PAL_UV)
     set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libuv")
-    set(LIBUV_BUILD_DIR "${LIBUV_SRC_DIR}/build")
-    # libuv's uv_a static target has OUTPUT_NAME "uv", so the archive is libuv.a
-    set(LIBUV_LIB "${LIBUV_BUILD_DIR}/libuv.a")
 
     if(EXISTS "${LIBUV_SRC_DIR}/CMakeLists.txt")
-        # Build libuv from source if the static archive is missing.
-        if(NOT EXISTS "${LIBUV_LIB}")
-            message(STATUS "Building libuv from source...")
-            file(MAKE_DIRECTORY "${LIBUV_BUILD_DIR}")
-            execute_process(COMMAND ${CMAKE_COMMAND} ${LIBUV_SRC_DIR}
-                                -DCMAKE_BUILD_TYPE=Release
-                                -DBUILD_SHARED_LIBS=OFF
-                                -DLIBUV_BUILD_SHARED=OFF
-                            WORKING_DIRECTORY "${LIBUV_BUILD_DIR}")
-            execute_process(COMMAND ${CMAKE_COMMAND} --build .
-                            WORKING_DIRECTORY "${LIBUV_BUILD_DIR}")
-            if(NOT EXISTS "${LIBUV_LIB}")
-                message(FATAL_ERROR "Failed to build libuv from source")
-            endif()
+        # libuv via add_subdirectory. Its CMake mutates global CMAKE_C_STANDARD
+        # (→11) and CMAKE_EXPORT_COMPILE_COMMANDS; save+restore to keep qwrt C99.
+        set(_qwrt_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
+        set(_qwrt_saved_c_standard       ${CMAKE_C_STANDARD})
+        set(_qwrt_saved_export_cc        ${CMAKE_EXPORT_COMPILE_COMMANDS})
+
+        set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+        set(BUILD_SHARED_LIBS  OFF CACHE BOOL "" FORCE)
+        set(LIBUV_BUILD_TESTS  OFF CACHE BOOL "" FORCE)
+        set(LIBUV_BUILD_BENCH  OFF CACHE BOOL "" FORCE)
+
+        add_subdirectory(${LIBUV_SRC_DIR} ${CMAKE_BINARY_DIR}/libuv EXCLUDE_FROM_ALL)
+
+        set(CMAKE_C_EXTENSIONS           ${_qwrt_saved_c_extensions})
+        set(CMAKE_C_STANDARD             ${_qwrt_saved_c_standard})
+        set(CMAKE_EXPORT_COMPILE_COMMANDS ${_qwrt_saved_export_cc})
+
+        if(NOT TARGET uv_a)
+            message(FATAL_ERROR "libuv add_subdirectory did not define target 'uv_a'")
         endif()
 
         set(LIBUV_FOUND TRUE)
         set(LIBUV_INCLUDE_DIRS "${LIBUV_SRC_DIR}/include")
-        set(LIBUV_LIBRARIES "${LIBUV_LIB}" rt dl pthread)
+        set(LIBUV_LIBRARIES uv_a rt dl pthread)
 
         add_library(qwrt_uv STATIC platform/uv/pal_uv.c)
         target_include_directories(qwrt_uv PUBLIC
@@ -361,7 +369,7 @@ if(LIBUV_FOUND OR QWRT_PAL_MOCK)
     add_library(qwrt_full STATIC ${_qwrt_full_sources})
     target_include_directories(qwrt_full PUBLIC ${_qwrt_full_includes})
 
-    set(_qwrt_full_libs ${QUICKJS_BUILD_DIR}/libqjs.a m pthread dl)
+    set(_qwrt_full_libs qjs m pthread dl)
     if(QWRT_PAL_UV AND LIBUV_FOUND)
         list(APPEND _qwrt_full_libs ${LIBUV_LIBRARIES})
     endif()

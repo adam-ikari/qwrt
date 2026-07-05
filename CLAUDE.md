@@ -36,13 +36,17 @@ valgrind --leak-check=full ./build/test/test_qwrt
 Feature toggles are CMake options prefixed `QWRT_WITH_*` (see README "CMake
 Options"). Notable: `QWRT_WITH_TLS` (mbedTLS), `QWRT_WITH_COMPRESS` (miniz),
 `QWRT_WITH_CRYPTO_EXT`, `QWRT_WITH_TEXTCODEC`, `QWRT_WITH_WASM3` (default ON)
-vs `QWRT_WITH_WAMR` (default OFF, alternative WASM engine). **libuv is not a
-toggle** — it is one PAL backend (in `platform/uv/`), built from source as the
-`libuv/` submodule (never the system libuv): at configure time qwrt auto-builds
-`libuv/build/libuv.a` via `execute_process` if missing, then links `qwrt_uv`/
-`qwrt_full` against it. If the submodule is absent, pal_uv is skipped (pal_mock
-/ pal_freertos cover other platforms). `git submodule update --init libuv` to
-fetch it.
+vs `QWRT_WITH_WAMR` (default OFF, alternative WASM engine). PAL backends use a
+separate `QWRT_PAL_*` prefix: `QWRT_PAL_UV` (default ON), `QWRT_PAL_MOCK`
+(default ON), `QWRT_PAL_FREERTOS` (default OFF, ESP-IDF only).
+
+**qwrt is strict C99** (`CMAKE_C_STANDARD 99`, `CMAKE_C_EXTENSIONS OFF` →
+`-std=c99`, enforced with `-Wall -Wextra -Werror` via `qwrt_enable_warnings`).
+Vendored deps that *require* C11 (quickjs-ng, libuv) are built via
+`add_subdirectory` and **must not** leak their `CMAKE_C_STANDARD` into qwrt —
+`CMakeLists.txt` saves/restores global C standard around each such subdir.
+`QWRT_UNUSED(x)` (qwrt_internal.h) marks QuickJS-callback fixed-signature
+params that would otherwise trip `-Wunused-parameter`.
 
 Tests link `qwrt` + `qwrt_mock` by default; network/TLS/stream tests additionally
 link `qwrt_uv` and are gated behind `LIBUV_FOUND`/`QWRT_WITH_TLS`. A few
@@ -135,12 +139,17 @@ The runtime is layered. Read these together to understand it:
   and `quickjs-ng/` are **vendored source — checked directly into the repo as
   trees, NOT submodules** (so `git submodule update --init` does not touch them).
   **All dependencies are built from source — qwrt links no system libraries.**
-  At configure time qwrt auto-builds (via `execute_process` into each dep's
-  `build/`): `quickjs-ng/build/libqjs.a`, `libuv/build/libuv.a` (when
-  `QWRT_PAL_UV` is on), and `mbedtls/build/library/libmbedtls.a` +
-  `libmbedx509.a` + `libmbedcrypto.a` (when `QWRT_WITH_TLS` and/or
-  `QWRT_WITH_CRYPTO_EXT` is on). miniz is built via `add_subdirectory`.
+  Each is pulled in via `add_subdirectory(... EXCLUDE_FROM_ALL)` (never
+  `execute_process`), so its `.o` files live in the main build tree and are
+  subject to `-j` / incremental rebuild. Targets: quickjs-ng → `qjs` (C11),
+  libuv → `uv_a` (C11, when `QWRT_PAL_UV`), mbedtls → `mbedtls`/`mbedx509`/
+  `mbedcrypto` (C99, when `QWRT_WITH_TLS`/`QWRT_WITH_CRYPTO_EXT`), miniz →
+  `miniz` (C90, when `QWRT_WITH_COMPRESS`). qwrt's C99 / `-Werror` are PRIVATE
+  to the qwrt targets only — vendored deps compile under their own standard.
   `wasm3`/`wamr` are optional and must be pre-built by hand if enabled (CMake
   errors give the exact commands).
+- **Never edit vendored dep source** (`mbedtls/`, `libuv/`, `quickjs-ng/`,
+  `miniz/`) — control them only via CMake variables/options in the root
+  `CMakeLists.txt`.
 - `docs/` has design docs (`qwrt-architecture-design.md`, `pal-design.md`,
   `esp32s3-design.md`) — the architecture doc is in Chinese.
