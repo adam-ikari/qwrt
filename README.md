@@ -25,6 +25,9 @@ git clone --recursive https://github.com/your-org/qwrt.git
 cd qwrt
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
+
+# Build examples (in examples/):
+# cmake -B build -DQWRT_BUILD_EXAMPLES=ON && cmake --build build
 ```
 
 ### Minimal Example
@@ -152,7 +155,6 @@ full interface.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `QWRT_WITH_LIBUV` | ON | libuv PAL (Linux/macOS) |
 | `QWRT_WITH_TLS` | ON | mbedTLS (HTTPS + crypto) |
 | `QWRT_WITH_COMPRESS` | ON | miniz compression extension |
 | `QWRT_WITH_CRYPTO_EXT` | ON | crypto.subtle extension |
@@ -194,12 +196,16 @@ full interface.
 
 ## Dependencies
 
+All dependencies are built from their vendored submodules at configure time —
+qwrt never links system libraries. Fetch submodules with `git submodule update
+--init --recursive`.
+
 | Dependency | Source | Required | Purpose |
 |------------|--------|----------|---------|
-| QuickJS-ng | submodule | Yes | JS engine |
-| mbedTLS | submodule | No (QWRT_WITH_TLS) | TLS / crypto |
+| QuickJS-ng | submodule | Yes | JS engine (auto-built to quickjs-ng/build/) |
+| mbedTLS | submodule | No (QWRT_WITH_TLS) | TLS / crypto (auto-built to mbedtls/build/) |
 | miniz | submodule | No (QWRT_WITH_COMPRESS) | Compression |
-| libuv | system | No (QWRT_WITH_LIBUV) | Event loop (pal_uv) |
+| libuv | submodule | No (QWRT_PAL_UV) | Event loop, pal_uv (auto-built to libuv/build/) |
 | wasm3 | submodule | No (QWRT_WITH_WASM3) | WebAssembly |
 
 ## Thread Safety

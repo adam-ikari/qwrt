@@ -1,6 +1,9 @@
 # Build artifacts
 build/
 build_*/
+libuv/build/
+mbedtls/build/
+quickjs-ng/build/
 *.o
 *.a
 *.so

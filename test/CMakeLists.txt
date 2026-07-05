@@ -78,7 +78,7 @@ target_include_directories(bench_wamr_vs_node PRIVATE ${CMAKE_SOURCE_DIR}/includ
 target_link_libraries(bench_wamr_vs_node qwrt qwrt_mock)
 
 # Bake source dir at compile time — no relative path guessing at runtime
-if(QWRT_WITH_LIBUV AND LIBUV_FOUND)
+if(LIBUV_FOUND)
     add_executable(test_compress_bench test_compress_bench.c)
     target_include_directories(test_compress_bench PRIVATE
         ${CMAKE_SOURCE_DIR}/include
