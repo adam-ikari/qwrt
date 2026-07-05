@@ -206,26 +206,77 @@ struct JSContext;
  * Core API
  * ================================================================ */
 
+/* Create a qwrt runtime. The PAL in `config` is borrowed (not owned) and
+ * must outlive the runtime. `config->extensions` (NULL-terminated, or NULL)
+ * is registered on the initial context. Returns NULL on failure.
+ * Thread-bound: all subsequent qwrt_* calls must come from this thread. */
 qwrt_t *qwrt_create(const qwrt_config_t *config);
+
+/* Destroy the runtime and free all resources (contexts, handles, polyfill).
+ * The PAL is NOT freed — caller owns it. Safe to call with NULL. */
 void qwrt_destroy(qwrt_t *rt);
+
+/* Drain pending JS microtasks and deferred PAL callbacks. Returns 0 on
+ * success, -1 on error. The host calls this after pal->run_cycle. */
 int qwrt_tick(qwrt_t *rt);
+
+/* Evaluate JS `code` on the active context. If `result` is non-NULL, receives
+ * a malloc'd stringified result (free with qwrt_free). Returns 0 on success,
+ * <0 on JS exception. The WinterCG polyfill (fetch, console, timers, …) is
+ * auto-injected. */
 int qwrt_eval(qwrt_t *rt, const char *code, char **result);
+
+/* Evaluate precompiled QuickJS `bytecode` (len bytes). Same result/return
+ * semantics as qwrt_eval. See qwrt_compile to produce bytecode. */
 int qwrt_eval_bytecode(qwrt_t *rt, const uint8_t *bytecode, size_t len,
                        char **result);
+
+/* Call global JS function `func` with arguments described by `args_json`
+ * (a JSON array string, or NULL for no args). Result semantics as qwrt_eval. */
 int qwrt_call(qwrt_t *rt, const char *func,
               const char *args_json, char **result);
+
+/* Free memory returned by qwrt_eval / qwrt_call / qwrt_compile. NULL-safe. */
 void qwrt_free(void *ptr);
 
 /* ================================================================
  * Multi-context API
+ *
+ * One qwrt_t owns one JSRuntime; multiple contexts share it. Each context
+ * has its own globals, polyfill, PAL (so different permissions), and
+ * extension state. Only one context is "active" at a time — qwrt_eval /
+ * qwrt_tick operate on the active context. QuickJS classes are
+ * runtime-scoped, so class IDs are shared across contexts within one qwrt_t.
  * ================================================================ */
 
+/* Reset the runtime: destroy all contexts, then create a fresh initial
+ * context from `config`. The PAL is reused. Returns 0 on success, -1 on error. */
 int qwrt_reset(qwrt_t *rt, const qwrt_config_t *config);
+
+/* Spawn a new context from `config` in suspended state. Returns the new
+ * context_id (>=0), or -1 on failure. The current active context is
+ * unchanged. */
 int qwrt_spawn(qwrt_t *rt, const qwrt_config_t *config);
+
+/* Suspend the active context (calls ext->suspend hooks). No context is
+ * active afterwards. Returns 0 on success, -1 on error. */
 int qwrt_suspend(qwrt_t *rt);
+
+/* Resume context `context_id`: auto-suspends the currently active context
+ * and activates the target (calls ext->resume hooks). Returns 0 on success,
+ * -1 if the context_id is invalid. */
 int qwrt_resume(qwrt_t *rt, int context_id);
+
+/* Destroy a specific context. Fails (-1) if it is the only remaining
+ * context. Returns 0 on success. */
 int qwrt_destroy_ctx(qwrt_t *rt, int context_id);
+
+/* Return the active context_id, or -1 if none. */
 int qwrt_get_active_ctx_id(qwrt_t *rt);
+
+/* Return the active context's JSContext* (for direct QuickJS API use).
+ * NULL if no active context. The pointer is valid until the context is
+ * destroyed or reset. */
 struct JSContext *qwrt_get_jsctx(qwrt_t *rt);
 
 /* Register an extension on the active context at runtime.
