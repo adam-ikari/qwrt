@@ -42,12 +42,12 @@ typedef struct wamr_instance_wrap_t {
     JSValue module_obj;  /* keep module alive — unload happens after instance dies */
 } wamr_instance_wrap_t;
 
-static JSClassID wamr_module_class_id;
-static JSClassID wamr_instance_class_id;
 
-static void wamr_module_finalizer(JSRuntime *rt, JSValue val)
+static void wamr_module_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    wamr_module_wrap_t *wrap = (wamr_module_wrap_t *)JS_GetOpaque(val, wamr_module_class_id);
+    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    if (!rt) return;
+    wamr_module_wrap_t *wrap = (wamr_module_wrap_t *)JS_GetOpaque(val, rt->wamr_module_class_id);
     if (wrap) {
         if (wrap->module) {
             wasm_runtime_unload(wrap->module);
@@ -57,13 +57,15 @@ static void wamr_module_finalizer(JSRuntime *rt, JSValue val)
             wasm_runtime_free(wrap->wasm_buf);
             wrap->wasm_buf = NULL;
         }
-        js_free_rt(rt, wrap);
+        js_free_rt(jsrt, wrap);
     }
 }
 
-static void wamr_instance_finalizer(JSRuntime *rt, JSValue val)
+static void wamr_instance_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    wamr_instance_wrap_t *wrap = (wamr_instance_wrap_t *)JS_GetOpaque(val, wamr_instance_class_id);
+    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    if (!rt) return;
+    wamr_instance_wrap_t *wrap = (wamr_instance_wrap_t *)JS_GetOpaque(val, rt->wamr_instance_class_id);
     if (wrap) {
         if (wrap->exec_env) {
             wasm_runtime_destroy_exec_env(wrap->exec_env);
@@ -73,30 +75,30 @@ static void wamr_instance_finalizer(JSRuntime *rt, JSValue val)
             wasm_runtime_deinstantiate(wrap->module_inst);
             wrap->module_inst = NULL;
         }
-        JS_FreeValueRT(rt, wrap->module_obj);
-        js_free_rt(rt, wrap);
+        JS_FreeValueRT(jsrt, wrap->module_obj);
+        js_free_rt(jsrt, wrap);
     }
 }
 
-static void wamr_register_classes(JSContext *ctx)
+static void wamr_register_classes(qwrt_t *rt, JSContext *ctx)
 {
-    JSRuntime *rt = JS_GetRuntime(ctx);
+    JSRuntime *jsrt = JS_GetRuntime(ctx);
 
     /* Module class */
-    JS_NewClassID(rt, &wamr_module_class_id);
+    JS_NewClassID(jsrt, &rt->wamr_module_class_id);
     JSClassDef module_class = {
         .class_name = "WebAssembly.Module",
         .finalizer = wamr_module_finalizer,
     };
-    JS_NewClass(rt, wamr_module_class_id, &module_class);
+    JS_NewClass(jsrt, rt->wamr_module_class_id, &module_class);
 
     /* Instance class */
-    JS_NewClassID(rt, &wamr_instance_class_id);
+    JS_NewClassID(jsrt, &rt->wamr_instance_class_id);
     JSClassDef instance_class = {
         .class_name = "WebAssembly.Instance",
         .finalizer = wamr_instance_finalizer,
     };
-    JS_NewClass(rt, wamr_instance_class_id, &instance_class);
+    JS_NewClass(jsrt, rt->wamr_instance_class_id, &instance_class);
 }
 
 /* ================================================================
@@ -157,6 +159,8 @@ static int wamr_extract_buffer(JSContext *ctx, JSValueConst val,
 static JSValue wamr_wasm_validate(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
 {
+    qwrt_t *rt = get_rt_from_ctx(ctx);
+    if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) {
         return JS_ThrowTypeError(ctx, "WebAssembly.validate requires at least 1 argument");
@@ -222,13 +226,15 @@ static JSValue wamr_wasm_compile(JSContext *ctx, JSValueConst this_val,
 static JSValue wamr_wasm_instantiate(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
+    qwrt_t *rt = get_rt_from_ctx(ctx);
+    if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) {
         return JS_ThrowTypeError(ctx, "WebAssembly.instantiate requires at least 1 argument");
     }
 
     JSValue instance_ctor = JS_GetPropertyStr(ctx, this_val, "Instance");
-    int is_module_arg = (JS_GetOpaque(argv[0], wamr_module_class_id) != NULL);
+    int is_module_arg = (JS_GetOpaque(argv[0], rt->wamr_module_class_id) != NULL);
 
     JSValue instance_result;
     JSValue module_result = JS_UNDEFINED;
@@ -295,13 +301,15 @@ static JSValue wamr_wasm_instantiate(JSContext *ctx, JSValueConst this_val,
 static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
                                        int argc, JSValueConst *argv)
 {
+    qwrt_t *rt = get_rt_from_ctx(ctx);
+    if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
         return JS_ThrowTypeError(ctx, "WebAssembly.Module requires at least 1 argument");
     }
 
     /* If already a Module, return copy */
-    wamr_module_wrap_t *existing = (wamr_module_wrap_t *)JS_GetOpaque(argv[0], wamr_module_class_id);
+    wamr_module_wrap_t *existing = (wamr_module_wrap_t *)JS_GetOpaque(argv[0], rt->wamr_module_class_id);
     if (existing) {
         return JS_DupValue(ctx, argv[0]);
     }
@@ -341,7 +349,7 @@ static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
     wrap->wasm_buf = wasm_buf;
     wrap->wasm_buf_size = (uint32_t)byte_len;
 
-    JSValue obj = JS_NewObjectClass(ctx, wamr_module_class_id);
+    JSValue obj = JS_NewObjectClass(ctx, rt->wamr_module_class_id);
     if (JS_IsException(obj)) {
         wasm_runtime_unload(module);
         wasm_runtime_free(wasm_buf);
@@ -360,12 +368,14 @@ static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
 static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target,
                                          int argc, JSValueConst *argv)
 {
+    qwrt_t *rt = get_rt_from_ctx(ctx);
+    if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
         return JS_ThrowTypeError(ctx, "WebAssembly.Instance requires at least 1 argument");
     }
 
-    wamr_module_wrap_t *mod_wrap = (wamr_module_wrap_t *)JS_GetOpaque(argv[0], wamr_module_class_id);
+    wamr_module_wrap_t *mod_wrap = (wamr_module_wrap_t *)JS_GetOpaque(argv[0], rt->wamr_module_class_id);
     if (!mod_wrap || !mod_wrap->module) {
         return JS_ThrowTypeError(ctx, "WebAssembly.Instance: first argument must be a WebAssembly.Module");
     }
@@ -398,7 +408,7 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
     wrap->exec_env = exec_env;
     wrap->module_obj = JS_DupValue(ctx, argv[0]);  /* keep module alive until instance dies */
 
-    JSValue obj = JS_NewObjectClass(ctx, wamr_instance_class_id);
+    JSValue obj = JS_NewObjectClass(ctx, rt->wamr_instance_class_id);
     if (JS_IsException(obj)) {
         wasm_runtime_destroy_exec_env(exec_env);
         wasm_runtime_deinstantiate(module_inst);
@@ -612,7 +622,7 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
     }
 
     /* Register JS classes for Module/Instance */
-    wamr_register_classes(ctx);
+    wamr_register_classes(rt, ctx);
 
     JSValue global = JS_GetGlobalObject(ctx);
 
@@ -680,9 +690,10 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 
 static void wamr_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
 {
+    (void)ext;
     /* Reset class IDs so JS_NewClassID allocates fresh ones for the next runtime */
-    wamr_module_class_id = 0;
-    wamr_instance_class_id = 0;
+    rt->wamr_module_class_id = 0;
+    rt->wamr_instance_class_id = 0;
 }
 
 static int wamr_ext_suspend(qwrt_ext_t *ext, qwrt_t *rt)

@@ -36,12 +36,20 @@ static JSValue js_pal_storage_del(JSContext *ctx, JSValueConst this_val, int arg
 static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 
 /* ================================================================
- * Helper: get qwrt_t from JSContext
+ * Helper: get qwrt_t from JSContext / JSRuntime.
+ * get_rt_from_ctx is also used by extensions (declared in qwrt_internal.h).
  * ================================================================ */
 
-static qwrt_t *get_rt_from_ctx(JSContext *ctx)
+qwrt_t *get_rt_from_ctx(JSContext *ctx)
 {
-    JSRuntime *jsrt = JS_GetRuntime(ctx);
+    if (!ctx) {
+        return NULL;
+    }
+    return qwrt_get_rt_from_jsrt(JS_GetRuntime(ctx));
+}
+
+qwrt_t *qwrt_get_rt_from_jsrt(JSRuntime *jsrt)
+{
     qwrt_t *rt = (qwrt_t *)JS_GetRuntimeOpaque(jsrt);
     if (!rt || rt->magic != QWRT_MAGIC) {
         return NULL;

@@ -70,6 +70,25 @@ struct qwrt_t {
     int has_pending_jobs;
     int debug;
 
+    /* Per-runtime extension state. QuickJS registers classes per-JSRuntime,
+     * and one qwrt_t owns one JSRuntime, so these live here (not per-context).
+     * void* for engine types (e.g. wasm3 IM3Environment) to keep this header
+     * free of third-party includes; ext_*.c cast as needed. */
+#ifdef QWRT_HAS_WASM3
+    JSClassID wasm3_module_class_id;
+    JSClassID wasm3_instance_class_id;
+    JSClassID wasm3_func_closure_class_id;
+    JSClassID wasm3_import_closure_class_id;
+    JSClassID wasm3_memory_class_id;
+    JSClassID wasm3_table_class_id;
+    JSClassID wasm3_global_class_id;
+    void *wasm3_env;   /* IM3Environment */
+#endif
+#ifdef QWRT_HAS_WAMR
+    JSClassID wamr_module_class_id;
+    JSClassID wamr_instance_class_id;
+#endif
+
     /* Deferred PAL callback queue — libuv callbacks enqueue here,
      * qwrt_tick drains them so JS_Call happens in a valid JS context. */
     struct pal_deferred_cb {
@@ -90,6 +109,14 @@ JSContext *qwrt_get_active_jsctx(qwrt_t *rt);
 qwrt_ctx_t *qwrt_get_ctx_by_id(qwrt_t *rt, int context_id);
 qwrt_ctx_t *qwrt_ctx_create(qwrt_t *rt, const qwrt_config_t *config);
 void qwrt_ctx_destroy(qwrt_t *rt, qwrt_ctx_t *ctx);
+
+/* bridge.c — recover qwrt_t* from a JSRuntime* (finalizers get JSRuntime*).
+ * Returns NULL if the runtime was not created by qwrt (magic check). */
+qwrt_t *qwrt_get_rt_from_jsrt(JSRuntime *jsrt);
+
+/* bridge.c — recover qwrt_t* from a JSContext* (non-static so extensions
+ * with a JSContext* can use it). Equivalent to qwrt_get_rt_from_jsrt. */
+qwrt_t *get_rt_from_ctx(JSContext *ctx);
 void qwrt_ctx_cleanup_resources(qwrt_t *rt, qwrt_ctx_t *ctx);
 
 /* extension.c — extension lifecycle hooks */
