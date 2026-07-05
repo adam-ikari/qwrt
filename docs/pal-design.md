@@ -708,7 +708,7 @@ static void pal_mock_storage_set(qwrt_pal_t *pal, const char *key,
 
 ## 9. 宿主集成示例
 
-### 9.1 ACE REPL
+### 9.1 嵌入式 REPL
 
 ```c
 #include "qwrt.h"
@@ -751,14 +751,14 @@ int main(int argc, char *argv[]) {
     // 初始化应用
     char *config = read_file("app.config.json");
     char *sid = NULL;
-    qwrt_call(rt, "ACE.createSession", config, &sid);
+    qwrt_call(rt, "app.createSession", config, &sid);
     free(config);
 
     // REPL 主循环
     char input[4096];
     while (fgets(input, sizeof(input), stdin)) {
         char *result = NULL;
-        qwrt_call(rt, "ACE.chat", input, &result);
+        qwrt_call(rt, "app.chat", input, &result);
 
         while (result == NULL) {
             uv_run(loop, UV_RUN_ONCE);
@@ -823,7 +823,6 @@ qwrt/
 | 参考来源       | 无                        | txiki.js 模块移植                |
 | fs API         | app.fsRead            | fs.readFile（node:fs 风格）     |
 | storage API    | app.storageGet        | storage.get（简洁 KV）          |
-| AceNative      | 存在                      | 删除，由 WinterCG API 替代       |
 
 ---
 
@@ -850,7 +849,6 @@ qwrt/
 
 ### 阶段 3：上层应用迁移
 
-- [ ] 删除 AceNative 接口
 - [ ] LLMClient 改用 fetch()
 - [ ] Memory 改用 storage API
 - [ ] Tool 改用 fs API
