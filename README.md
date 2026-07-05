@@ -233,6 +233,19 @@ cd build && ctest --output-on-failure
 valgrind --leak-check=full ./build/test/test_qwrt
 ```
 
+Tests are labelled for selection (`ctest -L <label>`):
+- `offline` — local, deterministic (default; what CI runs)
+- `network` — outbound HTTP/HTTPS (e.g. `test_fetch_httpbin`, `test_tls`)
+- `benchmark` — performance, not pass/fail
+- `compliance` — WinterCG conformance suite (known-incomplete, tracked separately)
+
+```bash
+ctest -L offline          # CI default — green
+ctest -L network          # only when network is available
+ctest -L compliance       # track remaining polyfill gaps
+```
+
+
 ## ESP32-S3
 
 qwrt builds for ESP32-S3 via ESP-IDF. See the platform documentation for
