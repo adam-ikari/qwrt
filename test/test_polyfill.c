@@ -324,27 +324,8 @@ TEST(bytecode_polyfill) {
  * ================================================================ */
 
 int main(void) {
-    /* Try to load dist/polyfill.bytecode from multiple likely paths */
-    size_t polyfill_len;
-    uint8_t *polyfill = load_file("../../qwrt/dist/polyfill.bytecode", &polyfill_len);
-    if (!polyfill) {
-        polyfill = load_file("dist/polyfill.bytecode", &polyfill_len);
-    }
-    if (!polyfill) {
-        polyfill = load_file("qwrt/dist/polyfill.bytecode", &polyfill_len);
-    }
-    if (!polyfill) {
-        printf("=== Polyfill Integration Tests ===\n");
-        printf("SKIPPED: dist/polyfill.bytecode not found (run build first)\n");
-        return 0;
-    }
-
-    /* Store globally for test helpers */
-    g_polyfill = polyfill;
-    g_polyfill_len = polyfill_len;
-
-    printf("=== Polyfill Integration Tests ===\n");
-    printf("Loaded polyfill: %zu bytes\n\n", polyfill_len);
+    /* Polyfill is auto-injected by qwrt_create (qwrt_default_polyfill). */
+    printf("=== Polyfill Integration Tests ===\n\n");
 
     printf("--- Console ---\n");
     RUN_TEST(polyfill_console);
@@ -370,6 +351,5 @@ int main(void) {
     printf("\n=== Results: %d/%d passed, %d failed ===\n",
            tests_passed, tests_run, tests_failed);
 
-    free(polyfill);
     return tests_failed > 0 ? 1 : 0;
 }

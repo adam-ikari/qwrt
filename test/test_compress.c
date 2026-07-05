@@ -98,18 +98,13 @@ static int test_roundtrip(qwrt_t *rt, qwrt_pal_t *pal,
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
-    size_t plen;
-    uint8_t *poly = load_file("../dist/polyfill.bytecode", &plen);
-    if (!poly) poly = load_file("dist/polyfill.bytecode", &plen);
-    if (!poly) poly = load_file("../../qwrt/dist/polyfill.bytecode", &plen);
-    if (!poly) { printf("SKIP: dist/polyfill.bytecode not found\n"); return 0; }
-
+    /* Polyfill is auto-injected by qwrt_create (qwrt_default_polyfill). */
     qwrt_pal_t *pal = pal_mock_create();
     qwrt_config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.pal = pal;
     qwrt_t *rt = qwrt_create(&cfg);
-    if (!rt) { free(poly); return 1; }
+    if (!rt) { return 1; }
 
     int failures = 0;
     char *r;
@@ -253,6 +248,5 @@ int main(int argc, char **argv) {
 
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
-    free(poly);
     return failures;
 }

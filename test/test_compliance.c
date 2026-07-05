@@ -2341,31 +2341,13 @@ static void test_wasm(qwrt_t *rt) {
  * ================================================================ */
 
 int main(void) {
-    size_t polyfill_len;
-    uint8_t *polyfill = load_file("../../qwrt/dist/polyfill.bytecode", &polyfill_len);
-    if (!polyfill) {
-        polyfill = load_file("dist/polyfill.bytecode", &polyfill_len);
-    }
-    if (!polyfill) {
-        polyfill = load_file("qwrt/dist/polyfill.bytecode", &polyfill_len);
-    }
-    if (!polyfill) {
-        printf("=== ES2023 + WinterCG Compliance Tests ===\n");
-        printf("SKIPPED: dist/polyfill.bytecode not found (run build first)\n");
-        return 0;
-    }
-
-    g_polyfill = polyfill;
-    g_polyfill_len = polyfill_len;
-
+    /* Polyfill is auto-injected by qwrt_create (qwrt_default_polyfill). */
     printf("=== ES2023 + WinterCG Compliance Tests ===\n");
-    printf("Loaded polyfill: %zu bytes\n", polyfill_len);
 
     qwrt_pal_t *pal;
     qwrt_t *rt = create_runtime(&pal);
     if (!rt) {
         printf("FATAL: could not create runtime\n");
-        free(polyfill);
         return 1;
     }
 
@@ -2431,7 +2413,6 @@ int main(void) {
     /* Cleanup main runtime */
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
-    free(polyfill);
 
     printf("\n=== Compliance Results: %d/%d passed, %d failed ===\n",
            g_passed, g_total, g_failed);

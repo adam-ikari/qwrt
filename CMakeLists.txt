@@ -130,6 +130,30 @@ if(NOT TARGET qjs)
     message(FATAL_ERROR "quickjs-ng add_subdirectory did not define target 'qjs'")
 endif()
 
+# qjsc — quickjs-ng's bytecode compiler (target qjsc). EXCLUDE_FROM_ALL means it
+# isn't built by default; pull it in only when something needs JS→bytecode.
+# qwrt_compile_js(<out_var> <input.js>) compiles a JS source to a QuickJS
+# bytecode file (qjsc -C -b) at configure time, returning the output path. The
+# generated .bc is added to a custom target so it rebuilds when the JS changes.
+function(qwrt_compile_js out_var js_file)
+    cmake_parse_arguments(ARG "" "TARGET" "" ${ARGN})
+    if(NOT TARGET qjsc)
+        message(FATAL_ERROR "qwrt_compile_js needs the 'qjsc' target (quickjs-ng)")
+    endif()
+    get_filename_component(_js_abs "${js_file}" ABSOLUTE)
+    set(_bc "${CMAKE_CURRENT_BINARY_DIR}/${ARG_TARGET}.bc")
+    add_custom_command(
+        OUTPUT  "${_bc}"
+        COMMAND "$<TARGET_FILE:qjsc>" -C -b -o "${_bc}" "${_js_abs}"
+        DEPENDS qjsc "${_js_abs}"
+        COMMENT "Compiling JS→bytecode: ${js_file}"
+        VERBATIM)
+    if(ARG_TARGET)
+        add_custom_target(${ARG_TARGET} DEPENDS "${_bc}")
+    endif()
+    set(${out_var} "${_bc}" PARENT_SCOPE)
+endfunction()
+
 # ============================================================================
 # WAMR dependency (optional)
 # ============================================================================

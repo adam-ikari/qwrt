@@ -50,18 +50,8 @@ static qwrt_t *create_test_runtime(qwrt_pal_t *pal)
     qwrt_config_t config;
     memset(&config, 0, sizeof(config));
     config.pal = pal;
-    /* Try to load polyfill bytecode from multiple likely paths */
-    size_t polyfill_len = 0;
-    char *polyfill_bc = read_file("../../qwrt/dist/polyfill.bytecode", &polyfill_len);
-    if (!polyfill_bc) polyfill_bc = read_file("../dist/polyfill.bytecode", &polyfill_len);
-    if (!polyfill_bc) polyfill_bc = read_file("dist/polyfill.bytecode", &polyfill_len);
-    if (!polyfill_bc) polyfill_bc = read_file("qwrt/dist/polyfill.bytecode", &polyfill_len);
-    if (!polyfill_bc) {
-        fprintf(stderr, "Cannot read dist/polyfill.bytecode\n");
-        return NULL;
-    }
+    /* Polyfill is auto-injected by qwrt_create (qwrt_default_polyfill). */
     qwrt_t *rt = qwrt_create(&config);
-    free(polyfill_bc);
     return rt;
 }
 

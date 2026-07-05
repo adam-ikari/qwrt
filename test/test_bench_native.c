@@ -25,25 +25,20 @@ static uint8_t *load_file(const char *path, size_t *out_len) {
 }
 
 int main(void) {
-    size_t plen;
-    uint8_t *poly = load_file("../dist/polyfill.bytecode", &plen);
-    if (!poly) poly = load_file("dist/polyfill.bytecode", &plen);
-    if (!poly) poly = load_file("../../qwrt/dist/polyfill.bytecode", &plen);
-    if (!poly) { printf("SKIP: dist/polyfill.bytecode not found\n"); return 0; }
-
+    /* Polyfill is auto-injected by qwrt_create (qwrt_default_polyfill). */
     size_t blen;
     uint8_t *bench = load_file("../test/bench_native_vs_js.js", &blen);
-    if (!bench) { free(poly); printf("SKIP: bench_native_vs_js.js not found\n"); return 0; }
+    if (!bench) { printf("SKIP: bench_native_vs_js.js not found\n"); return 0; }
 
     qwrt_pal_t *pal = pal_uv_create(NULL);
-    if (!pal) { free(poly); free(bench); return 1; }
+    if (!pal) { free(bench); return 1; }
 
     qwrt_config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.pal = pal;
     cfg.debug = 0;
     qwrt_t *rt = qwrt_create(&cfg);
-    if (!rt) { free(poly); free(bench); pal_uv_destroy(pal); return 1; }
+    if (!rt) { free(bench); pal_uv_destroy(pal); return 1; }
 
     int rc = qwrt_eval(rt, (const char *)bench, NULL);
     if (rc < 0) {
@@ -58,7 +53,6 @@ int main(void) {
 
     qwrt_destroy(rt);
     pal_uv_destroy(pal);
-    free(poly);
     free(bench);
     return 0;
 }

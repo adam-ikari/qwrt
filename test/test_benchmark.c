@@ -484,20 +484,8 @@ static void output_json(void) {
  * ================================================================ */
 
 int main(void) {
-    size_t pf_len;
-    uint8_t *pf = load_file("../../qwrt/dist/polyfill.bytecode", &pf_len);
-    if (!pf) pf = load_file("dist/polyfill.bytecode", &pf_len);
-    if (!pf) pf = load_file("qwrt/dist/polyfill.bytecode", &pf_len);
-    if (!pf) {
-        printf("=== qwrt Benchmark Suite ===\n");
-        printf("SKIPPED: dist/polyfill.bytecode not found (run build first)\n");
-        return 0;
-    }
-    g_polyfill = pf;
-    g_polyfill_len = pf_len;
-
-    printf("=== qwrt Performance Benchmark Suite ===\n");
-    printf("Polyfill bytecode: %zu bytes\n\n", pf_len);
+    /* Polyfill is auto-injected by qwrt_create (qwrt_default_polyfill). */
+    printf("=== qwrt Performance Benchmark Suite ===\n\n");
 
     /* 1. Startup */
     bench_startup();
@@ -505,10 +493,10 @@ int main(void) {
     /* Create runtime for remaining benchmarks */
     qwrt_pal_t *pal = pal_mock_create();
     qwrt_config_t cfg; memset(&cfg, 0, sizeof(cfg));
+    cfg.pal = pal;
     qwrt_t *rt = qwrt_create(&cfg);
     if (!rt) {
         printf("FATAL: could not create runtime\n");
-        free(pf);
         return 1;
     }
 
@@ -524,7 +512,6 @@ int main(void) {
     /* Cleanup */
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
-    free(pf);
 
     /* JSON output for tracking */
     output_json();
