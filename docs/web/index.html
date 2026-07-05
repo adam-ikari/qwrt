@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>qwrt — Embeddable QuickJS Runtime</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --acc:#58a6ff; --muted:#8b949e; --code:#161b22; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
+         background:var(--bg); color:var(--fg); line-height:1.6; }
+  header { text-align:center; padding:6rem 1rem 4rem; border-bottom:1px solid #21262d; }
+  h1 { font-size:3rem; margin:0 0 .5rem; letter-spacing:-.02em; }
+  h1 .accent { color:var(--acc); }
+  .tagline { color:var(--muted); font-size:1.2rem; max-width:36rem; margin:0 auto 2rem; }
+  .cta { display:flex; gap:1rem; justify-content:center; flex-wrap:wrap; }
+  .cta a { padding:.7rem 1.4rem; border-radius:6px; text-decoration:none; font-weight:600; }
+  .cta a.primary { background:var(--acc); color:#000; }
+  .cta a.secondary { border:1px solid #30363d; color:var(--fg); }
+  main { max-width:48rem; margin:0 auto; padding:3rem 1rem; }
+  h2 { border-bottom:1px solid #21262d; padding-bottom:.4rem; margin-top:3rem; }
+  .features { display:grid; grid-template-columns:repeat(auto-fit,minmax(14rem,1fr)); gap:1rem; margin:1.5rem 0; }
+  .feature { background:var(--code); padding:1.2rem; border-radius:8px; border:1px solid #21262d; }
+  .feature h3 { margin:0 0 .5rem; color:var(--acc); font-size:1rem; }
+  .feature p { margin:0; font-size:.9rem; color:var(--muted); }
+  pre { background:var(--code); padding:1rem; border-radius:8px; overflow-x:auto; border:1px solid #21262d; }
+  code { font-family:SFMono-Regular,Consolas,monospace; }
+  a { color:var(--acc); }
+  footer { text-align:center; padding:2rem; color:var(--muted); border-top:1px solid #21262d; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="accent">qwrt</span></h1>
+  <p class="tagline">An embeddable QuickJS-ng runtime wrapper in C99. WinterCG-compatible JS polyfill, a Platform Abstraction Layer, and native extensions — all from source, no system libraries.</p>
+  <div class="cta">
+    <a class="primary" href="https://github.com/adam-ikari/qwrt">View on GitHub</a>
+    <a class="secondary" href="api/html/index.html">API Reference</a>
+  </div>
+</header>
+
+<main>
+  <h2>Why qwrt</h2>
+  <div class="features">
+    <div class="feature"><h3>Strict C99</h3><p>Embeddable in any C99 codebase. No C11 requirement on the host; vendored C11 deps (QuickJS-ng, libuv) are isolated.</p></div>
+    <div class="feature"><h3>No system libs</h3><p>QuickJS-ng, mbedTLS, miniz, libuv all built from source via CMake add_subdirectory. Fully self-contained.</p></div>
+    <div class="feature"><h3>WinterCG polyfill</h3><p>fetch, console, crypto.subtle, streams, timers, fs, URL, TextEncoder — 21 modules, precompiled to bytecode.</p></div>
+    <div class="feature"><h3>Portable PAL</h3><p>libuv (Linux/macOS), FreeRTOS (ESP32-S3), mock (tests). Same code, three platforms.</p></div>
+    <div class="feature"><h3>Multi-context</h3><p>Spawn/suspend/resume isolated JS contexts in one runtime, each with its own PAL and permissions.</p></div>
+    <div class="feature"><h3>No globals</h3><p>Zero mutable file-scope state. Per-runtime isolation; safe to run multiple qwrt_t instances.</p></div>
+  </div>
+
+  <h2>Quick start</h2>
+<pre><code>git clone --recursive https://github.com/adam-ikari/qwrt.git
+cd qwrt
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)</code></pre>
+
+  <h2>Minimal example</h2>
+<pre><code>#include &lt;qwrt/qwrt.h&gt;
+#include &lt;pal_uv.h&gt;
+
+int main(void) {
+    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_t *rt = qwrt_create(&amp;(qwrt_config_t){ .pal = pal });
+
+    qwrt_eval(rt, "console.log('Hello from QuickJS!');", NULL);
+
+    char *result = NULL;
+    qwrt_eval(rt, "1 + 1", &amp;result);
+    printf("1 + 1 = %s\n", result);   /* "2" */
+    qwrt_free(result);
+
+    while (pal-&gt;run_cycle(pal, 100) &gt; 0) qwrt_tick(rt);
+
+    qwrt_destroy(rt);
+    return 0;
+}</code></pre>
+
+  <h2>Build options</h2>
+  <p>Feature toggles are prefixed <code>QWRT_WITH_*</code> (TLS, COMPRESS, CRYPTO_EXT, TEXTCODEC, WASM3/WAMR); PAL backends use <code>QWRT_PAL_*</code> (UV, MOCK, FREERTOS). See the <a href="https://github.com/adam-ikari/qwrt#cmake-options">README</a> for the full list.</p>
+</main>
+
+<footer>
+  qwrt &middot; MIT License &middot; <a href="https://github.com/adam-ikari/qwrt">GitHub</a>
+</footer>
+</body>
+</html>
