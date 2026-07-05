@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>   /* unlink */
 
 /* ================================================================
  * Global polyfill data (loaded in main, used by test helpers)
@@ -265,35 +264,8 @@ TEST(polyfill_fetch) {
  * ================================================================ */
 
 TEST(bytecode_polyfill) {
-    /* Quick test: compile a simple script to bytecode using qjsc,
-     * then load it with qwrt_eval_bytecode */
-    const char *tmp_js = "/tmp/qwrt_bc_test.js";
-    const char *tmp_bc = "/tmp/qwrt_bc_test.out";
-    FILE *f = fopen(tmp_js, "w");
-    if (!f) { printf("SKIP (cannot write temp)\n"); return; }
-    fprintf(f, "var x = 1 + 2; x;\n");
-    fclose(f);
-
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "%s -C -b -o %s %s 2>&1",
-             getenv("QJSC") ? getenv("QJSC") : "../../third_party/quickjs-ng/build/qjsc",
-             tmp_bc, tmp_js);
-    int rc = system(cmd);
-    if (rc != 0) { printf("SKIP (qjsc not available)\n"); unlink(tmp_js); return; }
-
-    f = fopen(tmp_bc, "rb");
-    if (!f) { printf("SKIP (bytecode not found)\n"); unlink(tmp_js); return; }
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t *bytecode = (uint8_t *)malloc(fsize);
-    if (!bytecode) { fclose(f); printf("SKIP (malloc)\n"); return; }
-    size_t nread = fread(bytecode, 1, fsize, f);
-    fclose(f);
-    unlink(tmp_js);
-    unlink(tmp_bc);
-
-    /* Create runtime without polyfill, just eval the bytecode */
+    /* Compile a simple script to bytecode via the qwrt_compile API (no
+     * external qjsc binary needed), then load it with qwrt_eval_bytecode. */
     qwrt_pal_t *pal = pal_mock_create();
     ASSERT_NOT_NULL(pal);
 
@@ -305,17 +277,23 @@ TEST(bytecode_polyfill) {
     qwrt_t *rt = qwrt_create(&config);
     ASSERT_NOT_NULL(rt);
 
-    /* Eval bytecode */
+    /* Compile JS source -> bytecode (qwrt_compile uses the runtime's engine). */
+    const char *src = "var x = 1 + 2; x;";
+    size_t bc_len = 0;
+    uint8_t *bytecode = qwrt_compile(rt, src, strlen(src), &bc_len);
+    ASSERT_NOT_NULL(bytecode);
+
+    /* Eval the bytecode on the same runtime. */
     char *result = NULL;
-    int eval_rc = qwrt_eval_bytecode(rt, bytecode, nread, &result);
+    int eval_rc = qwrt_eval_bytecode(rt, bytecode, bc_len, &result);
     ASSERT_EQ(eval_rc, 0);
     ASSERT_NOT_NULL(result);
     ASSERT_STR_EQ(result, "3");
 
     qwrt_free(result);
+    qwrt_free(bytecode);
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
-    free(bytecode);
     printf("PASS\n");
 }
 
