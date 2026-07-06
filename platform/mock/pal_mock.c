@@ -211,6 +211,9 @@ static void pal_mock_http_request_stream(qwrt_pal_t *pal,
     const char *resp_body = "mock response";
     const char *resp_headers = "{\"Content-Type\":\"application/json\"}";
     int resp_status = 200;
+    /* Track malloc'd copies so we can free them after delivery. */
+    char *owned_headers = NULL;
+    char *owned_body = NULL;
 
     (void)method;
     (void)headers;
@@ -265,6 +268,7 @@ static void pal_mock_http_request_stream(qwrt_pal_t *pal,
                                 memcpy(h_buf, h_start, h_len);
                                 h_buf[h_len] = '\0';
                                 resp_headers = h_buf;
+                                owned_headers = h_buf;
                             }
                         }
                     }
@@ -293,6 +297,7 @@ static void pal_mock_http_request_stream(qwrt_pal_t *pal,
                                     memcpy(b_buf, b_start, b_len);
                                     b_buf[b_len] = '\0';
                                     resp_body = b_buf;
+                                    owned_body = b_buf;
                                 }
                             }
                         }
@@ -314,6 +319,10 @@ static void pal_mock_http_request_stream(qwrt_pal_t *pal,
             ops->on_end(ops->user_data, 0);
         }
     }
+
+    /* Free malloc'd header/body copies (callbacks have consumed them). */
+    free(owned_headers);
+    free(owned_body);
 }
 
 /* The mock PAL delivers stream responses synchronously, so there is never
