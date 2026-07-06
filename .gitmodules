@@ -1,6 +1,15 @@
 [submodule "libuv"]
-	path = libuv
+	path = deps/libuv
 	url = https://github.com/libuv/libuv.git
 [submodule "wasm3"]
-	path = wasm3
+	path = deps/wasm3
 	url = https://github.com/wasm3/wasm3.git
+[submodule "deps/mbedtls"]
+	path = deps/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git
+[submodule "deps/miniz"]
+	path = deps/miniz
+	url = https://github.com/richgel999/miniz.git
+[submodule "deps/quickjs-ng"]
+	path = deps/quickjs-ng
+	url = https://github.com/quickjs-ng/quickjs.git
