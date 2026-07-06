@@ -76,8 +76,8 @@ Flow: `polyfill/src/index.js` → esbuild bundles into an IIFE →
 `globalThis.__pal_inject__` (see `polyfill/src/pal.js` and the header comment in
 `build.js`) → `qjsc -C -b` compiles to bytecode → written to
 `src/polyfill_default.c` and `dist/polyfill.bytecode`. `build.js` looks for
-`qjsc` at `QJSC` env var or `../third_party/quickjs-ng/build/qjsc`; the actual
-checkout lives at `quickjs-ng/` (root), so set `QJSC` if the default path is
+`qjsc` at `QJSC` env var or `../deps/quickjs-ng/build/qjsc`; the actual
+checkout lives at `deps/quickjs-ng/` (as a git submodule), so set `QJSC` if the default path is
 wrong. The polyfill is injected into a context by `qwrt_inject_polyfill_ctx`
 (bridge.c), which sets `__pal_inject__` to a `pal` JS object for the duration of
 the eval.
@@ -143,21 +143,21 @@ The runtime is layered. Read these together to understand it:
 
 ## Repo layout notes
 
-- `libuv/` is a git submodule (the only true submodule). `mbedtls/`, `miniz/`,
-  and `quickjs-ng/` are **vendored source — checked directly into the repo as
-  trees, NOT submodules** (so `git submodule update --init` does not touch them).
+- `deps/` contains all third-party dependencies as **git submodules** with
+  pinned versions: `libuv/` (v1.52.1), `mbedtls/` (v3.6.6), `miniz/` (3.1.2),
+  `quickjs-ng/` (v0.15.1), `wasm3/` (v0.5.0). `wamr/` is optional and must be
+  pre-built by hand if enabled (CMake errors give the exact commands).
   **All dependencies are built from source — qwrt links no system libraries.**
   Each is pulled in via `add_subdirectory(... EXCLUDE_FROM_ALL)` (never
   `execute_process`), so its `.o` files live in the main build tree and are
   subject to `-j` / incremental rebuild. Targets: quickjs-ng → `qjs` (C11),
   libuv → `uv_a` (C11, when `QWRT_PAL_UV`), mbedtls → `mbedtls`/`mbedx509`/
   `mbedcrypto` (C99, when `QWRT_WITH_TLS`/`QWRT_WITH_CRYPTO_EXT`), miniz →
-  `miniz` (C90, when `QWRT_WITH_COMPRESS`). qwrt's C99 / `-Werror` are PRIVATE
-  to the qwrt targets only — vendored deps compile under their own standard.
-  `wasm3`/`wamr` are optional and must be pre-built by hand if enabled (CMake
-  errors give the exact commands).
-- **Never edit vendored dep source** (`mbedtls/`, `libuv/`, `quickjs-ng/`,
-  `miniz/`) — control them only via CMake variables/options in the root
-  `CMakeLists.txt`.
+  `miniz` (C90, when `QWRT_WITH_COMPRESS`), wasm3 → `m3` (C99, when
+  `QWRT_WITH_WASM3`). qwrt's C99 / `-Werror` are PRIVATE to the qwrt targets
+  only — vendored deps compile under their own standard.
+- **Never edit vendored dep source** — control them only via CMake
+  variables/options in the root `CMakeLists.txt`. Deps are pinned to specific
+  git tags; update by checking out the desired tag in the submodule.
 - `docs/` has design docs (`qwrt-architecture-design.md`, `pal-design.md`,
   `esp32s3-design.md`) — the architecture doc is in Chinese.

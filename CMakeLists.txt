@@ -26,7 +26,7 @@ option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
 option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 
 if(QWRT_WITH_TLS)
-    set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mbedtls")
+    set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/mbedtls")
     set(MBEDTLS_INCLUDE_DIR "${MBEDTLS_SRC_DIR}/include")
 
     if(EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
@@ -38,7 +38,7 @@ if(QWRT_WITH_TLS)
         set(USE_SHARED_MBEDTLS_LIBRARY    OFF CACHE BOOL "" FORCE)
         set(MBEDTLS_FATAL_WARNINGS        OFF CACHE BOOL "" FORCE)
 
-        add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+        add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/mbedtls EXCLUDE_FROM_ALL)
 
         # Static targets — names are mbedtls/mbedx509/mbedcrypto (the _static
         # suffix is only added when BOTH static and shared are built).
@@ -52,7 +52,7 @@ if(QWRT_WITH_TLS)
     else()
         set(MBEDTLS_FOUND FALSE)
         message(FATAL_ERROR "QWRT_WITH_TLS=ON but mbedTLS source not found. "
-            "Run: git submodule update --init mbedtls")
+            "Run: git submodule update --init deps/mbedtls")
     endif()
 endif()
 
@@ -60,11 +60,11 @@ endif()
 # miniz dependency (compression extension)
 # ============================================================================
 if(QWRT_WITH_COMPRESS)
-    set(MINIZ_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/miniz")
+    set(MINIZ_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/miniz")
     # Set PIC globally so miniz (added via add_subdirectory) compiles with -fPIC,
     # needed when linked into a shared library.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-    add_subdirectory(${MINIZ_SRC_DIR} ${CMAKE_BINARY_DIR}/miniz)
+    add_subdirectory(${MINIZ_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/miniz)
 
     message(STATUS "Compression support enabled (miniz)")
 endif()
@@ -80,7 +80,7 @@ if(QWRT_WITH_CRYPTO_EXT)
     # already added mbedtls via add_subdirectory and set MBEDCRYPTO_LIB to the
     # mbedcrypto_static target. Otherwise add the subdir here for crypto-only.
     if(NOT QWRT_WITH_TLS)
-        set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mbedtls")
+        set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/mbedtls")
         set(MBEDCRYPTO_INCLUDE_DIR "${MBEDTLS_SRC_DIR}/include")
 
         if(EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
@@ -89,11 +89,11 @@ if(QWRT_WITH_CRYPTO_EXT)
             set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
             set(MBEDTLS_FATAL_WARNINGS     OFF CACHE BOOL "" FORCE)
 
-            add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+            add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/mbedtls EXCLUDE_FROM_ALL)
             set(MBEDCRYPTO_LIB mbedcrypto)
         else()
             message(FATAL_ERROR "QWRT_WITH_CRYPTO_EXT=ON but mbedTLS source not found. "
-                "Run: git submodule update --init mbedtls")
+                "Run: git submodule update --init deps/mbedtls")
         endif()
     endif()
 
@@ -106,7 +106,7 @@ endif()
 # and adds install rules, so we save+restore those around the add_subdirectory
 # and disable its install/programs/tests/CLI to keep qwrt's build clean.
 # ============================================================================
-set(QUICKJS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng")
+set(QUICKJS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng")
 
 set(_qwrt_saved_c_standard       ${CMAKE_C_STANDARD})
 set(_qwrt_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
@@ -118,7 +118,7 @@ set(QJS_BUILD_EXAMPLES       OFF CACHE BOOL "" FORCE)
 set(QJS_BUILD_CLI_STATIC     OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS        OFF CACHE BOOL "" FORCE)
 
-add_subdirectory(${QUICKJS_DIR} ${CMAKE_BINARY_DIR}/quickjs-ng EXCLUDE_FROM_ALL)
+add_subdirectory(${QUICKJS_DIR} ${CMAKE_BINARY_DIR}/deps/quickjs-ng EXCLUDE_FROM_ALL)
 
 set(CMAKE_C_STANDARD         ${_qwrt_saved_c_standard})
 set(CMAKE_C_EXTENSIONS       ${_qwrt_saved_c_extensions})
@@ -158,7 +158,7 @@ endfunction()
 # WAMR dependency (optional)
 # ============================================================================
 if(QWRT_WITH_WAMR)
-    set(WAMR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wamr")
+    set(WAMR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/wamr")
     set(WAMR_BUILD_DIR "${WAMR_DIR}/build_lib")
     if(NOT EXISTS "${WAMR_BUILD_DIR}/libvmlib.a")
         message(FATAL_ERROR "WAMR not built. Run: cmake -B ${WAMR_BUILD_DIR} -S ${WAMR_DIR} -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_WASM_C_API=1 -DWAMR_BUILD_LIBC_BUILTIN=1 && cmake --build ${WAMR_BUILD_DIR}")
@@ -170,7 +170,7 @@ endif()
 # wasm3 dependency (optional) — built from source via add_subdirectory
 # ============================================================================
 if(QWRT_WITH_WASM3)
-    set(WASM3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wasm3")
+    set(WASM3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/wasm3")
     set(WASM3_SRC_DIR "${WASM3_DIR}/source")
     if(EXISTS "${WASM3_SRC_DIR}/CMakeLists.txt")
         # qwrt's wasm3 ext is a pure-sandbox model — no WASI, no host APIs.
@@ -178,11 +178,11 @@ if(QWRT_WITH_WASM3)
         # undefined, so m3_api_wasi.c compiles to nothing and needs no POSIX
         # feature macros.
         set(BUILD_WASI "none" CACHE STRING "wasm3 WASI mode (none)" FORCE)
-        add_subdirectory(${WASM3_SRC_DIR} ${CMAKE_BINARY_DIR}/wasm3 EXCLUDE_FROM_ALL)
+        add_subdirectory(${WASM3_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/wasm3 EXCLUDE_FROM_ALL)
         message(STATUS "wasm3 enabled — building m3 from source (no WASI)")
     else()
         message(FATAL_ERROR "QWRT_WITH_WASM3=ON but wasm3 source not found. "
-            "Run: git submodule update --init wasm3")
+            "Run: git submodule update --init deps/wasm3")
     endif()
 endif()
 
@@ -277,7 +277,7 @@ endif()
 # otherwise it is skipped (pal_mock / pal_freertos cover other platforms).
 # ============================================================================
 if(QWRT_PAL_UV)
-    set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libuv")
+    set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv")
 
     if(EXISTS "${LIBUV_SRC_DIR}/CMakeLists.txt")
         # libuv via add_subdirectory. Its CMake mutates global CMAKE_C_STANDARD
@@ -291,7 +291,7 @@ if(QWRT_PAL_UV)
         set(LIBUV_BUILD_TESTS  OFF CACHE BOOL "" FORCE)
         set(LIBUV_BUILD_BENCH  OFF CACHE BOOL "" FORCE)
 
-        add_subdirectory(${LIBUV_SRC_DIR} ${CMAKE_BINARY_DIR}/libuv EXCLUDE_FROM_ALL)
+        add_subdirectory(${LIBUV_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/libuv EXCLUDE_FROM_ALL)
 
         set(CMAKE_C_EXTENSIONS           ${_qwrt_saved_c_extensions})
         set(CMAKE_C_STANDARD             ${_qwrt_saved_c_standard})
@@ -316,7 +316,7 @@ if(QWRT_PAL_UV)
     else()
         set(LIBUV_FOUND FALSE)
         message(STATUS "QWRT_PAL_UV=ON but libuv source not found -- pal_uv skipped. "
-                       "Run: git submodule update --init libuv")
+                       "Run: git submodule update --init deps/libuv")
     endif()
 else()
     set(LIBUV_FOUND FALSE)
