@@ -1550,6 +1550,12 @@ static void test_crypto_subtle(qwrt_t *rt) {
     js_assert_truthy(rt, "typeof crypto.subtle.digest === 'function'", "crypto.subtle.digest");
     js_assert_truthy(rt, "typeof CryptoKey === 'function'", "CryptoKey is function");
 
+#ifndef QWRT_WITH_CRYPTO_EXT
+    /* Operational crypto.subtle (digest/HMAC/AES/PBKDF2) needs the native
+     * crypto extension (pal.nativeDigest etc.). Without it the polyfill
+     * defines the API surface but rejects every operation. */
+    printf("  SKIP crypto.subtle ops (QWRT_WITH_CRYPTO_EXT off)\n");
+#else
     /* SHA-256 digest */
     qwrt_pal_t *pal;
     qwrt_t *rt2 = create_runtime(&pal);
@@ -1669,6 +1675,7 @@ static void test_crypto_subtle(qwrt_t *rt) {
 
     qwrt_destroy(rt2);
     pal_mock_destroy(pal);
+#endif
 }
 
 /* ================================================================
