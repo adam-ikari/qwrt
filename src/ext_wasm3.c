@@ -12,6 +12,14 @@
 #include "qwrt_internal.h"
 #include <string.h>
 
+/* QuickJS registers getter/setter functions via JS_NewCFunction2, which takes
+ * a JSCFunction* — requiring a cast from the typed getter (ctx,this_val) /
+ * setter (ctx,this_val,val) signatures. The cast is safe: QuickJS dispatches
+ * by the cfunc_type arg (JS_CFUNC_getter/setter), not the pointer type. */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+
 #ifdef QWRT_HAS_WASM3
 #include "wasm3.h"
 #include "m3_env.h"
@@ -102,8 +110,7 @@ static void wasm3_memory_finalizer(JSRuntime *rt, JSValue val);
 static void wasm3_table_finalizer(JSRuntime *rt, JSValue val);
 static void wasm3_global_finalizer(JSRuntime *rt, JSValue val);
 
-static JSValue wasm3_table_length_get(JSContext *ctx, JSValueConst this_val,
-                                       int argc, JSValueConst *argv);
+static JSValue wasm3_table_length_get(JSContext *ctx, JSValueConst this_val);
 static JSValue wasm3_table_get(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv);
 static JSValue wasm3_table_set(JSContext *ctx, JSValueConst this_val,
@@ -111,10 +118,9 @@ static JSValue wasm3_table_set(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_table_grow(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv);
 
-static JSValue wasm3_global_value_get(JSContext *ctx, JSValueConst this_val,
-                                       int argc, JSValueConst *argv);
+static JSValue wasm3_global_value_get(JSContext *ctx, JSValueConst this_val);
 static JSValue wasm3_global_value_set(JSContext *ctx, JSValueConst this_val,
-                                       int argc, JSValueConst *argv);
+                                       JSValueConst val);
 static JSValue wasm3_global_valueOf(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv);
 
@@ -1212,7 +1218,7 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
 
                 JSAtom len_atom = JS_NewAtom(ctx, "length");
                 JS_DefinePropertyGetSet(ctx, tbl_obj, len_atom,
-                    JS_NewCFunction2(ctx, wasm3_table_length_get, "get length", 0, JS_CFUNC_getter, 0),
+                    JS_NewCFunction2(ctx, (JSCFunction *)wasm3_table_length_get, "get length", 0, JS_CFUNC_getter, 0),
                     JS_UNDEFINED, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
                 JS_FreeAtom(ctx, len_atom);
 
@@ -1253,8 +1259,8 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
 
         JSAtom val_atom = JS_NewAtom(ctx, "value");
         JS_DefinePropertyGetSet(ctx, gobj, val_atom,
-            JS_NewCFunction2(ctx, wasm3_global_value_get, "get value", 0, JS_CFUNC_getter, 0),
-            JS_NewCFunction2(ctx, wasm3_global_value_set, "set value", 0, JS_CFUNC_setter, 0),
+            JS_NewCFunction2(ctx, (JSCFunction *)wasm3_global_value_get, "get value", 0, JS_CFUNC_getter, 0),
+            JS_NewCFunction2(ctx, (JSCFunction *)wasm3_global_value_set, "set value", 0, JS_CFUNC_setter, 0),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
         JS_FreeAtom(ctx, val_atom);
 
@@ -1376,10 +1382,8 @@ static JSValue wasm3_memory_constructor(JSContext *ctx, JSValueConst new_target,
  * WebAssembly.Table methods
  * ================================================================ */
 
-static JSValue wasm3_table_length_get(JSContext *ctx, JSValueConst this_val,
-                                       int argc, JSValueConst *argv)
+static JSValue wasm3_table_length_get(JSContext *ctx, JSValueConst this_val)
 {
-    QWRT_UNUSED(argc); QWRT_UNUSED(argv);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_table_wrap_t *wrap = (wasm3_table_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_table_class_id);
@@ -1509,7 +1513,7 @@ static JSValue wasm3_table_constructor(JSContext *ctx, JSValueConst new_target,
 
     JSAtom length_atom = JS_NewAtom(ctx, "length");
     JS_DefinePropertyGetSet(ctx, obj, length_atom,
-        JS_NewCFunction2(ctx, wasm3_table_length_get, "get length", 0, JS_CFUNC_getter, 0),
+        JS_NewCFunction2(ctx, (JSCFunction *)wasm3_table_length_get, "get length", 0, JS_CFUNC_getter, 0),
         JS_UNDEFINED, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
     JS_FreeAtom(ctx, length_atom);
 
@@ -1527,10 +1531,8 @@ static JSValue wasm3_table_constructor(JSContext *ctx, JSValueConst new_target,
  * WebAssembly.Global value getter/setter/valueOf
  * ================================================================ */
 
-static JSValue wasm3_global_value_get(JSContext *ctx, JSValueConst this_val,
-                                       int argc, JSValueConst *argv)
+static JSValue wasm3_global_value_get(JSContext *ctx, JSValueConst this_val)
 {
-    QWRT_UNUSED(argc); QWRT_UNUSED(argv);
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_global_wrap_t *wrap = (wasm3_global_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_global_class_id);
@@ -1556,12 +1558,10 @@ static JSValue wasm3_global_value_get(JSContext *ctx, JSValueConst this_val,
 }
 
 static JSValue wasm3_global_value_set(JSContext *ctx, JSValueConst this_val,
-                                      int argc, JSValueConst *argv)
+                                      JSValueConst val)
 {
     qwrt_t *rt = get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
-    if (argc < 1) return JS_ThrowTypeError(ctx, "value setter requires 1 arg");
-    JSValueConst val = argv[0];
     wasm3_global_wrap_t *wrap = (wasm3_global_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_global_class_id);
     if (!wrap) return JS_UNDEFINED;
     if (!wrap->is_mutable) {
@@ -1592,7 +1592,8 @@ static JSValue wasm3_global_value_set(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_global_valueOf(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
 {
-    return wasm3_global_value_get(ctx, this_val, argc, argv);
+    (void)argc; (void)argv;
+    return wasm3_global_value_get(ctx, this_val);
 }
 
 /* ================================================================
@@ -1648,8 +1649,8 @@ static JSValue wasm3_global_constructor(JSContext *ctx, JSValueConst new_target,
 
     JSAtom value_atom = JS_NewAtom(ctx, "value");
     JS_DefinePropertyGetSet(ctx, obj, value_atom,
-        JS_NewCFunction2(ctx, wasm3_global_value_get, "get value", 0, JS_CFUNC_getter, 0),
-        JS_NewCFunction2(ctx, wasm3_global_value_set, "set value", 0, JS_CFUNC_setter, 0),
+        JS_NewCFunction2(ctx, (JSCFunction *)wasm3_global_value_get, "get value", 0, JS_CFUNC_getter, 0),
+        JS_NewCFunction2(ctx, (JSCFunction *)wasm3_global_value_set, "set value", 0, JS_CFUNC_setter, 0),
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
     JS_FreeAtom(ctx, value_atom);
 

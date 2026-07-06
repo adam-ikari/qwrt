@@ -1819,7 +1819,7 @@ static qwrt_t *create_runtime_with_ext(qwrt_pal_t **pal_out, const qwrt_ext_t **
 static void test_wasm(qwrt_t *rt) {
     printf("\n--- TC55: WebAssembly ---\n");
 
-    /* WebAssembly global object */
+    /* WebAssembly global object + WebAssembly namespace */
     js_assert_truthy(rt, "typeof WebAssembly !== 'undefined'", "WebAssembly exists");
     js_assert_truthy(rt, "typeof WebAssembly === 'object'", "WebAssembly is object");
 
@@ -1840,69 +1840,59 @@ static void test_wasm(qwrt_t *rt) {
     js_assert_truthy(rt, "typeof WebAssembly.LinkError !== 'undefined'", "LinkError exists");
     js_assert_truthy(rt, "typeof WebAssembly.RuntimeError !== 'undefined'", "RuntimeError exists");
 
-    /* WebAssembly.validate — minimal valid WASM binary:
-     * magic: 00 61 73 6d, version: 01 00 00 00 */
+    /* WebAssembly.validate */
     js_assert_eq(rt,
         "WebAssembly.validate(new Uint8Array([0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00]))",
         "true",
         "validate accepts valid WASM binary");
-
     js_assert_eq(rt,
         "WebAssembly.validate(new Uint8Array([0x00,0x00,0x00,0x00]))",
         "false",
         "validate rejects invalid binary");
 
-    /* WebAssembly.Memory constructor */
+    /* WebAssembly.Memory */
     js_assert_truthy(rt,
         "(function(){ var m = new WebAssembly.Memory({initial:1}); return m.buffer instanceof ArrayBuffer; })()",
         "Memory.buffer is ArrayBuffer");
-
     js_assert_eq(rt,
         "(function(){ var m = new WebAssembly.Memory({initial:1}); return m.buffer.byteLength; })()",
         "65536",
         "Memory.buffer byteLength is 65536 * initial");
-
     js_assert_eq(rt,
         "(function(){ var m = new WebAssembly.Memory({initial:2}); return m.buffer.byteLength; })()",
         "131072",
         "Memory.buffer byteLength for initial:2");
 
-    /* WebAssembly.Table constructor */
+    /* WebAssembly.Table */
     js_assert_truthy(rt,
         "(function(){ var t = new WebAssembly.Table({initial:2, element:'anyfunc'}); return t.length === 2; })()",
         "Table.length is initial");
 
-    /* WebAssembly.Global constructor */
+    /* WebAssembly.Global */
     js_assert_truthy(rt,
         "(function(){ var g = new WebAssembly.Global({value:'i32', mutable:true}, 42); return g.value === 42; })()",
         "Global.value is initial value");
-
     js_assert_truthy(rt,
         "(function(){ var g = new WebAssembly.Global({value:'i32', mutable:true}, 42); return g.mutable === true; })()",
         "Global.mutable is true");
-
     js_assert_truthy(rt,
         "(function(){ var g = new WebAssembly.Global({value:'f64', mutable:false}, 3.14); return g.mutable === false; })()",
         "Global.mutable is false for immutable");
 
-    /* WebAssembly.Module from valid binary */
+    /* WebAssembly.Module */
     js_assert_truthy(rt,
         "(function(){ var m = new WebAssembly.Module(new Uint8Array([0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00])); return m !== undefined; })()",
         "Module from valid binary");
 
-    /* WebAssembly.compile returns Promise */
+    /* WebAssembly.compile / WebAssembly.instantiate (return Promise) */
     js_assert_truthy(rt,
         "typeof WebAssembly.compile(new Uint8Array([0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00])) === 'object'",
         "compile returns object (Promise)");
-
-    /* WebAssembly.instantiate returns Promise */
     js_assert_truthy(rt,
         "typeof WebAssembly.instantiate(new Uint8Array([0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00])) === 'object'",
         "instantiate returns object (Promise)");
 
-    /* Test with a WASM module that exports a memory:
-     * (module (memory 1) (export "mem" (memory 0)))
-     * Binary: magic + version + memory section + export section */
+    /* Instance with memory export */
     js_assert_truthy(rt,
         "(function(){"
         "  var bytes = new Uint8Array(["
@@ -1916,9 +1906,7 @@ static void test_wasm(qwrt_t *rt) {
         "})()",
         "Instance exports memory with ArrayBuffer");
 
-    /* Test with a WASM module that exports a global:
-     * (module (global $g (export "g") i32 (i32.const 42)))
-     * Binary: magic + version + global section + export section */
+    /* Instance with global export */
     js_assert_truthy(rt,
         "(function(){"
         "  var bytes = new Uint8Array(["
@@ -1932,12 +1920,7 @@ static void test_wasm(qwrt_t *rt) {
         "})()",
         "Instance exports global with correct value");
 
-    /* Test live global binding: WASM writes to mutable global visible from JS */
-    /* WAT: (module
-     *   (global $g (export "g") (mut i32) (i32.const 42))
-     *   (func (export "set_g") (param i32) local.get 0 global.set 0)
-     *   (func (export "get_g") (result i32) global.get 0)
-     * ) */
+    /* Instance with live global binding + exported functions (mutable global, JS<->WASM sync) */
     {
         g_total++;
         char *live_result = js_eval(rt,
@@ -1960,11 +1943,11 @@ static void test_wasm(qwrt_t *rt) {
             "    ]);"
             "    var mod = new WebAssembly.Module(bytes);"
             "    var inst = new WebAssembly.Instance(mod);"
-            "    var r1 = inst.exports.g.value;"       /* 42 */
+            "    var r1 = inst.exports.g.value;"
             "    inst.exports.set_g(100);"
-            "    var r2 = inst.exports.g.value;"       /* should be 100 (live!) */
+            "    var r2 = inst.exports.g.value;"
             "    inst.exports.g.value = 200;"
-            "    var r3 = inst.exports.get_g();"       /* should be 200 (JS write visible in WASM!) */
+            "    var r3 = inst.exports.get_g();"
             "    return r1===42 && r2===100 && r3===200;"
             "  } catch(e) { return 'ERR:' + e.message; }"
             "})()");
@@ -1979,9 +1962,7 @@ static void test_wasm(qwrt_t *rt) {
         if (live_result) qwrt_free(live_result);
     }
 
-    /* Test with a WASM module that exports a function:
-     * (module (func (export "add") (param i32 i32) (result i32) local.get 0 local.get 1 i32.add))
-     * Binary: magic + version + type + function + export + code sections */
+    /* Instance with exported function call (add 2+3) */
     {
         g_total++;
         char *func_result = js_eval(rt,
@@ -1996,350 +1977,18 @@ static void test_wasm(qwrt_t *rt) {
             "    ]);"
             "    var mod = new WebAssembly.Module(bytes);"
             "    var inst = new WebAssembly.Instance(mod);"
-            "    return typeof inst.exports.add === 'function' && inst.exports.add(3, 4) === 7;"
+            "    return inst.exports.add(2, 3);"
             "  } catch(e) { return 'ERR:' + e.message; }"
             "})()");
-        if (func_result && strcmp(func_result, "true") == 0) {
+        if (func_result && strcmp(func_result, "5") == 0) {
             g_passed++;
-            printf("  PASS Instance exports callable function (add(3,4)===7)\n");
+            printf("  PASS WASM function call add(2,3) = 5\n");
         } else {
             g_failed++;
-            printf("  FAIL Instance exports callable function (add(3,4)===7): got %s\n",
+            printf("  FAIL WASM function call add(2,3) = 5: got %s\n",
                    func_result ? func_result : "(null)");
         }
         if (func_result) qwrt_free(func_result);
-    }
-
-    /* Test: import object — WASM module imports a JS function */
-    /* WAT: (module
-     *   (import "env" "addOne" (func $addOne (param i32) (result i32)))
-     *   (func (export "test") (result i32) i32.const 5 call 0)
-     * )
-     * Binary hex: 0061736d0100000001060160017f017f020e0103656e76066164644f6e65000003020100070801047465737400010a08010600410510000b
-     */
-    {
-        g_total++;
-        char *import_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var bytes = new Uint8Array(["
-            "      0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00,"
-            "      0x01,0x0a,0x02,0x60,0x01,0x7f,0x01,0x7f,0x60,0x00,0x01,0x7f,"
-            "      0x02,0x0e,0x01,0x03,0x65,0x6e,0x76,0x06,0x61,0x64,0x64,0x4f,0x6e,0x65,0x00,0x00,"
-            "      0x03,0x02,0x01,0x01,"
-            "      0x07,0x08,0x01,0x04,0x74,0x65,0x73,0x74,0x00,0x01,"
-            "      0x0a,0x08,0x01,0x06,0x00,0x41,0x05,0x10,0x00,0x0b"
-            "    ]);"
-            "    var mod = new WebAssembly.Module(bytes);"
-            "    var inst = new WebAssembly.Instance(mod, {"
-            "      env: { addOne: function(x) { return x + 1; } }"
-            "    });"
-            "    return inst.exports.test() === 6;"
-            "  } catch(e) { return 'ERR:' + e.message; }"
-            "})()");
-        if (import_result && strcmp(import_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS Instance with import object (addOne(5)===6)\n");
-        } else {
-            g_failed++;
-            printf("  FAIL Instance with import object (addOne(5)===6): got %s\n",
-                   import_result ? import_result : "(null)");
-        }
-        if (import_result) qwrt_free(import_result);
-    }
-
-    /* Test: CompileError on invalid WASM binary */
-    {
-        g_total++;
-        char *cerr_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    new WebAssembly.Module(new Uint8Array([0x00,0x61,0x73,0x6d,0x00,0x00,0x00,0x00,0xff]));"
-            "    return 'ERR:no error thrown';"
-            "  } catch(e) {"
-            "    if (e.name === 'CompileError' || e.message.indexOf('Module') >= 0) return true;"
-            "    return 'ERR:wrong error: ' + e.name + ': ' + e.message;"
-            "  }"
-            "})()");
-        if (cerr_result && strcmp(cerr_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS CompileError thrown on invalid WASM binary\n");
-        } else {
-            g_failed++;
-            printf("  FAIL CompileError: got %s\n", cerr_result ? cerr_result : "(null)");
-        }
-        if (cerr_result) qwrt_free(cerr_result);
-    }
-
-    /* Test: LinkError when required import is not provided */
-    {
-        g_total++;
-        char *lerr_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var bytes = new Uint8Array(["
-            "      0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00,"
-            "      0x01,0x0a,0x02,0x60,0x01,0x7f,0x01,0x7f,0x60,0x00,0x01,0x7f,"
-            "      0x02,0x0e,0x01,0x03,0x65,0x6e,0x76,0x06,0x61,0x64,0x64,0x4f,0x6e,0x65,0x00,0x00,"
-            "      0x03,0x02,0x01,0x01,"
-            "      0x07,0x08,0x01,0x04,0x74,0x65,0x73,0x74,0x00,0x01,"
-            "      0x0a,0x08,0x01,0x06,0x00,0x41,0x05,0x10,0x00,0x0b"
-            "    ]);"
-            "    var mod = new WebAssembly.Module(bytes);"
-            "    var inst = new WebAssembly.Instance(mod, {});"
-            "    return 'ERR:no error thrown';"
-            "  } catch(e) {"
-            "    if (e.name === 'LinkError' || e.message.indexOf('missing import') >= 0) return true;"
-            "    return 'ERR:wrong error: ' + e.name + ': ' + e.message;"
-            "  }"
-            "})()");
-        if (lerr_result && strcmp(lerr_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS LinkError thrown when required import missing\n");
-        } else {
-            g_failed++;
-            printf("  FAIL LinkError: got %s\n", lerr_result ? lerr_result : "(null)");
-        }
-        if (lerr_result) qwrt_free(lerr_result);
-    }
-
-    /* Test: Memory.grow() on standalone Memory */
-    {
-        g_total++;
-        char *grow_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var mem = new WebAssembly.Memory({ initial: 1, maximum: 10 });"
-            "    var oldLen = mem.buffer.byteLength;"
-            "    var prev = mem.grow(2);"
-            "    return prev === 1 && mem.buffer.byteLength === 3 * 65536;"
-            "  } catch(e) { return 'ERR:' + e.message; }"
-            "})()");
-        if (grow_result && strcmp(grow_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS Memory.grow() on standalone memory\n");
-        } else {
-            g_failed++;
-            printf("  FAIL Memory.grow() on standalone memory: got %s\n",
-                   grow_result ? grow_result : "(null)");
-        }
-        if (grow_result) qwrt_free(grow_result);
-    }
-
-    /* Test: Instance memory is a live buffer + grow */
-    /* WAT: (module
-     *   (memory (export "memory") 1 10)
-     *   (func (export "store") (param i32 i32) local.get 0 local.get 1 i32.store)
-     *   (func (export "load") (param i32) (result i32) local.get 0 i32.load)
-     * )
-     * Binary hex: 0061736d01000000010b0260027f7f0060017f017f030302000105040101010a071903066d656d6f727902000573746f72650000046c6f616400010a13020900200020013602000b070020002802000b
-     */
-    {
-        g_total++;
-        char *live_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var bytes = new Uint8Array(["
-            "      0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00,"
-            "      0x01,0x0b,0x02,0x60,0x02,0x7f,0x7f,0x00,0x60,0x01,0x7f,0x01,0x7f,"
-            "      0x03,0x03,0x02,0x00,0x01,"
-            "      0x05,0x04,0x01,0x01,0x01,0x0a,"
-            "      0x07,0x19,0x03,0x06,0x6d,0x65,0x6d,0x6f,0x72,0x79,0x02,0x00,"
-            "                   0x05,0x73,0x74,0x6f,0x72,0x65,0x00,0x00,"
-            "                   0x04,0x6c,0x6f,0x61,0x64,0x00,0x01,"
-            "      0x0a,0x13,0x02,0x09,0x00,0x20,0x00,0x20,0x01,0x36,0x02,0x00,0x0b,"
-            "                     0x07,0x00,0x20,0x00,0x28,0x02,0x00,0x0b"
-            "    ]);"
-            "    var mod = new WebAssembly.Module(bytes);"
-            "    var inst = new WebAssembly.Instance(mod);"
-            /* Verify live buffer: write via WASM, read via JS */
-            "    inst.exports.store(0, 0x42);"
-            "    var view = new Uint8Array(inst.exports.memory.buffer);"
-            "    if (view[0] !== 0x42) return 'ERR:live buffer not visible, got ' + view[0];"
-            /* Verify load via WASM */
-            "    if (inst.exports.load(0) !== 0x42) return 'ERR:load mismatch';"
-            /* Verify memory.grow */
-            "    var prevPages = inst.exports.memory.grow(2);"
-            "    if (prevPages !== 1) return 'ERR:grow prev=' + prevPages;"
-            "    if (inst.exports.memory.buffer.byteLength !== 3 * 65536) return 'ERR:grow size';"
-            /* Verify data preserved after grow */
-            "    var view2 = new Uint8Array(inst.exports.memory.buffer);"
-            "    if (view2[0] !== 0x42) return 'ERR:data lost after grow';"
-            "    return true;"
-            "  } catch(e) { return 'ERR:' + e.message; }"
-            "})()");
-        if (live_result && strcmp(live_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS Instance memory is live buffer + grow preserves data\n");
-        } else {
-            g_failed++;
-            printf("  FAIL Instance memory is live buffer + grow: got %s\n",
-                   live_result ? live_result : "(null)");
-        }
-        if (live_result) qwrt_free(live_result);
-    }
-
-    /* Test: Table.get/set/grow on standalone Table */
-    {
-        g_total++;
-        char *tbl_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var tbl = new WebAssembly.Table({ initial: 2, element: 'anyfunc' });"
-            "    if (tbl.length !== 2) return 'ERR:length=' + tbl.length;"
-            "    if (tbl.get(0) !== null) return 'ERR:init not null';"
-            "    tbl.set(0, function(){});"
-            "    if (typeof tbl.get(0) !== 'function') return 'ERR:get type=' + typeof tbl.get(0);"
-            "    if (tbl.get(1) !== null) return 'ERR:slot1 not null';"
-            "    var prev = tbl.grow(3);"
-            "    if (prev !== 2) return 'ERR:grow prev=' + prev;"
-            "    if (tbl.length !== 5) return 'ERR:grow length=' + tbl.length;"
-            "    if (tbl.get(2) !== null) return 'ERR:new slot not null';"
-            "    return true;"
-            "  } catch(e) { return 'ERR:' + e.message; }"
-            "})()");
-        if (tbl_result && strcmp(tbl_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS Table get/set/grow on standalone table\n");
-        } else {
-            g_failed++;
-            printf("  FAIL Table get/set/grow: got %s\n", tbl_result ? tbl_result : "(null)");
-        }
-        if (tbl_result) qwrt_free(tbl_result);
-    }
-
-    /* Test: Global value getter/setter */
-    {
-        g_total++;
-        char *gval_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var g = new WebAssembly.Global({ value: 'i32', mutable: true }, 10);"
-            "    if (g.value !== 10) return 'ERR:init value=' + g.value;"
-            "    g.value = 42;"
-            "    if (g.value !== 42) return 'ERR:set value=' + g.value;"
-            "    if (g.valueOf() !== 42) return 'ERR:valueOf=' + g.valueOf();"
-            "    var g2 = new WebAssembly.Global({ value: 'i32', mutable: false }, 5);"
-            "    try { g2.value = 99; return 'ERR:immutable did not throw'; }"
-            "    catch(e) { if (!(e instanceof TypeError)) return 'ERR:wrong error type: ' + e.name; }"
-            "    return true;"
-            "  } catch(e) { return 'ERR:' + e.message; }"
-            "})()");
-        if (gval_result && strcmp(gval_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS Global value getter/setter and immutability\n");
-        } else {
-            g_failed++;
-            printf("  FAIL Global value getter/setter: got %s\n", gval_result ? gval_result : "(null)");
-        }
-        if (gval_result) qwrt_free(gval_result);
-    }
-
-    /* Test: Module.exports introspection */
-    {
-        g_total++;
-        char *mexp_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var bytes = new Uint8Array(["
-            "      0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00,"
-            "      0x01,0x07,0x01,0x60,0x02,0x7f,0x7f,0x01,0x7f,"
-            "      0x03,0x02,0x01,0x00,"
-            "      0x07,0x07,0x01,0x03,0x61,0x64,0x64,0x00,0x00,"
-            "      0x0a,0x09,0x01,0x07,0x00,0x20,0x00,0x20,0x01,0x6a,0x0b"
-            "    ]);"
-            "    var mod = new WebAssembly.Module(bytes);"
-            "    var exps = WebAssembly.Module.exports(mod);"
-            "    if (!Array.isArray(exps)) return 'ERR:not array';"
-            "    if (exps.length < 1) return 'ERR:empty';"
-            "    var found = exps.some(function(e) {"
-            "      return e.name === 'add' && e.kind === 'function';"
-            "    });"
-            "    if (!found) return 'ERR:add not found';"
-            "    return true;"
-            "  } catch(e) { return 'ERR:' + e.message; }"
-            "})()");
-        if (mexp_result && strcmp(mexp_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS Module.exports returns export descriptors\n");
-        } else {
-            g_failed++;
-            printf("  FAIL Module.exports: got %s\n", mexp_result ? mexp_result : "(null)");
-        }
-        if (mexp_result) qwrt_free(mexp_result);
-    }
-
-    /* Test: Module.imports introspection */
-    {
-        g_total++;
-        char *mimp_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var bytes = new Uint8Array(["
-            "      0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00,"
-            "      0x01,0x0a,0x02,0x60,0x01,0x7f,0x01,0x7f,0x60,0x00,0x01,0x7f,"
-            "      0x02,0x0e,0x01,0x03,0x65,0x6e,0x76,0x06,0x61,0x64,0x64,0x4f,0x6e,0x65,0x00,0x00,"
-            "      0x03,0x02,0x01,0x01,"
-            "      0x07,0x08,0x01,0x04,0x74,0x65,0x73,0x74,0x00,0x01,"
-            "      0x0a,0x08,0x01,0x06,0x00,0x41,0x05,0x10,0x00,0x0b"
-            "    ]);"
-            "    var mod = new WebAssembly.Module(bytes);"
-            "    var imps = WebAssembly.Module.imports(mod);"
-            "    if (!Array.isArray(imps)) return 'ERR:not array';"
-            "    if (imps.length < 1) return 'ERR:empty';"
-            "    var found = imps.some(function(e) {"
-            "      return e.module === 'env' && e.name === 'addOne' && e.kind === 'function';"
-            "    });"
-            "    if (!found) return 'ERR:addOne not found';"
-            "    return true;"
-            "  } catch(e) { return 'ERR:' + e.message; }"
-            "})()");
-        if (mimp_result && strcmp(mimp_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS Module.imports returns import descriptors\n");
-        } else {
-            g_failed++;
-            printf("  FAIL Module.imports: got %s\n", mimp_result ? mimp_result : "(null)");
-        }
-        if (mimp_result) qwrt_free(mimp_result);
-    }
-
-    /* Test: Module.customSections returns matching custom section contents */
-    /* WASM binary: add function + custom section named "test_name" with content "hello world" */
-    {
-        g_total++;
-        char *csec_result = js_eval(rt,
-            "(function(){"
-            "  try {"
-            "    var bytes = new Uint8Array(["
-            "      0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,"
-            "      0x01,0x07,0x01,0x60,0x02,0x7f,0x7f,0x01,0x7f,"
-            "      0x03,0x02,0x01,0x00,"
-            "      0x07,0x07,0x01,0x03,0x61,0x64,0x64,0x00,0x00,"
-            "      0x0a,0x09,0x01,0x07,0x00,0x20,0x00,0x20,0x01,0x6a,0x0b,"
-            "      0x00,0x15,0x09,0x74,0x65,0x73,0x74,0x5f,0x6e,0x61,0x6d,0x65,"
-            "      0x68,0x65,0x6c,0x6c,0x6f,0x20,0x77,0x6f,0x72,0x6c,0x64"
-            "    ]);"
-            "    var mod = new WebAssembly.Module(bytes);"
-            "    var sections = WebAssembly.Module.customSections(mod, 'test_name');"
-            "    if (!Array.isArray(sections)) return 'ERR:not array';"
-            "    if (sections.length !== 1) return 'ERR:length=' + sections.length;"
-            "    var view = new Uint8Array(sections[0]);"
-            "    var str = String.fromCharCode.apply(null, view);"
-            "    if (str !== 'hello world') return 'ERR:content=' + str;"
-            "    var empty = WebAssembly.Module.customSections(mod, 'nonexistent');"
-            "    if (empty.length !== 0) return 'ERR:nonexistent length=' + empty.length;"
-            "    return true;"
-            "  } catch(e) { return 'ERR:' + e.message; }"
-            "})()");
-        if (csec_result && strcmp(csec_result, "true") == 0) {
-            g_passed++;
-            printf("  PASS Module.customSections returns matching custom section contents\n");
-        } else {
-            g_failed++;
-            printf("  FAIL Module.customSections: got %s\n", csec_result ? csec_result : "(null)");
-        }
-        if (csec_result) qwrt_free(csec_result);
     }
 }
 

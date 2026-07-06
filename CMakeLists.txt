@@ -167,15 +167,23 @@ if(QWRT_WITH_WAMR)
 endif()
 
 # ============================================================================
-# wasm3 dependency (optional)
+# wasm3 dependency (optional) — built from source via add_subdirectory
 # ============================================================================
 if(QWRT_WITH_WASM3)
     set(WASM3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wasm3")
-    set(WASM3_BUILD_DIR "${WASM3_DIR}/build_lib")
-    if(NOT EXISTS "${WASM3_BUILD_DIR}/source/libm3.a")
-        message(FATAL_ERROR "wasm3 not built. Run: cmake -B ${WASM3_BUILD_DIR} -S ${WASM3_DIR} -DCMAKE_BUILD_TYPE=Release && cmake --build ${WASM3_BUILD_DIR}")
+    set(WASM3_SRC_DIR "${WASM3_DIR}/source")
+    if(EXISTS "${WASM3_SRC_DIR}/CMakeLists.txt")
+        # qwrt's wasm3 ext is a pure-sandbox model — no WASI, no host APIs.
+        # BUILD_WASI unset (not simple/metawasi/uvwasi) leaves d_m3HasWASI
+        # undefined, so m3_api_wasi.c compiles to nothing and needs no POSIX
+        # feature macros.
+        set(BUILD_WASI "none" CACHE STRING "wasm3 WASI mode (none)" FORCE)
+        add_subdirectory(${WASM3_SRC_DIR} ${CMAKE_BINARY_DIR}/wasm3 EXCLUDE_FROM_ALL)
+        message(STATUS "wasm3 enabled — building m3 from source (no WASI)")
+    else()
+        message(FATAL_ERROR "QWRT_WITH_WASM3=ON but wasm3 source not found. "
+            "Run: git submodule update --init wasm3")
     endif()
-    message(STATUS "wasm3 enabled — linking libm3.a")
 endif()
 
 # ============================================================================
@@ -224,9 +232,6 @@ if(QWRT_WITH_WAMR)
     target_compile_definitions(qwrt PUBLIC QWRT_HAS_WAMR=1)
 endif()
 if(QWRT_WITH_WASM3)
-    target_include_directories(qwrt PUBLIC
-        ${WASM3_DIR}/source
-    )
     target_compile_definitions(qwrt PUBLIC QWRT_HAS_WASM3=1)
 endif()
 if(QWRT_WITH_COMPRESS)
@@ -254,7 +259,7 @@ if(QWRT_WITH_WAMR)
     target_link_libraries(qwrt PUBLIC ${WAMR_BUILD_DIR}/libvmlib.a)
 endif()
 if(QWRT_WITH_WASM3)
-    target_link_libraries(qwrt PUBLIC ${WASM3_BUILD_DIR}/source/libm3.a)
+    target_link_libraries(qwrt PUBLIC m3)
 endif()
 if(QWRT_WITH_COMPRESS)
     target_link_libraries(qwrt PUBLIC miniz)
@@ -418,9 +423,8 @@ if(LIBUV_FOUND OR QWRT_PAL_MOCK)
         target_link_libraries(qwrt_full PUBLIC ${WAMR_BUILD_DIR}/libvmlib.a)
     endif()
     if(QWRT_WITH_WASM3)
-        target_include_directories(qwrt_full PUBLIC ${WASM3_DIR}/source)
         target_compile_definitions(qwrt_full PUBLIC QWRT_HAS_WASM3=1)
-        target_link_libraries(qwrt_full PUBLIC ${WASM3_BUILD_DIR}/source/libm3.a)
+        target_link_libraries(qwrt_full PUBLIC m3)
     endif()
 endif()
 
