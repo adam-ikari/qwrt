@@ -35,6 +35,15 @@ jobs:
 
   asan:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "crypto-ext on"
+            crypto_ext: "ON"
+          - name: "crypto-ext off (minimal)"
+            crypto_ext: "OFF"
+    name: asan (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,13 +54,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake pkg-config ninja-build
 
-      - name: Configure (ASan + crypto ext)
+      - name: Configure (ASan)
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DQWRT_BUILD_TESTS=ON \
             -DQWRT_WITH_WASM3=OFF \
             -DQWRT_WITH_WAMR=OFF \
+            -DQWRT_WITH_TLS=${{ matrix.crypto_ext }} \
+            -DQWRT_WITH_CRYPTO_EXT=${{ matrix.crypto_ext }} \
             -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
 
