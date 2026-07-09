@@ -1,0 +1,11 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: qwrt
+Description: embeddable QuickJS-ng runtime wrapper in C99
+Version: @PROJECT_VERSION@
+Requires: @_qwrt_pc_requires@
+Libs: -L${libdir} @_qwrt_pc_libs@ -lm
+Cflags: @_qwrt_pc_cflags@

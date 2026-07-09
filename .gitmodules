@@ -4,12 +4,12 @@
 [submodule "wasm3"]
 	path = deps/wasm3
 	url = https://github.com/wasm3/wasm3.git
-[submodule "deps/mbedtls"]
+[submodule "mbedtls"]
 	path = deps/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls.git
-[submodule "deps/miniz"]
+[submodule "miniz"]
 	path = deps/miniz
 	url = https://github.com/richgel999/miniz.git
-[submodule "deps/quickjs-ng"]
+[submodule "quickjs-ng"]
 	path = deps/quickjs-ng
 	url = https://github.com/quickjs-ng/quickjs.git
