@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef QWRT_DEBUG_SUPPORT
+#include "qwrt/qwrt_debug_dap.h"
+#endif
+
 /* ================================================================
  * qwrt_create - Create a new qwrt runtime with initial context
  * ================================================================ */
@@ -81,6 +85,33 @@ qwrt_t *qwrt_create(const qwrt_config_t *config)
     ctx->active = 1;
     rt->active_ctx_id = ctx->context_id;
 
+#ifdef QWRT_DEBUG_SUPPORT
+    /* Auto-attach the DAP debugger when enabled. Two activation paths, both
+     * funneling into qwrt_dap_attach + qwrt_dap_configure:
+     *   - env var QWRT_DEBUG=1  (host code unchanged — just run with the env)
+     *   - config->debug enable-bit (bit 1; bit 0 is the legacy verbose-log flag)
+     * qwrt_dap_configure blocks here reading DAP initialize/setBreakpoints/
+     * configurationDone from the client, so breakpoints are armed before the
+     * host's first qwrt_eval. stop_on_entry pauses at the first opcode. */
+    {
+        int enable = 0;
+        const char *env = getenv("QWRT_DEBUG");
+        if (env && (env[0] == '1' || env[0] == 't' || env[0] == 'T'))
+            enable = 1;
+        if (config->debug & 0x2)  /* bit 1 = debug-enable */
+            enable = 1;
+        if (enable) {
+            qwrt_dap_config_t dcfg;
+            dcfg.stop_on_entry = 1;
+            dcfg.in = NULL;   /* stdin */
+            dcfg.out = NULL;  /* stdout */
+            if (qwrt_dap_attach(rt, &dcfg) == 0) {
+                qwrt_dap_configure(rt);  /* blocks until configurationDone */
+            }
+        }
+    }
+#endif
+
     return rt;
 }
 
@@ -117,6 +148,14 @@ void qwrt_destroy(qwrt_t *rt)
     if (rt->jsrt) {
         JS_FreeRuntime(rt->jsrt);
     }
+
+#ifdef QWRT_DEBUG_SUPPORT
+    /* Detach the DAP debugger session if one was attached. */
+    if (rt->dbg_session) {
+        qwrt_dap_detach(rt);
+        rt->dbg_session = NULL;
+    }
+#endif
 
     /* Clear magic before freeing */
     rt->magic = 0;
@@ -194,7 +233,12 @@ void qwrt_defer_callback(qwrt_t *rt, void (*fn)(void *data), void *data)
     if (!rt || !fn) return;
 
     struct pal_deferred_cb *cb = malloc(sizeof(*cb));
-    if (!cb) return;
+    if (!cb) {
+        if (rt->debug) {
+            fprintf(stderr, "[qwrt] deferred callback allocation failed\n");
+        }
+        return;
+    }
     cb->fn = fn;
     cb->data = data;
     cb->next = NULL;
@@ -216,8 +260,11 @@ int qwrt_eval_bytecode(qwrt_t *rt, const uint8_t *bytecode, size_t len,
                        char **result)
 {
     if (!rt || !bytecode || len == 0) {
+        if (result) *result = NULL;
         return -1;
     }
+
+    if (result) *result = NULL;
 
     JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) {

@@ -1,0 +1,352 @@
+diff --git a/quickjs-opcode.h b/quickjs-opcode.h
+index ec2a5ad..402d288 100644
+--- a/quickjs-opcode.h
++++ b/quickjs-opcode.h
+@@ -371,6 +371,13 @@ DEF(   is_undefined, 1, 1, 1, none)
+ DEF(        is_null, 1, 1, 1, none)
+ DEF(typeof_is_undefined, 1, 1, 1, none)
+ DEF( typeof_is_function, 1, 1, 1, none)
++/* qwrt: emitted by the `debugger;` statement. The interpreter is a no-op
++ * unless a debugger is attached, in which case on_dispatch pauses.
++ * Appended at the END of the opcode table so adding it does NOT shift any
++ * existing opcode number -- shifting would break bytecode compatibility
++ * with pre-existing bytecode (e.g. the inlined polyfill), since short
++ * opcodes following `nop` overlap temporaries and are heavily used. */
++DEF(         debugger, 1, 0, 0, none)
+ 
+ #undef DEF
+ #undef def
+diff --git a/quickjs.c b/quickjs.c
+index 11caae0..1e41ae2 100644
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -314,6 +314,16 @@ struct JSRuntime {
+     JSInterruptHandler *interrupt_handler;
+     void *interrupt_opaque;
+ 
++    /* ---- qwrt debugger hooks (QWRT_DEBUG_SUPPORT) ----
++     * debugger_hooks is NULL when no debugger is attached; the dispatch
++     * loop's DEBUGGER_CHECK is a no-op in that case. When non-NULL, the
++     * step-mode fields below drive single-stepping. */
++    struct JSDebuggerHooks *debugger_hooks;
++    uint8_t  dbg_step_mode;        /* 0=none, 1=step_into, 2=step_over, 3=step_out */
++    uint32_t dbg_step_frame_depth; /* frame depth at step-over/out start */
++    JSAtom   dbg_step_filename;    /* 0 = any file */
++    int      dbg_step_line;        /* -1 = any line */
++
+     JSPromiseHook *promise_hook;
+     void *promise_hook_opaque;
+     // for smuggling the parent promise from js_promise_then
+@@ -2128,6 +2138,34 @@ void JS_SetCanBlock(JSRuntime *rt, bool can_block)
+     rt->can_block = can_block;
+ }
+ 
++/* ---- qwrt debugger dispatch hook ----
++ * Called once per opcode dispatch from JS_CallInternal when a debugger is
++ * attached (rt->debugger_hooks != NULL). Writes sf->cur_pc = pc FIRST so
++ * frame walkers / find_line_num see a live PC (see FIXME at the
++ * build_backtrace call site). When no debugger is attached, this is a
++ * single never-taken branch. Returns 0 to continue; the on_dispatch hook
++ * must also return 0 (it blocks internally to pause, then returns 0).
++ *
++ * Compiled out entirely unless QWRT_DEBUG_SUPPORT is defined, so non-debug
++ * builds pay zero per-opcode overhead. */
++#ifdef QWRT_DEBUG_SUPPORT
++static inline int js_debugger_check(JSContext *ctx, JSStackFrame *sf,
++                                    const uint8_t *pc)
++{
++    JSRuntime *rt = ctx->rt;
++    JSDebuggerHooks *h = rt->debugger_hooks;
++    if (likely(!h))
++        return 0;
++    sf->cur_pc = (uint8_t *)pc;
++    return h->on_dispatch(ctx, sf, pc, h->opaque);
++}
++#define DEBUGGER_CHECK(ctx, sf, pc) \
++    do { if (unlikely(js_debugger_check((ctx), (sf), (pc)) != 0)) goto exception; } while (0)
++#else
++#define DEBUGGER_CHECK(ctx, sf, pc) do { } while (0)
++#endif
++
++
+ void JS_SetSharedArrayBufferFunctions(JSRuntime *rt,
+                                       const JSSharedArrayBufferFunctions *sf)
+ {
+@@ -7720,6 +7758,169 @@ fail:
+     return b->line_num;
+ }
+ 
++/* ---- qwrt debugger API implementations ----
++ * All allocations use the QuickJS allocator (js_malloc/js_realloc/js_free/
++ * js_strdup) — quickjs.c redefines malloc/free/realloc as forbidden inside
++ * the engine. JS_FreeCallFrames frees with js_free, matching. */
++
++static const char *get_func_name(JSContext *ctx, JSValueConst func);
++
++void JS_SetDebuggerHandler(JSRuntime *rt, JSDebuggerHooks *hooks)
++{
++    rt->debugger_hooks = hooks;
++    rt->dbg_step_mode = 0;
++    rt->dbg_step_frame_depth = 0;
++    rt->dbg_step_filename = 0;
++    rt->dbg_step_line = -1;
++}
++
++int JS_PcToLine(JSContext *ctx, JSStackFrame *sf, const uint8_t *pc, int *col)
++{
++    *col = -1;
++    if (!sf || JS_IsUndefined(sf->cur_func))
++        return -1;
++    JSObject *p = JS_VALUE_GET_OBJ(sf->cur_func);
++    if (!js_class_has_bytecode(p->class_id))
++        return -1;
++    JSFunctionBytecode *b = p->u.func.function_bytecode;
++    if (!b->byte_code_buf)
++        return -1;
++    uint32_t pc_value = pc ? (uint32_t)(pc - b->byte_code_buf) : 0;
++    if (pc_value > 0)
++        pc_value -= 1; /* cur_pc points one past the executing opcode */
++    return find_line_num(ctx, b, pc_value, col);
++}
++
++int JS_IsDebuggerOpcode(const uint8_t *pc)
++{
++    return pc && *pc == OP_debugger;
++}
++
++JSDebugFrame *JS_GetCallFrames(JSContext *ctx, int *p_count)
++{
++    JSRuntime *rt = ctx->rt;
++    int count = 0, cap = 8;
++    JSDebugFrame *frames = js_malloc(ctx, sizeof(JSDebugFrame) * cap);
++    if (!frames)
++        return NULL;
++
++    JSStackFrame *sf;
++    for (sf = rt->current_stack_frame; sf != NULL; sf = sf->prev_frame) {
++        if (count >= cap) {
++            cap *= 2;
++            JSDebugFrame *nf = js_realloc(ctx, frames, sizeof(JSDebugFrame) * cap);
++            if (!nf) {
++                JS_FreeCallFrames(ctx, frames, count);
++                return NULL;
++            }
++            frames = nf;
++        }
++        JSDebugFrame *df = &frames[count];
++        memset(df, 0, sizeof(*df));
++        df->line = -1;
++        df->col = -1;
++
++        if (JS_IsUndefined(sf->cur_func)) {
++            df->func_name = js_strdup(ctx, "<detached>");
++            count++;
++            continue;
++        }
++        JSObject *p = JS_VALUE_GET_OBJ(sf->cur_func);
++        const char *fn = get_func_name(ctx, sf->cur_func);
++        df->func_name = (fn && fn[0]) ? js_strdup(ctx, fn) : js_strdup(ctx, "<anonymous>");
++        JS_FreeCString(ctx, fn);
++
++        if (js_class_has_bytecode(p->class_id)) {
++            JSFunctionBytecode *b = p->u.func.function_bytecode;
++            if (b->filename) {
++                const char *fs = JS_AtomToCString(ctx, b->filename);
++                df->filename = fs ? js_strdup(ctx, fs) : NULL;
++                JS_FreeCString(ctx, fs);
++            }
++            if (sf->cur_pc && b->byte_code_buf) {
++                uint32_t pcv = (uint32_t)(sf->cur_pc - b->byte_code_buf);
++                if (pcv > 0)
++                    pcv -= 1;
++                df->line = find_line_num(ctx, b, pcv, &df->col);
++            }
++            df->arg_count = b->arg_count;
++            df->var_count = b->var_count;
++            int n = (int)b->arg_count + (int)b->var_count;
++            if (n > 0 && b->vardefs) {
++                df->vars = js_malloc(ctx, sizeof(JSDebugVar) * n);
++                if (df->vars) {
++                    int i;
++                    for (i = 0; i < n; i++) {
++                        JSVarDef *vd = &b->vardefs[i];
++                        const char *nm = vd->var_name ? JS_AtomToCString(ctx, vd->var_name) : NULL;
++                        df->vars[i].name = nm ? js_strdup(ctx, nm) : NULL;
++                        JS_FreeCString(ctx, nm);
++                        df->vars[i].kind = (i < b->arg_count) ? 0 :
++                                            (vd->is_captured ? 2 : 1);
++                        df->vars[i].idx = (i < b->arg_count) ? (uint16_t)i :
++                                           (vd->is_captured ? vd->var_ref_idx
++                                                            : (uint16_t)(i - b->arg_count));
++                    }
++                }
++            }
++        }
++        count++;
++    }
++
++    *p_count = count;
++    return frames;
++}
++
++void JS_FreeCallFrames(JSContext *ctx, JSDebugFrame *frames, int count)
++{
++    if (!frames)
++        return;
++    int i, j;
++    for (i = 0; i < count; i++) {
++        js_free(ctx, frames[i].filename);
++        js_free(ctx, frames[i].func_name);
++        if (frames[i].vars) {
++            for (j = 0; j < frames[i].arg_count + frames[i].var_count; j++)
++                js_free(ctx, frames[i].vars[j].name);
++            js_free(ctx, frames[i].vars);
++        }
++    }
++    js_free(ctx, frames);
++}
++
++JSValue JS_GetFrameVariable(JSContext *ctx, int frame_index, int var_index)
++{
++    JSRuntime *rt = ctx->rt;
++    JSStackFrame *sf;
++    int i;
++    for (i = 0, sf = rt->current_stack_frame; sf != NULL && i < frame_index;
++         sf = sf->prev_frame, i++)
++        ;
++    if (!sf || JS_IsUndefined(sf->cur_func))
++        return JS_EXCEPTION;
++    JSObject *p = JS_VALUE_GET_OBJ(sf->cur_func);
++    if (!js_class_has_bytecode(p->class_id))
++        return JS_EXCEPTION;
++    JSFunctionBytecode *b = p->u.func.function_bytecode;
++    int n = (int)b->arg_count + (int)b->var_count;
++    if (var_index < 0 || var_index >= n || !b->vardefs)
++        return JS_EXCEPTION;
++    JSVarDef *vd = &b->vardefs[var_index];
++    if (var_index < b->arg_count) {
++        if (var_index >= sf->arg_count)
++            return JS_EXCEPTION;
++        return js_dup(sf->arg_buf[var_index]);
++    }
++    if (vd->is_captured) {
++        if (vd->var_ref_idx >= sf->var_ref_count || !sf->var_refs)
++            return JS_EXCEPTION;
++        return js_dup(*sf->var_refs[vd->var_ref_idx]->pvalue);
++    }
++    if (var_index - b->arg_count >= b->var_count)
++        return JS_EXCEPTION;
++    return js_dup(sf->var_buf[var_index - b->arg_count]);
++}
++
+ /* in order to avoid executing arbitrary code during the stack trace
+    generation, we only look at simple 'name' properties containing a
+    string. */
+@@ -17570,7 +17771,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+ #endif
+ 
+ #if !DIRECT_DISPATCH
+-#define SWITCH(pc)      DUMP_BYTECODE_OR_DONT(pc) switch (opcode = *pc++)
++#define SWITCH(pc)      DUMP_BYTECODE_OR_DONT(pc) DEBUGGER_CHECK(ctx, sf, pc) switch (opcode = *pc++)
+ #define CASE(op)        case op
+ #define DEFAULT         default
+ #define BREAK           break
+@@ -17581,7 +17782,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+ #include "quickjs-opcode.h"
+         [ OP_COUNT ... 255 ] = &&case_default
+     };
+-#define SWITCH(pc)      DUMP_BYTECODE_OR_DONT(pc) __extension__ ({ goto *dispatch_table[opcode = *pc++]; });
++#define SWITCH(pc)      DUMP_BYTECODE_OR_DONT(pc) __extension__ ({ DEBUGGER_CHECK(ctx, sf, pc); goto *dispatch_table[opcode = *pc++]; });
+ #define CASE(op)        case_ ## op
+ #define DEFAULT         case_default
+ #define BREAK           SWITCH(pc)
+@@ -20269,6 +20470,11 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+ 
+         CASE(OP_nop):
+             BREAK;
++        CASE(OP_debugger):
++            /* qwrt: the `debugger;` statement. on_dispatch (in DEBUGGER_CHECK
++             * via SWITCH) sees this opcode's line and pauses if a debugger is
++             * attached; here we just advance. No-op when detached. */
++            BREAK;
+         CASE(OP_is_undefined_or_null):
+             if (JS_VALUE_GET_TAG(sp[-1]) == JS_TAG_UNDEFINED ||
+                 JS_VALUE_GET_TAG(sp[-1]) == JS_TAG_NULL) {
+@@ -29590,7 +29796,9 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
+         break;
+ 
+     case TOK_DEBUGGER:
+-        /* currently no debugger, so just skip the keyword */
++        /* qwrt: emit OP_debugger so the attached debugger can pause here.
++         * The interpreter CASE is a no-op when no debugger is attached. */
++        emit_op(s, OP_debugger);
+         if (next_token(s))
+             goto fail;
+         if (js_parse_expect_semi(s))
+diff --git a/quickjs.h b/quickjs.h
+index 68d6f38..1a9b857 100644
+--- a/quickjs.h
++++ b/quickjs.h
+@@ -1139,6 +1139,62 @@ JS_EXTERN void JS_SetHostPromiseRejectionTracker(JSRuntime *rt, JSHostPromiseRej
+ /* return != 0 if the JS code needs to be interrupted */
+ typedef int JSInterruptHandler(JSRuntime *rt, void *opaque);
+ JS_EXTERN void JS_SetInterruptHandler(JSRuntime *rt, JSInterruptHandler *cb, void *opaque);
++
++/* ====== qwrt Debugger API ======
++ * Added by deps/quickjs-ng-debugger.patch. When a debugger is attached
++ * (JS_SetDebuggerHandler with a non-NULL hooks), the bytecode dispatch loop
++ * calls hooks->on_dispatch once per opcode. The handler must return 0 to
++ * continue; to pause it BLOCKS inside on_dispatch (e.g. pumping a debug
++ * protocol) until the host signals resume, then returns 0. It must NEVER
++ * return non-zero (that would abort via JS_ThrowInterrupted). */
++
++struct JSStackFrame; /* forward — internal type, exposed by name only */
++
++typedef struct JSDebuggerHooks {
++    int  (*on_dispatch)(JSContext *ctx, struct JSStackFrame *sf,
++                        const uint8_t *pc, void *opaque);
++    void *opaque;
++} JSDebuggerHooks;
++
++JS_EXTERN void JS_SetDebuggerHandler(JSRuntime *rt, JSDebuggerHooks *hooks);
++
++typedef struct JSDebugVar {
++    char    *name;      /* malloc'd atom string; NULL on failure */
++    int      kind;      /* 0=argument, 1=local var, 2=closure-captured (var_ref) */
++    uint16_t idx;       /* index into arg_buf (kind 0) / var_buf (kind 1) /
++                           var_refs (kind 2) */
++} JSDebugVar;
++
++typedef struct JSDebugFrame {
++    char    *filename;  /* malloc'd, may be NULL */
++    char    *func_name; /* malloc'd, "<anonymous>" if none */
++    int      line;      /* 1-based; -1 if unknown */
++    int      col;       /* 1-based; -1 if unknown */
++    int      arg_count;
++    int      var_count;
++    JSDebugVar *vars;   /* malloc'd array, arg_count+var_count entries */
++} JSDebugFrame;
++
++/* Walk rt->current_stack_frame via prev_frame. Returns a malloc'd array
++ * (caller frees with JS_FreeCallFrames) or NULL on OOM. Only valid on the JS
++ * thread (e.g. from inside on_dispatch while paused). */
++JS_EXTERN JSDebugFrame *JS_GetCallFrames(JSContext *ctx, int *p_count);
++JS_EXTERN void          JS_FreeCallFrames(JSContext *ctx, JSDebugFrame *frames, int count);
++
++/* Dup'd JSValue for the var at var_index in the frame at frame_index (0 =
++ * topmost = current). Caller MUST JS_FreeValue the result. JS_EXCEPTION on
++ * bad index. */
++JS_EXTERN JSValue JS_GetFrameVariable(JSContext *ctx, int frame_index,
++                                      int var_index);
++
++/* Map a frame's current pc to a 1-based line/col. -1 if unknown. */
++JS_EXTERN int JS_PcToLine(JSContext *ctx, struct JSStackFrame *sf,
++                          const uint8_t *pc, int *col);
++
++/* Returns 1 if pc points at the `debugger;` opcode (OP_debugger), else 0.
++ * Lets the attached debugger pause on `debugger;` statements. */
++JS_EXTERN int JS_IsDebuggerOpcode(const uint8_t *pc);
++
+ /* if can_block is true, Atomics.wait() can be used */
+ JS_EXTERN void JS_SetCanBlock(JSRuntime *rt, bool can_block);
+ /* set the [IsHTMLDDA] internal slot */
