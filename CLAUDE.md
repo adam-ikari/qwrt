@@ -52,7 +52,7 @@ params that would otherwise trip `-Wunused-parameter`.
 all per-runtime state (QuickJS class IDs, wasm3 environment) lives on
 `qwrt_t` (per-runtime, since one qwrt_t owns one JSRuntime and QuickJS
 classes are runtime-scoped). Recover `qwrt_t*` from a `JSContext*` via
-`get_rt_from_ctx(ctx)`, or from a `JSRuntime*` (finalizers) via
+`qwrt_get_rt_from_ctx(ctx)`, or from a `JSRuntime*` (finalizers) via
 `qwrt_get_rt_from_jsrt(jsrt)`. Deterministic lookup tables (e.g. CRC32) are
 `static const`.
 
@@ -123,6 +123,28 @@ The runtime is layered. Read these together to understand it:
 - **Event loop.** The host drives `pal->run_cycle(pal, timeout_ms)` then
   `qwrt_tick(rt)` in a loop. `run_cycle` is OPTIONAL (may be NULL → host pumps
   `qwrt_tick` itself).
+
+### Bridge layer discipline (`src/bridge.c`)
+
+The `js_pal_*` wrappers in `bridge.c` are the only C between the PAL (C
+function pointers) and the polyfill (JS, which closures over the `pal` JS
+object). C is *required* here for three things nothing else can do:
+
+1. **JSValue ↔ C conversion** (`JS_ToCString`, `JS_GetUint8Array`,
+   `JS_NewArrayBufferCopy`, `JS_NewString`, …) — the polyfill can't touch
+   QuickJS internal representations.
+2. **The PAL call** — invoking the `qwrt_pal_t` function pointer.
+3. **Promise + thread boundary** — `JS_NewPromiseCapability`, storing
+   resolve/reject handles, and `qwrt_defer_callback` so PAL callbacks (event
+   loop thread) replay as `JS_Call` on the runtime thread.
+
+**Everything else stays out of the bridge.** A `js_pal_*` wrapper should do
+*only* the three things above. In particular: input validation, default
+values, length caps, level mappings, and string formatting are **not** the
+bridge's job — they belong in the JS polyfill (caller-facing semantics) or
+the PAL implementation (platform policy), not in C. Keep the bridge thin.
+Example: the Web Crypto 65536-byte cap on `getRandomValues` lives in
+`polyfill/src/crypto.js`, not in `js_pal_random_bytes`.
 
 ## Conventions (from CONTRIBUTING.md)
 

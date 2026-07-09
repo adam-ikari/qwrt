@@ -3,7 +3,7 @@
 ## Development Setup
 
 ```bash
-git clone --recursive https://github.com/your-org/qwrt.git
+git clone --recursive https://github.com/adam-ikari/qwrt.git
 cd qwrt
 cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQWRT_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
@@ -51,9 +51,8 @@ refactor: unify WASM engine initialization
 1. Create `polyfill/src/<module>.js`
 2. Export globals via `globalThis.<name> = ...`
 3. Add to `polyfill/src/index.js` imports
-4. Run `cd polyfill && node build.js` to rebuild the bundle
-5. Run `qjsc -C -o src/polyfill_default.c -N polyfill_data polyfill.js`
-6. Test with `qwrt_eval(rt, "typeof <global> !== 'undefined'", &result)`
+4. Run `cd polyfill && npm run build` to bundle (esbuild) → compile to bytecode (qjsc) → regenerate `src/polyfill_default.c`
+5. Test with `qwrt_eval(rt, "typeof <global> !== 'undefined'", &result)`
 
 ## Pull Request Checklist
 

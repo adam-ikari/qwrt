@@ -6,7 +6,7 @@
  * drains the event loop, and tears down.
  *
  * Build: cmake -B build -DQWRT_BUILD_EXAMPLES=ON
- * Run:   ./build/examples/qwrt_minimal
+ * Run:   ./build/examples/example_minimal
  */
 #include <qwrt/qwrt.h>
 #include <pal_uv.h>

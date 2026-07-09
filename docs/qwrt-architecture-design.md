@@ -1,5 +1,7 @@
-# qwrt 架构设计文档
+# qwrt 架构设计文档 (Architecture Design — 中文)
 
+> **Note**: This document is in Chinese. For English documentation, see the [Guide](/guide/) and [PAL](/pal/) sections.
+>
 > **状态**：正式设计（2026-07-04）
 > **仓库**：独立 git 仓库
 > **版本**：0.1.0
