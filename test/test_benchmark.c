@@ -22,7 +22,6 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "test_qwrt.h"
 #include "qwrt/qwrt.h"
 #include "pal_mock.h"
 
