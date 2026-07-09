@@ -1008,8 +1008,11 @@ static int parse_http_response(pal_uv_http_op_t *op)
             op->body_expected = cl > SIZE_MAX ? SIZE_MAX : (size_t)cl;
         }
 
-        /* Check for Transfer-Encoding: chunked (case-insensitive) */
-        if (eol - hp > 26 && strncasecmp(hp, "Transfer-Encoding:", 18) == 0) {
+        /* Check for Transfer-Encoding: chunked (case-insensitive). Require
+         * >= 18 chars (header name + colon) - NOT > 26, which misses
+         * "Transfer-Encoding: chunked" (exactly 26 chars) exactly. Matches the
+         * streaming scanner's check below. */
+        if (eol - hp >= 18 && strncasecmp(hp, "Transfer-Encoding:", 18) == 0) {
             const char *val = hp + 18;
             while (val < eol && (*val == ' ' || *val == '\t')) val++;
             if (eol - val >= 7 && strncasecmp(val, "chunked", 7) == 0) {
@@ -1300,7 +1303,12 @@ static int process_chunked_body(pal_uv_http_op_t *op,
                 op->resp_buf_cap = new_cap;
             }
 
-            memcpy(op->resp_buf + write_pos, p, to_copy);
+            /* memmove, not memcpy: decoded bytes are compacted back into
+             * resp_buf starting at write_pos (header_end_offset) while the
+             * source chunk data p sits further in the same buffer - the
+             * regions overlap when a chunk's size line is shorter than its
+             * data, and memcpy on overlapping memory is UB. */
+            memmove(op->resp_buf + write_pos, p, to_copy);
             write_pos += to_copy;
             p += to_copy;
             op->chunk_remaining -= to_copy;
