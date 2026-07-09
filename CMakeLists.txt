@@ -38,6 +38,12 @@ if(QWRT_WITH_TLS)
         set(USE_SHARED_MBEDTLS_LIBRARY    OFF CACHE BOOL "" FORCE)
         set(MBEDTLS_FATAL_WARNINGS        OFF CACHE BOOL "" FORCE)
 
+        # Force PIC so the static mbedcrypto/mbedtls/mbedx509 archives can be
+        # linked into a shared library (e.g. ace-core's libace_node.so).
+        # CMAKE_POSITION_INDEPENDENT_CODE is a directory property that only
+        # applies to targets created *after* it is set, so it must precede
+        # the add_subdirectory call below.
+        set(CMAKE_POSITION_INDEPENDENT_CODE ON)
         add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
 
         # Static targets — names are mbedtls/mbedx509/mbedcrypto (the _static
@@ -89,6 +95,8 @@ if(QWRT_WITH_CRYPTO_EXT)
             set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
             set(MBEDTLS_FATAL_WARNINGS     OFF CACHE BOOL "" FORCE)
 
+            # Force PIC (same reason as the TLS block above).
+            set(CMAKE_POSITION_INDEPENDENT_CODE ON)
             add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
             set(MBEDCRYPTO_LIB mbedcrypto)
         else()
