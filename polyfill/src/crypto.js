@@ -20,6 +20,11 @@ export function setupCrypto(pal) {
       }
 
       var totalBytes = typedArray.length * typedArray.BYTES_PER_ELEMENT;
+      /* Web Crypto spec caps getRandomValues at 65536 bytes — enforced here
+       * in JS, not in the C bridge (the bridge does only data conversion). */
+      if (totalBytes > 65536) {
+        throw new DOMException('getRandomValues: requested length exceeds 65536 bytes', 'QuotaExceededError');
+      }
       var ab = pal.randomBytes(totalBytes);
       var src = new Uint8Array(ab);
 

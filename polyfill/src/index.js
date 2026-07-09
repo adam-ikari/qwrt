@@ -72,7 +72,7 @@ setupURLPattern();
 setupNavigatorReportError();
 
 // ================================================================
-// Extension APIs
+// Extension APIs (mounted on globalThis.qwrt.*)
 // ================================================================
 
 setupFS(pal);

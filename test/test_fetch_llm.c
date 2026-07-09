@@ -66,6 +66,9 @@ int main(int argc, char **argv)
     char *api_key = getenv("LLM_API_KEY");
     char *api_base = getenv("LLM_API_BASE");
     char *model = getenv("LLM_MODEL");
+    /* Owned (malloc'd) copies from extract_json_string - must be freed. Env vars
+     * and string literals above are not owned. */
+    char *owned_key = NULL, *owned_base = NULL, *owned_model = NULL;
 
     const char *home = getenv("HOME");
     if (home) {
@@ -73,9 +76,9 @@ int main(int argc, char **argv)
         snprintf(path, sizeof(path), "%s/.alpha/config.json", home);
         char *content = read_file(path);
         if (content) {
-            if (!api_base) api_base = extract_json_string(content, "llm_endpoint");
-            if (!api_key) api_key = extract_json_string(content, "llm_api_key");
-            if (!model) model = extract_json_string(content, "llm_model");
+            if (!api_base) api_base = owned_base = extract_json_string(content, "llm_endpoint");
+            if (!api_key) api_key = owned_key = extract_json_string(content, "llm_api_key");
+            if (!model) model = owned_model = extract_json_string(content, "llm_model");
             free(content);
         }
     }
@@ -132,6 +135,11 @@ int main(int argc, char **argv)
         "  _done = true;\n"
         "});\n",
         api_key, api_base, model);
+
+    /* Strings are no longer needed after building the JS source. */
+    free(owned_key);
+    free(owned_base);
+    free(owned_model);
 
     int rc = qwrt_eval(rt, code, NULL);
     if (rc != 0) {
