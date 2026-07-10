@@ -53,8 +53,8 @@ typedef struct qwrt_ctx_t {
     void *timer_cbds[QWRT_MAX_HANDLES];  /* pal_cb_data_t* for cleanup on timerStop */
     int handle_count;
 
-    const qwrt_ext_t **extensions;  /* NULL-terminated array, or NULL */
-    int extensions_dynamic;           /* 1 if extensions was malloc'd by qwrt_ext_register */
+    const qwrt_ext_t * const *extensions;  /* compile-time table (QWRT_EXTENSIONS), read-only */
+    int extensions_count;                    /* table length; iterate by count, skip NULL slots */
 
     /* Polyfill config saved for reset re-injection */
     const uint8_t *polyfill;
@@ -131,9 +131,6 @@ int qwrt_ext_init_all(qwrt_t *rt, qwrt_ctx_t *ctx);
 void qwrt_ext_destroy_all(qwrt_t *rt, qwrt_ctx_t *ctx);
 int qwrt_ext_suspend_all(qwrt_t *rt, qwrt_ctx_t *ctx);
 int qwrt_ext_resume_all(qwrt_t *rt, qwrt_ctx_t *ctx);
-
-/* extension.c — register a single extension on an active context at runtime */
-int qwrt_ext_register(qwrt_t *rt, qwrt_ctx_t *ctx, const qwrt_ext_t *ext);
 
 /* bridge.c — creates the internal pal JS object (per-context version) */
 JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx);

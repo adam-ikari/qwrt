@@ -29,7 +29,7 @@ int main(void) {
         return 1;
     }
 
-    qwrt_config_t config = { .pal = pal, .debug = 0, .extensions = NULL };
+    qwrt_config_t config = { .pal = pal, .debug = 0 };
 
     /* Compile a template on a throwaway runtime. */
     qwrt_t *compiler = qwrt_create(&config);

@@ -424,7 +424,6 @@ typedef struct qwrt_ext_t qwrt_ext_t;
 
 struct qwrt_ext_t {
     const char *name;
-    int version;
     int (*init)(qwrt_ext_t *ext, qwrt_t *rt);
     void (*destroy)(qwrt_ext_t *ext, qwrt_t *rt);
     int (*suspend)(qwrt_ext_t *ext, qwrt_t *rt);
@@ -439,7 +438,6 @@ struct qwrt_ext_t {
 typedef struct qwrt_config_t {
     const qwrt_pal_t *pal;
     int debug;
-    const qwrt_ext_t **extensions;  /* NULL-terminated array, or NULL */
 } qwrt_config_t;
 
 /* qwrt_t forward declaration already provided above */
@@ -452,8 +450,9 @@ struct JSContext;
  * ================================================================ */
 
 /* Create a qwrt runtime. The PAL in `config` is borrowed (not owned) and
- * must outlive the runtime. `config->extensions` (NULL-terminated, or NULL)
- * is registered on the initial context. Returns NULL on failure.
+ * must outlive the runtime. The registered extension set is fixed at build
+ * time via the QWRT_EXTENSIONS macro (see qwrt_ext_registry.h); there is no
+ * runtime extension list. Returns NULL on failure.
  * Thread-bound: all subsequent qwrt_* calls must come from this thread. */
 qwrt_t *qwrt_create(const qwrt_config_t *config);
 
@@ -523,10 +522,6 @@ int qwrt_get_active_ctx_id(qwrt_t *rt);
  * NULL if no active context. The pointer is valid until the context is
  * destroyed or reset. */
 struct JSContext *qwrt_get_jsctx(qwrt_t *rt);
-
-/* Register an extension on the active context at runtime.
- * Calls ext->init immediately. Returns 0 on success, -1 on failure. */
-int qwrt_register_ext(qwrt_t *rt, const qwrt_ext_t *ext);
 
 /* ================================================================
  * Bytecode compilation API

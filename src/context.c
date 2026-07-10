@@ -5,12 +5,23 @@
  */
 
 #include "qwrt_internal.h"
-#include "qwrt/ext_compress.h"
-#include "qwrt/ext_crypto.h"
-#include "qwrt/ext_textcodec.h"
+#include "qwrt/qwrt_ext_registry.h"   /* QWRT_EXTENSIONS table */
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
+/* ================================================================
+ * Compile-time extension table
+ *
+ * QWRT_EXTENSIONS expands to a list of `const qwrt_ext_t *` (possibly with
+ * NULL slots for built-ins whose QWRT_WITH_* is off). Not NULL-terminated
+ * (NULL slots would be indistinguishable from a terminator); iterate by count
+ * and skip NULL. Trailing comma is legal in a C99 array initializer. */
+static const qwrt_ext_t *qwrt_default_exts[] = {
+    QWRT_EXTENSIONS
+};
+static const int qwrt_default_exts_count =
+    (int)(sizeof(qwrt_default_exts) / sizeof(qwrt_default_exts[0]));
 
 /* ================================================================
  * Context getter helpers
@@ -129,7 +140,10 @@ qwrt_ctx_t *qwrt_ctx_create(qwrt_t *rt, const qwrt_config_t *config)
     ctx->suspended = 0;
     ctx->pal = config->pal;
     ctx->handle_count = 0;
-    ctx->extensions = config->extensions;
+    /* Extensions: point at the compile-time QWRT_EXTENSIONS table (no per-context
+     * heap allocation). NULL slots (disabled built-ins) are skipped at init. */
+    ctx->extensions = qwrt_default_exts;
+    ctx->extensions_count = qwrt_default_exts_count;
 
     /* Use the built-in default polyfill */
     ctx->polyfill = qwrt_default_polyfill;
@@ -220,61 +234,6 @@ qwrt_ctx_t *qwrt_ctx_create(qwrt_t *rt, const qwrt_config_t *config)
         JS_FreeValue(ctx->jsctx, global);
     }
 
-    /* Auto-register compression extension if not already in the list.
-     * This happens before qwrt_ext_init_all so the init hook runs. */
-#ifdef QWRT_WITH_COMPRESS
-    {
-        int found = 0;
-        if (ctx->extensions) {
-            for (int i = 0; ctx->extensions[i] != NULL; i++) {
-                if (ctx->extensions[i] == &qwrt_compress_ext) {
-                    found = 1;
-                    break;
-                }
-            }
-        }
-        if (!found) {
-            qwrt_ext_register(rt, ctx, &qwrt_compress_ext);
-        }
-    }
-#endif
-
-    /* Auto-register crypto extension if not already in the list. */
-#ifdef QWRT_WITH_CRYPTO_EXT
-    {
-        int found = 0;
-        if (ctx->extensions) {
-            for (int i = 0; ctx->extensions[i] != NULL; i++) {
-                if (ctx->extensions[i] == &qwrt_crypto_ext) {
-                    found = 1;
-                    break;
-                }
-            }
-        }
-        if (!found) {
-            qwrt_ext_register(rt, ctx, &qwrt_crypto_ext);
-        }
-    }
-#endif
-
-    /* Auto-register textcodec extension if not already in the list. */
-#ifdef QWRT_WITH_TEXTCODEC
-    {
-        int found = 0;
-        if (ctx->extensions) {
-            for (int i = 0; ctx->extensions[i] != NULL; i++) {
-                if (ctx->extensions[i] == &qwrt_textcodec_ext) {
-                    found = 1;
-                    break;
-                }
-            }
-        }
-        if (!found) {
-            qwrt_ext_register(rt, ctx, &qwrt_textcodec_ext);
-        }
-    }
-#endif
-
     /* Call extension init hooks */
     if (qwrt_ext_init_all(rt, ctx) < 0) {
         /* Undo registration on failure */
@@ -321,12 +280,6 @@ void qwrt_ctx_destroy(qwrt_t *rt, qwrt_ctx_t *ctx)
     /* Clear active_ctx_id if this was the active context */
     if (rt->active_ctx_id == context_id) {
         rt->active_ctx_id = -1;
-    }
-
-    /* Free dynamically allocated extensions array */
-    if (ctx->extensions_dynamic && ctx->extensions) {
-        free((void *)ctx->extensions);
-        ctx->extensions = NULL;
     }
 
     /* Free the ctx struct */

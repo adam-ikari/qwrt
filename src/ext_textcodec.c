@@ -287,7 +287,6 @@ static int textcodec_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
 
 const qwrt_ext_t qwrt_textcodec_ext = {
     .name = "textcodec",
-    .version = 1,
 #ifdef QWRT_WITH_TEXTCODEC
     .init = textcodec_ext_init,
     .destroy = textcodec_ext_destroy,

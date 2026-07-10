@@ -417,67 +417,22 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
     }
     JS_SetOpaque(obj, wrap);
 
-    /* Build exports object by enumerating module exports */
+    /* Build the exports object.
+     *
+     * WAMR-1.3.3 (the pinned release) has NO export-enumeration API - only
+     * wasm_runtime_lookup_function (name-based), and no memory/global
+     * introspection (wasm_runtime_get_default_memory etc. are unreleased).
+     * The export-introspection API ext_wamr.c originally used
+     * (wasm_runtime_get_export_count / get_export_type / wasm_export_t /
+     * WASM_IMPORT_EXPORT_KIND_*) exists only on WAMR's unreleased main branch.
+     * Pinned to a release tag, we cannot enumerate exports, so `exports` is
+     * left empty here. (This drops introspection only; exported-function
+     * invocation is not implemented for wamr regardless.) wasm3's ext has
+     * full enumeration; WAMR's is limited on 1.3.3.
+     *
+     * TODO: when WAMR ships the export-enumeration API in a tagged release,
+     * restore the enumeration here. */
     JSValue exports = JS_NewObject(ctx);
-    int32_t export_count = wasm_runtime_get_export_count(mod_wrap->module);
-    for (int32_t i = 0; i < export_count; i++) {
-        wasm_export_t et;
-        memset(&et, 0, sizeof(et));
-        wasm_runtime_get_export_type(mod_wrap->module, i, &et);
-        if (!et.name) continue;
-
-        switch (et.kind) {
-        case WASM_IMPORT_EXPORT_KIND_MEMORY: {
-            wasm_memory_inst_t mem = wasm_runtime_get_default_memory(module_inst);
-            if (mem) {
-                uint64_t pages = wasm_memory_get_cur_page_count(mem);
-                uint32_t byte_len = (uint32_t)(pages * 65536);
-                uint8_t *data = (uint8_t *)wasm_memory_get_base_address(mem);
-                JSValue mem_obj = JS_NewObject(ctx);
-                JS_SetPropertyStr(ctx, mem_obj, "buffer",
-                    JS_NewArrayBufferCopy(ctx, data, byte_len));
-                JS_SetPropertyStr(ctx, exports, et.name, mem_obj);
-            }
-            break;
-        }
-        case WASM_IMPORT_EXPORT_KIND_GLOBAL: {
-            wasm_global_inst_t gi;
-            if (wasm_runtime_get_export_global_inst(module_inst, et.name, &gi)) {
-                JSValue gobj = JS_NewObject(ctx);
-                switch (gi.kind) {
-                case WASM_I32:
-                    JS_SetPropertyStr(ctx, gobj, "value",
-                        JS_NewInt32(ctx, *(int32_t*)gi.global_data));
-                    break;
-                case WASM_I64:
-                    JS_SetPropertyStr(ctx, gobj, "value",
-                        JS_NewBigInt64(ctx, *(int64_t*)gi.global_data));
-                    break;
-                case WASM_F32:
-                    JS_SetPropertyStr(ctx, gobj, "value",
-                        JS_NewFloat64(ctx, (double)*(float*)gi.global_data));
-                    break;
-                case WASM_F64:
-                    JS_SetPropertyStr(ctx, gobj, "value",
-                        JS_NewFloat64(ctx, *(double*)gi.global_data));
-                    break;
-                default:
-                    JS_SetPropertyStr(ctx, gobj, "value", JS_UNDEFINED);
-                    break;
-                }
-                JS_SetPropertyStr(ctx, exports, et.name, gobj);
-            }
-            break;
-        }
-        case WASM_IMPORT_EXPORT_KIND_FUNC: {
-            JSValue fobj = JS_NewObject(ctx);
-            JS_SetPropertyStr(ctx, exports, et.name, fobj);
-            break;
-        }
-        default:
-            break;
-        }
-    }
 
     JS_SetPropertyStr(ctx, obj, "exports", exports);
 
@@ -487,6 +442,16 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
 /* ================================================================
  * WebAssembly.Memory constructor
  * ================================================================ */
+
+/* Finalizer for the standalone WebAssembly.Memory ArrayBuffer (js_mallocz'd
+ * buffer owned by the array buffer). Frees via the QuickJS allocator. */
+static void wamr_arraybuffer_free(JSRuntime *rt, void *opaque, void *ptr)
+{
+    (void)opaque;
+    if (ptr) {
+        js_free_rt(rt, ptr);
+    }
+}
 
 static JSValue wamr_memory_constructor(JSContext *ctx, JSValueConst new_target,
                                        int argc, JSValueConst *argv)
@@ -521,7 +486,12 @@ static JSValue wamr_memory_constructor(JSContext *ctx, JSValueConst new_target,
     }
 
     JSValue obj = JS_NewObject(ctx);
-    JSValue ab = JS_NewArrayBuffer(ctx, mem, byte_len, NULL, NULL, 0);
+    /* JS_NewArrayBuffer takes ownership of `mem`; the finalizer frees it via
+     * the QuickJS allocator when the ArrayBuffer is GC'd (without it, mem
+     * leaks - JS_NewArrayBuffer with a NULL finalizer never frees external
+     * memory). */
+    JSValue ab = JS_NewArrayBuffer(ctx, mem, byte_len, wamr_arraybuffer_free,
+                                   NULL, 0);
     JS_SetPropertyStr(ctx, obj, "buffer", ab);
 
     /* Store initial/maximum for grow() */
@@ -827,7 +797,6 @@ static int wamr_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
 
 const qwrt_ext_t qwrt_wamr_ext = {
     .name = "wamr",
-    .version = 1,
     .init = wamr_ext_init,
     .destroy = wamr_ext_destroy,
     .suspend = wamr_ext_suspend,

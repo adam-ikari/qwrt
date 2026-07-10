@@ -498,7 +498,6 @@ static int crypto_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
 
 const qwrt_ext_t qwrt_crypto_ext = {
     .name = "crypto",
-    .version = 1,
 #ifdef QWRT_WITH_CRYPTO_EXT
     .init = crypto_ext_init,
     .destroy = crypto_ext_destroy,

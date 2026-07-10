@@ -654,7 +654,6 @@ static int compress_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 
 const qwrt_ext_t qwrt_compress_ext = {
     .name = "compress",
-    .version = 1,
 #ifdef QWRT_WITH_COMPRESS
     .init = compress_ext_init,
     .destroy = NULL,

@@ -699,24 +699,6 @@ struct JSContext *qwrt_get_jsctx(qwrt_t *rt)
     return (struct JSContext *)qwrt_get_active_jsctx(rt);
 }
 
-/* qwrt_register_ext - register an extension on the active context at runtime */
-int qwrt_register_ext(qwrt_t *rt, const qwrt_ext_t *ext)
-{
-    if (!rt || rt->magic != QWRT_MAGIC) {
-        return -1;
-    }
-    if (!ext) {
-        return -1;
-    }
-
-    qwrt_ctx_t *ctx = qwrt_get_active_ctx(rt);
-    if (!ctx) {
-        return -1;
-    }
-
-    return qwrt_ext_register(rt, ctx, ext);
-}
-
 /* ================================================================
  * Bytecode compilation
  * ================================================================ */

@@ -283,39 +283,24 @@ static void bench_startup(void) {
     printf("  %-45s %10.2f ms\n", "startup.create_destroy (no ext)", bare);
     record("startup.no_ext", bare, "ms");
 
-    /* qwrt create/destroy (with WAMR extension) */
-    const qwrt_ext_t *wamr_exts[] = { &qwrt_wamr_ext, NULL };
+    /* qwrt create/destroy (with the default extension set, which includes the
+     * build-time-selected WASM engine - wamr or wasm3). The per-engine
+     * comparison that used config.extensions is gone (extensions are now
+     * compile-time fixed); rebuild with the other engine to compare. */
     t0 = now_ms();
     for (int i = 0; i < 100; i++) {
         qwrt_config_t cfg; memset(&cfg, 0, sizeof(cfg));
         cfg.pal = pal;
-        cfg.extensions = wamr_exts;
         qwrt_t *rt = qwrt_create(&cfg);
         qwrt_destroy(rt);
     }
-    double with_wamr = (now_ms() - t0) / 100.0;
-    printf("  %-45s %10.2f ms\n", "startup.create_destroy (WAMR ext)", with_wamr);
-    record("startup.wamr_ext", with_wamr, "ms");
-
-    /* qwrt create/destroy (with wasm3 extension) */
-    const qwrt_ext_t *wasm3_exts[] = { &qwrt_wasm3_ext, NULL };
-    t0 = now_ms();
-    for (int i = 0; i < 100; i++) {
-        qwrt_config_t cfg; memset(&cfg, 0, sizeof(cfg));
-        cfg.pal = pal;
-        cfg.extensions = wasm3_exts;
-        qwrt_t *rt = qwrt_create(&cfg);
-        qwrt_destroy(rt);
-    }
-    double with_wasm3 = (now_ms() - t0) / 100.0;
-    printf("  %-45s %10.2f ms\n", "startup.create_destroy (wasm3 ext)", with_wasm3);
-    record("startup.wasm3_ext", with_wasm3, "ms");
+    double with_ext = (now_ms() - t0) / 100.0;
+    printf("  %-45s %10.2f ms\n", "startup.create_destroy (default ext set)", with_ext);
+    record("startup.with_ext", with_ext, "ms");
 
     /* Overhead */
-    printf("  %-45s %10.2f ms  (%.1fx)\n", "WAMR ext overhead", with_wamr - bare,
-           with_wamr / bare);
-    printf("  %-45s %10.2f ms  (%.1fx)\n", "wasm3 ext overhead", with_wasm3 - bare,
-           with_wasm3 / bare);
+    printf("  %-45s %10.2f ms  (%.1fx)\n", "ext overhead", with_ext - bare,
+           with_ext / bare);
 
     /* qwrt_reset overhead */
     qwrt_config_t cfg; memset(&cfg, 0, sizeof(cfg));
@@ -415,14 +400,13 @@ int main(void) {
     /* 5. Startup benchmarks (create their own runtimes) */
     bench_startup();
 
-    /* Create runtime with WAMR extension for compute benchmarks */
+    /* Create runtime with the default extension set (WAMR or wasm3, whichever
+     * is compiled in) for compute benchmarks. */
     qwrt_pal_t *pal = pal_mock_create();
-    const qwrt_ext_t *exts[] = { &qwrt_wamr_ext, NULL };
 
     qwrt_config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.pal = pal;
-    cfg.extensions = exts;
 
     qwrt_t *rt = qwrt_create(&cfg);
     if (!rt) {
