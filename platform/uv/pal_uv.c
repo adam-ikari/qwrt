@@ -1582,10 +1582,18 @@ static void pal_uv_http_connect_cb(uv_connect_t *req, int status)
      * callback a second time. */
     if (op->aborted || op->tearing_down) return;
 
-    /* Stop the connect timer on any connect result */
+    /* Stop the connect timer on any connect result. Do NOT uv_close it here:
+     * tearing_down is still 0 at this point, so pal_uv_http_close_handle would
+     * treat it as a mid-life close and NOT bump closes_pending — yet uv_close
+     * would put it on libuv's closing queue. When the finish path later closes
+     * tcp (counted) and frees op once closes_pending hits 0, this uncounted
+     * connect_timer close is still pending, so uv__run_closing_handles reads the
+     * freed op (use-after-free, flagged by Valgrind). Stopping the timer here is
+     * enough to prevent the timeout firing during the request; the finish paths
+     * (finish_error/finish_success) close connect_timer counted via
+     * pal_uv_http_close_handle. */
     if (op->connect_timer.data && !uv_is_closing((uv_handle_t *)&op->connect_timer)) {
         uv_timer_stop(&op->connect_timer);
-        pal_uv_http_close_handle(op, (uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
     }
 
     if (status < 0) {
