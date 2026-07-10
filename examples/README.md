@@ -51,7 +51,7 @@ JS work; `qwrt_tick` is what actually performs the `JS_Call`.
 ```c
 uv_loop_t *loop = uv_default_loop();
 qwrt_pal_t *pal = pal_uv_create(loop);     /* share the loop */
-qwrt_config_t cfg = { .pal = pal, .extensions = NULL };
+qwrt_config_t cfg = { .pal = pal, .debug = 0 };
 qwrt_t *rt = qwrt_create(&cfg);
 
 qwrt_eval(rt, "...js that starts a promise...", NULL);

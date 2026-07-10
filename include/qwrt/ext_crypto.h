@@ -13,8 +13,9 @@
  * When not compiled, the extension is inert — crypto.subtle falls
  * back to its JS implementation.
  *
- * To use: add &qwrt_crypto_ext to config.extensions array,
- * or it will be auto-registered when QWRT_WITH_CRYPTO_EXT is defined.
+ * Registered automatically when QWRT_WITH_CRYPTO_EXT is on (it's in the
+ * default QWRT_EXTENSIONS set; see qwrt_ext_registry.h). No runtime
+ * registration.
  */
 
 extern const qwrt_ext_t qwrt_crypto_ext;

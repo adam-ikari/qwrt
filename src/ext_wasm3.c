@@ -1995,7 +1995,6 @@ static int wasm3_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
 
 const qwrt_ext_t qwrt_wasm3_ext = {
     .name = "wasm3",
-    .version = 1,
     .init = wasm3_ext_init,
     .destroy = wasm3_ext_destroy,
     .suspend = wasm3_ext_suspend,

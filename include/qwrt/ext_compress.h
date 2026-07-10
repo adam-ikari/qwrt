@@ -13,8 +13,8 @@
  * functions are registered and CompressionStream/DecompressionStream
  * will throw "Compression extension not available".
  *
- * To use: add &qwrt_compress_ext to config.extensions array,
- * or it will be auto-registered when QWRT_WITH_COMPRESS is defined.
+ * Registered automatically when QWRT_WITH_COMPRESS is on (it's in the default
+ * QWRT_EXTENSIONS set; see qwrt_ext_registry.h). No runtime registration.
  */
 
 extern const qwrt_ext_t qwrt_compress_ext;

@@ -218,28 +218,6 @@ TEST(QwrtError, DestroyCtxLastContext) {
     pal_mock_destroy(pal);
 }
 
-TEST(QwrtError, RegisterExtNullRt) {
-    qwrt_ext_t ext;
-    memset(&ext, 0, sizeof(ext));
-    int rc = qwrt_register_ext(nullptr, &ext);
-    EXPECT_EQ(rc, -1);
-}
-
-TEST(QwrtError, RegisterExtNullExt) {
-    qwrt_pal_t *pal = pal_mock_create();
-    ASSERT_NE(pal, nullptr);
-    qwrt_config_t config;
-    fill_test_config(&config, pal);
-    qwrt_t *rt = qwrt_create(&config);
-    ASSERT_NE(rt, nullptr);
-
-    int rc = qwrt_register_ext(rt, nullptr);
-    EXPECT_EQ(rc, -1);
-
-    qwrt_destroy(rt);
-    pal_mock_destroy(pal);
-}
-
 TEST(QwrtError, TickNullRt) {
     int rc = qwrt_tick(nullptr);
     EXPECT_EQ(rc, -1);
@@ -530,74 +508,6 @@ TEST(QwrtIsolation, ErrorInOneContextDoesNotAffectOther) {
     pal_mock_destroy(pal);
 }
 
-TEST(QwrtIsolation, ExtensionStatePerContext) {
-    qwrt_pal_t *pal = pal_mock_create();
-    ASSERT_NE(pal, nullptr);
-
-    /* Create extension that sets a per-context global */
-    static int ext_counter = 0;
-    auto ext_init = [](qwrt_ext_t *ext, qwrt_t *rt) -> int {
-        int *counter = (int *)ext->user_data;
-        (*counter)++;
-        JSContext *jsctx = (JSContext *)qwrt_get_jsctx(rt);
-        if (jsctx) {
-            JSValue global = JS_GetGlobalObject(jsctx);
-            JS_SetPropertyStr(jsctx, global, "__ext_init_count__",
-                               JS_NewInt32(jsctx, *counter));
-            JS_FreeValue(jsctx, global);
-        }
-        return 0;
-    };
-
-    qwrt_ext_t ext;
-    memset(&ext, 0, sizeof(ext));
-    ext.name = "isolation_ext";
-    ext.version = 1;
-    ext.init = ext_init;
-    ext.user_data = &ext_counter;
-
-    const qwrt_ext_t *exts[] = { &ext, nullptr };
-
-    qwrt_config_t config;
-    fill_test_config(&config, pal);
-    config.extensions = exts;
-
-    ext_counter = 0;
-    qwrt_t *rt = qwrt_create(&config);
-    ASSERT_NE(rt, nullptr);
-    EXPECT_EQ(ext_counter, 1);
-
-    /* ctx0 should have __ext_init_count__ = 1 */
-    char *result = nullptr;
-    int rc = qwrt_eval(rt, "__ext_init_count__", &result);
-    EXPECT_EQ(rc, 0);
-    EXPECT_STREQ(result, "1");
-    qwrt_free(result);
-
-    /* Spawn ctx2 — extension init called again */
-    int ctx2 = qwrt_spawn(rt, &config);
-    EXPECT_GE(ctx2, 0);
-    EXPECT_EQ(ext_counter, 2);
-
-    rc = qwrt_resume(rt, ctx2);
-    EXPECT_EQ(rc, 0);
-
-    rc = qwrt_eval(rt, "__ext_init_count__", &result);
-    EXPECT_EQ(rc, 0);
-    EXPECT_STREQ(result, "2");
-    qwrt_free(result);
-
-    /* ctx0 still has its own value */
-    rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
-    rc = qwrt_eval(rt, "__ext_init_count__", &result);
-    EXPECT_EQ(rc, 0);
-    EXPECT_STREQ(result, "1");
-    qwrt_free(result);
-
-    qwrt_destroy(rt);
-    pal_mock_destroy(pal);
-}
 
 /* ================================================================
  * Resource Management

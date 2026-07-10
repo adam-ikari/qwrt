@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    qwrt_config_t config = { .pal = pal, .debug = 0, .extensions = NULL };
+    qwrt_config_t config = { .pal = pal, .debug = 0 };
     qwrt_t *rt = qwrt_create(&config);
     if (!rt) {
         fprintf(stderr, "failed to create qwrt runtime\n");

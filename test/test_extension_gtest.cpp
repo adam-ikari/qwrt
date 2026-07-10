@@ -1,8 +1,11 @@
 /*
  * qwrt Extension Tests (Google Test)
  *
- * Tests for extension lifecycle: init, destroy, suspend, resume hooks,
- * and interaction with reset and context operations.
+ * The extension set is fixed at build time via the QWRT_EXTENSIONS macro
+ * (qwrt_ext_registry.h) - there is no runtime registration. These tests
+ * verify the built-in default extensions (compress/crypto/textcodec/wamr or
+ * wasm3) are registered and that their lifecycle (init/destroy via create/
+ * destroy/reset) works, plus that a build with no extensions behaves.
  */
 
 #include <gtest/gtest.h>
@@ -10,225 +13,56 @@
 
 extern "C" {
 #include "qwrt/qwrt.h"
+#include "qwrt/qwrt_ext_registry.h"
 #include "pal_mock.h"
-#include <quickjs.h>
 }
 
 /* ================================================================
- * Minimal test polyfill
+ * Helpers
  * ================================================================ */
 
-static const char test_polyfill[] =
-    "(function(pal) {\n"
-    "  globalThis.testHelper = {\n"
-    "    storageSet: function(k, v) { return pal.storageSet(k, v); },\n"
-    "    storageGet: function(k) { return pal.storageGet(k); },\n"
-    "    timeNow: function() { return pal.timeNow(); },\n"
-    "    log: function(level, msg) { pal.log(level, msg); },\n"
-    "  };\n"
-    "  globalThis.console = {\n"
-    "    log: function() { pal.log(0, Array.from(arguments).join(' ')); },\n"
-    "    error: function() { pal.log(2, Array.from(arguments).join(' ')); },\n"
-    "  };\n"
-    "  globalThis.performance = {\n"
-    "    now: function() { return pal.timeNow(); },\n"
-    "  };\n"
-    "})(__pal__);";
-
-/* ================================================================
- * Test extension — tracks init/destroy/suspend/resume calls
- * ================================================================ */
-
-typedef struct {
-    int init_called;
-    int destroy_called;
-    int suspend_called;
-    int resume_called;
-    char name[32];
-} test_ext_state_t;
-
-static int test_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
-{
-    test_ext_state_t *state = (test_ext_state_t *)ext->user_data;
-    state->init_called++;
-
-    JSContext *jsctx = (JSContext *)qwrt_get_jsctx(rt);
-    if (jsctx) {
-        JSValue global = JS_GetGlobalObject(jsctx);
-        JS_SetPropertyStr(jsctx, global, "__ext_name__",
-                           JS_NewString(jsctx, state->name));
-        JS_FreeValue(jsctx, global);
-    }
-
-    return 0;
-}
-
-static void test_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
-{
-    (void)rt;
-    test_ext_state_t *state = (test_ext_state_t *)ext->user_data;
-    state->destroy_called++;
-}
-
-static int test_ext_suspend(qwrt_ext_t *ext, qwrt_t *rt)
-{
-    (void)rt;
-    test_ext_state_t *state = (test_ext_state_t *)ext->user_data;
-    state->suspend_called++;
-    return 0;
-}
-
-static int test_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
-{
-    (void)rt;
-    test_ext_state_t *state = (test_ext_state_t *)ext->user_data;
-    state->resume_called++;
-    return 0;
-}
-
-static int test_ext_init_fail(qwrt_ext_t *ext, qwrt_t *rt)
-{
-    (void)rt;
-    test_ext_state_t *state = (test_ext_state_t *)ext->user_data;
-    state->init_called++;
-    return -1;
-}
-
-static qwrt_ext_t *make_test_ext(const char *name, test_ext_state_t *state)
-{
-    memset(state, 0, sizeof(test_ext_state_t));
-    snprintf(state->name, sizeof(state->name), "%s", name);
-
-    static qwrt_ext_t ext;
-    memset(&ext, 0, sizeof(ext));
-    ext.name = state->name;
-    ext.version = 1;
-    ext.init = test_ext_init;
-    ext.destroy = test_ext_destroy;
-    ext.suspend = test_ext_suspend;
-    ext.resume = test_ext_resume;
-    ext.user_data = state;
-
-    return &ext;
-}
-
-/* ================================================================
- * Helper
- * ================================================================ */
-
-static void fill_test_config(qwrt_config_t *config, const qwrt_pal_t *pal,
-                              const qwrt_ext_t **extensions)
+static void fill_test_config(qwrt_config_t *config, const qwrt_pal_t *pal)
 {
     memset(config, 0, sizeof(*config));
     config->pal = pal;
-    config->extensions = extensions;
+}
+
+/* Whether a given extension is compiled into this build (its QWRT_WITH_* on).
+ * The QWRT_EXTENSIONS table still references it as a non-NULL entry only when
+ * it is compiled in; a disabled built-in is a NULL slot. */
+static int ext_compiled_in(const char *name)
+{
+#if defined(QWRT_WITH_COMPRESS)
+    if (strcmp(name, "compress") == 0) return 1;
+#endif
+#if defined(QWRT_WITH_CRYPTO_EXT)
+    if (strcmp(name, "crypto") == 0) return 1;
+#endif
+#if defined(QWRT_WITH_TEXTCODEC)
+    if (strcmp(name, "textcodec") == 0) return 1;
+#endif
+#if defined(QWRT_WITH_WAMR)
+    if (strcmp(name, "wamr") == 0) return 1;
+#endif
+#if defined(QWRT_WITH_WASM3)
+    if (strcmp(name, "wasm3") == 0) return 1;
+#endif
+    (void)name;
+    return 0;
 }
 
 /* ================================================================
  * Tests
  * ================================================================ */
 
-TEST(QwrtExtension, InitDestroy) {
-    qwrt_pal_t *pal = pal_mock_create();
-    ASSERT_NE(pal, nullptr);
-
-    test_ext_state_t state;
-    qwrt_ext_t *ext = make_test_ext("test_ext", &state);
-    const qwrt_ext_t *exts[] = { ext, nullptr };
-
-    qwrt_config_t config;
-    fill_test_config(&config, pal, exts);
-
-    qwrt_t *rt = qwrt_create(&config);
-    ASSERT_NE(rt, nullptr);
-
-    EXPECT_EQ(state.init_called, 1);
-    EXPECT_EQ(state.destroy_called, 0);
-
-    char *result = nullptr;
-    int rc = qwrt_eval(rt, "__ext_name__", &result);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(result, nullptr);
-    EXPECT_STREQ(result, "\"test_ext\"");
-    qwrt_free(result);
-
-    qwrt_destroy(rt);
-    EXPECT_EQ(state.destroy_called, 1);
-
-    pal_mock_destroy(pal);
-}
-
-TEST(QwrtExtension, SuspendResume) {
-    qwrt_pal_t *pal = pal_mock_create();
-    ASSERT_NE(pal, nullptr);
-
-    test_ext_state_t state;
-    qwrt_ext_t *ext = make_test_ext("sr_ext", &state);
-    const qwrt_ext_t *exts[] = { ext, nullptr };
-
-    qwrt_config_t config;
-    fill_test_config(&config, pal, exts);
-
-    qwrt_t *rt = qwrt_create(&config);
-    ASSERT_NE(rt, nullptr);
-    EXPECT_EQ(state.init_called, 1);
-
-    int rc = qwrt_suspend(rt);
-    EXPECT_EQ(rc, 0);
-    EXPECT_EQ(state.suspend_called, 1);
-    EXPECT_EQ(state.resume_called, 0);
-
-    rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
-    EXPECT_EQ(state.resume_called, 1);
-
-    qwrt_destroy(rt);
-    EXPECT_EQ(state.destroy_called, 1);
-
-    pal_mock_destroy(pal);
-}
-
-TEST(QwrtExtension, ResetCallsDestroyInit) {
-    qwrt_pal_t *pal = pal_mock_create();
-    ASSERT_NE(pal, nullptr);
-
-    test_ext_state_t state;
-    qwrt_ext_t *ext = make_test_ext("reset_ext", &state);
-    const qwrt_ext_t *exts[] = { ext, nullptr };
-
-    qwrt_config_t config;
-    fill_test_config(&config, pal, exts);
-
-    qwrt_t *rt = qwrt_create(&config);
-    ASSERT_NE(rt, nullptr);
-    EXPECT_EQ(state.init_called, 1);
-    EXPECT_EQ(state.destroy_called, 0);
-
-    int rc = qwrt_reset(rt, &config);
-    EXPECT_EQ(rc, 0);
-
-    EXPECT_EQ(state.destroy_called, 1);
-    EXPECT_EQ(state.init_called, 2);
-
-    char *result = nullptr;
-    rc = qwrt_eval(rt, "__ext_name__", &result);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(result, nullptr);
-    EXPECT_STREQ(result, "\"reset_ext\"");
-    qwrt_free(result);
-
-    qwrt_destroy(rt);
-    EXPECT_EQ(state.destroy_called, 2);
-
-    pal_mock_destroy(pal);
-}
-
-TEST(QwrtExtension, NoExtensions) {
+/* A runtime is creatable with the default (build-time) extension set and
+ * survives create/destroy. The default polyfill is injected (eval works). */
+TEST(QwrtExtension, CreateDestroyDefaultSet) {
     qwrt_pal_t *pal = pal_mock_create();
     ASSERT_NE(pal, nullptr);
 
     qwrt_config_t config;
-    fill_test_config(&config, pal, nullptr);
+    fill_test_config(&config, pal);
 
     qwrt_t *rt = qwrt_create(&config);
     ASSERT_NE(rt, nullptr);
@@ -240,99 +74,89 @@ TEST(QwrtExtension, NoExtensions) {
     EXPECT_STREQ(result, "2");
     qwrt_free(result);
 
-    rc = qwrt_eval(rt, "typeof __ext_name__", &result);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(result, nullptr);
-    EXPECT_STREQ(result, "\"undefined\"");
-    qwrt_free(result);
+    qwrt_destroy(rt);
+    pal_mock_destroy(pal);
+}
+
+/* The default extension set registers the compiled-in built-ins. Check the
+ * JS-visible surface each one adds (crypto.subtle, CompressionStream,
+ * TextEncoder, WebAssembly). */
+TEST(QwrtExtension, BuiltinsRegistered) {
+    qwrt_pal_t *pal = pal_mock_create();
+    ASSERT_NE(pal, nullptr);
+    qwrt_config_t config;
+    fill_test_config(&config, pal);
+    qwrt_t *rt = qwrt_create(&config);
+    ASSERT_NE(rt, nullptr);
+
+    char *r = nullptr;
+    auto check = [&](const char *expr, int expect_compiled) {
+        qwrt_eval(rt, expr, &r);
+        if (expect_compiled) {
+            EXPECT_STRNE(r, "undefined") << expr << " should be defined";
+        } else {
+            EXPECT_STREQ(r, "undefined") << expr << " should be undefined (not compiled)";
+        }
+        qwrt_free(r);
+        r = nullptr;
+    };
+
+    check("typeof crypto.subtle", ext_compiled_in("crypto"));
+    check("typeof CompressionStream", ext_compiled_in("compress"));
+    check("typeof TextEncoder", ext_compiled_in("textcodec"));
+    /* WebAssembly: registered by whichever WASM engine is compiled in. */
+    check("typeof WebAssembly",
+          ext_compiled_in("wamr") || ext_compiled_in("wasm3"));
 
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
 }
 
-TEST(QwrtExtension, RegisterExtAfterCreate) {
+/* Reset re-runs destroy+init for the extension set (the default polyfill is
+ * re-injected; built-ins re-init). Verify eval still works post-reset. */
+TEST(QwrtExtension, ResetReinitializesExtensions) {
     qwrt_pal_t *pal = pal_mock_create();
     ASSERT_NE(pal, nullptr);
-
     qwrt_config_t config;
-    fill_test_config(&config, pal, nullptr);
-
+    fill_test_config(&config, pal);
     qwrt_t *rt = qwrt_create(&config);
     ASSERT_NE(rt, nullptr);
+
+    int rc = qwrt_reset(rt, &config);
+    EXPECT_EQ(rc, 0);
 
     char *result = nullptr;
-    int rc = qwrt_eval(rt, "typeof __ext_name__", &result);
-    EXPECT_EQ(rc, 0);
-    EXPECT_STREQ(result, "\"undefined\"");
-    qwrt_free(result);
-
-    test_ext_state_t state;
-    qwrt_ext_t *ext = make_test_ext("runtime_ext", &state);
-    rc = qwrt_register_ext(rt, ext);
-    EXPECT_EQ(rc, 0);
-
-    EXPECT_EQ(state.init_called, 1);
-
-    rc = qwrt_eval(rt, "__ext_name__", &result);
+    rc = qwrt_eval(rt, "2 + 2", &result);
     EXPECT_EQ(rc, 0);
     ASSERT_NE(result, nullptr);
-    EXPECT_STREQ(result, "\"runtime_ext\"");
+    EXPECT_STREQ(result, "4");
     qwrt_free(result);
 
     qwrt_destroy(rt);
-    EXPECT_EQ(state.destroy_called, 1);
-
     pal_mock_destroy(pal);
 }
 
-TEST(QwrtExtension, RegisterExtSuspendResume) {
+/* suspend/resume cycle over the whole extension set doesn't break the
+ * runtime. */
+TEST(QwrtExtension, SuspendResumeDefaultSet) {
     qwrt_pal_t *pal = pal_mock_create();
     ASSERT_NE(pal, nullptr);
-
     qwrt_config_t config;
-    fill_test_config(&config, pal, nullptr);
-
+    fill_test_config(&config, pal);
     qwrt_t *rt = qwrt_create(&config);
     ASSERT_NE(rt, nullptr);
 
-    test_ext_state_t state;
-    qwrt_ext_t *ext = make_test_ext("sr_reg", &state);
-    int rc = qwrt_register_ext(rt, ext);
+    int rc = qwrt_suspend(rt);
     EXPECT_EQ(rc, 0);
-    EXPECT_EQ(state.init_called, 1);
-
-    rc = qwrt_suspend(rt);
-    EXPECT_EQ(rc, 0);
-    EXPECT_EQ(state.suspend_called, 1);
-
     rc = qwrt_resume(rt, 0);
     EXPECT_EQ(rc, 0);
-    EXPECT_EQ(state.resume_called, 1);
 
-    qwrt_destroy(rt);
-    EXPECT_EQ(state.destroy_called, 1);
-
-    pal_mock_destroy(pal);
-}
-
-TEST(QwrtExtension, RegisterExtInitFailure) {
-    qwrt_pal_t *pal = pal_mock_create();
-    ASSERT_NE(pal, nullptr);
-
-    qwrt_config_t config;
-    fill_test_config(&config, pal, nullptr);
-
-    qwrt_t *rt = qwrt_create(&config);
-    ASSERT_NE(rt, nullptr);
-
-    test_ext_state_t state;
-    qwrt_ext_t *ext = make_test_ext("fail_ext", &state);
-    ext->init = test_ext_init_fail;
-
-    int rc = qwrt_register_ext(rt, ext);
-    EXPECT_EQ(rc, -1);
-
-    EXPECT_EQ(state.destroy_called, 0);
+    char *result = nullptr;
+    rc = qwrt_eval(rt, "5 + 5", &result);
+    EXPECT_EQ(rc, 0);
+    ASSERT_NE(result, nullptr);
+    EXPECT_STREQ(result, "10");
+    qwrt_free(result);
 
     qwrt_destroy(rt);
     pal_mock_destroy(pal);

@@ -11,16 +11,10 @@
  * Purpose: CPU-intensive compute acceleration (crypto, compression,
  * image processing, math).
  *
- * Include this extension in qwrt_config_t.extensions to grant
- * WebAssembly access to a context. Without this extension (or ext_wamr),
- * the WebAssembly global is not available.
- *
- * Current status: provides JS API surface. WASM engine integration
- * pending — throws "engine not linked" until wasm3 is linked.
- *
- * Usage:
- *   const qwrt_ext_t *exts[] = { &qwrt_wasm3_ext, NULL };
- *   config.extensions = exts;
+ * wasm3 is an alternative WASM engine (QWRT_WITH_WASM3, default OFF; mutually
+ * exclusive with WAMR). When compiled in, it's in the default QWRT_EXTENSIONS
+ * set (see qwrt_ext_registry.h), so WebAssembly is available out of the box.
+ * Without wasm3 or WAMR compiled in, the WebAssembly global is not available.
  */
 extern const qwrt_ext_t qwrt_wasm3_ext;
 
