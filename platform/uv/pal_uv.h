@@ -10,8 +10,8 @@
  *   pal_uv_destroy(pal);
  */
 
-#ifndef PAL_UV_H
-#define PAL_UV_H
+#ifndef QWRT_PAL_UV_H
+#define QWRT_PAL_UV_H
 
 #include "qwrt/qwrt.h"
 #include <uv.h>
@@ -60,4 +60,4 @@ uv_loop_t *pal_uv_get_loop(qwrt_pal_t *pal);
 }
 #endif
 
-#endif /* PAL_UV_H */
+#endif /* QWRT_PAL_UV_H */

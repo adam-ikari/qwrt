@@ -23,7 +23,7 @@ extensions.
 ### Build
 
 ```bash
-git clone --recursive https://github.com/your-org/qwrt.git
+git clone --recursive https://github.com/adam-ikari/qwrt.git
 cd qwrt
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
@@ -68,6 +68,10 @@ int main() {
     return 0;
 }
 ```
+
+> See [`examples/`](examples/) for complete, buildable programs covering
+> fetch, timers, key-value storage, ahead-of-time bytecode compilation, and
+> the mock backend. Build them with `-DQWRT_BUILD_EXAMPLES=ON`.
 
 ### Build with Tests
 
@@ -121,6 +125,13 @@ cd build && ctest --output-on-failure
 | `qwrt_tick(rt)` | Process pending JS microtasks (Promise callbacks). |
 | `qwrt_free(ptr)` | Free memory returned by qwrt_eval/qwrt_call. |
 
+### Bytecode
+
+| Function | Description |
+|----------|-------------|
+| `qwrt_compile(rt, src, len, &out_len)` | Compile JS source to QuickJS bytecode. |
+| `qwrt_compile_module(rt, src, len, &out_len)` | Compile ES module source to bytecode. |
+
 ### Multi-Context
 
 | Function | Description |
@@ -130,6 +141,7 @@ cd build && ctest --output-on-failure
 | `qwrt_resume(rt, context_id)` | Resume a specific context. |
 | `qwrt_destroy_ctx(rt, context_id)` | Destroy a context. |
 | `qwrt_get_active_ctx_id(rt)` | Get current context ID. |
+| `qwrt_get_jsctx(rt)` | Get the underlying `JSContext*` for native API access. |
 
 ### Extensions
 
@@ -157,14 +169,15 @@ full interface.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `QWRT_WITH_TLS` | ON | mbedTLS (HTTPS + crypto) |
+| `QWRT_WITH_TLS` | ON | mbedTLS HTTPS (forces `QWRT_WITH_CRYPTO_EXT=ON`) |
 | `QWRT_WITH_COMPRESS` | ON | miniz compression extension |
-| `QWRT_WITH_CRYPTO_EXT` | ON | crypto.subtle extension |
+| `QWRT_WITH_CRYPTO_EXT` | ON | crypto.subtle extension (undefined when OFF) |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8/Base64 extension |
 | `QWRT_WITH_WASM3` | ON | wasm3 WebAssembly engine |
 | `QWRT_WITH_WAMR` | OFF | WAMR WebAssembly engine (alternative) |
 | `QWRT_BUILD_TESTS` | OFF | Build test suite |
 | `QWRT_BUILD_EXAMPLES` | OFF | Build examples |
+| `QWRT_BUILD_DEBUGGER` | OFF | DAP step-debugger (patches QuickJS-ng; adds `src/debugger.c` + `src/debugger_dap.c`) |
 
 ## PAL Implementations
 
@@ -222,6 +235,16 @@ C99 isolation preserved.
 - **Callbacks**: PAL callbacks fire on the event loop thread; use
   `qwrt_defer_callback` to safely dispatch to the JS thread.
 - **No internal locking**: the caller is responsible for thread discipline.
+
+## Debugging
+
+qwrt ships a DAP (Debug Adapter Protocol) step-debugger built into the
+library — step-debug any embedded program in VS Code. Enable with
+`-DQWRT_BUILD_DEBUGGER=ON` (patches QuickJS-ng to add breakpoint/step
+primitives; zero overhead when OFF). Run your program with `QWRT_DEBUG=1`
+(or set bit 1 of `qwrt_config_t.debug`) and VS Code attaches with
+`request:"attach"`. See [docs/dev/debugging.md](docs/dev/debugging.md) for
+the full setup, launch.json, and limitations.
 
 ## Testing
 

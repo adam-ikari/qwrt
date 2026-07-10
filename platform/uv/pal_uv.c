@@ -6,9 +6,10 @@
  * carry the PAL callback + callback data alongside the uv request.
  */
 
-#define _GNU_SOURCE  /* putenv, etc. (not exposed by _POSIX_C_SOURCE alone) */
+#define _POSIX_C_SOURCE 200809L
 
 #include "pal_uv.h"
+#include "pal_common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -98,11 +99,13 @@ typedef struct pal_uv_fs_op_t {
     void *cb_data;
     uv_fs_t fs_req;
     pal_uv_t *self;
-    /* For fs_read: accumulated buffer */
+    /* For fs_read/fs_write: buffer (original malloc pointer, never advanced) */
     char *buf;
     size_t buf_len;
     size_t buf_cap;
-    /* For fs_read: file descriptor after open */
+    /* For fs_write: write offset into buf (avoids advancing buf pointer) */
+    size_t buf_offset;
+    /* For fs_read/fs_write: file descriptor after open */
     uv_file fd;
     /* For fs_list: directory entries */
     uv_dirent_t *dent_buf;
@@ -200,6 +203,18 @@ typedef struct pal_uv_http_op_t {
     int teardown_started : 1; /* set at the top of pal_uv_http_stream_cleanup;
                                * makes it idempotent and lets the read cb no-op
                                * on the ECANCELED delivered after a forced close */
+    int tearing_down : 1;    /* 1 once a teardown function (finish_error/
+                              * finish_success/stream_cleanup/stream_finish_error)
+                              * begins closing op's handles. Only handles closed
+                              * while tearing_down participate in the close
+                              * refcount - mid-life closes (a failed connect
+                              * timer, a connect timer retired after connect) must
+                              * not, or their close cb would free a still-live op. */
+    int closes_pending;      /* refcount of teardown uv_close'd handles whose
+                              * hasn't fired. op is freed only when this reaches
+                              * 0, so a handle still in libuv's closing queue is
+                              * never freed prematurely (would be UAF: libuv
+                              * dereferences the handle struct inside op). */
 } pal_uv_http_op_t;
 
 /* ================================================================
@@ -340,108 +355,11 @@ static int tls_recv_cb(void *ctx, unsigned char *buf, size_t len) {
 }
 #endif
 
-/* ================================================================
- * Helper: JSON-escape a string into a buffer
- * Returns number of bytes written (not including null terminator).
- * ================================================================ */
-
-static size_t json_escape(const char *src, size_t src_len,
-                          char *dst, size_t dst_cap)
-{
-    size_t i, j;
-    for (i = 0, j = 0; i < src_len && j + 6 < dst_cap; i++) {
-        unsigned char c = (unsigned char)src[i];
-        switch (c) {
-        case '"':  dst[j++] = '\\'; dst[j++] = '"';  break;
-        case '\\': dst[j++] = '\\'; dst[j++] = '\\'; break;
-        case '\b': dst[j++] = '\\'; dst[j++] = 'b';  break;
-        case '\f': dst[j++] = '\\'; dst[j++] = 'f';  break;
-        case '\n': dst[j++] = '\\'; dst[j++] = 'n';  break;
-        case '\r': dst[j++] = '\\'; dst[j++] = 'r';  break;
-        case '\t': dst[j++] = '\\'; dst[j++] = 't';  break;
-        default:
-            if (c < 0x20) {
-                j += snprintf(dst + j, dst_cap - j, "\\u%04x", c);
-            } else {
-                dst[j++] = (char)c;
-            }
-            break;
-        }
-    }
-    if (j < dst_cap) {
-        dst[j] = '\0';
-    }
-    return j;
-}
-
-/* ================================================================
- * Helper: build JSON result for HTTP response
- * Caller must free the returned string.
- * ================================================================ */
-
-static char *build_http_json(int status, const char *headers,
-                             size_t headers_len,
-                             const char *body, size_t body_len,
-                             size_t *out_len)
-{
-    /* Estimate: status digits + headers + body*2 (escaped) + overhead */
-    size_t cap = 64 + headers_len + body_len * 2 + 128;
-    char *buf = (char *)malloc(cap);
-    if (!buf) return NULL;
-
-    size_t pos = 0;
-    pos += snprintf(buf + pos, cap - pos, "{\"status\":%d,\"headers\":", status);
-
-    if (headers && headers_len > 0) {
-        /* headers is already a JSON object string from parsing */
-        memcpy(buf + pos, headers, headers_len);
-        pos += headers_len;
-    } else {
-        memcpy(buf + pos, "{}", 2);
-        pos += 2;
-    }
-
-    memcpy(buf + pos, ",\"body\":\"", 9);
-    pos += 9;
-
-    pos += json_escape(body, body_len, buf + pos, cap - pos - 2);
-
-    memcpy(buf + pos, "\"}", 2);
-    pos += 2;
-
-    *out_len = pos;
-    return buf;
-}
-
-/* ================================================================
- * Helper: build JSON array from string list
- * Caller must free the returned string.
- * ================================================================ */
-
-static char *build_json_array(const char **items, int count, size_t *out_len)
-{
-    size_t cap = 4 + (size_t)count * 256;
-    char *buf = (char *)malloc(cap);
-    if (!buf) return NULL;
-
-    size_t pos = 0;
-    buf[pos++] = '[';
-
-    int i;
-    for (i = 0; i < count; i++) {
-        if (i > 0) {
-            buf[pos++] = ',';
-        }
-        buf[pos++] = '"';
-        pos += json_escape(items[i], strlen(items[i]), buf + pos, cap - pos - 2);
-        buf[pos++] = '"';
-    }
-
-    buf[pos++] = ']';
-    buf[pos] = '\0';
-    *out_len = pos;
-    return buf;
-}
+/* ────────────────────────────────────────────────────────────────
+ * JSON helpers and URL parser are now in platform/pal_common.c
+ * (pal_json_escape, pal_build_http_json, pal_build_json_array,
+ *  pal_parse_url, pal_build_headers_json).
+ * ──────────────────────────────────────────────────────────────── */
 
 /* ================================================================
  * Storage operations (in-memory, synchronous callback)
@@ -454,7 +372,7 @@ static void pal_uv_storage_get(qwrt_pal_t *pal, const char *key,
     int i;
 
     if (!key) {
-        cb(cb_data, -6, "invalid key", 11);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
@@ -465,7 +383,7 @@ static void pal_uv_storage_get(qwrt_pal_t *pal, const char *key,
         }
     }
 
-    cb(cb_data, -2, "not found", 9);
+    cb(cb_data, QWRT_ERR_NOT_FOUND, "not found", 9);
 }
 
 static void pal_uv_storage_set(qwrt_pal_t *pal, const char *key,
@@ -476,7 +394,7 @@ static void pal_uv_storage_set(qwrt_pal_t *pal, const char *key,
     int i;
 
     if (!key) {
-        cb(cb_data, -6, "invalid key", 11);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
@@ -486,7 +404,7 @@ static void pal_uv_storage_set(qwrt_pal_t *pal, const char *key,
             free(self->store[i].value);
             self->store[i].value = (char *)malloc(value_len + 1);
             if (!self->store[i].value) {
-                cb(cb_data, -1, "out of memory", 13);
+                cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
                 return;
             }
             memcpy(self->store[i].value, value, value_len);
@@ -499,7 +417,7 @@ static void pal_uv_storage_set(qwrt_pal_t *pal, const char *key,
 
     /* Insert new */
     if (self->store_count >= self->storage_max) {
-        cb(cb_data, -1, "storage full", 12);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage full", 12);
         return;
     }
 
@@ -509,7 +427,7 @@ static void pal_uv_storage_set(qwrt_pal_t *pal, const char *key,
         !self->store[self->store_count].value) {
         free(self->store[self->store_count].key);
         free(self->store[self->store_count].value);
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
     memcpy(self->store[self->store_count].value, value, value_len);
@@ -527,7 +445,7 @@ static void pal_uv_storage_del(qwrt_pal_t *pal, const char *key,
     int i;
 
     if (!key) {
-        cb(cb_data, -6, "invalid key", 11);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
@@ -546,7 +464,7 @@ static void pal_uv_storage_del(qwrt_pal_t *pal, const char *key,
         }
     }
 
-    cb(cb_data, -2, "not found", 9);
+    cb(cb_data, QWRT_ERR_NOT_FOUND, "not found", 9);
 }
 
 /* ================================================================
@@ -586,7 +504,7 @@ static void pal_uv_fs_read_cb(uv_fs_t *req)
         qwrt_pal_cb_t cb = op->cb;
         void *cb_data = op->cb_data;
         op->cb = NULL;
-        cb(cb_data, -1, "read error", 10);
+        cb(cb_data, QWRT_ERR_GENERIC, "read error", 10);
         return;
     }
 
@@ -609,7 +527,7 @@ static void pal_uv_fs_read_cb(uv_fs_t *req)
             op->cb = NULL;
             uv_fs_close(op->self->loop, &op->fs_req, op->fd,
                          pal_uv_fs_read_close_cb);
-            cb(cb_data, -1, "out of memory", 13);
+            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
             return;
         }
         op->buf = new_buf;
@@ -633,7 +551,7 @@ static void pal_uv_fs_read_cb(uv_fs_t *req)
             op->cb = NULL;
             uv_fs_close(op->self->loop, &op->fs_req, op->fd,
                          pal_uv_fs_read_close_cb);
-            cb(cb_data, -1, "out of memory", 13);
+            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
             return;
         }
         op->buf = new_buf;
@@ -641,7 +559,7 @@ static void pal_uv_fs_read_cb(uv_fs_t *req)
         iov.base = op->buf + op->buf_len;
         iov.len = op->buf_cap - op->buf_len;
     }
-    uv_fs_read(op->self->loop, &op->fs_req, op->fd, &iov, 1, -1,
+    uv_fs_read(op->self->loop, &op->fs_req, op->fd, &iov, 1, QWRT_ERR_GENERIC,
                pal_uv_fs_read_cb);
 }
 
@@ -654,7 +572,7 @@ static void pal_uv_fs_read_open_cb(uv_fs_t *req)
     if (result < 0) {
         /* Open failed */
         const char *msg = "file not found";
-        op->cb(op->cb_data, -2, msg, (size_t)strlen(msg));
+        op->cb(op->cb_data, QWRT_ERR_NOT_FOUND, msg, (size_t)strlen(msg));
         free(op->buf);
         free(op);
         return;
@@ -666,7 +584,7 @@ static void pal_uv_fs_read_open_cb(uv_fs_t *req)
     uv_buf_t iov;
     iov.base = op->buf;
     iov.len = op->buf_cap;
-    uv_fs_read(op->self->loop, &op->fs_req, op->fd, &iov, 1, -1,
+    uv_fs_read(op->self->loop, &op->fs_req, op->fd, &iov, 1, QWRT_ERR_GENERIC,
                pal_uv_fs_read_cb);
 }
 
@@ -676,13 +594,13 @@ static void pal_uv_fs_read(qwrt_pal_t *pal, const char *path,
     pal_uv_t *self = pal_uv_self(pal);
 
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     pal_uv_fs_op_t *op = (pal_uv_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -694,7 +612,7 @@ static void pal_uv_fs_read(qwrt_pal_t *pal, const char *path,
     op->buf = (char *)malloc(op->buf_cap);
     if (!op->buf) {
         free(op);
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -729,19 +647,19 @@ static void pal_uv_fs_write_cb(uv_fs_t *req)
         op->cb = NULL;
         uv_fs_close(op->self->loop, &op->fs_req, op->fd,
                      pal_uv_fs_write_close_cb);
-        cb(cb_data, -1, "write error", 11);
+        cb(cb_data, QWRT_ERR_GENERIC, "write error", 11);
         return;
     }
 
     /* Check if all data was written */
     if ((size_t)result < op->buf_len) {
         /* Partial write — write remaining */
-        op->buf += result;
+        op->buf_offset += (size_t)result;
         op->buf_len -= (size_t)result;
         uv_buf_t iov;
-        iov.base = op->buf;
+        iov.base = op->buf + op->buf_offset;
         iov.len = op->buf_len;
-        uv_fs_write(op->self->loop, &op->fs_req, op->fd, &iov, 1, -1,
+        uv_fs_write(op->self->loop, &op->fs_req, op->fd, &iov, 1, QWRT_ERR_GENERIC,
                      pal_uv_fs_write_cb);
         return;
     }
@@ -758,7 +676,7 @@ static void pal_uv_fs_write_open_cb(uv_fs_t *req)
     uv_fs_req_cleanup(req);
 
     if (result < 0) {
-        op->cb(op->cb_data, -1, "cannot open file for writing", 28);
+        op->cb(op->cb_data, QWRT_ERR_GENERIC, "cannot open file for writing", 28);
         free(op->buf);
         free(op);
         return;
@@ -767,9 +685,9 @@ static void pal_uv_fs_write_open_cb(uv_fs_t *req)
     op->fd = (uv_file)result;
 
     uv_buf_t iov;
-    iov.base = op->buf;
+    iov.base = op->buf + op->buf_offset;
     iov.len = op->buf_len;
-    uv_fs_write(op->self->loop, &op->fs_req, op->fd, &iov, 1, -1,
+    uv_fs_write(op->self->loop, &op->fs_req, op->fd, &iov, 1, QWRT_ERR_GENERIC,
                  pal_uv_fs_write_cb);
 }
 
@@ -780,13 +698,13 @@ static void pal_uv_fs_write(qwrt_pal_t *pal, const char *path,
     pal_uv_t *self = pal_uv_self(pal);
 
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     pal_uv_fs_op_t *op = (pal_uv_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -795,10 +713,11 @@ static void pal_uv_fs_write(qwrt_pal_t *pal, const char *path,
     op->self = self;
     op->fs_req.data = op;
     op->buf_len = data_len;
+    op->buf_offset = 0;
     op->buf = (char *)malloc(data_len);
     if (!op->buf) {
         free(op);
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
     memcpy(op->buf, data, data_len);
@@ -830,13 +749,13 @@ static void pal_uv_fs_exists(qwrt_pal_t *pal, const char *path,
     pal_uv_t *self = pal_uv_self(pal);
 
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     pal_uv_fs_op_t *op = (pal_uv_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -873,13 +792,13 @@ static void pal_uv_fs_remove(qwrt_pal_t *pal, const char *path,
     pal_uv_t *self = pal_uv_self(pal);
 
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     pal_uv_fs_op_t *op = (pal_uv_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -899,7 +818,7 @@ static void pal_uv_fs_list_cb(uv_fs_t *req)
 
     if (req->result < 0) {
         uv_fs_req_cleanup(req);
-        op->cb(op->cb_data, -1, "scandir error", 13);
+        op->cb(op->cb_data, QWRT_ERR_GENERIC, "scandir error", 13);
         free(op);
         return;
     }
@@ -910,7 +829,7 @@ static void pal_uv_fs_list_cb(uv_fs_t *req)
     char **names = (char **)malloc(sizeof(char *) * (size_t)cap);
     if (!names) {
         uv_fs_req_cleanup(req);
-        op->cb(op->cb_data, -1, "out of memory", 13);
+        op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         free(op);
         return;
     }
@@ -930,7 +849,7 @@ static void pal_uv_fs_list_cb(uv_fs_t *req)
                 for (j = 0; j < count; j++) free(names[j]);
                 free(names);
                 uv_fs_req_cleanup(req);
-                op->cb(op->cb_data, -1, "out of memory", 13);
+                op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
                 free(op);
                 return;
             }
@@ -943,7 +862,7 @@ static void pal_uv_fs_list_cb(uv_fs_t *req)
             for (j = 0; j < count; j++) free(names[j]);
             free(names);
             uv_fs_req_cleanup(req);
-            op->cb(op->cb_data, -1, "out of memory", 13);
+            op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
             free(op);
             return;
         }
@@ -954,7 +873,7 @@ static void pal_uv_fs_list_cb(uv_fs_t *req)
 
     /* Build JSON array */
     size_t json_len;
-    char *json = build_json_array((const char **)names, count, &json_len);
+    char *json = pal_build_json_array((const char *const *)names, count, &json_len);
 
     /* Free names */
     int i;
@@ -964,7 +883,7 @@ static void pal_uv_fs_list_cb(uv_fs_t *req)
     free(names);
 
     if (!json) {
-        op->cb(op->cb_data, -1, "out of memory", 13);
+        op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         free(op);
         return;
     }
@@ -980,13 +899,13 @@ static void pal_uv_fs_list(qwrt_pal_t *pal, const char *path,
     pal_uv_t *self = pal_uv_self(pal);
 
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     pal_uv_fs_op_t *op = (pal_uv_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1009,75 +928,6 @@ static void pal_uv_fs_list(qwrt_pal_t *pal, const char *path,
  * Connect timeout of 30 seconds via uv_timer_t.
  * Callback receives JSON: {"status":NNN,"headers":{...},"body":"..."}
  * ================================================================ */
-
-/* Simple URL parser: extracts host, port, path from http:// or https:// URLs */
-static int parse_http_url(const char *url, char **out_host, int *out_port,
-                          char **out_path, int *out_use_tls)
-{
-    int use_tls = 0;
-    const char *p = NULL;
-
-    if (strncmp(url, "https://", 8) == 0) {
-        use_tls = 1;
-        p = url + 8;
-    } else if (strncmp(url, "http://", 7) == 0) {
-        use_tls = 0;
-        p = url + 7;
-    } else {
-        return -1;
-    }
-
-    *out_use_tls = use_tls;
-
-    const char *host_start = p;
-    const char *host_end = NULL;
-    const char *port_start = NULL;
-    const char *path_start = NULL;
-
-    /* Find end of host (either : or / or end) */
-    while (*p && *p != ':' && *p != '/') {
-        p++;
-    }
-    host_end = p;
-
-    if (*p == ':') {
-        p++;
-        port_start = p;
-        while (*p && *p != '/') {
-            p++;
-        }
-    }
-
-    if (*p == '/') {
-        path_start = p;
-    } else {
-        path_start = "/";
-    }
-
-    /* Extract host */
-    size_t host_len = (size_t)(host_end - host_start);
-    *out_host = (char *)malloc(host_len + 1);
-    if (!*out_host) return -1;
-    memcpy(*out_host, host_start, host_len);
-    (*out_host)[host_len] = '\0';
-
-    /* Extract port */
-    if (port_start) {
-        *out_port = atoi(port_start);
-        if (*out_port <= 0) *out_port = use_tls ? 443 : 80;
-    } else {
-        *out_port = use_tls ? 443 : 80;
-    }
-
-    /* Extract path */
-    *out_path = strdup(path_start);
-    if (!*out_path) {
-        free(*out_host);
-        return -1;
-    }
-
-    return 0;
-}
 
 /* Parse HTTP response headers from the response buffer.
  * Sets http_status, finds header region, finds body start.
@@ -1153,7 +1003,9 @@ static int parse_http_response(pal_uv_http_op_t *op)
         if (eol - hp > 15 && strncasecmp(hp, "Content-Length:", 15) == 0) {
             const char *val = hp + 15;
             while (val < eol && (*val == ' ' || *val == '\t')) val++;
-            op->body_expected = (size_t)strtoull(val, NULL, 10);
+            unsigned long long cl = strtoull(val, NULL, 10);
+            /* Clamp to SIZE_MAX to avoid truncation on 32-bit platforms */
+            op->body_expected = cl > SIZE_MAX ? SIZE_MAX : (size_t)cl;
         }
 
         /* Check for Transfer-Encoding: chunked (case-insensitive) */
@@ -1172,71 +1024,6 @@ static int parse_http_response(pal_uv_http_op_t *op)
 
     op->headers_done = 1;
     return 0;
-}
-
-/* Build a JSON object string from the raw header lines.
- * Input: header region (between status line and \r\n\r\n)
- * Output: {"Key":"Value","Key2":"Value2"} */
-static char *build_headers_json(const char *hdr_start, size_t hdr_len,
-                                size_t *out_len)
-{
-    /* Worst case: each char could become an escape sequence */
-    size_t cap = hdr_len * 2 + 4;
-    char *buf = (char *)malloc(cap);
-    if (!buf) return NULL;
-
-    size_t pos = 0;
-    buf[pos++] = '{';
-
-    const char *p = hdr_start;
-    const char *end = hdr_start + hdr_len;
-    int first = 1;
-
-    while (p < end) {
-        /* Find end of line */
-        const char *eol = p;
-        while (eol < end && !(*eol == '\r' && (eol + 1 < end) && *(eol + 1) == '\n')) {
-            eol++;
-        }
-
-        /* Find colon separating key and value */
-        const char *colon = p;
-        while (colon < eol && *colon != ':') colon++;
-
-        if (colon < eol) {
-            /* We have a key: value pair */
-            size_t key_len = (size_t)(colon - p);
-            const char *val_start = colon + 1;
-            /* Skip leading whitespace in value */
-            while (val_start < eol && (*val_start == ' ' || *val_start == '\t')) {
-                val_start++;
-            }
-            size_t val_len = (size_t)(eol - val_start);
-
-            if (!first) {
-                buf[pos++] = ',';
-            }
-            first = 0;
-
-            buf[pos++] = '"';
-            pos += json_escape(p, key_len, buf + pos, cap - pos - 1);
-            buf[pos++] = '"';
-            buf[pos++] = ':';
-            buf[pos++] = '"';
-            pos += json_escape(val_start, val_len, buf + pos, cap - pos - 1);
-            buf[pos++] = '"';
-        }
-
-        /* Move past \r\n */
-        p = eol;
-        if (p < end && *p == '\r') p++;
-        if (p < end && *p == '\n') p++;
-    }
-
-    buf[pos++] = '}';
-    buf[pos] = '\0';
-    *out_len = pos;
-    return buf;
 }
 
 /* Forward declarations for HTTP operations */
@@ -1290,32 +1077,66 @@ static void pal_uv_http_cleanup(pal_uv_http_op_t *op)
     free(op);
 }
 
+/* Close a uv handle that belongs to op, bumping the close refcount. op is freed
+ * only after every close handle's close callback has fired (see close_done), so
+ * libuv never touches a handle struct inside an already-freed op. */
+static void pal_uv_http_close_handle(pal_uv_http_op_t *op, uv_handle_t *h,
+                                     uv_close_cb cb)
+{
+    /* Only teardown-phase closes count toward the refcount; mid-life closes
+     * (tearing_down == 0) just close the handle without touching closes_pending. */
+    if (op->tearing_down)
+        op->closes_pending++;
+    uv_close(h, cb);
+}
+
+/* Called from a handle's close callback: one fewer pending close. Frees op when
+ * the last one fires. Safe for any of op's handles (tcp, connect_timer,
+ * idle_timer) - all set .data = op. No-op for mid-life closes (tearing_down 0). */
+static void pal_uv_http_close_done(pal_uv_http_op_t *op)
+{
+    if (op->tearing_down && --op->closes_pending == 0) {
+        pal_uv_http_cleanup(op);
+    }
+}
+
+/* Called from a teardown path after uv_close'ing the handles it needs to. If no
+ * closes are pending, frees op now; otherwise the pending close callbacks free
+ * it when the last fires. Replaces direct pal_uv_http_cleanup() calls in
+ * teardown paths, which could free op while a timer close was still pending. */
+static void pal_uv_http_finalize(pal_uv_http_op_t *op)
+{
+    if (op->closes_pending == 0) {
+        pal_uv_http_cleanup(op);
+    }
+}
+
 static void pal_uv_http_close_cb(uv_handle_t *handle)
 {
     pal_uv_http_op_t *op = (pal_uv_http_op_t *)handle->data;
-    pal_uv_untrack_handle(op->self, (uv_handle_t *)&op->tcp);
-    pal_uv_http_cleanup(op);
+    pal_uv_http_close_done(op);
 }
 
-/* Close callback for the connect_timer and idle_timer — frees nothing extra,
- * the main http_close_cb or stream_cleanup handles the op cleanup.
- * We cannot access op here because it may already be freed by the time
- * this callback runs (tcp close cb fires first, freeing op). */
+/* Close callback for the connect_timer and idle_timer. Decrements the
+ * teardown close refcount; op is freed when the last of its handles
+ * (tcp + timers) closes. A no-op for mid-life closes (tearing_down 0). */
 static void pal_uv_http_timer_close_cb(uv_handle_t *handle)
 {
-    (void)handle;
+    pal_uv_http_op_t *op = (pal_uv_http_op_t *)handle->data;
+    pal_uv_http_close_done(op);
 }
 
 static void pal_uv_http_finish_error(pal_uv_http_op_t *op, int status,
                                      const char *msg)
 {
     size_t msg_len = strlen(msg);
+    op->tearing_down = 1;
 
     /* Stop and close the connect timer if initialized and active */
     if (op->timer_init && op->connect_timer.data &&
         !uv_is_closing((uv_handle_t *)&op->connect_timer)) {
         uv_timer_stop(&op->connect_timer);
-        uv_close((uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
     }
 
     if (op->streaming) {
@@ -1324,29 +1145,30 @@ static void pal_uv_http_finish_error(pal_uv_http_op_t *op, int status,
             op->stream_ops.on_end(op->stream_ops.user_data, status);
         }
         if (op->tcp_init && !uv_is_closing((uv_handle_t *)&op->tcp)) {
-            uv_close((uv_handle_t *)&op->tcp, pal_uv_http_stream_close_cb);
+            pal_uv_http_close_handle(op, (uv_handle_t *)&op->tcp, pal_uv_http_stream_close_cb);
         } else {
-            pal_uv_http_cleanup(op);
+            pal_uv_http_finalize(op);
         }
         return;
     }
 
     op->cb(op->cb_data, status, msg, msg_len);
     if (op->tcp_init && !uv_is_closing((uv_handle_t *)&op->tcp)) {
-        uv_close((uv_handle_t *)&op->tcp, pal_uv_http_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->tcp, pal_uv_http_close_cb);
     } else {
         /* TCP never init'd (DNS failed) — clean up directly */
-        pal_uv_http_cleanup(op);
+        pal_uv_http_finalize(op);
     }
 }
 
 static void pal_uv_http_finish_success(pal_uv_http_op_t *op)
 {
+    op->tearing_down = 1;
     /* Stop and close the connect timer if initialized and active */
     if (op->timer_init && op->connect_timer.data &&
         !uv_is_closing((uv_handle_t *)&op->connect_timer)) {
         uv_timer_stop(&op->connect_timer);
-        uv_close((uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
     }
 
     /* Parse headers and build JSON response */
@@ -1365,15 +1187,15 @@ static void pal_uv_http_finish_success(pal_uv_http_op_t *op)
 
     if (status_line_end) {
         size_t hdr_len = op->resp_buf + op->header_end_offset - 4 - status_line_end;
-        headers_json = build_headers_json(status_line_end, hdr_len,
-                                          &headers_json_len);
+        headers_json = pal_build_headers_json(status_line_end, hdr_len,
+                                              &headers_json_len);
     }
 
     const char *body_start = op->resp_buf + op->header_end_offset;
     size_t body_len = op->resp_buf_len - op->header_end_offset;
 
     size_t json_len;
-    char *json = build_http_json(op->http_status,
+    char *json = pal_build_http_json(op->http_status,
                                  headers_json ? headers_json : "{}",
                                  headers_json ? headers_json_len : 2,
                                  body_start, body_len, &json_len);
@@ -1383,11 +1205,11 @@ static void pal_uv_http_finish_success(pal_uv_http_op_t *op)
         op->cb(op->cb_data, 0, json, json_len);
         free(json);
     } else {
-        op->cb(op->cb_data, -1, "out of memory", 13);
+        op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
     }
 
     if (!uv_is_closing((uv_handle_t *)&op->tcp)) {
-        uv_close((uv_handle_t *)&op->tcp, pal_uv_http_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->tcp, pal_uv_http_close_cb);
     }
 }
 
@@ -1514,7 +1336,7 @@ static void pal_uv_http_connect_timer_cb(uv_timer_t *handle)
 {
     pal_uv_http_op_t *op = (pal_uv_http_op_t *)handle->data;
     if (op->aborted) return;  /* teardown already in progress */
-    pal_uv_http_finish_error(op, -5, "connection timeout");
+    pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "connection timeout");
 }
 
 static void pal_uv_http_stream_cleanup(pal_uv_http_op_t *op);
@@ -1525,7 +1347,7 @@ static void pal_uv_http_idle_timer_cb(uv_timer_t *handle)
     pal_uv_http_op_t *op = (pal_uv_http_op_t *)handle->data;
     if (op->aborted) return;  /* teardown already in progress */
     if (op->stream_ops.on_end) {
-        op->stream_ops.on_end(op->stream_ops.user_data, -5);
+        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
     }
     pal_uv_http_stream_cleanup(op);
 }
@@ -1568,7 +1390,7 @@ static void pal_uv_http_send_request(pal_uv_http_op_t *op)
     size_t req_cap = 1024 + (op->body_len > 0 ? op->body_len : 0);
     char *req_buf = (char *)malloc(req_cap);
     if (!req_buf) {
-        pal_uv_http_finish_error(op, -1, "out of memory");
+        pal_uv_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
         return;
     }
 
@@ -1656,8 +1478,9 @@ static void pal_uv_http_send_request(pal_uv_http_op_t *op)
         /* Encrypt and send through TLS */
         int ret = mbedtls_ssl_write(&op->ssl, (const unsigned char *)req_buf, pos);
         if (ret < 0) {
-            free(req_buf);
-            pal_uv_http_finish_error(op, -5, "TLS write failed");
+            /* op->req_buf owns req_buf (set above); let pal_uv_http_cleanup free
+             * it via op->req_buf. Freeing it here too would double-free. */
+            pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "TLS write failed");
             return;
         }
         free(req_buf);
@@ -1709,7 +1532,7 @@ static void tls_handshake_read_cb(uv_stream_t *stream, ssize_t nread,
     }
     if (nread < 0) {
         free(buf->base);
-        pal_uv_http_finish_error(op, -5, "TLS handshake read error");
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "TLS handshake read error");
         return;
     }
 
@@ -1737,7 +1560,7 @@ static void tls_handshake_read_cb(uv_stream_t *stream, ssize_t nread,
         free(op->tls_read_buf);
         op->tls_read_buf = NULL;
         op->tls_read_buf_len = 0;
-        pal_uv_http_finish_error(op, -5, err);
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, err);
     }
     /* On WANT_READ/WANT_WRITE, keep buffer for next recv_cb call */
 }
@@ -1752,18 +1575,21 @@ static void pal_uv_http_connect_cb(uv_connect_t *req, int status)
 {
     pal_uv_http_op_t *op = (pal_uv_http_op_t *)req->data;
 
-    /* If the op was aborted (pal_uv_http_abort), teardown is already in
-     * progress / the op may be freed — do nothing. */
-    if (op->aborted) return;
+    /* If the op was aborted, or teardown already began (e.g. the connect
+     * timeout fired and closed tcp while uv_tcp_connect was still pending),
+     * do nothing: libuv's uv__stream_destroy delivers a final UV_ECANCELED
+     * here, which would re-enter finish_error and deliver the completion
+     * callback a second time. */
+    if (op->aborted || op->tearing_down) return;
 
     /* Stop the connect timer on any connect result */
     if (op->connect_timer.data && !uv_is_closing((uv_handle_t *)&op->connect_timer)) {
         uv_timer_stop(&op->connect_timer);
-        uv_close((uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
     }
 
     if (status < 0) {
-        pal_uv_http_finish_error(op, -5, "connection failed");
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "connection failed");
         return;
     }
 
@@ -1771,7 +1597,7 @@ static void pal_uv_http_connect_cb(uv_connect_t *req, int status)
     if (op->use_tls) {
 #ifdef QWRT_WITH_TLS
         if (tls_init_op(op) != 0) {
-            pal_uv_http_finish_error(op, -5, "TLS init failed");
+            pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "TLS init failed");
             return;
         }
         mbedtls_ssl_set_bio(&op->ssl, op, tls_send_cb, tls_recv_cb, NULL);
@@ -1791,13 +1617,13 @@ static void pal_uv_http_connect_cb(uv_connect_t *req, int status)
                        ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
                 char err[128];
                 mbedtls_strerror(ret, err, sizeof(err));
-                pal_uv_http_finish_error(op, -5, err);
+                pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, err);
             }
             /* WANT_READ/WANT_WRITE: wait for tls_handshake_read_cb */
         }
         return;
 #else
-        pal_uv_http_finish_error(op, -5, "TLS not supported: compile with QWRT_WITH_TLS");
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "TLS not supported: compile with QWRT_WITH_TLS");
         return;
 #endif
     }
@@ -1812,7 +1638,7 @@ static void pal_uv_http_write_cb(uv_write_t *req, int status)
     if (op->aborted) return;  /* teardown in progress — don't start reads */
 
     if (status < 0) {
-        pal_uv_http_finish_error(op, -5, "write error");
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "write error");
         return;
     }
 
@@ -1853,7 +1679,7 @@ static int pal_uv_http_process_data(pal_uv_http_op_t *op, const char *data,
         if (new_cap < new_len) new_cap = new_len;
         char *new_buf = (char *)realloc(op->resp_buf, new_cap);
         if (!new_buf) {
-            pal_uv_http_finish_error(op, -1, "out of memory");
+            pal_uv_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
             return 1;
         }
         op->resp_buf = new_buf;
@@ -1877,7 +1703,7 @@ static int pal_uv_http_process_data(pal_uv_http_op_t *op, const char *data,
                     pal_uv_http_finish_success(op);
                     return 1;
                 } else if (result < 0) {
-                    pal_uv_http_finish_error(op, -5, "chunked encoding parse error");
+                    pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "chunked encoding parse error");
                     return 1;
                 }
                 /* else: need more data, keep reading */
@@ -1905,7 +1731,7 @@ static int pal_uv_http_process_data(pal_uv_http_op_t *op, const char *data,
             pal_uv_http_finish_success(op);
             return 1;
         } else if (result < 0) {
-            pal_uv_http_finish_error(op, -5, "chunked encoding parse error");
+            pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "chunked encoding parse error");
             return 1;
         }
         /* else: need more data, keep reading */
@@ -1939,17 +1765,17 @@ static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
             /* Connection closed — finish with what we have */
             if (op->headers_done) {
                 if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
-                    pal_uv_http_finish_error(op, -5,
+                    pal_uv_http_finish_error(op, QWRT_ERR_NETWORK,
                         "connection closed before chunked body complete");
                 } else {
                     pal_uv_http_finish_success(op);
                 }
             } else {
-                pal_uv_http_finish_error(op, -5,
+                pal_uv_http_finish_error(op, QWRT_ERR_NETWORK,
                     "connection closed before headers");
             }
         } else {
-            pal_uv_http_finish_error(op, -5, "TLS read error");
+            pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "TLS read error");
         }
         return;
     }
@@ -1999,7 +1825,7 @@ static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
         } else if (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
             pal_uv_http_finish_success(op);
         } else {
-            pal_uv_http_finish_error(op, -5, "TLS decrypt error");
+            pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "TLS decrypt error");
         }
     }
     /* On WANT_READ, keep reading — more encrypted data needed */
@@ -2024,15 +1850,15 @@ static void pal_uv_http_read_cb(uv_stream_t *stream, ssize_t nread,
             if (op->headers_done) {
                 /* For chunked, EOF before complete is an error unless done */
                 if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
-                    pal_uv_http_finish_error(op, -5, "connection closed before chunked body complete");
+                    pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "connection closed before chunked body complete");
                 } else {
                     pal_uv_http_finish_success(op);
                 }
             } else {
-                pal_uv_http_finish_error(op, -5, "connection closed before headers");
+                pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "connection closed before headers");
             }
         } else {
-            pal_uv_http_finish_error(op, -5, "read error");
+            pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "read error");
         }
         free(buf->base);
         return;
@@ -2055,8 +1881,7 @@ static void pal_uv_http_read_cb(uv_stream_t *stream, ssize_t nread,
 static void pal_uv_http_stream_close_cb(uv_handle_t *handle)
 {
     pal_uv_http_op_t *op = (pal_uv_http_op_t *)handle->data;
-    pal_uv_untrack_handle(op->self, (uv_handle_t *)&op->tcp);
-    pal_uv_http_cleanup(op);
+    pal_uv_http_close_done(op);
 }
 
 static void pal_uv_http_stream_cleanup(pal_uv_http_op_t *op)
@@ -2074,6 +1899,7 @@ static void pal_uv_http_stream_cleanup(pal_uv_http_op_t *op)
      */
     if (op->teardown_started) return;
     op->teardown_started = 1;
+    op->tearing_down = 1;
 
     /* Clear the active-stream tracker first. The op itself is freed later
      * (in the TCP close callback or via pal_uv_http_cleanup below), but no
@@ -2086,19 +1912,19 @@ static void pal_uv_http_stream_cleanup(pal_uv_http_op_t *op)
     if (op->idle_timer_init && op->idle_timer.data &&
         !uv_is_closing((uv_handle_t *)&op->idle_timer)) {
         uv_timer_stop(&op->idle_timer);
-        uv_close((uv_handle_t *)&op->idle_timer, pal_uv_http_timer_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->idle_timer, pal_uv_http_timer_close_cb);
     }
 
     /* Stop and close the connect timer if initialized and active */
     if (op->timer_init && op->connect_timer.data &&
         !uv_is_closing((uv_handle_t *)&op->connect_timer)) {
         uv_timer_stop(&op->connect_timer);
-        uv_close((uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
     }
 
     /* Close TCP handle; cleanup happens in close callback */
     if (op->tcp_init && !uv_is_closing((uv_handle_t *)&op->tcp)) {
-        uv_close((uv_handle_t *)&op->tcp, pal_uv_http_stream_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->tcp, pal_uv_http_stream_close_cb);
     } else if (op->aborted && !op->tcp_init) {
         /*
          * Aborted before TCP was initialized: DNS (uv_getaddrinfo) is likely
@@ -2109,7 +1935,7 @@ static void pal_uv_http_stream_cleanup(pal_uv_http_op_t *op)
          */
         uv_cancel((uv_req_t *)&op->addr_req);
     } else {
-        pal_uv_http_cleanup(op);
+        pal_uv_http_finalize(op);
     }
 }
 
@@ -2135,7 +1961,7 @@ static void pal_uv_http_abort(qwrt_pal_t *pal)
      * the fetch Promise rejects rather than hanging. Use -7 (CANCELLED)
      * to mirror error codes. */
     if (op->stream_ops.on_end) {
-        op->stream_ops.on_end(op->stream_ops.user_data, -7);
+        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_CANCELLED);
     }
 
     /* Tear down handles (clears active_stream, closes TCP/timers, frees op
@@ -2269,7 +2095,7 @@ static int pal_uv_http_stream_process_data(pal_uv_http_op_t *op,
                 return 1;
             } else if (result < 0) {
                 if (op->stream_ops.on_end) {
-                    op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                    op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
                 }
                 pal_uv_http_stream_cleanup(op);
                 return 1;
@@ -2288,7 +2114,7 @@ static int pal_uv_http_stream_process_data(pal_uv_http_op_t *op,
     char *new_buf = (char *)realloc(op->resp_headers, new_len + 1);
     if (!new_buf) {
         if (op->stream_ops.on_end) {
-            op->stream_ops.on_end(op->stream_ops.user_data, -5);
+            op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
         }
         pal_uv_http_stream_cleanup(op);
         return 1;
@@ -2348,7 +2174,10 @@ static int pal_uv_http_stream_process_data(pal_uv_http_op_t *op,
             eol++;
         }
 
-        if (eol - hp > 26 && strncasecmp(hp, "Transfer-Encoding:", 18) == 0) {
+        /* eol points at the \r of the line's \r\n (or hdrs_end). The line
+         * content is [hp, eol), so require >= 18 chars (header name + colon)
+         * — NOT > 26, which misses "Transfer-Encoding: chunked" exactly. */
+        if (eol - hp >= 18 && strncasecmp(hp, "Transfer-Encoding:", 18) == 0) {
             const char *val = hp + 18;
             while (val < eol && (*val == ' ' || *val == '\t')) val++;
             if (eol - val >= 7 && strncasecmp(val, "chunked", 7) == 0) {
@@ -2367,7 +2196,7 @@ static int pal_uv_http_stream_process_data(pal_uv_http_op_t *op,
     if (line_end) {
         const char *status_line_end = op->resp_headers + (line_end - op->resp_headers) + 2;
         size_t hdr_len = (size_t)(hdrs_end - status_line_end);
-        headers_json = build_headers_json(status_line_end, hdr_len, &headers_json_len);
+        headers_json = pal_build_headers_json(status_line_end, hdr_len, &headers_json_len);
     }
 
     /* Deliver on_headers callback */
@@ -2418,17 +2247,17 @@ static void pal_uv_http_stream_read_cb(uv_stream_t *stream, ssize_t nread,
             if (op->stream_ops.on_end) {
                 if (op->headers_parsed) {
                     if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
-                        op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
                     } else {
                         op->stream_ops.on_end(op->stream_ops.user_data, 0);
                     }
                 } else {
-                    op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                    op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
                 }
             }
         } else {
             if (op->stream_ops.on_end) {
-                op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
             }
         }
         pal_uv_http_stream_cleanup(op);
@@ -2473,17 +2302,17 @@ static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
             if (op->stream_ops.on_end) {
                 if (op->headers_parsed) {
                     if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
-                        op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
                     } else {
                         op->stream_ops.on_end(op->stream_ops.user_data, 0);
                     }
                 } else {
-                    op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                    op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
                 }
             }
         } else {
             if (op->stream_ops.on_end) {
-                op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
             }
         }
         pal_uv_http_stream_cleanup(op);
@@ -2539,13 +2368,13 @@ static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
                 if (op->headers_parsed) {
                     op->stream_ops.on_end(op->stream_ops.user_data, 0);
                 } else {
-                    op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                    op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
                 }
             }
             pal_uv_http_stream_cleanup(op);
         } else {
             if (op->stream_ops.on_end) {
-                op->stream_ops.on_end(op->stream_ops.user_data, -5);
+                op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
             }
             pal_uv_http_stream_cleanup(op);
         }
@@ -2565,13 +2394,13 @@ static void pal_uv_http_getaddrinfo_cb(uv_getaddrinfo_t *req,
     pal_uv_http_op_t *op = (pal_uv_http_op_t *)req->data;
 
     if (status < 0) {
-        pal_uv_http_finish_error(op, -5, "DNS resolution failed");
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "DNS resolution failed");
         uv_freeaddrinfo(res);
         return;
     }
 
     if (!res) {
-        pal_uv_http_finish_error(op, -5, "DNS resolution returned no addresses");
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "DNS resolution returned no addresses");
         return;
     }
 
@@ -2579,7 +2408,7 @@ static void pal_uv_http_getaddrinfo_cb(uv_getaddrinfo_t *req,
     int rc = uv_tcp_init(op->self->loop, &op->tcp);
     if (rc < 0) {
         uv_freeaddrinfo(res);
-        pal_uv_http_finish_error(op, -5, "tcp init failed");
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "tcp init failed");
         return;
     }
     op->tcp_init = 1;
@@ -2593,7 +2422,7 @@ static void pal_uv_http_getaddrinfo_cb(uv_getaddrinfo_t *req,
     uv_freeaddrinfo(res);
 
     if (rc < 0) {
-        pal_uv_http_finish_error(op, -5, "connect failed");
+        pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "connect failed");
         return;
     }
 
@@ -2610,7 +2439,7 @@ static void pal_uv_http_getaddrinfo_cb(uv_getaddrinfo_t *req,
                             PAL_UV_CONNECT_TIMEOUT_MS, 0);
         if (rc < 0) {
             /* Timer start failed — non-fatal, connection proceeds without timeout */
-            uv_close((uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
+            pal_uv_http_close_handle(op, (uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
         }
     }
 }
@@ -2628,13 +2457,13 @@ static void pal_uv_http_request(qwrt_pal_t *pal,
     pal_uv_t *self = pal_uv_self(pal);
 
     if (!url) {
-        cb(cb_data, -6, "invalid url", 11);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid url", 11);
         return;
     }
 
     pal_uv_http_op_t *op = (pal_uv_http_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -2644,10 +2473,18 @@ static void pal_uv_http_request(qwrt_pal_t *pal,
     op->chunk_state = CHUNK_STATE_SIZE;
 
     /* Parse URL */
-    if (parse_http_url(url, &op->host, &op->port, &op->path, &op->use_tls) < 0) {
-        cb(cb_data, -6, "invalid url format", 18);
-        free(op);
-        return;
+    {
+        pal_url_t parts = {0};
+        if (pal_parse_url(url, &parts) < 0) {
+            cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid url format", 18);
+            free(op);
+            return;
+        }
+        op->host    = parts.host;
+        op->port    = parts.port;
+        op->path    = parts.path;
+        op->use_tls = parts.tls;
+        /* parts fields are now owned by op — do NOT call pal_url_free */
     }
 
     /* If TLS is requested, check compile-time support */
@@ -2656,8 +2493,8 @@ static void pal_uv_http_request(qwrt_pal_t *pal,
         /* TLS handshake will be initiated after connect */
 #else
         /* Error out early before doing any network I/O */
-        pal_uv_http_cleanup(op);
-        cb(cb_data, -5, "TLS not supported: compile with QWRT_WITH_TLS", 45);
+        pal_uv_http_finalize(op);
+        cb(cb_data, QWRT_ERR_NETWORK, "TLS not supported: compile with QWRT_WITH_TLS", 45);
         return;
 #endif
     }
@@ -2680,15 +2517,15 @@ static void pal_uv_http_request(qwrt_pal_t *pal,
     op->resp_buf_cap = PAL_UV_HTTP_BUF_INIT;
     op->resp_buf = (char *)malloc(op->resp_buf_cap);
     if (!op->resp_buf) {
-        pal_uv_http_cleanup(op);
-        cb(cb_data, -1, "out of memory", 13);
+        pal_uv_http_finalize(op);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
     /* Resolve hostname via uv_getaddrinfo */
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;      /* IPv4 for now */
+    hints.ai_family = AF_UNSPEC;     /* IPv4 + IPv6 */
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
@@ -2701,8 +2538,8 @@ static void pal_uv_http_request(qwrt_pal_t *pal,
                             pal_uv_http_getaddrinfo_cb,
                             op->host, port_str, &hints);
     if (rc < 0) {
-        pal_uv_http_cleanup(op);
-        cb(cb_data, -5, "DNS resolution request failed", 29);
+        pal_uv_http_finalize(op);
+        cb(cb_data, QWRT_ERR_NETWORK, "DNS resolution request failed", 29);
         return;
     }
 }
@@ -2723,12 +2560,13 @@ static void pal_uv_http_stream_finish_error(pal_uv_http_op_t *op, int error_stat
      * must not deliver on_end again or reach the free fall-through. */
     if (op->teardown_started) return;
     op->teardown_started = 1;
+    op->tearing_down = 1;
 
     /* Stop and close the connect timer if initialized and active */
     if (op->timer_init && op->connect_timer.data &&
         !uv_is_closing((uv_handle_t *)&op->connect_timer)) {
         uv_timer_stop(&op->connect_timer);
-        uv_close((uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
     }
 
     if (op->self && op->self->active_stream == op) {
@@ -2740,9 +2578,9 @@ static void pal_uv_http_stream_finish_error(pal_uv_http_op_t *op, int error_stat
     }
 
     if (op->tcp_init && !uv_is_closing((uv_handle_t *)&op->tcp)) {
-        uv_close((uv_handle_t *)&op->tcp, pal_uv_http_stream_close_cb);
+        pal_uv_http_close_handle(op, (uv_handle_t *)&op->tcp, pal_uv_http_stream_close_cb);
     } else {
-        pal_uv_http_cleanup(op);
+        pal_uv_http_finalize(op);
     }
 }
 
@@ -2759,18 +2597,18 @@ static void pal_uv_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
      */
     if (op->aborted) {
         if (res) uv_freeaddrinfo(res);
-        pal_uv_http_cleanup(op);
+        pal_uv_http_finalize(op);
         return;
     }
 
     if (status < 0) {
-        pal_uv_http_stream_finish_error(op, -5);
+        pal_uv_http_stream_finish_error(op, QWRT_ERR_NETWORK);
         uv_freeaddrinfo(res);
         return;
     }
 
     if (!res) {
-        pal_uv_http_stream_finish_error(op, -5);
+        pal_uv_http_stream_finish_error(op, QWRT_ERR_NETWORK);
         return;
     }
 
@@ -2778,7 +2616,7 @@ static void pal_uv_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
     int rc = uv_tcp_init(op->self->loop, &op->tcp);
     if (rc < 0) {
         uv_freeaddrinfo(res);
-        pal_uv_http_stream_finish_error(op, -5);
+        pal_uv_http_stream_finish_error(op, QWRT_ERR_NETWORK);
         return;
     }
     op->tcp_init = 1;
@@ -2792,7 +2630,7 @@ static void pal_uv_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
     uv_freeaddrinfo(res);
 
     if (rc < 0) {
-        pal_uv_http_stream_finish_error(op, -5);
+        pal_uv_http_stream_finish_error(op, QWRT_ERR_NETWORK);
         return;
     }
 
@@ -2807,7 +2645,7 @@ static void pal_uv_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
         rc = uv_timer_start(&op->connect_timer, pal_uv_http_connect_timer_cb,
                             PAL_UV_CONNECT_TIMEOUT_MS, 0);
         if (rc < 0) {
-            uv_close((uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
+            pal_uv_http_close_handle(op, (uv_handle_t *)&op->connect_timer, pal_uv_http_timer_close_cb);
         }
     }
 }
@@ -2822,7 +2660,7 @@ static void pal_uv_http_request_stream(qwrt_pal_t *pal,
 
     if (!url || !ops) {
         if (ops && ops->on_end) {
-            ops->on_end(ops->user_data, -6);
+            ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
         }
         return;
     }
@@ -2830,7 +2668,7 @@ static void pal_uv_http_request_stream(qwrt_pal_t *pal,
     pal_uv_http_op_t *op = (pal_uv_http_op_t *)calloc(1, sizeof(*op));
     if (!op) {
         if (ops->on_end) {
-            ops->on_end(ops->user_data, -1);
+            ops->on_end(ops->user_data, QWRT_ERR_GENERIC);
         }
         return;
     }
@@ -2843,12 +2681,20 @@ static void pal_uv_http_request_stream(qwrt_pal_t *pal,
     op->chunk_state = CHUNK_STATE_SIZE;
 
     /* Parse URL */
-    if (parse_http_url(url, &op->host, &op->port, &op->path, &op->use_tls) < 0) {
-        if (ops->on_end) {
-            ops->on_end(ops->user_data, -6);
+    {
+        pal_url_t parts = {0};
+        if (pal_parse_url(url, &parts) < 0) {
+            if (ops->on_end) {
+                ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
+            }
+            free(op);
+            return;
         }
-        free(op);
-        return;
+        op->host    = parts.host;
+        op->port    = parts.port;
+        op->path    = parts.path;
+        op->use_tls = parts.tls;
+        /* parts fields are now owned by op — do NOT call pal_url_free */
     }
 
     /* If TLS is requested, check compile-time support */
@@ -2856,9 +2702,9 @@ static void pal_uv_http_request_stream(qwrt_pal_t *pal,
 #ifdef QWRT_WITH_TLS
         /* TLS handshake will be initiated after connect */
 #else
-        pal_uv_http_cleanup(op);
+        pal_uv_http_finalize(op);
         if (ops->on_end) {
-            ops->on_end(ops->user_data, -5);
+            ops->on_end(ops->user_data, QWRT_ERR_NETWORK);
         }
         return;
 #endif
@@ -2881,7 +2727,7 @@ static void pal_uv_http_request_stream(qwrt_pal_t *pal,
     /* Resolve hostname via uv_getaddrinfo */
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;      /* IPv4 for now */
+    hints.ai_family = AF_UNSPEC;     /* IPv4 + IPv6 */
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
@@ -2894,9 +2740,9 @@ static void pal_uv_http_request_stream(qwrt_pal_t *pal,
                             pal_uv_http_stream_getaddrinfo_cb,
                             op->host, port_str, &hints);
     if (rc < 0) {
-        pal_uv_http_cleanup(op);
+        pal_uv_http_finalize(op);
         if (ops->on_end) {
-            ops->on_end(ops->user_data, -5);
+            ops->on_end(ops->user_data, QWRT_ERR_NETWORK);
         }
         return;
     }
@@ -3081,9 +2927,15 @@ static void *pal_uv_spawn(qwrt_pal_t *pal,
 
         if (env) {
             for (const char *const *e = env; *e; e++) {
-                /* Copy string — putenv requires writable */
-                char *entry = strdup(*e);
-                if (entry) putenv(entry);
+                /* Split KEY=VALUE for setenv */
+                const char *eq = strchr(*e, '=');
+                if (eq) {
+                    char *key = strndup(*e, (size_t)(eq - *e));
+                    if (key) {
+                        setenv(key, eq + 1, 1);
+                        free(key);
+                    }
+                }
             }
         }
 
@@ -3155,12 +3007,12 @@ static void pal_uv_channel_recv(qwrt_pal_t *pal, void *ch,
                                 qwrt_pal_cb_t cb, void *cb_data)
 {
     (void)pal;
-    if (!ch || !cb) { cb(cb_data, -1, NULL, 0); return; }
+    if (!ch || !cb) { cb(cb_data, QWRT_ERR_GENERIC, NULL, 0); return; }
     int fd = ((pal_uv_channel_t *)ch)->fd;
     char buf[65536];
     ssize_t n = read(fd, buf, sizeof(buf));
     if (n < 0) {
-        cb(cb_data, -1, NULL, 0);
+        cb(cb_data, QWRT_ERR_GENERIC, NULL, 0);
     } else {
         cb(cb_data, 0, buf, (size_t)n);
     }
@@ -3261,6 +3113,8 @@ qwrt_pal_t *pal_uv_create_with_config(uv_loop_t *loop, int storage_max)
     /* Set up PAL function pointers */
     qwrt_pal_t *pal = &self->pal;
     pal->user_data = self;
+    pal->version   = 1;
+    pal->name      = "libuv";
 
     pal->http_request = pal_uv_http_request;
     pal->http_request_stream = pal_uv_http_request_stream;
@@ -3292,6 +3146,12 @@ qwrt_pal_t *pal_uv_create_with_config(uv_loop_t *loop, int storage_max)
     pal->channel_close    = pal_uv_channel_close;
     pal->join             = pal_uv_join;
     pal->terminate        = pal_uv_terminate;
+
+    /* Lifecycle — all setup is done in pal_uv_create_with_config,
+     * teardown is done via pal_uv_destroy() by the embedder. */
+    pal->init    = NULL;
+    pal->destroy = NULL;
+    memset(pal->reserved, 0, sizeof(pal->reserved));
 
     return pal;
 }

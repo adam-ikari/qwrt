@@ -1,88 +1,652 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="qwrt — An embeddable QuickJS-ng runtime wrapper in C99. WinterCG-compatible JS polyfill, Platform Abstraction Layer, and native extensions.">
+<meta name="color-scheme" content="light dark">
 <title>qwrt — Embeddable QuickJS Runtime</title>
 <style>
-  :root { --bg:#0d1117; --fg:#c9d1d9; --acc:#58a6ff; --muted:#8b949e; --code:#161b22; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
-         background:var(--bg); color:var(--fg); line-height:1.6; }
-  header { text-align:center; padding:6rem 1rem 4rem; border-bottom:1px solid #21262d; }
-  h1 { font-size:3rem; margin:0 0 .5rem; letter-spacing:-.02em; }
-  h1 .accent { color:var(--acc); }
-  .tagline { color:var(--muted); font-size:1.2rem; max-width:36rem; margin:0 auto 2rem; }
-  .cta { display:flex; gap:1rem; justify-content:center; flex-wrap:wrap; }
-  .cta a { padding:.7rem 1.4rem; border-radius:6px; text-decoration:none; font-weight:600; }
-  .cta a.primary { background:var(--acc); color:#000; }
-  .cta a.secondary { border:1px solid #30363d; color:var(--fg); }
-  main { max-width:48rem; margin:0 auto; padding:3rem 1rem; }
-  h2 { border-bottom:1px solid #21262d; padding-bottom:.4rem; margin-top:3rem; }
-  .features { display:grid; grid-template-columns:repeat(auto-fit,minmax(14rem,1fr)); gap:1rem; margin:1.5rem 0; }
-  .feature { background:var(--code); padding:1.2rem; border-radius:8px; border:1px solid #21262d; }
-  .feature h3 { margin:0 0 .5rem; color:var(--acc); font-size:1rem; }
-  .feature p { margin:0; font-size:.9rem; color:var(--muted); }
-  pre { background:var(--code); padding:1rem; border-radius:8px; overflow-x:auto; border:1px solid #21262d; }
-  code { font-family:SFMono-Regular,Consolas,monospace; }
-  a { color:var(--acc); }
-  footer { text-align:center; padding:2rem; color:var(--muted); border-top:1px solid #21262d; }
+  /* ===== Theme Variables ===== */
+  :root {
+    --bg: #ffffff;
+    --bg-secondary: #f6f8fa;
+    --bg-tertiary: #f0f2f5;
+    --fg: #1f2328;
+    --fg-secondary: #656d76;
+    --fg-muted: #8b949e;
+    --border: #d0d7de;
+    --border-subtle: #d8dee4;
+    --accent: #0969da;
+    --accent-hover: #0550ae;
+    --accent-subtle: #ddf4ff;
+    --code-bg: #f6f8fa;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+    --radius: 8px;
+    --radius-sm: 6px;
+    --max-width: 960px;
+    --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+    --gradient-hero: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --hero-overlay: rgba(255,255,255,0.92);
+  }
+
+  [data-theme="dark"] {
+    --bg: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --fg: #e6edf3;
+    --fg-secondary: #8b949e;
+    --fg-muted: #6e7681;
+    --border: #30363d;
+    --border-subtle: #21262d;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --accent-subtle: #0c2d6b;
+    --code-bg: #161b22;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --gradient-hero: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    --hero-overlay: rgba(13,17,23,0.85);
+  }
+
+  /* ===== Reset & Base ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  /* ===== Nav ===== */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .nav-inner {
+    max-width: var(--max-width); margin: 0 auto; padding: 0 1.5rem;
+    display: flex; align-items: center; justify-content: space-between;
+    height: 56px;
+  }
+  .nav-brand {
+    font-weight: 700; font-size: 1.25rem; color: var(--accent);
+    text-decoration: none; letter-spacing: -0.02em;
+  }
+  .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+  .nav-links a {
+    color: var(--fg-secondary); text-decoration: none; font-size: 0.9rem;
+    font-weight: 500; transition: color 0.15s;
+  }
+  .nav-links a:hover { color: var(--fg); }
+  .theme-toggle {
+    background: none; border: 1px solid var(--border); color: var(--fg-secondary);
+    cursor: pointer; font-size: 1.1rem; width: 36px; height: 36px;
+    border-radius: var(--radius-sm); display: flex; align-items: center;
+    justify-content: center; transition: all 0.15s;
+  }
+  .theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ===== Hero ===== */
+  .hero {
+    padding: 5rem 1.5rem 4rem; text-align: center;
+    background: var(--gradient-hero); position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; inset: 0;
+    background: var(--hero-overlay);
+  }
+  .hero-content { position: relative; z-index: 1; }
+  .hero h1 { font-size: 3.5rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
+  .hero h1 .brand { color: var(--accent); }
+  [data-theme="dark"] .hero h1 { color: #e6edf3; }
+  [data-theme="light"] .hero h1 { color: #1f2328; }
+  .hero-tagline {
+    color: var(--fg-secondary); font-size: 1.15rem; max-width: 36rem;
+    margin: 1.25rem auto 2rem; line-height: 1.7;
+  }
+  .hero-cta { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.65rem 1.4rem; border-radius: var(--radius-sm);
+    text-decoration: none; font-weight: 600; font-size: 0.95rem;
+    transition: all 0.15s; cursor: pointer; border: none;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: var(--shadow); }
+  .btn-outline { border: 1px solid var(--border); color: var(--fg); background: transparent; }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-ghost { color: var(--fg-secondary); background: transparent; border: none; }
+  .btn-ghost:hover { color: var(--fg); }
+
+  /* ===== Main Content ===== */
+  main { max-width: var(--max-width); margin: 0 auto; padding: 3rem 1.5rem; }
+
+  section { margin-bottom: 4rem; }
+  .section-header { margin-bottom: 2rem; }
+  .section-header h2 {
+    font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em;
+    margin-bottom: 0.5rem;
+  }
+  .section-header p { color: var(--fg-secondary); font-size: 1rem; }
+
+  /* ===== Feature Grid ===== */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.25rem;
+  }
+  .feature {
+    background: var(--bg-secondary); padding: 1.5rem;
+    border-radius: var(--radius); border: 1px solid var(--border);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .feature:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+  .feature-icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
+  .feature h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--fg); }
+  .feature p { font-size: 0.9rem; color: var(--fg-secondary); line-height: 1.6; }
+
+  /* ===== Code Blocks ===== */
+  .code-block {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .code-block-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.5rem 1rem; background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+  }
+  .code-block-title { font-size: 0.8rem; color: var(--fg-muted); font-family: var(--font-mono); }
+  .copy-btn {
+    background: none; border: none; color: var(--fg-muted); cursor: pointer;
+    font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 4px;
+    transition: color 0.15s;
+  }
+  .copy-btn:hover { color: var(--fg); }
+  .copy-btn.copied { color: #3fb950; }
+  pre {
+    padding: 1rem 1.25rem; overflow-x: auto;
+    font-family: var(--font-mono); font-size: 0.85rem; line-height: 1.55;
+    color: var(--fg);
+  }
+  pre code { font-family: inherit; }
+
+  /* Syntax highlighting for both themes */
+  .kw { color: #cf222e; } .str { color: #0a3069; } .cm { color: #6e7781; font-style: italic; }
+  .fn { color: #8250df; } .ty { color: #0550ae; } .num { color: #0550ae; }
+  .pp { color: #cf222e; } .op { color: #cf222e; }
+  [data-theme="dark"] .kw { color: #ff7b72; } [data-theme="dark"] .str { color: #a5d6ff; }
+  [data-theme="dark"] .cm { color: #8b949e; } [data-theme="dark"] .fn { color: #d2a8ff; }
+  [data-theme="dark"] .ty { color: #79c0ff; } [data-theme="dark"] .num { color: #79c0ff; }
+  [data-theme="dark"] .pp { color: #ff7b72; } [data-theme="dark"] .op { color: #ff7b72; }
+
+  /* ===== Tables ===== */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { padding: 0.65rem 1rem; text-align: left; }
+  th { background: var(--bg-tertiary); font-weight: 600; border-bottom: 1px solid var(--border); }
+  td { border-bottom: 1px solid var(--border-subtle); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-secondary); }
+
+  /* ===== Stats Bar ===== */
+  .stats {
+    display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap;
+    padding: 2rem 0;
+  }
+  .stat { text-align: center; }
+  .stat-value { font-size: 2rem; font-weight: 800; color: var(--accent); letter-spacing: -0.02em; }
+  .stat-label { font-size: 0.85rem; color: var(--fg-secondary); margin-top: 0.25rem; }
+
+  /* ===== Architecture Diagram ===== */
+  .arch-diagram {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 2rem; text-align: center;
+    font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.8;
+    color: var(--fg-secondary); overflow-x: auto;
+  }
+  .arch-diagram .hi { color: var(--accent); font-weight: 600; }
+
+  /* ===== Footer ===== */
+  footer {
+    border-top: 1px solid var(--border); padding: 2rem 1.5rem;
+    text-align: center; color: var(--fg-muted); font-size: 0.85rem;
+  }
+  footer a { color: var(--fg-secondary); text-decoration: none; }
+  footer a:hover { color: var(--accent); }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 2.25rem; }
+    .hero { padding: 3rem 1rem 2.5rem; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .stats { gap: 1rem; }
+    .stat-value { font-size: 1.5rem; }
+    .nav-links { gap: 0.75rem; }
+    .nav-links a { font-size: 0.8rem; }
+  }
+
+  /* ===== Badge ===== */
+  .badge {
+    display: inline-flex; align-items: center; padding: 0.2rem 0.6rem;
+    border-radius: 2rem; font-size: 0.75rem; font-weight: 600;
+    background: var(--accent-subtle); color: var(--accent);
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1><span class="accent">qwrt</span></h1>
-  <p class="tagline">An embeddable QuickJS-ng runtime wrapper in C99. WinterCG-compatible JS polyfill, a Platform Abstraction Layer, and native extensions — all from source, no system libraries.</p>
-  <div class="cta">
-    <a class="primary" href="https://github.com/adam-ikari/qwrt">View on GitHub</a>
-    <a class="secondary" href="api/html/index.html">API Reference</a>
+
+<!-- ===== Navigation ===== -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">qwrt</a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="#api">API</a>
+      <a href="#modules">Modules</a>
+      <a href="https://github.com/adam-ikari/qwrt" target="_blank" rel="noopener">GitHub</a>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle dark/light mode">☀️</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<header class="hero">
+  <div class="hero-content">
+    <h1><span class="brand">qwrt</span></h1>
+    <p class="hero-tagline">
+      An embeddable <strong>QuickJS-ng</strong> runtime wrapper in <strong>C99</strong>.
+      WinterCG-compatible JS polyfill, a Platform Abstraction Layer, and native
+      extensions — all from source, zero system dependencies.
+    </p>
+    <div class="hero-cta">
+      <a href="#quickstart" class="btn btn-primary">Get Started</a>
+      <a href="api/" class="btn btn-outline">API Documentation</a>
+      <a href="https://github.com/adam-ikari/qwrt" class="btn btn-ghost" target="_blank" rel="noopener">GitHub →</a>
+    </div>
   </div>
 </header>
 
+<!-- ===== Stats ===== -->
+<div class="stats">
+  <div class="stat"><div class="stat-value">C99</div><div class="stat-label">Strict Standard</div></div>
+  <div class="stat"><div class="stat-value">21</div><div class="stat-label">JS Polyfill Modules</div></div>
+  <div class="stat"><div class="stat-value">3</div><div class="stat-label">PAL Backends</div></div>
+  <div class="stat"><div class="stat-value">0</div><div class="stat-label">System Dependencies</div></div>
+  <div class="stat"><div class="stat-value">26</div><div class="stat-label">Test Suites (100%)</div></div>
+</div>
+
+<!-- ===== Main Content ===== -->
 <main>
-  <h2>Why qwrt</h2>
-  <div class="features">
-    <div class="feature"><h3>Strict C99</h3><p>Embeddable in any C99 codebase. No C11 requirement on the host; vendored C11 deps (QuickJS-ng, libuv) are isolated.</p></div>
-    <div class="feature"><h3>No system libs</h3><p>QuickJS-ng, mbedTLS, miniz, libuv all built from source via CMake add_subdirectory. Fully self-contained.</p></div>
-    <div class="feature"><h3>WinterCG polyfill</h3><p>fetch, console, crypto.subtle, streams, timers, fs, URL, TextEncoder — 21 modules, precompiled to bytecode.</p></div>
-    <div class="feature"><h3>Portable PAL</h3><p>libuv (Linux/macOS), FreeRTOS (ESP32-S3), mock (tests). Same code, three platforms.</p></div>
-    <div class="feature"><h3>Multi-context</h3><p>Spawn/suspend/resume isolated JS contexts in one runtime, each with its own PAL and permissions.</p></div>
-    <div class="feature"><h3>No globals</h3><p>Zero mutable file-scope state. Per-runtime isolation; safe to run multiple qwrt_t instances.</p></div>
+
+<!-- Features -->
+<section id="features">
+  <div class="section-header">
+    <h2>Why qwrt</h2>
+    <p>A runtime designed from the ground up for embedding — no compromises.</p>
+  </div>
+  <div class="feature-grid">
+    <div class="feature">
+      <div class="feature-icon">⚡</div>
+      <h3>Strict C99</h3>
+      <p>Embeddable in any C99 codebase. No C11 requirement on the host; C11 deps (QuickJS-ng, libuv) are isolated to their own compilation units.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📦</div>
+      <h3>Zero System Libs</h3>
+      <p>QuickJS-ng, mbedTLS, miniz, libuv, wasm3 — all built from source via <code>add_subdirectory</code>. Fully self-contained, no system package dependencies.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🌐</div>
+      <h3>WinterCG Polyfill</h3>
+      <p><code>fetch</code>, <code>console</code>, <code>crypto.subtle</code>, <code>ReadableStream</code>, timers, <code>fs</code>, <code>URL</code>, <code>TextEncoder</code> — 21 modules, precompiled to bytecode for instant loading.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔌</div>
+      <h3>Portable PAL</h3>
+      <p>Same JS code, three platforms: <strong>libuv</strong> (Linux/macOS), <strong>FreeRTOS</strong> (ESP32-S3), <strong>mock</strong> (tests). Add your own backend with ~30 function pointers.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🧵</div>
+      <h3>Multi-Context</h3>
+      <p>Spawn, suspend, and resume isolated JS contexts within one runtime. Each context has its own PAL and permissions — sandbox by default.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔒</div>
+      <h3>No Globals</h3>
+      <p>Zero mutable file-scope state. Per-runtime isolation via <code>qwrt_t</code> — safe to run multiple independent instances in one process.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Quickstart -->
+<section id="quickstart">
+  <div class="section-header">
+    <h2>Quick Start</h2>
+    <p>Clone, build, and run — three commands.</p>
+  </div>
+  <div class="code-block">
+    <div class="code-block-header">
+      <span class="code-block-title">Shell</span>
+      <button class="copy-btn" onclick="copyCode(this, 'git clone --recursive https://github.com/adam-ikari/qwrt.git\ncd qwrt\ncmake -B build -DCMAKE_BUILD_TYPE=Release\ncmake --build build -j$(nproc)')">Copy</button>
+    </div>
+<pre><code><span class="cm"># Clone with all submodules</span>
+<span class="kw">git</span> clone --recursive https://github.com/adam-ikari/qwrt.git
+<span class="kw">cd</span> qwrt
+
+<span class="cm"># Configure &amp; build</span>
+<span class="kw">cmake</span> -B build -DCMAKE_BUILD_TYPE=Release
+<span class="kw">cmake</span> --build build -j$(<span class="kw">nproc</span>)</code></pre>
+  </div>
+</section>
+
+<!-- Minimal Example -->
+<section id="example">
+  <div class="section-header">
+    <h2>Minimal Example</h2>
+    <p>Create a runtime, evaluate JS, drive the event loop — all in ~20 lines of C.</p>
+  </div>
+  <div class="code-block">
+    <div class="code-block-header">
+      <span class="code-block-title">main.c</span>
+      <button class="copy-btn" onclick="copyCode(this, '#include <qwrt/qwrt.h>\n#include <pal_uv.h>\n\nint main(void) {\n    qwrt_pal_t *pal = pal_uv_create(NULL);\n    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });\n\n    qwrt_eval(rt, "console.log(\'Hello from QuickJS!\');", NULL);\n\n    char *result = NULL;\n    qwrt_eval(rt, "1 + 1", &result);\n    printf("1 + 1 = %s\\n", result);  /* "2" */\n    qwrt_free(result);\n\n    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);\n\n    qwrt_destroy(rt);\n    return 0;\n}')">Copy</button>
+    </div>
+<pre><code><span class="pp">#include</span> <span class="str">&lt;qwrt/qwrt.h&gt;</span>
+<span class="pp">#include</span> <span class="str">&lt;pal_uv.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">qwrt_pal_t</span> *pal = <span class="fn">pal_uv_create</span>(<span class="kw">NULL</span>);
+    <span class="ty">qwrt_t</span> *rt = <span class="fn">qwrt_create</span>(&amp;(<span class="ty">qwrt_config_t</span>){ .pal = pal });
+
+    <span class="fn">qwrt_eval</span>(rt, <span class="str">"console.log('Hello from QuickJS!');"</span>, <span class="kw">NULL</span>);
+
+    <span class="ty">char</span> *result = <span class="kw">NULL</span>;
+    <span class="fn">qwrt_eval</span>(rt, <span class="str">"1 + 1"</span>, &amp;result);
+    <span class="fn">printf</span>(<span class="str">"1 + 1 = %s\n"</span>, result);  <span class="cm">/* "2" */</span>
+    <span class="fn">qwrt_free</span>(result);
+
+    <span class="kw">while</span> (pal-&gt;run_cycle(pal, <span class="num">100</span>) &gt; <span class="num">0</span>) <span class="fn">qwrt_tick</span>(rt);
+
+    <span class="fn">qwrt_destroy</span>(rt);
+    <span class="kw">return</span> <span class="num">0</span>;
+}</code></pre>
+  </div>
+</section>
+
+<!-- C API -->
+<section id="api">
+  <div class="section-header">
+    <h2>C API Overview</h2>
+    <p>The public surface is small — lifecycle, eval, multi-context, extensions.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Category</th><th>Function</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td rowspan="3"><strong>Lifecycle</strong></td><td><code>qwrt_create(config)</code></td><td>Create runtime. Returns NULL on failure.</td></tr>
+        <tr><td><code>qwrt_destroy(rt)</code></td><td>Destroy runtime and free all resources.</td></tr>
+        <tr><td><code>qwrt_reset(rt, config)</code></td><td>Rebuild JS context, keep PAL and extensions.</td></tr>
+        <tr><td rowspan="5"><strong>Execution</strong></td><td><code>qwrt_eval(rt, code, &amp;result)</code></td><td>Evaluate JS string. Free result with <code>qwrt_free</code>.</td></tr>
+        <tr><td><code>qwrt_eval_bytecode(rt, buf, len, &amp;result)</code></td><td>Evaluate precompiled QuickJS bytecode.</td></tr>
+        <tr><td><code>qwrt_call(rt, func, args, &amp;result)</code></td><td>Call a global JS function by name.</td></tr>
+        <tr><td><code>qwrt_tick(rt)</code></td><td>Drain deferred callbacks (Promise resolution).</td></tr>
+        <tr><td><code>qwrt_free(ptr)</code></td><td>Free memory returned by eval/call.</td></tr>
+        <tr><td rowspan="5"><strong>Contexts</strong></td><td><code>qwrt_spawn(rt, config)</code></td><td>Spawn a new isolated JS context.</td></tr>
+        <tr><td><code>qwrt_suspend(rt)</code></td><td>Suspend the active context.</td></tr>
+        <tr><td><code>qwrt_resume(rt, id)</code></td><td>Resume a suspended context.</td></tr>
+        <tr><td><code>qwrt_destroy_ctx(rt, id)</code></td><td>Destroy a context and free its resources.</td></tr>
+        <tr><td><code>qwrt_get_active_ctx_id(rt)</code></td><td>Get the currently active context ID.</td></tr>
+        <tr><td rowspan="1"><strong>Extensions</strong></td><td><code>qwrt_register_ext(rt, ext)</code></td><td>Register a native extension at runtime.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- PAL Interface -->
+<section id="pal">
+  <div class="section-header">
+    <h2>PAL Interface</h2>
+    <p>The Platform Abstraction Layer is a struct of ~30 function pointers. Three backends ship with qwrt.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Category</th><th>Functions</th><th>Async</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>HTTP</strong></td><td><code>http_request</code>, <code>http_request_stream</code>, <code>http_abort</code> <span class="badge">optional</span></td><td>Yes</td></tr>
+        <tr><td><strong>Filesystem</strong></td><td><code>fs_read</code>, <code>fs_write</code>, <code>fs_exists</code>, <code>fs_remove</code>, <code>fs_list</code></td><td>Yes</td></tr>
+        <tr><td><strong>Storage</strong></td><td><code>storage_get</code>, <code>storage_set</code>, <code>storage_del</code></td><td>Yes</td></tr>
+        <tr><td><strong>Timers</strong></td><td><code>timer_start</code>, <code>timer_stop</code></td><td>Yes</td></tr>
+        <tr><td><strong>Time</strong></td><td><code>time_now</code> (ms), <code>hrtime</code> (ns)</td><td>No</td></tr>
+        <tr><td><strong>Utilities</strong></td><td><code>log</code>, <code>mem_alloc</code>, <code>mem_free</code>, <code>random_bytes</code></td><td>No</td></tr>
+        <tr><td><strong>Event Loop</strong></td><td><code>run_cycle(timeout_ms)</code> <span class="badge">optional</span></td><td>N/A</td></tr>
+      </tbody>
+    </table>
   </div>
 
-  <h2>Quick start</h2>
-<pre><code>git clone --recursive https://github.com/adam-ikari/qwrt.git
-cd qwrt
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)</code></pre>
+  <h3 style="margin-top: 2rem; margin-bottom: 1rem;">PAL Backends</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Backend</th><th>Platform</th><th>HTTP</th><th>TLS</th><th>FS</th><th>Storage</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>pal_uv</code></td><td>Linux / macOS</td><td>libuv TCP + mbedTLS</td><td>✅ mbedTLS</td><td>POSIX</td><td>In-memory</td></tr>
+        <tr><td><code>pal_freertos</code></td><td>ESP32-S3</td><td>lwIP + mbedTLS</td><td>✅ mbedTLS + cert bundle</td><td>LittleFS</td><td>NVS</td></tr>
+        <tr><td><code>pal_mock</code></td><td>Testing</td><td>Mock responses</td><td>—</td><td>KV store</td><td>KV store</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
 
-  <h2>Minimal example</h2>
-<pre><code>#include &lt;qwrt/qwrt.h&gt;
-#include &lt;pal_uv.h&gt;
+<!-- JS Modules -->
+<section id="modules">
+  <div class="section-header">
+    <h2>JS Polyfill Modules</h2>
+    <p>21 WinterCG-compatible modules, precompiled to bytecode, injected at runtime.</p>
+  </div>
 
-int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
-    qwrt_t *rt = qwrt_create(&amp;(qwrt_config_t){ .pal = pal });
+  <div class="feature-grid">
+    <div class="feature">
+      <div class="feature-icon">🌐</div>
+      <h3>fetch</h3>
+      <p><code>fetch()</code>, <code>Headers</code>, <code>Request</code>, <code>Response</code> — streaming HTTP with abort support.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🖨️</div>
+      <h3>console</h3>
+      <p><code>console.log</code>, <code>warn</code>, <code>error</code>, <code>debug</code>, <code>info</code> — formatted output via PAL <code>log</code>.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔐</div>
+      <h3>crypto</h3>
+      <p><code>crypto.subtle</code> — SHA-256/384/512, HMAC, PBKDF2, AES-GCM via mbedTLS.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🌊</div>
+      <h3>streams</h3>
+      <p><code>ReadableStream</code>, <code>WritableStream</code> — WHATWG Streams API for incremental I/O.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">⏱️</div>
+      <h3>timers</h3>
+      <p><code>setTimeout</code>, <code>setInterval</code>, <code>clearTimeout</code>, <code>clearInterval</code> — backed by PAL timers.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📁</div>
+      <h3>fs</h3>
+      <p><code>fs.read</code>, <code>fs.write</code>, <code>fs.exists</code>, <code>fs.remove</code>, <code>fs.list</code> — async filesystem access.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">💾</div>
+      <h3>storage</h3>
+      <p><code>storage.get</code>, <code>storage.set</code>, <code>storage.delete</code> — key-value persistence.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔤</div>
+      <h3>encoding</h3>
+      <p><code>TextEncoder</code>, <code>TextDecoder</code> — UTF-8 and Base64 encoding/decoding.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔗</div>
+      <h3>url</h3>
+      <p><code>URL</code>, <code>URLSearchParams</code> — WHATWG URL parsing and query string handling.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🛑</div>
+      <h3>abort</h3>
+      <p><code>AbortController</code>, <code>AbortSignal</code> — cancel async operations (fetch, streams).</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📊</div>
+      <h3>performance</h3>
+      <p><code>performance.now()</code> — high-resolution monotonic time via PAL <code>hrtime</code>.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📡</div>
+      <h3>event-target</h3>
+      <p><code>EventTarget</code>, <code>Event</code>, <code>CustomEvent</code> — DOM-style event dispatch.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">💬</div>
+      <h3>message-channel</h3>
+      <p><code>MessageChannel</code>, <code>MessagePort</code> — inter-context communication pipes.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📦</div>
+      <h3>blob</h3>
+      <p><code>Blob</code>, <code>File</code>, <code>FormData</code> — binary data and multipart form handling.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🧭</div>
+      <h3>navigator</h3>
+      <p><code>navigator</code> — runtime identification and capability detection.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔄</div>
+      <h3>structured-clone</h3>
+      <p><code>structuredClone()</code> — deep-clone objects, including circular references.</p>
+    </div>
+  </div>
+</section>
 
-    qwrt_eval(rt, "console.log('Hello from QuickJS!');", NULL);
+<!-- Build Options -->
+<section id="build">
+  <div class="section-header">
+    <h2>Build Options</h2>
+    <p>Feature toggles via CMake — enable only what you need.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Option</th><th>Default</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>QWRT_WITH_TLS</code></td><td>ON</td><td>mbedTLS for HTTPS and crypto primitives</td></tr>
+        <tr><td><code>QWRT_WITH_COMPRESS</code></td><td>ON</td><td>miniz compression/decompression extension</td></tr>
+        <tr><td><code>QWRT_WITH_CRYPTO_EXT</code></td><td>ON</td><td><code>crypto.subtle</code> extension (SHA, HMAC, PBKDF2, AES-GCM)</td></tr>
+        <tr><td><code>QWRT_WITH_TEXTCODEC</code></td><td>ON</td><td>UTF-8 / Base64 encoder/decoder extension</td></tr>
+        <tr><td><code>QWRT_WITH_WASM3</code></td><td>ON</td><td>wasm3 WebAssembly engine (lightweight interpreter)</td></tr>
+        <tr><td><code>QWRT_WITH_WAMR</code></td><td>OFF</td><td>WAMR WebAssembly engine (alternative, pre-built)</td></tr>
+        <tr><td><code>QWRT_BUILD_TESTS</code></td><td>OFF</td><td>Build the test suite (26 test targets)</td></tr>
+        <tr><td><code>QWRT_BUILD_EXAMPLES</code></td><td>OFF</td><td>Build example programs in <code>examples/</code></td></tr>
+        <tr><td><code>QWRT_PAL_UV</code></td><td>ON</td><td>libuv PAL backend (Linux/macOS)</td></tr>
+        <tr><td><code>QWRT_PAL_MOCK</code></td><td>ON</td><td>Mock PAL backend (testing)</td></tr>
+        <tr><td><code>QWRT_PAL_FREERTOS</code></td><td>OFF</td><td>FreeRTOS PAL backend (ESP32-S3, ESP-IDF only)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
 
-    char *result = NULL;
-    qwrt_eval(rt, "1 + 1", &amp;result);
-    printf("1 + 1 = %s\n", result);   /* "2" */
-    qwrt_free(result);
+<!-- Architecture -->
+<section id="architecture">
+  <div class="section-header">
+    <h2>Architecture</h2>
+    <p>The runtime is layered — core API, JS↔PAL bridge, portable backends.</p>
+  </div>
+  <div class="arch-diagram">
+<pre style="background:none; border:none; padding:0; text-align:left; display:inline-block;">
+┌──────────────────────────────────────────────────────────┐
+│                        <span class="hi">qwrt</span>                           │
+│                                                          │
+│  ┌──────────┐  ┌───────────┐  ┌───────────────┐        │
+│  │ <span class="hi">qwrt.c</span>  │  │ <span class="hi">context.c</span> │  │ <span class="hi">extension.c</span>  │        │
+│  │(core API)│  │(multi-ctx) │  │(ext register) │        │
+│  └────┬─────┘  └─────┬─────┘  └───────┬───────┘        │
+│       └──────────────┼────────────────┘                 │
+│                <span class="hi">bridge.c</span> (JS↔PAL bridge)                │
+│                       │                                  │
+│              <span class="hi">qwrt_pal_t</span> (PAL interface)                │
+│  ┌──────────┬─────────┼───────────┐                      │
+│  │ <span class="hi">pal_uv</span>  │<span class="hi">pal_freertos</span>│ <span class="hi">pal_mock</span> │                      │
+│  │ (libuv)  │(ESP-IDF) │ (testing) │                      │
+│  └──────────┴─────────┴───────────┘                      │
+│                                                          │
+│  JS Polyfill: fetch │ console │ crypto │ streams │ ...   │
+│  Extensions: compress │ crypto │ textcodec │ wasm3      │
+└──────────────────────────────────────────────────────────┘
+</pre>
+  </div>
+</section>
 
-    while (pal-&gt;run_cycle(pal, 100) &gt; 0) qwrt_tick(rt);
-
-    qwrt_destroy(rt);
-    return 0;
-}</code></pre>
-
-  <h2>Build options</h2>
-  <p>Feature toggles are prefixed <code>QWRT_WITH_*</code> (TLS, COMPRESS, CRYPTO_EXT, TEXTCODEC, WASM3/WAMR); PAL backends use <code>QWRT_PAL_*</code> (UV, MOCK, FREERTOS). See the <a href="https://github.com/adam-ikari/qwrt#cmake-options">README</a> for the full list.</p>
 </main>
 
+<!-- ===== Footer ===== -->
 <footer>
-  qwrt &middot; MIT License &middot; <a href="https://github.com/adam-ikari/qwrt">GitHub</a>
+  <p>
+    qwrt · <a href="https://github.com/adam-ikari/qwrt/blob/master/LICENSE">MIT License</a> ·
+    <a href="https://github.com/adam-ikari/qwrt">GitHub</a> ·
+    <a href="api/">API Docs</a>
+  </p>
+  <p style="margin-top: 0.5rem;">
+    Built with QuickJS-ng · libuv · mbedTLS · miniz · wasm3
+  </p>
 </footer>
+
+<script>
+  // Theme toggle
+  const html = document.documentElement;
+  const toggle = document.getElementById('themeToggle');
+
+  // Load saved theme or default to dark
+  const saved = localStorage.getItem('qwrt-theme');
+  if (saved) {
+    html.setAttribute('data-theme', saved);
+  }
+  updateToggleIcon();
+
+  toggle.addEventListener('click', () => {
+    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('qwrt-theme', next);
+    updateToggleIcon();
+  });
+
+  function updateToggleIcon() {
+    toggle.textContent = html.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
+  }
+
+  // Code copy
+  function copyCode(btn, text) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 2000);
+    });
+  }
+</script>
 </body>
 </html>

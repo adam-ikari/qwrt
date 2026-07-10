@@ -121,7 +121,7 @@ if (isWatch) {
   fs.writeFileSync(polyfillJsPath, js);
 
   // Generate bytecode using qjsc, then inline as C header
-  const QJSC = process.env.QJSC || path.join(ROOT_DIR, '..', 'third_party', 'quickjs-ng', 'build', 'qjsc');
+  const QJSC = process.env.QJSC || path.join(ROOT_DIR, '..', 'deps', 'quickjs-ng', 'build', 'qjsc');
   const bytecodePath = path.join(DIST_DIR, 'polyfill.bytecode');
   try {
     const { execSync } = require('child_process');

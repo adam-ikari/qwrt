@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
-project(qwrt C CXX)
+project(qwrt
+    VERSION 0.1.0
+    DESCRIPTION "Embeddable QuickJS-ng runtime wrapper with Platform Abstraction Layer"
+    HOMEPAGE_URL "https://github.com/adam-ikari/qwrt"
+    LANGUAGES C CXX
+)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -10,6 +15,7 @@ set(CMAKE_C_EXTENSIONS OFF)   # pure -std=c99, no GNU extensions (deps use their
 # ============================================================================
 option(QWRT_BUILD_TESTS "Build tests" OFF)
 option(QWRT_BUILD_EXAMPLES "Build examples" OFF)
+option(QWRT_BUILD_DEBUGGER "Build the DAP step-debugger (applies the QuickJS-ng debugger patch; adds src/debugger.c + src/debugger_dap.c to libqwrt)" OFF)
 
 # PAL backends — each controls compilation of a platform/*/ PAL implementation.
 # pal_uv and pal_mock build under a normal host toolchain; pal_freertos needs
@@ -25,8 +31,29 @@ option(QWRT_WITH_COMPRESS "Enable native compression via miniz" ON)
 option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
 option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 
+# WASM engines are mutually exclusive: both wasm3 and wamr register the
+# `WebAssembly` global with incompatible implementations, and linking both pulls
+# in two engines for no benefit. Pick one. wasm3 is the default; set
+# QWRT_WITH_WASM3=OFF and QWRT_WITH_WAMR=ON to switch.
+if(QWRT_WITH_WAMR AND QWRT_WITH_WASM3)
+    message(FATAL_ERROR
+        "QWRT_WITH_WAMR=ON and QWRT_WITH_WASM3=ON are mutually exclusive (both "
+        "register the `WebAssembly` global). Enable only one:\n"
+        "  wasm3 (default): -DQWRT_WITH_WASM3=ON -DQWRT_WITH_WAMR=OFF\n"
+        "  wamr:            -DQWRT_WITH_WASM3=OFF -DQWRT_WITH_WAMR=ON")
+endif()
+
+# TLS requires the crypto extension: both use mbedTLS, and a TLS client
+# without crypto.subtle (no cert hashing, no WebCrypto key derivation) is not
+# a complete WinterCG runtime. So QWRT_WITH_TLS=ON forces
+# QWRT_WITH_CRYPTO_EXT=ON. (The reverse is allowed: crypto-ext without TLS.)
+if(QWRT_WITH_TLS AND NOT QWRT_WITH_CRYPTO_EXT)
+    message(STATUS "QWRT_WITH_TLS=ON forces QWRT_WITH_CRYPTO_EXT=ON (TLS requires crypto)")
+    set(QWRT_WITH_CRYPTO_EXT ON CACHE BOOL "Enable native crypto.subtle via mbedTLS" FORCE)
+endif()
+
 if(QWRT_WITH_TLS)
-    set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mbedtls")
+    set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/mbedtls")
     set(MBEDTLS_INCLUDE_DIR "${MBEDTLS_SRC_DIR}/include")
 
     if(EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
@@ -44,7 +71,7 @@ if(QWRT_WITH_TLS)
         # applies to targets created *after* it is set, so it must precede
         # the add_subdirectory call below.
         set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-        add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+        add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/mbedtls EXCLUDE_FROM_ALL)
 
         # Static targets — names are mbedtls/mbedx509/mbedcrypto (the _static
         # suffix is only added when BOTH static and shared are built).
@@ -58,7 +85,7 @@ if(QWRT_WITH_TLS)
     else()
         set(MBEDTLS_FOUND FALSE)
         message(FATAL_ERROR "QWRT_WITH_TLS=ON but mbedTLS source not found. "
-            "Run: git submodule update --init mbedtls")
+            "Run: git submodule update --init deps/mbedtls")
     endif()
 endif()
 
@@ -66,11 +93,11 @@ endif()
 # miniz dependency (compression extension)
 # ============================================================================
 if(QWRT_WITH_COMPRESS)
-    set(MINIZ_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/miniz")
+    set(MINIZ_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/miniz")
     # Set PIC globally so miniz (added via add_subdirectory) compiles with -fPIC,
     # needed when linked into a shared library.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-    add_subdirectory(${MINIZ_SRC_DIR} ${CMAKE_BINARY_DIR}/miniz)
+    add_subdirectory(${MINIZ_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/miniz)
 
     message(STATUS "Compression support enabled (miniz)")
 endif()
@@ -86,7 +113,7 @@ if(QWRT_WITH_CRYPTO_EXT)
     # already added mbedtls via add_subdirectory and set MBEDCRYPTO_LIB to the
     # mbedcrypto_static target. Otherwise add the subdir here for crypto-only.
     if(NOT QWRT_WITH_TLS)
-        set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mbedtls")
+        set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/mbedtls")
         set(MBEDCRYPTO_INCLUDE_DIR "${MBEDTLS_SRC_DIR}/include")
 
         if(EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
@@ -97,11 +124,11 @@ if(QWRT_WITH_CRYPTO_EXT)
 
             # Force PIC (same reason as the TLS block above).
             set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-            add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+            add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/mbedtls EXCLUDE_FROM_ALL)
             set(MBEDCRYPTO_LIB mbedcrypto)
         else()
             message(FATAL_ERROR "QWRT_WITH_CRYPTO_EXT=ON but mbedTLS source not found. "
-                "Run: git submodule update --init mbedtls")
+                "Run: git submodule update --init deps/mbedtls")
         endif()
     endif()
 
@@ -114,7 +141,7 @@ endif()
 # and adds install rules, so we save+restore those around the add_subdirectory
 # and disable its install/programs/tests/CLI to keep qwrt's build clean.
 # ============================================================================
-set(QUICKJS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng")
+set(QUICKJS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng")
 
 set(_qwrt_saved_c_standard       ${CMAKE_C_STANDARD})
 set(_qwrt_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
@@ -126,7 +153,60 @@ set(QJS_BUILD_EXAMPLES       OFF CACHE BOOL "" FORCE)
 set(QJS_BUILD_CLI_STATIC     OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS        OFF CACHE BOOL "" FORCE)
 
-add_subdirectory(${QUICKJS_DIR} ${CMAKE_BINARY_DIR}/quickjs-ng EXCLUDE_FROM_ALL)
+# ── QuickJS-ng debugger patch ──────────────────────────────────────────────
+# When QWRT_BUILD_DEBUGGER is ON, apply deps/quickjs-ng-debugger.patch to the
+# quickjs-ng submodule working tree BEFORE add_subdirectory so the patched
+# sources compile. The patch is the source of truth; the submodule stays clean
+# in git (working-tree-only modification). Patch failure = FATAL_ERROR with a
+# regenerate hint. QWRT_DEBUG_SUPPORT is defined on the qjs target below.
+if(QWRT_BUILD_DEBUGGER)
+    set(QWRT_QUICKJS_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-debugger.patch")
+    if(NOT EXISTS "${QWRT_QUICKJS_PATCH}")
+        message(FATAL_ERROR "QWRT_BUILD_DEBUGGER=ON but deps/quickjs-ng-debugger.patch is missing")
+    endif()
+    execute_process(
+        COMMAND patch -p1 --dry-run -f -i "${QWRT_QUICKJS_PATCH}"
+        WORKING_DIRECTORY "${QUICKJS_DIR}"
+        RESULT_VARIABLE _patch_dry
+        OUTPUT_VARIABLE _patch_out
+        ERROR_VARIABLE _patch_err)
+    if(_patch_dry EQUAL 0)
+        execute_process(
+            COMMAND patch -p1 -f -i "${QWRT_QUICKJS_PATCH}"
+            WORKING_DIRECTORY "${QUICKJS_DIR}"
+            RESULT_VARIABLE _patch_apply)
+        if(NOT _patch_apply EQUAL 0)
+            message(FATAL_ERROR "Failed to apply quickjs-ng debugger patch:\n${_patch_err}")
+        endif()
+        message(STATUS "Applied quickjs-ng debugger patch (deps/quickjs-ng-debugger.patch)")
+    else()
+        # dry-run failed: either already applied, or genuinely won't apply.
+        # Distinguish by checking if the patched symbols already exist.
+        execute_process(
+            COMMAND grep -c "JS_SetDebuggerHandler"
+                    "${QUICKJS_DIR}/quickjs.h"
+            OUTPUT_VARIABLE _grep_out
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _grep_rc)
+        if(_grep_rc EQUAL 0 AND _grep_out GREATER 0)
+            message(STATUS "quickjs-ng debugger patch already applied")
+        else()
+            message(FATAL_ERROR
+                "quickjs-ng debugger patch does not apply cleanly:\n${_patch_err}\n"
+                "Regenerate deps/quickjs-ng-debugger.patch against the current "
+                "deps/quickjs-ng revision.")
+        endif()
+    endif()
+    set(QWRT_DEBUG_SUPPORT_DEFINE QWRT_DEBUG_SUPPORT)
+endif()
+
+add_subdirectory(${QUICKJS_DIR} ${CMAKE_BINARY_DIR}/deps/quickjs-ng EXCLUDE_FROM_ALL)
+
+# Expose QWRT_DEBUG_SUPPORT on the qjs target so the engine's DEBUGGER_CHECK
+# dispatch hook compiles in (it's a no-op when the macro is undefined).
+if(QWRT_BUILD_DEBUGGER AND TARGET qjs)
+    target_compile_definitions(qjs PUBLIC ${QWRT_DEBUG_SUPPORT_DEFINE})
+endif()
 
 set(CMAKE_C_STANDARD         ${_qwrt_saved_c_standard})
 set(CMAKE_C_EXTENSIONS       ${_qwrt_saved_c_extensions})
@@ -166,7 +246,7 @@ endfunction()
 # WAMR dependency (optional)
 # ============================================================================
 if(QWRT_WITH_WAMR)
-    set(WAMR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wamr")
+    set(WAMR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/wamr")
     set(WAMR_BUILD_DIR "${WAMR_DIR}/build_lib")
     if(NOT EXISTS "${WAMR_BUILD_DIR}/libvmlib.a")
         message(FATAL_ERROR "WAMR not built. Run: cmake -B ${WAMR_BUILD_DIR} -S ${WAMR_DIR} -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_WASM_C_API=1 -DWAMR_BUILD_LIBC_BUILTIN=1 && cmake --build ${WAMR_BUILD_DIR}")
@@ -175,32 +255,61 @@ if(QWRT_WITH_WAMR)
 endif()
 
 # ============================================================================
-# wasm3 dependency (optional)
+# wasm3 dependency (optional) — built from source via add_subdirectory
 # ============================================================================
 if(QWRT_WITH_WASM3)
-    set(WASM3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wasm3")
-    set(WASM3_BUILD_DIR "${WASM3_DIR}/build_lib")
-    if(NOT EXISTS "${WASM3_BUILD_DIR}/source/libm3.a")
-        message(FATAL_ERROR "wasm3 not built. Run: cmake -B ${WASM3_BUILD_DIR} -S ${WASM3_DIR} -DCMAKE_BUILD_TYPE=Release && cmake --build ${WASM3_BUILD_DIR}")
+    set(WASM3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/wasm3")
+    set(WASM3_SRC_DIR "${WASM3_DIR}/source")
+    if(EXISTS "${WASM3_SRC_DIR}/CMakeLists.txt")
+        # qwrt's wasm3 ext is a pure-sandbox model — no WASI, no host APIs.
+        # BUILD_WASI unset (not simple/metawasi/uvwasi) leaves d_m3HasWASI
+        # undefined, so m3_api_wasi.c compiles to nothing and needs no POSIX
+        # feature macros.
+        set(BUILD_WASI "none" CACHE STRING "wasm3 WASI mode (none)" FORCE)
+        add_subdirectory(${WASM3_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/wasm3 EXCLUDE_FROM_ALL)
+        message(STATUS "wasm3 enabled — building m3 from source (no WASI)")
+    else()
+        message(FATAL_ERROR "QWRT_WITH_WASM3=ON but wasm3 source not found. "
+            "Run: git submodule update --init deps/wasm3")
     endif()
-    message(STATUS "wasm3 enabled — linking libm3.a")
 endif()
 
 # ============================================================================
 # Core library (qwrt.c + bridge.c)
+#
+# Source files that are always compiled (no feature toggle):
+#   qwrt.c, bridge.c, context.c, extension.c, polyfill_default.c
+# Extension sources are guarded by QWRT_WITH_* feature toggles so they are
+# only compiled when the corresponding feature is enabled. This avoids wasting
+# compile time on dead code (e.g. ext_wamr.c when WAMR=OFF).
 # ============================================================================
-add_library(qwrt STATIC
+set(_qwrt_core_sources
     src/qwrt.c
     src/bridge.c
     src/context.c
     src/extension.c
     src/polyfill_default.c
-    src/ext_wasm3.c
-    src/ext_wamr.c
-    src/ext_compress.c
-    src/ext_crypto.c
-    src/ext_textcodec.c
 )
+if(QWRT_WITH_WASM3)
+    list(APPEND _qwrt_core_sources src/ext_wasm3.c)
+endif()
+if(QWRT_WITH_WAMR)
+    list(APPEND _qwrt_core_sources src/ext_wamr.c)
+endif()
+if(QWRT_WITH_COMPRESS)
+    list(APPEND _qwrt_core_sources src/ext_compress.c)
+endif()
+if(QWRT_WITH_CRYPTO_EXT)
+    list(APPEND _qwrt_core_sources src/ext_crypto.c)
+endif()
+if(QWRT_WITH_TEXTCODEC)
+    list(APPEND _qwrt_core_sources src/ext_textcodec.c)
+endif()
+if(QWRT_BUILD_DEBUGGER)
+    list(APPEND _qwrt_core_sources src/debugger.c src/debugger_dap.c)
+endif()
+
+add_library(qwrt STATIC ${_qwrt_core_sources})
 
 target_include_directories(qwrt PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -224,6 +333,14 @@ function(qwrt_enable_warnings target)
 endfunction()
 qwrt_enable_warnings(qwrt)
 
+# QWRT_DEBUG_SUPPORT gates the debugger code in src/debugger.c, src/debugger_dap.c
+# and the auto-attach path in qwrt.c. The engine patch's DEBUGGER_CHECK hook is
+# also gated on this macro (it's a no-op when undefined). Only defined when
+# QWRT_BUILD_DEBUGGER=ON, so non-debugger builds have zero debug overhead.
+if(QWRT_BUILD_DEBUGGER)
+    target_compile_definitions(qwrt PUBLIC QWRT_DEBUG_SUPPORT)
+endif()
+
 # Conditional WAMR/wasm3 includes
 if(QWRT_WITH_WAMR)
     target_include_directories(qwrt PUBLIC
@@ -232,9 +349,6 @@ if(QWRT_WITH_WAMR)
     target_compile_definitions(qwrt PUBLIC QWRT_HAS_WAMR=1)
 endif()
 if(QWRT_WITH_WASM3)
-    target_include_directories(qwrt PUBLIC
-        ${WASM3_DIR}/source
-    )
     target_compile_definitions(qwrt PUBLIC QWRT_HAS_WASM3=1)
 endif()
 if(QWRT_WITH_COMPRESS)
@@ -250,19 +364,21 @@ if(QWRT_WITH_TEXTCODEC)
     target_compile_definitions(qwrt PUBLIC QWRT_WITH_TEXTCODEC=1)
 endif()
 
-target_link_libraries(qwrt PUBLIC
-    qjs
-    m
-    pthread
-    dl
-)
+# Core link libraries — qjs (QuickJS-ng) and libm are always needed.
+# pthread and dl are POSIX-specific; on ESP-IDF/FreeRTOS they don't apply
+# (qwrt_freertos links qwrt and would inherit them as PUBLIC deps).
+set(_qwrt_core_libs qjs m)
+if(UNIX AND NOT ESP_PLATFORM)
+    list(APPEND _qwrt_core_libs pthread dl)
+endif()
+target_link_libraries(qwrt PUBLIC ${_qwrt_core_libs})
 
 # Conditional WAMR/wasm3 linking
 if(QWRT_WITH_WAMR)
     target_link_libraries(qwrt PUBLIC ${WAMR_BUILD_DIR}/libvmlib.a)
 endif()
 if(QWRT_WITH_WASM3)
-    target_link_libraries(qwrt PUBLIC ${WASM3_BUILD_DIR}/source/libm3.a)
+    target_link_libraries(qwrt PUBLIC m3)
 endif()
 if(QWRT_WITH_COMPRESS)
     target_link_libraries(qwrt PUBLIC miniz)
@@ -270,6 +386,22 @@ endif()
 if(QWRT_WITH_CRYPTO_EXT)
     target_link_libraries(qwrt PUBLIC ${MBEDCRYPTO_LIB})
 endif()
+
+# ============================================================================
+# PAL common helpers (platform/pal_common.c)
+#
+# Shared JSON-building and URL-parsing utilities used by all PAL backends.
+# Built as a separate static library so PALs can link it without pulling in
+# QuickJS or other qwrt-core dependencies.
+# ============================================================================
+add_library(qwrt_pal_common STATIC
+    platform/pal_common.c
+)
+target_include_directories(qwrt_pal_common PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/platform
+)
+qwrt_enable_warnings(qwrt_pal_common)
 
 # ============================================================================
 # libuv PAL (platform/uv/), gated by QWRT_PAL_UV
@@ -280,7 +412,7 @@ endif()
 # otherwise it is skipped (pal_mock / pal_freertos cover other platforms).
 # ============================================================================
 if(QWRT_PAL_UV)
-    set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libuv")
+    set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv")
 
     if(EXISTS "${LIBUV_SRC_DIR}/CMakeLists.txt")
         # libuv via add_subdirectory. Its CMake mutates global CMAKE_C_STANDARD
@@ -294,7 +426,7 @@ if(QWRT_PAL_UV)
         set(LIBUV_BUILD_TESTS  OFF CACHE BOOL "" FORCE)
         set(LIBUV_BUILD_BENCH  OFF CACHE BOOL "" FORCE)
 
-        add_subdirectory(${LIBUV_SRC_DIR} ${CMAKE_BINARY_DIR}/libuv EXCLUDE_FROM_ALL)
+        add_subdirectory(${LIBUV_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/libuv EXCLUDE_FROM_ALL)
 
         set(CMAKE_C_EXTENSIONS           ${_qwrt_saved_c_extensions})
         set(CMAKE_C_STANDARD             ${_qwrt_saved_c_standard})
@@ -314,12 +446,12 @@ if(QWRT_PAL_UV)
             ${CMAKE_CURRENT_SOURCE_DIR}/platform/uv
             ${LIBUV_INCLUDE_DIRS}
         )
-        target_link_libraries(qwrt_uv PUBLIC qwrt ${LIBUV_LIBRARIES})
+        target_link_libraries(qwrt_uv PUBLIC qwrt qwrt_pal_common ${LIBUV_LIBRARIES})
         qwrt_enable_warnings(qwrt_uv)
     else()
         set(LIBUV_FOUND FALSE)
         message(STATUS "QWRT_PAL_UV=ON but libuv source not found -- pal_uv skipped. "
-                       "Run: git submodule update --init libuv")
+                       "Run: git submodule update --init deps/libuv")
     endif()
 else()
     set(LIBUV_FOUND FALSE)
@@ -341,7 +473,7 @@ if(QWRT_PAL_MOCK)
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/mock
     )
-    target_link_libraries(qwrt_mock PUBLIC qwrt)
+    target_link_libraries(qwrt_mock PUBLIC qwrt qwrt_pal_common)
     qwrt_enable_warnings(qwrt_mock)
 endif()
 
@@ -358,7 +490,7 @@ if(QWRT_PAL_FREERTOS)
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/freertos
     )
-    target_link_libraries(qwrt_freertos PUBLIC qwrt)
+    target_link_libraries(qwrt_freertos PUBLIC qwrt qwrt_pal_common)
 endif()
 
 # ============================================================================
@@ -371,16 +503,8 @@ endif()
 # ============================================================================
 if(LIBUV_FOUND OR QWRT_PAL_MOCK)
     set(_qwrt_full_sources
-        src/qwrt.c
-        src/bridge.c
-        src/context.c
-        src/extension.c
-        src/polyfill_default.c
-        src/ext_wasm3.c
-        src/ext_wamr.c
-        src/ext_compress.c
-        src/ext_crypto.c
-        src/ext_textcodec.c
+        ${_qwrt_core_sources}
+        platform/pal_common.c
     )
     set(_qwrt_full_includes
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -401,12 +525,18 @@ if(LIBUV_FOUND OR QWRT_PAL_MOCK)
     add_library(qwrt_full STATIC ${_qwrt_full_sources})
     target_include_directories(qwrt_full PUBLIC ${_qwrt_full_includes})
 
-    set(_qwrt_full_libs qjs m pthread dl)
+    set(_qwrt_full_libs qwrt_pal_common qjs m)
+    if(UNIX AND NOT ESP_PLATFORM)
+        list(APPEND _qwrt_full_libs pthread dl)
+    endif()
     if(QWRT_PAL_UV AND LIBUV_FOUND)
         list(APPEND _qwrt_full_libs ${LIBUV_LIBRARIES})
     endif()
     target_link_libraries(qwrt_full PUBLIC ${_qwrt_full_libs})
     qwrt_enable_warnings(qwrt_full)
+    if(QWRT_BUILD_DEBUGGER)
+        target_compile_definitions(qwrt_full PUBLIC QWRT_DEBUG_SUPPORT)
+    endif()
 
     if(QWRT_WITH_COMPRESS)
         target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_COMPRESS=1)
@@ -426,9 +556,8 @@ if(LIBUV_FOUND OR QWRT_PAL_MOCK)
         target_link_libraries(qwrt_full PUBLIC ${WAMR_BUILD_DIR}/libvmlib.a)
     endif()
     if(QWRT_WITH_WASM3)
-        target_include_directories(qwrt_full PUBLIC ${WASM3_DIR}/source)
         target_compile_definitions(qwrt_full PUBLIC QWRT_HAS_WASM3=1)
-        target_link_libraries(qwrt_full PUBLIC ${WASM3_BUILD_DIR}/source/libm3.a)
+        target_link_libraries(qwrt_full PUBLIC m3)
     endif()
 endif()
 
@@ -448,7 +577,7 @@ endif()
 # ============================================================================
 # Install
 # ============================================================================
-set(_qwrt_install_targets qwrt)
+set(_qwrt_install_targets qwrt qwrt_pal_common)
 if(QWRT_PAL_MOCK)
     list(APPEND _qwrt_install_targets qwrt_mock)
 endif()
@@ -479,3 +608,41 @@ if(TARGET qwrt_full)
         ARCHIVE DESTINATION lib
     )
 endif()
+
+# ============================================================================
+# pkg-config & CMake config for find_package(qwrt) consumers
+# ============================================================================
+include(CMakePackageConfigHelpers)
+
+# qwrt-config.cmake — exported by install, consumed by find_package(qwrt)
+set(_qwrt_cmake_config_dir "lib/cmake/qwrt")
+
+# Write the version file (uses project version from project() call above)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/qwrtConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/qwrtConfigVersion.cmake"
+    DESTINATION "${_qwrt_cmake_config_dir}"
+)
+
+# Generate a pkg-config .pc file for qwrt (libqwrt.pc)
+set(_qwrt_pc_dir "lib/pkgconfig")
+set(_qwrt_pc_libs "-lqwrt")
+if(UNIX AND NOT ESP_PLATFORM)
+    string(APPEND _qwrt_pc_libs " -lpthread -ldl")
+endif()
+set(_qwrt_pc_requires "")
+set(_qwrt_pc_cflags "-I\${includedir}")
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libqwrt.pc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/libqwrt.pc"
+    @ONLY
+)
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/libqwrt.pc"
+    DESTINATION "${_qwrt_pc_dir}"
+)

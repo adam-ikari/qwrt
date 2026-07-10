@@ -165,39 +165,4 @@ export function setupTimers(pal) {
   globalThis.clearInterval = function(handle) {
     globalThis.clearTimeout(handle);
   };
-
-  /**
-   * setImmediate(callback, ...args)
-   *
-   * Schedules callback to run after I/O events (like Node.js setImmediate).
-   * Implemented as setTimeout(callback, 0).
-   */
-  globalThis.setImmediate = function(callback, ...args) {
-    return globalThis.setTimeout(callback, 0, ...args);
-  };
-
-  /**
-   * clearImmediate(handle)
-   */
-  globalThis.clearImmediate = function(handle) {
-    globalThis.clearTimeout(handle);
-  };
-
-  /**
-   * requestAnimationFrame(callback)
-   *
-   * For non-browser environments, just use setTimeout(16ms) ~ 60fps.
-   */
-  globalThis.requestAnimationFrame = function(callback) {
-    return globalThis.setTimeout(function() {
-      callback(pal.timeNow());
-    }, 16);
-  };
-
-  /**
-   * cancelAnimationFrame(handle)
-   */
-  globalThis.cancelAnimationFrame = function(handle) {
-    globalThis.clearTimeout(handle);
-  };
 }

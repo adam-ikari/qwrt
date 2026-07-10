@@ -1,6 +1,8 @@
-# qwrt — 可嵌入 QuickJS + WinterCG 运行时 设计文档
+# qwrt — 可嵌入 QuickJS + WinterCG 运行时 设计文档 (Design Doc — 中文)
 
-**版本:** 2.0.0
+> **Note**: This document is in Chinese. For English documentation, see the [PAL docs](/pal/) and [guide](/guide/).
+>
+> **版本:** 2.0.0
 **日期:** 2026-05-29
 **状态:** 设计阶段
 **替代:** 2026-05-29 PAL 设计文档 v1.0.0

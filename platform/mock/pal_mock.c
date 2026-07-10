@@ -8,6 +8,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "pal_mock.h"
+#include "pal_common.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -345,7 +346,7 @@ static void pal_mock_fs_read(qwrt_pal_t *pal, const char *path,
         cb(cb_data, 0, entry->value, strlen(entry->value));
     } else {
         const char *err = "not found";
-        cb(cb_data, -2, err, strlen(err));
+        cb(cb_data, QWRT_ERR_NOT_FOUND, err, strlen(err));
     }
 }
 
@@ -361,7 +362,7 @@ static void pal_mock_fs_write(qwrt_pal_t *pal, const char *path,
     tmp = (char *)malloc(data_len + 1);
     if (!tmp) {
         err = "allocation failed";
-        cb(cb_data, -1, err, strlen(err));
+        cb(cb_data, QWRT_ERR_GENERIC, err, strlen(err));
         return;
     }
     memcpy(tmp, data, data_len);
@@ -370,7 +371,7 @@ static void pal_mock_fs_write(qwrt_pal_t *pal, const char *path,
     if (mock_kv_set(&m->fs_map, path, tmp) != 0) {
         free(tmp);
         err = "store failed";
-        cb(cb_data, -1, err, strlen(err));
+        cb(cb_data, QWRT_ERR_GENERIC, err, strlen(err));
         return;
     }
     free(tmp);
@@ -403,7 +404,7 @@ static void pal_mock_fs_remove(qwrt_pal_t *pal, const char *path,
         cb(cb_data, 0, "ok", 2);
     } else {
         const char *err = "not found";
-        cb(cb_data, -2, err, strlen(err));
+        cb(cb_data, QWRT_ERR_NOT_FOUND, err, strlen(err));
     }
 }
 
@@ -427,7 +428,7 @@ static void pal_mock_fs_list(qwrt_pal_t *pal, const char *path,
     buf = (char *)malloc(buf_size);
     if (!buf) {
         const char *err = "allocation failed";
-        cb(cb_data, -1, err, strlen(err));
+        cb(cb_data, QWRT_ERR_GENERIC, err, strlen(err));
         return;
     }
 
@@ -449,13 +450,15 @@ static void pal_mock_fs_list(qwrt_pal_t *pal, const char *path,
 
         /* grow buffer if needed */
         if (buf_used + needed + 2 > buf_size) {
-            buf_size = (buf_used + needed + 2) * 2;
-            buf = (char *)realloc(buf, buf_size);
-            if (!buf) {
+            char *new_buf = (char *)realloc(buf, (buf_used + needed + 2) * 2);
+            if (!new_buf) {
                 const char *err = "allocation failed";
-                cb(cb_data, -1, err, strlen(err));
+                free(buf);
+                cb(cb_data, QWRT_ERR_GENERIC, err, strlen(err));
                 return;
             }
+            buf = new_buf;
+            buf_size = (buf_used + needed + 2) * 2;
         }
 
         if (!first) {
@@ -489,7 +492,7 @@ static void pal_mock_storage_get(qwrt_pal_t *pal, const char *key,
         cb(cb_data, 0, entry->value, strlen(entry->value));
     } else {
         const char *err = "not found";
-        cb(cb_data, -2, err, strlen(err));
+        cb(cb_data, QWRT_ERR_NOT_FOUND, err, strlen(err));
     }
 }
 
@@ -505,7 +508,7 @@ static void pal_mock_storage_set(qwrt_pal_t *pal, const char *key,
     tmp = (char *)malloc(value_len + 1);
     if (!tmp) {
         err = "allocation failed";
-        cb(cb_data, -1, err, strlen(err));
+        cb(cb_data, QWRT_ERR_GENERIC, err, strlen(err));
         return;
     }
     memcpy(tmp, value, value_len);
@@ -514,7 +517,7 @@ static void pal_mock_storage_set(qwrt_pal_t *pal, const char *key,
     if (mock_kv_set(&m->store_map, key, tmp) != 0) {
         free(tmp);
         err = "store failed";
-        cb(cb_data, -1, err, strlen(err));
+        cb(cb_data, QWRT_ERR_GENERIC, err, strlen(err));
         return;
     }
     free(tmp);
@@ -533,7 +536,7 @@ static void pal_mock_storage_del(qwrt_pal_t *pal, const char *key,
         cb(cb_data, 0, "ok", 2);
     } else {
         const char *err = "not found";
-        cb(cb_data, -2, err, strlen(err));
+        cb(cb_data, QWRT_ERR_NOT_FOUND, err, strlen(err));
     }
 }
 
@@ -642,7 +645,12 @@ static void pal_mock_random_bytes(qwrt_pal_t *pal, uint8_t *buf, size_t len)
     (void)pal;
     FILE *f = fopen("/dev/urandom", "rb");
     if (f) {
-        fread(buf, 1, len, f);
+        /* Read may return fewer bytes (rare for /dev/urandom); fill what we
+         * can and zero the rest so callers always get deterministic output. */
+        size_t got = fread(buf, 1, len, f);
+        if (got < len) {
+            memset(buf + got, 0, len - got);
+        }
         fclose(f);
     } else {
         memset(buf, 0, len);
@@ -712,6 +720,8 @@ qwrt_pal_t *pal_mock_create(void)
 
     /* Set up PAL function pointers */
     m->pal.user_data    = NULL;  /* not used; we derive via offsetof */
+    m->pal.version      = 1;
+    m->pal.name         = "mock";
 
     m->pal.http_request = pal_mock_http_request;
     m->pal.http_request_stream = pal_mock_http_request_stream;
@@ -736,6 +746,12 @@ qwrt_pal_t *pal_mock_create(void)
     m->pal.mem_alloc    = pal_mock_mem_alloc;
     m->pal.mem_free     = pal_mock_mem_free;
     m->pal.random_bytes = pal_mock_random_bytes;
+
+    /* Lifecycle — all setup is done in pal_mock_create(),
+     * teardown is done via pal_mock_destroy() by the embedder. */
+    m->pal.init    = NULL;
+    m->pal.destroy = NULL;
+    memset(m->pal.reserved, 0, sizeof(m->pal.reserved));
 
     return &m->pal;
 }

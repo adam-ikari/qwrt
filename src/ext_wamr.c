@@ -159,7 +159,7 @@ static int wamr_extract_buffer(JSContext *ctx, JSValueConst val,
 static JSValue wamr_wasm_validate(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
 {
-    qwrt_t *rt = get_rt_from_ctx(ctx);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) {
@@ -226,7 +226,7 @@ static JSValue wamr_wasm_compile(JSContext *ctx, JSValueConst this_val,
 static JSValue wamr_wasm_instantiate(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
-    qwrt_t *rt = get_rt_from_ctx(ctx);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) {
@@ -301,7 +301,7 @@ static JSValue wamr_wasm_instantiate(JSContext *ctx, JSValueConst this_val,
 static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
                                        int argc, JSValueConst *argv)
 {
-    qwrt_t *rt = get_rt_from_ctx(ctx);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
@@ -368,7 +368,7 @@ static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
 static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target,
                                          int argc, JSValueConst *argv)
 {
-    qwrt_t *rt = get_rt_from_ctx(ctx);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {

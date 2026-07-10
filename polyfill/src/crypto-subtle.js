@@ -11,14 +11,31 @@
  * pal.nativePbkdf2. These are registered by the crypto extension
  * (ext_crypto.c, gated by QWRT_WITH_CRYPTO_EXT).
  *
- * If the crypto extension is not compiled in, all operations throw
- * "Crypto extension not available".
+ * No JS fallback: this module exports an *installer* function
+ * (installCryptoSubtle) but does NOT call it. The crypto extension's init
+ * hook calls it after registering its native hooks — so when the extension
+ * is not compiled in (QWRT_WITH_CRYPTO_EXT=OFF), crypto.subtle is never
+ * installed and `typeof crypto.subtle === 'undefined'` reports the truth,
+ * rather than leaving a shim that always rejects.
  *
  * Depends on: pal.nativeDigest, pal.nativeHmac, pal.nativeAesEncrypt,
  *             pal.nativeAesDecrypt, pal.nativePbkdf2
  */
 
 export function setupCryptoSubtle(pal) {
+  /* Expose the installer on the pal object. The crypto extension's init hook
+   * (ext_crypto.c) calls pal.__installCryptoSubtle__() after registering its
+   * native hooks. If the extension is absent, the installer is never called
+   * and crypto.subtle stays undefined. */
+  pal.__installCryptoSubtle__ = function() {
+    installCryptoSubtle(pal);
+  };
+}
+
+/* Build and attach the SubtleCrypto + CryptoKey to globalThis.crypto. Called
+ * lazily by the extension's init hook (via pal.__installCryptoSubtle__) so it
+ * only runs when the native crypto hooks are present. */
+function installCryptoSubtle(pal) {
 
   // ================================================================
   // Helper functions
@@ -276,8 +293,17 @@ export function setupCryptoSubtle(pal) {
 
         if (algoName === 'HMAC') {
           var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : 'SHA-256';
-          var length = algorithm.length || 32;
-          var keyBytes = new Uint8Array(length);
+          /* WebCrypto: algorithm.length is in BITS (HMAC key length). Default to
+           * the hash output length in bytes when omitted (32 for SHA-256). Divide
+           * by 8 to get bytes; clamp to >=1. */
+          var lengthBits = algorithm.length !== undefined ? algorithm.length : 0;
+          var lengthBytes;
+          if (lengthBits > 0) {
+            lengthBytes = Math.ceil(lengthBits / 8);
+          } else {
+            lengthBytes = hashAlgo === 'SHA-1' ? 20 : (hashAlgo === 'SHA-512' ? 64 : 32);
+          }
+          var keyBytes = new Uint8Array(lengthBytes);
           crypto.getRandomValues(keyBytes);
           resolve(new CryptoKey('secret', { name: 'HMAC', hash: hashAlgo }, extractable, keyUsages, keyBytes));
           return;
@@ -307,7 +333,7 @@ export function setupCryptoSubtle(pal) {
         }
 
         if (format === 'raw') {
-          resolve(key._data.buffer.slice(0));
+          resolve(toArrayBuffer(key._data));
           return;
         }
 

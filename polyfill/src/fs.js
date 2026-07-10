@@ -5,10 +5,12 @@
  * PAL returns strings for fsExists ("true"/"false") and fsList (JSON array),
  * which this module parses into proper JS types.
  *
- * Mounted on globalThis.fs
+ * Mounted on globalThis.qwrt.fs
  */
 
 export function setupFS(pal) {
+  if (!globalThis.qwrt) globalThis.qwrt = {};
+
   var fs = {
     async readFile(path, options) {
       var data = await pal.fsRead(path);
@@ -42,5 +44,5 @@ export function setupFS(pal) {
     },
   };
 
-  globalThis.fs = fs;
+  globalThis.qwrt.fs = fs;
 }

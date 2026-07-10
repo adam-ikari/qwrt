@@ -89,6 +89,13 @@ struct qwrt_t {
     JSClassID wamr_instance_class_id;
 #endif
 
+#ifdef QWRT_DEBUG_SUPPORT
+    /* DAP debugger session (NULL when no debugger attached). Opaque here to
+     * keep this header free of qwrt_debug.h; src/debugger.c casts. Named
+     * dbg_session to avoid clashing with the legacy `int debug` log flag. */
+    void *dbg_session;
+#endif
+
     /* Deferred PAL callback queue — libuv callbacks enqueue here,
      * qwrt_tick drains them so JS_Call happens in a valid JS context. */
     struct pal_deferred_cb {
@@ -116,7 +123,7 @@ qwrt_t *qwrt_get_rt_from_jsrt(JSRuntime *jsrt);
 
 /* bridge.c — recover qwrt_t* from a JSContext* (non-static so extensions
  * with a JSContext* can use it). Equivalent to qwrt_get_rt_from_jsrt. */
-qwrt_t *get_rt_from_ctx(JSContext *ctx);
+qwrt_t *qwrt_get_rt_from_ctx(JSContext *ctx);
 void qwrt_ctx_cleanup_resources(qwrt_t *rt, qwrt_ctx_t *ctx);
 
 /* extension.c — extension lifecycle hooks */

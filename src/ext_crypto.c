@@ -453,6 +453,19 @@ static int crypto_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
     JS_SetPropertyStr(ctx, pal, "nativePbkdf2",
         JS_NewCFunction(ctx, js_pal_native_pbkdf2, "nativePbkdf2", 5));
 
+    /* Install crypto.subtle / CryptoKey on globalThis.crypto. The polyfill
+     * exposes this as pal.__installCryptoSubtle__ but does NOT call it — so
+     * when this extension is not compiled in, crypto.subtle stays undefined
+     * rather than being a shim that always rejects. Called here (after the
+     * native hooks are registered) so the SubtleCrypto methods can bind to
+     * them at call time. */
+    JSValue installer = JS_GetPropertyStr(ctx, pal, "__installCryptoSubtle__");
+    if (JS_IsFunction(ctx, installer)) {
+        JSValue ret = JS_Call(ctx, installer, JS_UNDEFINED, 0, NULL);
+        JS_FreeValue(ctx, ret);
+    }
+    JS_FreeValue(ctx, installer);
+
     JS_FreeValue(ctx, pal);
     JS_FreeValue(ctx, global);
 

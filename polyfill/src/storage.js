@@ -4,10 +4,12 @@
  * Provides a simple async key-value storage API based on PAL primitives.
  * PAL storageGet returns null when a key is not found (status=-2).
  *
- * Mounted on globalThis.storage
+ * Mounted on globalThis.qwrt.storage
  */
 
 export function setupStorage(pal) {
+  if (!globalThis.qwrt) globalThis.qwrt = {};
+
   var storage = {
     async get(key) {
       var value = await pal.storageGet(key);
@@ -23,5 +25,5 @@ export function setupStorage(pal) {
     },
   };
 
-  globalThis.storage = storage;
+  globalThis.qwrt.storage = storage;
 }

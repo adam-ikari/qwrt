@@ -52,7 +52,7 @@ params that would otherwise trip `-Wunused-parameter`.
 all per-runtime state (QuickJS class IDs, wasm3 environment) lives on
 `qwrt_t` (per-runtime, since one qwrt_t owns one JSRuntime and QuickJS
 classes are runtime-scoped). Recover `qwrt_t*` from a `JSContext*` via
-`get_rt_from_ctx(ctx)`, or from a `JSRuntime*` (finalizers) via
+`qwrt_get_rt_from_ctx(ctx)`, or from a `JSRuntime*` (finalizers) via
 `qwrt_get_rt_from_jsrt(jsrt)`. Deterministic lookup tables (e.g. CRC32) are
 `static const`.
 
@@ -76,8 +76,8 @@ Flow: `polyfill/src/index.js` → esbuild bundles into an IIFE →
 `globalThis.__pal_inject__` (see `polyfill/src/pal.js` and the header comment in
 `build.js`) → `qjsc -C -b` compiles to bytecode → written to
 `src/polyfill_default.c` and `dist/polyfill.bytecode`. `build.js` looks for
-`qjsc` at `QJSC` env var or `../third_party/quickjs-ng/build/qjsc`; the actual
-checkout lives at `quickjs-ng/` (root), so set `QJSC` if the default path is
+`qjsc` at `QJSC` env var or `../deps/quickjs-ng/build/qjsc`; the actual
+checkout lives at `deps/quickjs-ng/` (as a git submodule), so set `QJSC` if the default path is
 wrong. The polyfill is injected into a context by `qwrt_inject_polyfill_ctx`
 (bridge.c), which sets `__pal_inject__` to a `pal` JS object for the duration of
 the eval.
@@ -124,6 +124,28 @@ The runtime is layered. Read these together to understand it:
   `qwrt_tick(rt)` in a loop. `run_cycle` is OPTIONAL (may be NULL → host pumps
   `qwrt_tick` itself).
 
+### Bridge layer discipline (`src/bridge.c`)
+
+The `js_pal_*` wrappers in `bridge.c` are the only C between the PAL (C
+function pointers) and the polyfill (JS, which closures over the `pal` JS
+object). C is *required* here for three things nothing else can do:
+
+1. **JSValue ↔ C conversion** (`JS_ToCString`, `JS_GetUint8Array`,
+   `JS_NewArrayBufferCopy`, `JS_NewString`, …) — the polyfill can't touch
+   QuickJS internal representations.
+2. **The PAL call** — invoking the `qwrt_pal_t` function pointer.
+3. **Promise + thread boundary** — `JS_NewPromiseCapability`, storing
+   resolve/reject handles, and `qwrt_defer_callback` so PAL callbacks (event
+   loop thread) replay as `JS_Call` on the runtime thread.
+
+**Everything else stays out of the bridge.** A `js_pal_*` wrapper should do
+*only* the three things above. In particular: input validation, default
+values, length caps, level mappings, and string formatting are **not** the
+bridge's job — they belong in the JS polyfill (caller-facing semantics) or
+the PAL implementation (platform policy), not in C. Keep the bridge thin.
+Example: the Web Crypto 65536-byte cap on `getRandomValues` lives in
+`polyfill/src/crypto.js`, not in `js_pal_random_bytes`.
+
 ## Conventions (from CONTRIBUTING.md)
 
 - C99, 4 spaces, no tabs, no trailing whitespace. `snake_case` functions/vars,
@@ -143,21 +165,21 @@ The runtime is layered. Read these together to understand it:
 
 ## Repo layout notes
 
-- `libuv/` is a git submodule (the only true submodule). `mbedtls/`, `miniz/`,
-  and `quickjs-ng/` are **vendored source — checked directly into the repo as
-  trees, NOT submodules** (so `git submodule update --init` does not touch them).
+- `deps/` contains all third-party dependencies as **git submodules** with
+  pinned versions: `libuv/` (v1.52.1), `mbedtls/` (v3.6.6), `miniz/` (3.1.2),
+  `quickjs-ng/` (v0.15.1), `wasm3/` (v0.5.0). `wamr/` is optional and must be
+  pre-built by hand if enabled (CMake errors give the exact commands).
   **All dependencies are built from source — qwrt links no system libraries.**
   Each is pulled in via `add_subdirectory(... EXCLUDE_FROM_ALL)` (never
   `execute_process`), so its `.o` files live in the main build tree and are
   subject to `-j` / incremental rebuild. Targets: quickjs-ng → `qjs` (C11),
   libuv → `uv_a` (C11, when `QWRT_PAL_UV`), mbedtls → `mbedtls`/`mbedx509`/
   `mbedcrypto` (C99, when `QWRT_WITH_TLS`/`QWRT_WITH_CRYPTO_EXT`), miniz →
-  `miniz` (C90, when `QWRT_WITH_COMPRESS`). qwrt's C99 / `-Werror` are PRIVATE
-  to the qwrt targets only — vendored deps compile under their own standard.
-  `wasm3`/`wamr` are optional and must be pre-built by hand if enabled (CMake
-  errors give the exact commands).
-- **Never edit vendored dep source** (`mbedtls/`, `libuv/`, `quickjs-ng/`,
-  `miniz/`) — control them only via CMake variables/options in the root
-  `CMakeLists.txt`.
+  `miniz` (C90, when `QWRT_WITH_COMPRESS`), wasm3 → `m3` (C99, when
+  `QWRT_WITH_WASM3`). qwrt's C99 / `-Werror` are PRIVATE to the qwrt targets
+  only — vendored deps compile under their own standard.
+- **Never edit vendored dep source** — control them only via CMake
+  variables/options in the root `CMakeLists.txt`. Deps are pinned to specific
+  git tags; update by checking out the desired tag in the submodule.
 - `docs/` has design docs (`qwrt-architecture-design.md`, `pal-design.md`,
   `esp32s3-design.md`) — the architecture doc is in Chinese.

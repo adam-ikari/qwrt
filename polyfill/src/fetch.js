@@ -656,17 +656,19 @@ export function setupFetch(pal) {
         request.signal.addEventListener('abort', onAbort);
       }
 
-      // Fallback to non-streaming httpRequest if streaming not available
+      // Fallback to non-streaming httpRequest if streaming not available.
+      // pal.httpRequest returns a Promise<string> (resolves with the body on
+      // success, rejects with an error string on failure); it does NOT provide
+      // the HTTP status or headers, so the Response is built with status 200
+      // and empty headers (the non-streaming PAL contract's limitation).
       if (typeof pal.httpRequestStream !== 'function') {
-        pal.httpRequest(request.url, request.method, headersJson, bodyStr, function(status, data) {
+        if (aborted) { return; }
+        if (request.signal && onAbort) {
+          request.signal.removeEventListener('abort', onAbort);
+        }
+        var p = pal.httpRequest(request.url, request.method, headersJson, bodyStr);
+        Promise.resolve(p).then(function(data) {
           if (aborted) return;
-          if (request.signal && onAbort) {
-            request.signal.removeEventListener('abort', onAbort);
-          }
-          if (status !== 0) {
-            reject(new TypeError('fetch failed with status: ' + status));
-            return;
-          }
           var bodyBytes = stringToUint8Array(data || '');
           var res = new Response(bodyBytes, {
             status: 200,
@@ -674,6 +676,9 @@ export function setupFetch(pal) {
           });
           res._url = request.url;
           resolve(res);
+        }, function(err) {
+          if (aborted) return;
+          reject(new TypeError('fetch failed: ' + (err || 'unknown error')));
         });
         return;
       }

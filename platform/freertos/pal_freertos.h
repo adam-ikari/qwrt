@@ -17,8 +17,8 @@
  *   pal_freertos_destroy(pf);
  */
 
-#ifndef PAL_FREERTOS_H
-#define PAL_FREERTOS_H
+#ifndef QWRT_PAL_FREERTOS_H
+#define QWRT_PAL_FREERTOS_H
 
 #include "qwrt/qwrt.h"
 #include <stdint.h>
@@ -85,4 +85,4 @@ void pal_freertos_set_runtime(pal_freertos_t *pf, struct qwrt_t *rt);
 }
 #endif
 
-#endif /* PAL_FREERTOS_H */
+#endif /* QWRT_PAL_FREERTOS_H */

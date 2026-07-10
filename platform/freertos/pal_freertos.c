@@ -38,6 +38,7 @@
 #ifdef ESP_PLATFORM
 
 #include "pal_freertos.h"
+#include "pal_common.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,7 +87,7 @@
 #define PAL_FREERTOS_HTTP_BUF_INIT    4096
 #define PAL_FREERTOS_CONNECT_TIMEOUT_MS  30000
 #define PAL_FREERTOS_READ_IDLE_TIMEOUT_MS 60000
-#define PAL_FREERTOS_DEFERRED_QUEUE_LEN  64
+#define PAL_FREERTOS_DEFERRED_QUEUE_LEN  256
 /* HTTP task: streaming + TLS needs a generous stack (mbedTLS handshake +
  * printf-style logging). 12 KiB is a safe default for ESP32-S3 with PSRAM. */
 #define PAL_FREERTOS_HTTP_TASK_STACK   (12 * 1024)
@@ -187,8 +188,11 @@ static void deferred_enqueue(pal_freertos_t *pf,
     msg.fn = fn;
     msg.data = data;
 
-    if (xQueueSend(pf->deferred_queue, &msg, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "Deferred queue full, dropping callback");
+    /* Block up to 100 ms for queue space — the drain runs in the same
+     * task so this should never actually block in practice, but it
+     * prevents silent callback loss under load. */
+    if (xQueueSend(pf->deferred_queue, &msg, pdMS_TO_TICKS(100)) != pdTRUE) {
+        ESP_LOGE(TAG, "Deferred queue full after 100ms — callback LOST");
     }
 }
 
@@ -218,325 +222,11 @@ void pal_freertos_set_runtime(pal_freertos_t *pf, struct qwrt_t *rt)
     }
 }
 
-/* ================================================================
- * Helper: JSON-escape a string into a buffer
- * Returns number of bytes written (not including null terminator).
- * ================================================================ */
-
-static size_t json_escape(const char *src, size_t src_len,
-                          char *dst, size_t dst_cap)
-{
-    size_t i, j;
-    for (i = 0, j = 0; i < src_len && j + 6 < dst_cap; i++) {
-        unsigned char c = (unsigned char)src[i];
-        switch (c) {
-        case '"':  dst[j++] = '\\'; dst[j++] = '"';  break;
-        case '\\': dst[j++] = '\\'; dst[j++] = '\\'; break;
-        case '\b': dst[j++] = '\\'; dst[j++] = 'b';  break;
-        case '\f': dst[j++] = '\\'; dst[j++] = 'f';  break;
-        case '\n': dst[j++] = '\\'; dst[j++] = 'n';  break;
-        case '\r': dst[j++] = '\\'; dst[j++] = 'r';  break;
-        case '\t': dst[j++] = '\\'; dst[j++] = 't';  break;
-        default:
-            if (c < 0x20) {
-                j += snprintf(dst + j, dst_cap - j, "\\u%04x", c);
-            } else {
-                dst[j++] = (char)c;
-            }
-            break;
-        }
-    }
-    if (j < dst_cap) {
-        dst[j] = '\0';
-    }
-    return j;
-}
-
-/* ================================================================
- * Helper: build JSON result for HTTP response
- * Caller must free the returned string.
- * ================================================================ */
-
-static char *build_http_json(int status, const char *headers,
-                             size_t headers_len,
-                             const char *body, size_t body_len,
-                             size_t *out_len)
-{
-    size_t cap = 64 + headers_len + body_len * 2 + 128;
-    char *buf = (char *)malloc(cap);
-    if (!buf) return NULL;
-
-    size_t pos = 0;
-    pos += snprintf(buf + pos, cap - pos,
-                    "{\"status\":%d,\"headers\":", status);
-
-    if (headers && headers_len > 0) {
-        memcpy(buf + pos, headers, headers_len);
-        pos += headers_len;
-    } else {
-        memcpy(buf + pos, "{}", 2);
-        pos += 2;
-    }
-
-    memcpy(buf + pos, ",\"body\":\"", 9);
-    pos += 9;
-
-    pos += json_escape(body, body_len, buf + pos, cap - pos - 2);
-
-    memcpy(buf + pos, "\"}", 2);
-    pos += 2;
-
-    *out_len = pos;
-    return buf;
-}
-
-/* ================================================================
- * Helper: build JSON array from string list
- * Caller must free the returned string.
- * ================================================================ */
-
-static char *build_json_array(const char **items, int count, size_t *out_len)
-{
-    size_t cap = 4 + (size_t)count * 256;
-    char *buf = (char *)malloc(cap);
-    if (!buf) return NULL;
-
-    size_t pos = 0;
-    buf[pos++] = '[';
-
-    int i;
-    for (i = 0; i < count; i++) {
-        if (i > 0) {
-            buf[pos++] = ',';
-        }
-        buf[pos++] = '"';
-        pos += json_escape(items[i], strlen(items[i]),
-                           buf + pos, cap - pos - 2);
-        buf[pos++] = '"';
-    }
-
-    buf[pos++] = ']';
-    buf[pos] = '\0';
-    *out_len = pos;
-    return buf;
-}
-
-/* ================================================================
- * Simple URL parser: extracts host, port, path from http:// or https://
- * ================================================================ */
-
-static int parse_http_url(const char *url, char **out_host, int *out_port,
-                          char **out_path, int *out_use_tls)
-{
-    int use_tls = 0;
-    const char *p = NULL;
-
-    if (strncmp(url, "https://", 8) == 0) {
-        use_tls = 1;
-        p = url + 8;
-    } else if (strncmp(url, "http://", 7) == 0) {
-        use_tls = 0;
-        p = url + 7;
-    } else {
-        return -1;
-    }
-
-    *out_use_tls = use_tls;
-
-    const char *host_start = p;
-    const char *host_end = NULL;
-    const char *port_start = NULL;
-    const char *path_start = NULL;
-
-    while (*p && *p != ':' && *p != '/') {
-        p++;
-    }
-    host_end = p;
-
-    if (*p == ':') {
-        p++;
-        port_start = p;
-        while (*p && *p != '/') {
-            p++;
-        }
-    }
-
-    if (*p == '/') {
-        path_start = p;
-    } else {
-        path_start = "/";
-    }
-
-    size_t host_len = (size_t)(host_end - host_start);
-    *out_host = (char *)malloc(host_len + 1);
-    if (!*out_host) return -1;
-    memcpy(*out_host, host_start, host_len);
-    (*out_host)[host_len] = '\0';
-
-    if (port_start) {
-        *out_port = atoi(port_start);
-        if (*out_port <= 0) *out_port = use_tls ? 443 : 80;
-    } else {
-        *out_port = use_tls ? 443 : 80;
-    }
-
-    *out_path = strdup(path_start);
-    if (!*out_path) {
-        free(*out_host);
-        return -1;
-    }
-
-    return 0;
-}
-
-/* ================================================================
- * HTTP response parser: finds status code, Content-Length, chunked TE
- * ================================================================ */
-
-static int parse_http_response(const char *buf, size_t buf_len,
-                               int *out_status, int *out_chunked,
-                               size_t *out_body_expected,
-                               size_t *out_header_end)
-{
-    /* Find \r\n\r\n marking end of headers */
-    const char *hdr_end = NULL;
-    size_t i;
-    for (i = 3; i < buf_len; i++) {
-        if (buf[i - 3] == '\r' && buf[i - 2] == '\n' &&
-            buf[i - 1] == '\r' && buf[i] == '\n') {
-            hdr_end = buf + i + 1;
-            *out_header_end = (size_t)(hdr_end - buf);
-            break;
-        }
-    }
-
-    if (!hdr_end) {
-        return -1; /* headers not complete yet */
-    }
-
-    /* Parse status line: HTTP/1.x NNN ... */
-    const char *line_end = NULL;
-    for (i = 0; i < *out_header_end; i++) {
-        if (buf[i] == '\r' && buf[i + 1] == '\n') {
-            line_end = buf + i;
-            break;
-        }
-    }
-
-    if (!line_end) return -1;
-
-    const char *sp = buf;
-    while (sp < line_end && *sp != ' ') sp++;
-    if (sp >= line_end) return -1;
-    sp++;
-
-    *out_status = 0;
-    int digits = 0;
-    while (sp < line_end && *sp >= '0' && *sp <= '9' && digits < 3) {
-        *out_status = *out_status * 10 + (*sp - '0');
-        sp++;
-        digits++;
-    }
-
-    if (digits == 0) return -1;
-
-    /* Scan headers for Content-Length and Transfer-Encoding: chunked */
-    const char *hdrs = buf + (line_end - buf) + 2;
-    const char *hdrs_end = buf + *out_header_end - 4;
-
-    *out_body_expected = 0;
-    *out_chunked = 0;
-
-    const char *hp = hdrs;
-    while (hp < hdrs_end) {
-        const char *eol = hp;
-        while (eol < hdrs_end &&
-               !(*eol == '\r' && (eol + 1 < hdrs_end) && *(eol + 1) == '\n')) {
-            eol++;
-        }
-
-        if (eol - hp > 15 && strncasecmp(hp, "Content-Length:", 15) == 0) {
-            const char *val = hp + 15;
-            while (val < eol && (*val == ' ' || *val == '\t')) val++;
-            *out_body_expected = (size_t)strtoull(val, NULL, 10);
-        }
-
-        if (eol - hp > 26 && strncasecmp(hp, "Transfer-Encoding:", 18) == 0) {
-            const char *val = hp + 18;
-            while (val < eol && (*val == ' ' || *val == '\t')) val++;
-            if (eol - val >= 7 && strncasecmp(val, "chunked", 7) == 0) {
-                *out_chunked = 1;
-            }
-        }
-
-        hp = eol + 2;
-        if (hp > hdrs_end) hp = hdrs_end;
-    }
-
-    return 0;
-}
-
-/* ================================================================
- * Build a JSON object string from raw header lines.
- * ================================================================ */
-
-static char *build_headers_json(const char *hdr_start, size_t hdr_len,
-                                size_t *out_len)
-{
-    size_t cap = hdr_len * 2 + 4;
-    char *buf = (char *)malloc(cap);
-    if (!buf) return NULL;
-
-    size_t pos = 0;
-    buf[pos++] = '{';
-
-    const char *p = hdr_start;
-    const char *end = hdr_start + hdr_len;
-    int first = 1;
-
-    while (p < end) {
-        const char *eol = p;
-        while (eol < end &&
-               !(*eol == '\r' && (eol + 1 < end) && *(eol + 1) == '\n')) {
-            eol++;
-        }
-
-        const char *colon = p;
-        while (colon < eol && *colon != ':') colon++;
-
-        if (colon < eol) {
-            size_t key_len = (size_t)(colon - p);
-            const char *val_start = colon + 1;
-            while (val_start < eol &&
-                   (*val_start == ' ' || *val_start == '\t')) {
-                val_start++;
-            }
-            size_t val_len = (size_t)(eol - val_start);
-
-            if (!first) {
-                buf[pos++] = ',';
-            }
-            first = 0;
-
-            buf[pos++] = '"';
-            pos += json_escape(p, key_len, buf + pos, cap - pos - 1);
-            buf[pos++] = '"';
-            buf[pos++] = ':';
-            buf[pos++] = '"';
-            pos += json_escape(val_start, val_len, buf + pos, cap - pos - 1);
-            buf[pos++] = '"';
-        }
-
-        p = eol;
-        if (p < end && *p == '\r') p++;
-        if (p < end && *p == '\n') p++;
-    }
-
-    buf[pos++] = '}';
-    buf[pos] = '\0';
-    *out_len = pos;
-    return buf;
-}
+/* ────────────────────────────────────────────────────────────────
+ * JSON helpers and URL parser are now in platform/pal_common.c
+ * (pal_json_escape, pal_build_http_json, pal_build_json_array,
+ *  pal_parse_url, pal_build_headers_json).
+ * ──────────────────────────────────────────────────────────────── */
 
 /* ================================================================
  * HTTP operation — synchronous blocking implementation using lwIP
@@ -590,10 +280,18 @@ static void http_task(void *arg)
     const char *error_msg = NULL;
 
     /* Parse URL */
-    if (parse_http_url(ht->url, &host, &port, &path, &use_tls) < 0) {
-        error_status = -6;
-        error_msg = "invalid url format";
-        goto done;
+    {
+        pal_url_t parts = {0};
+        if (pal_parse_url(ht->url, &parts) < 0) {
+            error_status = QWRT_ERR_INVALID_ARG;
+            error_msg = "invalid url format";
+            goto done;
+        }
+        host    = parts.host;
+        port    = parts.port;
+        path    = parts.path;
+        use_tls = parts.tls;
+        /* parts fields are now owned by local vars — do NOT call pal_url_free */
     }
 
     /* Resolve DNS */
@@ -795,15 +493,15 @@ static void http_task(void *arg)
 
         if (status_line_end) {
             size_t hdr_len = resp_buf + header_end - 4 - status_line_end;
-            headers_json = build_headers_json(status_line_end, hdr_len,
-                                              &headers_json_len);
+            headers_json = pal_build_headers_json(status_line_end, hdr_len,
+                                                  &headers_json_len);
         }
 
         const char *body_start = resp_buf + header_end;
         size_t body_len = resp_buf_len - header_end;
 
         size_t json_len;
-        char *json = build_http_json(http_status,
+        char *json = pal_build_http_json(http_status,
                                      headers_json ? headers_json : "{}",
                                      headers_json ? headers_json_len : 2,
                                      body_start, body_len, &json_len);
@@ -823,10 +521,10 @@ static void http_task(void *arg)
                 ht->cb(ht->cb_data, 0, json_copy, strlen(json_copy));
                 free(json_copy);
             } else {
-                ht->cb(ht->cb_data, -1, "out of memory", 13);
+                ht->cb(ht->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
             }
         } else {
-            ht->cb(ht->cb_data, -1, "out of memory", 13);
+            ht->cb(ht->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         }
     }
 
@@ -872,14 +570,14 @@ static void pal_freertos_http_request(qwrt_pal_t *pal,
     pal_freertos_t *pf = pal_freertos_self(pal);
 
     if (!url) {
-        cb(cb_data, -6, "invalid url", 11);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid url", 11);
         return;
     }
 
     pal_freertos_http_task_t *ht =
         (pal_freertos_http_task_t *)calloc(1, sizeof(*ht));
     if (!ht) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -911,7 +609,7 @@ static void pal_freertos_http_request(qwrt_pal_t *pal,
         free(ht->headers_json);
         free(ht->body);
         free(ht);
-        cb(cb_data, -1, "failed to create HTTP task", 25);
+        cb(cb_data, QWRT_ERR_GENERIC, "failed to create HTTP task", 25);
     }
 }
 
@@ -988,6 +686,7 @@ static void http_stream_task(void *arg)
     qwrt_pal_stream_ops_t *ops = &ht->stream_ops;
 
     char *host = NULL, *path = NULL;
+    char *hdr_buf = NULL;
     int port = 80, use_tls = 0;
     int sock = -1;
     int error_status = -5;
@@ -1006,9 +705,17 @@ static void http_stream_task(void *arg)
     mbedtls_x509_crt_init(&cacert);
 
     /* Parse URL */
-    if (parse_http_url(ht->url, &host, &port, &path, &use_tls) < 0) {
-        error_status = -6;
-        goto done;
+    {
+        pal_url_t parts = {0};
+        if (pal_parse_url(ht->url, &parts) < 0) {
+            error_status = QWRT_ERR_INVALID_ARG;
+            goto done;
+        }
+        host    = parts.host;
+        port    = parts.port;
+        path    = parts.path;
+        use_tls = parts.tls;
+        /* parts fields are now owned by local vars — do NOT call pal_url_free */
     }
 
     /* DNS */
@@ -1122,19 +829,30 @@ static void http_stream_task(void *arg)
 
     /* Read headers until \r\n\r\n */
     {
-        char hdr[2048];
+        size_t hdr_cap = 2048;
         size_t hlen = 0;
         int header_end = -1;
-        while (hlen < sizeof(hdr) - 1) {
-            int n = stream_read_one(sock, ssl_ptr, hdr + hlen, sizeof(hdr) - 1 - hlen);
+        hdr_buf = (char *)malloc(hdr_cap);
+        if (!hdr_buf) { error_status = -11; goto done; }
+
+        while (1) {
+            /* Grow buffer if nearly full */
+            if (hlen + 512 >= hdr_cap) {
+                size_t new_cap = hdr_cap * 2;
+                char *new_hdr = (char *)realloc(hdr_buf, new_cap);
+                if (!new_hdr) { error_status = -11; goto done; }
+                hdr_buf = new_hdr;
+                hdr_cap = new_cap;
+            }
+            int n = stream_read_one(sock, ssl_ptr, hdr_buf + hlen, hdr_cap - 1 - hlen);
             if (n < 0) { error_status = -5; goto done; }
             if (n == 0) break;
             hlen += (size_t)n;
-            hdr[hlen] = '\0';
+            hdr_buf[hlen] = '\0';
             /* search for \r\n\r\n */
             for (size_t i = 3; i <= hlen; i++) {
-                if (hdr[i-3] == '\r' && hdr[i-2] == '\n' &&
-                    hdr[i-1] == '\r' && hdr[i] == '\n') {
+                if (hdr_buf[i-3] == '\r' && hdr_buf[i-2] == '\n' &&
+                    hdr_buf[i-1] == '\r' && hdr_buf[i] == '\n') {
                     header_end = (int)i + 1;
                     break;
                 }
@@ -1145,23 +863,23 @@ static void http_stream_task(void *arg)
 
         int http_status = 0, chunked = 0;
         size_t body_expected = 0, he = 0;
-        if (parse_http_response(hdr, hlen, &http_status, &chunked,
+        if (parse_http_response(hdr_buf, hlen, &http_status, &chunked,
                                 &body_expected, &he) < 0) {
             error_status = -5; goto done;
         }
         /* Build + deliver headers JSON */
         const char *status_line_end = NULL;
         for (size_t i = 0; i + 1 < (size_t)header_end; i++) {
-            if (hdr[i] == '\r' && hdr[i+1] == '\n') {
-                status_line_end = hdr + i + 2; break;
+            if (hdr_buf[i] == '\r' && hdr_buf[i+1] == '\n') {
+                status_line_end = hdr_buf + i + 2; break;
             }
         }
         char *headers_json = NULL;
         size_t headers_json_len = 0;
         if (status_line_end) {
-            size_t hdr_len = (hdr + he - 4) - status_line_end;
-            headers_json = build_headers_json(status_line_end, hdr_len,
-                                              &headers_json_len);
+            size_t hdr_len = (hdr_buf + he - 4) - status_line_end;
+            headers_json = pal_build_headers_json(status_line_end, hdr_len,
+                                                  &headers_json_len);
         }
         if (ops->on_headers) {
             ops->on_headers(ops->user_data, http_status,
@@ -1174,7 +892,7 @@ static void http_stream_task(void *arg)
         size_t body_received = 0;
         if ((size_t)header_end < hlen) {
             size_t extra = hlen - (size_t)header_end;
-            if (ops->on_data) ops->on_data(ops->user_data, hdr + header_end, extra);
+            if (ops->on_data) ops->on_data(ops->user_data, hdr_buf + header_end, extra);
             body_received += extra;
         }
 
@@ -1241,6 +959,8 @@ static void http_stream_task(void *arg)
 done:
     if (ops->on_end) ops->on_end(ops->user_data, error_status);
 
+    free(hdr_buf);
+
     if (tls_inited) {
         mbedtls_ssl_close_notify(&ssl_ctx);
         mbedtls_ssl_free(&ssl_ctx);
@@ -1273,14 +993,14 @@ static void pal_freertos_http_request_stream(qwrt_pal_t *pal,
     pal_freertos_t *pf = pal_freertos_self(pal);
 
     if (!url || !ops) {
-        if (ops && ops->on_end) ops->on_end(ops->user_data, -6);
+        if (ops && ops->on_end) ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
         return;
     }
 
     pal_freertos_http_task_t *ht =
         (pal_freertos_http_task_t *)calloc(1, sizeof(*ht));
     if (!ht) {
-        if (ops->on_end) ops->on_end(ops->user_data, -1);
+        if (ops->on_end) ops->on_end(ops->user_data, QWRT_ERR_GENERIC);
         return;
     }
     ht->pf = pf;
@@ -1299,7 +1019,7 @@ static void pal_freertos_http_request_stream(qwrt_pal_t *pal,
                     PAL_FREERTOS_HTTP_TASK_PRIO, NULL) != pdPASS) {
         free(ht->url); free(ht->method); free(ht->headers_json);
         free(ht->body); free(ht);
-        if (ops->on_end) ops->on_end(ops->user_data, -1);
+        if (ops->on_end) ops->on_end(ops->user_data, QWRT_ERR_GENERIC);
     }
 }
 
@@ -1311,13 +1031,13 @@ static void pal_freertos_fs_read(qwrt_pal_t *pal, const char *path,
                                   qwrt_pal_cb_t cb, void *cb_data)
 {
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     FILE *f = fopen(path, "rb");
     if (!f) {
-        cb(cb_data, -2, "not found", 9);
+        cb(cb_data, QWRT_ERR_NOT_FOUND, "not found", 9);
         return;
     }
 
@@ -1328,14 +1048,14 @@ static void pal_freertos_fs_read(qwrt_pal_t *pal, const char *path,
 
     if (fsize < 0) {
         fclose(f);
-        cb(cb_data, -1, "read error", 10);
+        cb(cb_data, QWRT_ERR_GENERIC, "read error", 10);
         return;
     }
 
     char *buf = (char *)malloc((size_t)fsize + 1);
     if (!buf) {
         fclose(f);
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1352,13 +1072,13 @@ static void pal_freertos_fs_write(qwrt_pal_t *pal, const char *path,
                                    qwrt_pal_cb_t cb, void *cb_data)
 {
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     FILE *f = fopen(path, "wb");
     if (!f) {
-        cb(cb_data, -1, "cannot open file for writing", 28);
+        cb(cb_data, QWRT_ERR_GENERIC, "cannot open file for writing", 28);
         return;
     }
 
@@ -1366,7 +1086,7 @@ static void pal_freertos_fs_write(qwrt_pal_t *pal, const char *path,
     fclose(f);
 
     if (written < data_len) {
-        cb(cb_data, -1, "write error", 11);
+        cb(cb_data, QWRT_ERR_GENERIC, "write error", 11);
     } else {
         cb(cb_data, 0, "ok", 2);
     }
@@ -1376,7 +1096,7 @@ static void pal_freertos_fs_exists(qwrt_pal_t *pal, const char *path,
                                     qwrt_pal_cb_t cb, void *cb_data)
 {
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
@@ -1392,16 +1112,16 @@ static void pal_freertos_fs_remove(qwrt_pal_t *pal, const char *path,
                                     qwrt_pal_cb_t cb, void *cb_data)
 {
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     if (unlink(path) == 0) {
         cb(cb_data, 0, "ok", 2);
     } else if (errno == ENOENT) {
-        cb(cb_data, -2, "not found", 9);
+        cb(cb_data, QWRT_ERR_NOT_FOUND, "not found", 9);
     } else {
-        cb(cb_data, -1, "remove error", 12);
+        cb(cb_data, QWRT_ERR_GENERIC, "remove error", 12);
     }
 }
 
@@ -1409,13 +1129,13 @@ static void pal_freertos_fs_list(qwrt_pal_t *pal, const char *path,
                                   qwrt_pal_cb_t cb, void *cb_data)
 {
     if (!path) {
-        cb(cb_data, -6, "invalid path", 12);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     DIR *dir = opendir(path);
     if (!dir) {
-        cb(cb_data, -1, "cannot open directory", 21);
+        cb(cb_data, QWRT_ERR_GENERIC, "cannot open directory", 21);
         return;
     }
 
@@ -1425,7 +1145,7 @@ static void pal_freertos_fs_list(qwrt_pal_t *pal, const char *path,
     char **names = (char **)malloc(sizeof(char *) * (size_t)cap);
     if (!names) {
         closedir(dir);
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1445,7 +1165,7 @@ static void pal_freertos_fs_list(qwrt_pal_t *pal, const char *path,
                 for (j = 0; j < count; j++) free(names[j]);
                 free(names);
                 closedir(dir);
-                cb(cb_data, -1, "out of memory", 13);
+                cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
                 return;
             }
             names = new_names;
@@ -1457,7 +1177,7 @@ static void pal_freertos_fs_list(qwrt_pal_t *pal, const char *path,
             for (j = 0; j < count; j++) free(names[j]);
             free(names);
             closedir(dir);
-            cb(cb_data, -1, "out of memory", 13);
+            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
             return;
         }
         count++;
@@ -1466,14 +1186,14 @@ static void pal_freertos_fs_list(qwrt_pal_t *pal, const char *path,
 
     /* Build JSON array */
     size_t json_len;
-    char *json = build_json_array((const char **)names, count, &json_len);
+    char *json = pal_build_json_array((const char *const *)names, count, &json_len);
 
     int i;
     for (i = 0; i < count; i++) free(names[i]);
     free(names);
 
     if (!json) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1506,12 +1226,12 @@ static void pal_freertos_storage_get(qwrt_pal_t *pal, const char *key,
     pal_freertos_t *pf = pal_freertos_self(pal);
 
     if (!key) {
-        cb(cb_data, -6, "invalid key", 11);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
     if (ensure_nvs_open(pf) < 0) {
-        cb(cb_data, -1, "storage unavailable", 19);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage unavailable", 19);
         return;
     }
 
@@ -1519,24 +1239,24 @@ static void pal_freertos_storage_get(qwrt_pal_t *pal, const char *key,
     size_t required_size = 0;
     esp_err_t err = nvs_get_str(pf->nvs_handle, key, NULL, &required_size);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        cb(cb_data, -2, "not found", 9);
+        cb(cb_data, QWRT_ERR_NOT_FOUND, "not found", 9);
         return;
     }
     if (err != ESP_OK) {
-        cb(cb_data, -1, "storage read error", 18);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage read error", 18);
         return;
     }
 
     char *value = (char *)malloc(required_size);
     if (!value) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
     err = nvs_get_str(pf->nvs_handle, key, value, &required_size);
     if (err != ESP_OK) {
         free(value);
-        cb(cb_data, -1, "storage read error", 18);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage read error", 18);
         return;
     }
 
@@ -1551,19 +1271,19 @@ static void pal_freertos_storage_set(qwrt_pal_t *pal, const char *key,
     pal_freertos_t *pf = pal_freertos_self(pal);
 
     if (!key) {
-        cb(cb_data, -6, "invalid key", 11);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
     if (ensure_nvs_open(pf) < 0) {
-        cb(cb_data, -1, "storage unavailable", 19);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage unavailable", 19);
         return;
     }
 
     /* NVS requires null-terminated strings */
     char *tmp = (char *)malloc(value_len + 1);
     if (!tmp) {
-        cb(cb_data, -1, "out of memory", 13);
+        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
         return;
     }
     memcpy(tmp, value, value_len);
@@ -1573,13 +1293,13 @@ static void pal_freertos_storage_set(qwrt_pal_t *pal, const char *key,
     free(tmp);
 
     if (err != ESP_OK) {
-        cb(cb_data, -1, "storage write error", 19);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage write error", 19);
         return;
     }
 
     err = nvs_commit(pf->nvs_handle);
     if (err != ESP_OK) {
-        cb(cb_data, -1, "storage commit error", 20);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage commit error", 20);
         return;
     }
 
@@ -1592,28 +1312,28 @@ static void pal_freertos_storage_del(qwrt_pal_t *pal, const char *key,
     pal_freertos_t *pf = pal_freertos_self(pal);
 
     if (!key) {
-        cb(cb_data, -6, "invalid key", 11);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
     if (ensure_nvs_open(pf) < 0) {
-        cb(cb_data, -1, "storage unavailable", 19);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage unavailable", 19);
         return;
     }
 
     esp_err_t err = nvs_erase_key(pf->nvs_handle, key);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        cb(cb_data, -2, "not found", 9);
+        cb(cb_data, QWRT_ERR_NOT_FOUND, "not found", 9);
         return;
     }
     if (err != ESP_OK) {
-        cb(cb_data, -1, "storage delete error", 20);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage delete error", 20);
         return;
     }
 
     err = nvs_commit(pf->nvs_handle);
     if (err != ESP_OK) {
-        cb(cb_data, -1, "storage commit error", 20);
+        cb(cb_data, QWRT_ERR_GENERIC, "storage commit error", 20);
         return;
     }
 
@@ -1674,6 +1394,9 @@ static void *pal_freertos_timer_start(qwrt_pal_t *pal, uint64_t delay_ms,
     op->pf = pf;
     op->repeat = repeat;
 
+    /* Clamp delay to TickType_t range (typically uint32_t).
+     * pdMS_TO_TICKS on ESP32: max safe ms ~ 2^32 / portTICK_PERIOD_MS */
+    if (delay_ms > 0xFFFFFFFFULL) delay_ms = 0xFFFFFFFFULL;
     TickType_t period_ticks = pdMS_TO_TICKS((TickType_t)delay_ms);
     if (period_ticks < 1) period_ticks = 1;
 
@@ -1791,6 +1514,8 @@ int pal_freertos_run_cycle(pal_freertos_t *pf, int timeout_ms)
     TickType_t ticks;
     if (timeout_ms < 0) {
         ticks = portMAX_DELAY;
+    } else if ((unsigned int)timeout_ms > 0xFFFFFFFFU / portTICK_PERIOD_MS) {
+        ticks = portMAX_DELAY;
     } else {
         ticks = pdMS_TO_TICKS((TickType_t)timeout_ms);
     }
@@ -1897,6 +1622,8 @@ pal_freertos_t *pal_freertos_create(void)
     /* Set up PAL function pointers */
     qwrt_pal_t *pal = &pf->pal;
     pal->user_data = NULL;  /* we derive via offsetof */
+    pal->version   = 1;
+    pal->name      = "freertos";
 
     pal->http_request        = pal_freertos_http_request;
     pal->http_request_stream = pal_freertos_http_request_stream;
@@ -1927,6 +1654,12 @@ pal_freertos_t *pal_freertos_create(void)
     pal->channel_close    = NULL;
     pal->join             = NULL;
     pal->terminate        = NULL;
+
+    /* Lifecycle — all setup is done in pal_freertos_create(),
+     * teardown is done via pal_freertos_destroy() by the embedder. */
+    pal->init    = NULL;
+    pal->destroy = NULL;
+    memset(pal->reserved, 0, sizeof(pal->reserved));
 
     return pf;
 }

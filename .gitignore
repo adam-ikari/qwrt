@@ -9,6 +9,7 @@ build_*/
 
 # Generated files
 dist/
+polyfill.js
 src/polyfill_default.c.bak
 
 # Node.js
@@ -40,4 +41,7 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 CTestTestfile.cmake
+Testing/
+
+# Doxygen output
 docs/api/

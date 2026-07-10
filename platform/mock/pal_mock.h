@@ -1,5 +1,5 @@
-#ifndef PAL_MOCK_H
-#define PAL_MOCK_H
+#ifndef QWRT_PAL_MOCK_H
+#define QWRT_PAL_MOCK_H
 
 #include "qwrt/qwrt.h"
 #include <stdint.h>
@@ -51,4 +51,4 @@ int pal_mock_get_alloc_count(qwrt_pal_t *pal);
 }
 #endif
 
-#endif /* PAL_MOCK_H */
+#endif /* QWRT_PAL_MOCK_H */

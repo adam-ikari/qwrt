@@ -793,6 +793,201 @@ TEST(compile_roundtrip) {
 }
 
 /* ================================================================
+ * Group 12: Bytecode edge cases and error paths
+ * ================================================================ */
+
+TEST(bytecode_invalid_magic) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    /* Create bytecode with wrong magic bytes */
+    uint8_t bad_bc[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    int rc = qwrt_eval_bytecode(rt, bad_bc, sizeof(bad_bc), NULL);
+    ASSERT(rc < 0);
+
+    destroy_test_runtime(rt, pal);
+}
+
+TEST(bytecode_truncated) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    /* Valid QuickJS bytecode starts with magic, truncated at 4 bytes */
+    uint8_t truncated[] = { 0x02, 0x00, 0x00, 0x00 };
+    int rc = qwrt_eval_bytecode(rt, truncated, sizeof(truncated), NULL);
+    ASSERT(rc < 0);
+
+    destroy_test_runtime(rt, pal);
+}
+
+TEST(bytecode_null_data) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    int rc = qwrt_eval_bytecode(rt, NULL, 0, NULL);
+    ASSERT(rc < 0);
+
+    destroy_test_runtime(rt, pal);
+}
+
+TEST(compile_null_out_len) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    const char *code = "1 + 1";
+    uint8_t *bc = qwrt_compile(rt, code, strlen(code), NULL);
+    /* NULL out_len should return NULL */
+    ASSERT_NULL(bc);
+
+    destroy_test_runtime(rt, pal);
+}
+
+TEST(compile_empty_code) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    size_t bc_len = 0;
+    uint8_t *bc = qwrt_compile(rt, "", 0, &bc_len);
+    /* Empty code may or may not produce valid bytecode depending on engine */
+    if (bc) {
+        ASSERT(bc_len > 0);
+        qwrt_free(bc);
+    }
+
+    destroy_test_runtime(rt, pal);
+}
+
+TEST(compile_module_null_out_len) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    const char *code = "export const x = 1;";
+    uint8_t *bc = qwrt_compile_module(rt, code, strlen(code), NULL);
+    /* NULL out_len should return NULL */
+    ASSERT_NULL(bc);
+
+    destroy_test_runtime(rt, pal);
+}
+
+/* ================================================================
+ * Group 13: qwrt_call error paths
+ * ================================================================ */
+
+TEST(call_malformed_args) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    /* Define a function */
+    qwrt_eval(rt, "function testCall(a, b) { return a + b; }", NULL);
+
+    /* Call with malformed JSON args */
+    char *result = NULL;
+    int rc = qwrt_call(rt, "testCall", "{invalid", &result);
+    ASSERT(rc < 0);
+    ASSERT_NULL(result);
+
+    destroy_test_runtime(rt, pal);
+}
+
+TEST(call_null_func) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    char *result = NULL;
+    int rc = qwrt_call(rt, NULL, "[]", &result);
+    ASSERT(rc < 0);
+    ASSERT_NULL(result);
+
+    destroy_test_runtime(rt, pal);
+}
+
+TEST(call_nonexistent_func) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    char *result = NULL;
+    int rc = qwrt_call(rt, "noSuchFunction", "[]", &result);
+    ASSERT(rc < 0);
+
+    destroy_test_runtime(rt, pal);
+}
+
+/* ================================================================
+ * Group 14: qwrt_get_jsctx and qwrt_get_active_ctx_id
+ * ================================================================ */
+
+TEST(get_jsctx_valid) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    void *jsctx = qwrt_get_jsctx(rt);
+    ASSERT_NOT_NULL(jsctx);
+
+    destroy_test_runtime(rt, pal);
+}
+
+TEST(get_active_ctx_id) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    int id = qwrt_get_active_ctx_id(rt);
+    ASSERT_EQ(id, 0);
+
+    destroy_test_runtime(rt, pal);
+}
+
+/* ================================================================
+ * Group 15: qwrt_reset edge cases
+ * ================================================================ */
+
+TEST(reset_null_config) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    int rc = qwrt_reset(rt, NULL);
+    ASSERT(rc < 0);
+
+    destroy_test_runtime(rt, pal);
+}
+
+/* ================================================================
+ * Group 16: eval_bytecode error path — exception propagation
+ * ================================================================ */
+
+TEST(bytecode_result_on_error) {
+    qwrt_pal_t *pal;
+    qwrt_t *rt = create_test_runtime(&pal);
+    ASSERT_NOT_NULL(rt);
+
+    /* Compile valid code that throws at runtime */
+    const char *code = "throw new Error('test error');";
+    size_t bc_len = 0;
+    uint8_t *bc = qwrt_compile(rt, code, strlen(code), &bc_len);
+    ASSERT_NOT_NULL(bc);
+
+    /* Result should be NULL on error */
+    char *result = NULL;
+    int rc = qwrt_eval_bytecode(rt, bc, bc_len, &result);
+    ASSERT(rc < 0);
+    ASSERT_NULL(result);
+
+    qwrt_free(bc);
+    destroy_test_runtime(rt, pal);
+}
+
+/* ================================================================
  * Main
  * ================================================================ */
 
@@ -815,6 +1010,9 @@ int main(void)
     RUN_TEST(call_function);
     RUN_TEST(call_with_args);
     RUN_TEST(call_nonexistent);
+    RUN_TEST(call_malformed_args);
+    RUN_TEST(call_null_func);
+    RUN_TEST(call_nonexistent_func);
 
     printf("\n--- Tick ---\n");
     RUN_TEST(tick_no_pending);
@@ -839,6 +1037,7 @@ int main(void)
     RUN_TEST(reset_basic);
     RUN_TEST(reset_clears_timers);
     RUN_TEST(reset_different_pal);
+    RUN_TEST(reset_null_config);
 
     printf("\n--- Permission-denied PAL ---\n");
     RUN_TEST(pal_denied_fs_write);
@@ -849,6 +1048,19 @@ int main(void)
     RUN_TEST(compile_module);
     RUN_TEST(compile_error);
     RUN_TEST(compile_roundtrip);
+    RUN_TEST(compile_null_out_len);
+    RUN_TEST(compile_empty_code);
+    RUN_TEST(compile_module_null_out_len);
+
+    printf("\n--- Bytecode edge cases ---\n");
+    RUN_TEST(bytecode_invalid_magic);
+    RUN_TEST(bytecode_truncated);
+    RUN_TEST(bytecode_null_data);
+    RUN_TEST(bytecode_result_on_error);
+
+    printf("\n--- Internal API ---\n");
+    RUN_TEST(get_jsctx_valid);
+    RUN_TEST(get_active_ctx_id);
 
     printf("\n=== Results: %d/%d passed, %d failed ===\n",
            tests_passed, tests_run, tests_failed);
