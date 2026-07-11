@@ -3,8 +3,8 @@
  *
  * The extension set is fixed at build time via the QWRT_EXTENSIONS macro
  * (qwrt_ext_registry.h) - there is no runtime registration. These tests
- * verify the built-in default extensions (compress/crypto/textcodec/wamr or
- * wasm3) are registered and that their lifecycle (init/destroy via create/
+ * verify the built-in default extensions (compress/crypto/textcodec/wasm3)
+ * are registered and that their lifecycle (init/destroy via create/
  * destroy/reset) works, plus that a build with no extensions behaves.
  */
 
@@ -40,9 +40,6 @@ static int ext_compiled_in(const char *name)
 #endif
 #if defined(QWRT_WITH_TEXTCODEC)
     if (strcmp(name, "textcodec") == 0) return 1;
-#endif
-#if defined(QWRT_WITH_WAMR)
-    if (strcmp(name, "wamr") == 0) return 1;
 #endif
 #if defined(QWRT_WITH_WASM3)
     if (strcmp(name, "wasm3") == 0) return 1;
@@ -106,7 +103,7 @@ TEST(QwrtExtension, BuiltinsRegistered) {
     check("typeof TextEncoder", ext_compiled_in("textcodec"));
     /* WebAssembly: registered by whichever WASM engine is compiled in. */
     check("typeof WebAssembly",
-          ext_compiled_in("wamr") || ext_compiled_in("wasm3"));
+          ext_compiled_in("wasm3"));
 
     qwrt_destroy(rt);
     pal_mock_destroy(pal);

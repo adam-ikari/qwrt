@@ -35,8 +35,8 @@ valgrind --leak-check=full ./build/test/test_qwrt
 
 Feature toggles are CMake options prefixed `QWRT_WITH_*` (see README "CMake
 Options"). Notable: `QWRT_WITH_TLS` (mbedTLS), `QWRT_WITH_COMPRESS` (miniz),
-`QWRT_WITH_CRYPTO_EXT`, `QWRT_WITH_TEXTCODEC`, `QWRT_WITH_WASM3` (default ON)
-vs `QWRT_WITH_WAMR` (default OFF, alternative WASM engine). PAL backends use a
+`QWRT_WITH_CRYPTO_EXT`, `QWRT_WITH_TEXTCODEC`, `QWRT_WITH_WASM3` (default ON,
+the WASM engine). PAL backends use a
 separate `QWRT_PAL_*` prefix: `QWRT_PAL_UV` (default ON), `QWRT_PAL_MOCK`
 (default ON), `QWRT_PAL_FREERTOS` (default OFF, ESP-IDF only).
 
@@ -104,7 +104,7 @@ The runtime is layered. Read these together to understand it:
 - **`src/bridge.c`** — the JS↔PAL bridge. Builds the per-context `pal` JS object
   (`qwrt_create_pal_object_ctx`), injects the polyfill, and manages the
   deferred-callback queue.
-- **`src/ext_*.c`** — native extensions (compress/crypto/textcodec/wasm3/wamr),
+- **`src/ext_*.c`** — native extensions (compress/crypto/textcodec/wasm3),
   each implementing `qwrt_ext_t`.
 - **`platform/{uv,mock,freertos}/pal_*.c`** — PAL implementations. Each is gated
   by a `QWRT_PAL_*` option (see below): `pal_mock` (`QWRT_PAL_MOCK`, default ON,
@@ -167,8 +167,7 @@ Example: the Web Crypto 65536-byte cap on `getRandomValues` lives in
 
 - `deps/` contains all third-party dependencies as **git submodules** with
   pinned versions: `libuv/` (v1.52.1), `mbedtls/` (v3.6.6), `miniz/` (3.1.2),
-  `quickjs-ng/` (v0.15.1), `wasm3/` (v0.5.0). `wamr/` is optional and must be
-  pre-built by hand if enabled (CMake errors give the exact commands).
+  `quickjs-ng/` (v0.15.1), `wasm3/` (v0.5.0).
   **All dependencies are built from source — qwrt links no system libraries.**
   Each is pulled in via `add_subdirectory(... EXCLUDE_FROM_ALL)` (never
   `execute_process`), so its `.o` files live in the main build tree and are

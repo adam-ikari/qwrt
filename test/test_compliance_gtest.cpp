@@ -11,7 +11,6 @@
 
 extern "C" {
 #include "qwrt/qwrt.h"
-#include "qwrt/ext_wamr.h"
 #include "qwrt/ext_wasm3.h"
 #include "pal_mock.h"
 #include <stdio.h>
@@ -2076,8 +2075,8 @@ protected:
     WasmTestBase() : rt(nullptr), pal(nullptr) {}
 
     void SetUp() override {
-#if !defined(QWRT_HAS_WAMR) && !defined(QWRT_HAS_WASM3)
-        GTEST_SKIP() << "No WASM engine linked (QWRT_HAS_WAMR/QWRT_HAS_WASM3 not defined)";
+#if !defined(QWRT_HAS_WASM3)
+        GTEST_SKIP() << "No WASM engine linked (QWRT_HAS_WASM3 not defined)";
         return;
 #endif
         pal = pal_mock_create();
@@ -2086,7 +2085,7 @@ protected:
         qwrt_config_t cfg;
         memset(&cfg, 0, sizeof(cfg));
         cfg.pal = pal;
-        /* WAMR/wasm3 are registered via the build-time QWRT_EXTENSIONS table. */
+        /* wasm3 is registered via the build-time QWRT_EXTENSIONS table. */
 
         rt = qwrt_create(&cfg);
         if (!rt) {
@@ -2203,11 +2202,6 @@ TEST_F(WasmTestBase, WebAssemblyCompileInstantiate) {
 }
 
 TEST_F(WasmTestBase, InstanceExportsMemory) {
-    /* WAMR-1.3.3 has no export-enumeration API; exports is empty, so these
-     * introspection tests are wasm3-only. Skip on wamr. */
-#if defined(QWRT_HAS_WAMR)
-    GTEST_SKIP() << "Instance.exports enumeration unavailable on WAMR-1.3.3";
-#endif
     js_assert_truthy(
         "(function(){"
         "  var bytes = new Uint8Array(["
@@ -2222,9 +2216,6 @@ TEST_F(WasmTestBase, InstanceExportsMemory) {
 }
 
 TEST_F(WasmTestBase, InstanceExportsGlobal) {
-#if defined(QWRT_HAS_WAMR)
-    GTEST_SKIP() << "Instance.exports enumeration unavailable on WAMR-1.3.3";
-#endif
     js_assert_truthy(
         "(function(){"
         "  var bytes = new Uint8Array(["
@@ -2239,9 +2230,6 @@ TEST_F(WasmTestBase, InstanceExportsGlobal) {
 }
 
 TEST_F(WasmTestBase, InstanceMutableGlobalLive) {
-#if defined(QWRT_HAS_WAMR)
-    GTEST_SKIP() << "Instance.exports enumeration unavailable on WAMR-1.3.3";
-#endif
     char *live_result = js_eval(
         "(function(){"
         "  try {"
@@ -2276,9 +2264,6 @@ TEST_F(WasmTestBase, InstanceMutableGlobalLive) {
 }
 
 TEST_F(WasmTestBase, InstanceExportedFunctionCall) {
-#if defined(QWRT_HAS_WAMR)
-    GTEST_SKIP() << "Instance.exports enumeration unavailable on WAMR-1.3.3";
-#endif
     char *func_result = js_eval(
         "(function(){"
         "  try {"

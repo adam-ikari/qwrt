@@ -24,24 +24,11 @@ option(QWRT_PAL_UV "Build the libuv PAL (pal_uv, host: Linux/macOS)" ON)
 option(QWRT_PAL_MOCK "Build the mock PAL (pal_mock, for tests)" ON)
 option(QWRT_PAL_FREERTOS "Build the FreeRTOS PAL (pal_freertos, ESP-IDF only)" OFF)
 
-option(QWRT_WITH_WAMR "Link WAMR WASM engine (default WASM engine; enables real WebAssembly via WAMR)" ON)
-option(QWRT_WITH_WASM3 "Link wasm3 WASM engine (alternative engine; mutually exclusive with WAMR)" OFF)
+option(QWRT_WITH_WASM3 "Link wasm3 WASM engine (enables real WebAssembly via wasm3)" ON)
 option(QWRT_WITH_TLS "Build with mbedTLS for HTTPS support" ON)
 option(QWRT_WITH_COMPRESS "Enable native compression via miniz" ON)
 option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
 option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
-
-# WASM engines are mutually exclusive: both wasm3 and wamr register the
-# `WebAssembly` global with incompatible implementations, and linking both pulls
-# in two engines for no benefit. Pick one. wasm3 is the default; set
-# QWRT_WITH_WASM3=OFF and QWRT_WITH_WAMR=ON to switch.
-if(QWRT_WITH_WAMR AND QWRT_WITH_WASM3)
-    message(FATAL_ERROR
-        "QWRT_WITH_WAMR=ON and QWRT_WITH_WASM3=ON are mutually exclusive (both "
-        "register the `WebAssembly` global). Enable only one:\n"
-        "  wasm3 (default): -DQWRT_WITH_WASM3=ON -DQWRT_WITH_WAMR=OFF\n"
-        "  wamr:            -DQWRT_WITH_WASM3=OFF -DQWRT_WITH_WAMR=ON")
-endif()
 
 # TLS requires the crypto extension: both use mbedTLS, and a TLS client
 # without crypto.subtle (no cert hashing, no WebCrypto key derivation) is not
@@ -235,47 +222,6 @@ function(qwrt_compile_js out_var js_file)
 endfunction()
 
 # ============================================================================
-# WAMR dependency (default WASM engine) — built from source via add_subdirectory
-# ============================================================================
-# WAMR's top-level CMakeLists.txt builds an iwasm_static target (OUTPUT_NAME
-# vmlib -> libvmlib.a) + an iwasm executable. We add_subdirectory it with the
-# interpreter + wasm-c-api + libc-builtin config (no WASI, matching the pure
-# sandbox model) and link the static lib. WAMR's CMake mutates some global
-# flags / has install() rules, so we EXCLUDE_FROM_ALL and treat its targets as
-# internal (verified feasible 2026-07-09: add_subdirectory produces a working
-# libvmlib.a with the runtime symbols).
-if(QWRT_WITH_WAMR)
-    set(WAMR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/wamr")
-    if(NOT EXISTS "${WAMR_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "QWRT_WITH_WAMR=ON but WAMR source not found. "
-            "Run: git submodule update --init deps/wamr")
-    endif()
-    # Configure WAMR as a pure interpreter sandbox (no WASI, no AOT/JIT).
-    set(WAMR_BUILD_INTERP 1)
-    set(WAMR_BUILD_JIT 0)
-    set(WAMR_BUILD_AOT 0)
-    set(WAMR_BUILD_WASM_C_API 1)
-    set(WAMR_BUILD_LIBC_BUILTIN 1)
-    set(WAMR_BUILD_LIBC_WASI 0)
-    # Save/restore global settings WAMR's CMake may touch, mirroring the
-    # quickjs-ng/libuv isolation pattern. WAMR's Linux platform layer needs
-    # _GNU_SOURCE (pthread_rwlock_t, MAP_ANONYMOUS); qwrt's -std=c99 would
-    # otherwise hide them, so inject it for the WAMR subdirectory only.
-    set(_qwrt_saved_c_flags ${CMAKE_C_FLAGS})
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE")
-    add_subdirectory(${WAMR_DIR} ${CMAKE_BINARY_DIR}/deps/wamr EXCLUDE_FROM_ALL)
-    set(CMAKE_C_FLAGS ${_qwrt_saved_c_flags})
-    # WAMR sources use inline `asm` and trigger -Wall warnings; they must build
-    # under gnu99 (not qwrt's strict c99) without -Werror. Override per-target.
-    set_target_properties(iwasm_static iwasm_shared PROPERTIES
-        C_STANDARD 99
-        C_STANDARD_REQUIRED OFF
-        C_EXTENSIONS ON)
-    target_compile_options(iwasm_static PRIVATE -Wno-error -Wno-unused-parameter -Wno-shadow)
-    message(STATUS "WAMR enabled — building vmlib from source (interpreter, no WASI)")
-endif()
-
-# ============================================================================
 # wasm3 dependency (optional) — built from source via add_subdirectory
 # ============================================================================
 if(QWRT_WITH_WASM3)
@@ -302,7 +248,7 @@ endif()
 #   qwrt.c, bridge.c, context.c, extension.c, polyfill_default.c
 # Extension sources are guarded by QWRT_WITH_* feature toggles so they are
 # only compiled when the corresponding feature is enabled. This avoids wasting
-# compile time on dead code (e.g. ext_wamr.c when WAMR=OFF).
+# compile time on dead code (e.g. ext_wasm3.c when WASM3=OFF).
 # ============================================================================
 set(_qwrt_core_sources
     src/qwrt.c
@@ -313,9 +259,6 @@ set(_qwrt_core_sources
 )
 if(QWRT_WITH_WASM3)
     list(APPEND _qwrt_core_sources src/ext_wasm3.c)
-endif()
-if(QWRT_WITH_WAMR)
-    list(APPEND _qwrt_core_sources src/ext_wamr.c)
 endif()
 if(QWRT_WITH_COMPRESS)
     list(APPEND _qwrt_core_sources src/ext_compress.c)
@@ -377,26 +320,19 @@ if(QWRT_BUILD_DEBUGGER)
     target_compile_definitions(qwrt PUBLIC QWRT_DEBUG_SUPPORT)
 endif()
 
-# Conditional WAMR/wasm3 includes
+# Conditional wasm3 includes
 # All QWRT_WITH_* are defined as 0 or 1 (not just defined when ON) so the
 # QWRT_EXT_IF_WITH conditional macro in qwrt_ext_registry.h can resolve a
 # disabled built-in to a NULL slot. PUBLIC so consumers (tests, examples) can
 # see which extensions are compiled in. QWRT_HAS_* (kept for the ext .c
 # sources that already use it) mirrors the ON case.
 target_compile_definitions(qwrt PUBLIC
-    QWRT_WITH_WAMR=$<BOOL:${QWRT_WITH_WAMR}>
     QWRT_WITH_WASM3=$<BOOL:${QWRT_WITH_WASM3}>
     QWRT_WITH_COMPRESS=$<BOOL:${QWRT_WITH_COMPRESS}>
     QWRT_WITH_CRYPTO_EXT=$<BOOL:${QWRT_WITH_CRYPTO_EXT}>
     QWRT_WITH_TEXTCODEC=$<BOOL:${QWRT_WITH_TEXTCODEC}>
     QWRT_WITH_TLS=$<BOOL:${QWRT_WITH_TLS}>
 )
-if(QWRT_WITH_WAMR)
-    target_include_directories(qwrt PUBLIC
-        ${WAMR_DIR}/core/iwasm/include
-    )
-    target_compile_definitions(qwrt PUBLIC QWRT_HAS_WAMR=1)
-endif()
 if(QWRT_WITH_WASM3)
     target_compile_definitions(qwrt PUBLIC QWRT_HAS_WASM3=1)
 endif()
@@ -416,10 +352,7 @@ if(UNIX AND NOT ESP_PLATFORM)
 endif()
 target_link_libraries(qwrt PUBLIC ${_qwrt_core_libs})
 
-# Conditional WAMR/wasm3 linking
-if(QWRT_WITH_WAMR)
-    target_link_libraries(qwrt PUBLIC iwasm_static)
-endif()
+# Conditional wasm3 linking
 if(QWRT_WITH_WASM3)
     target_link_libraries(qwrt PUBLIC m3)
 endif()
@@ -584,7 +517,6 @@ if(LIBUV_FOUND OR QWRT_PAL_MOCK)
     # QWRT_WITH_* as 0/1 so qwrt_ext_registry.h's conditional macro resolves
     # disabled built-ins to NULL slots (mirrors the qwrt target).
     target_compile_definitions(qwrt_full PUBLIC
-        QWRT_WITH_WAMR=$<BOOL:${QWRT_WITH_WAMR}>
         QWRT_WITH_WASM3=$<BOOL:${QWRT_WITH_WASM3}>
         QWRT_WITH_COMPRESS=$<BOOL:${QWRT_WITH_COMPRESS}>
         QWRT_WITH_CRYPTO_EXT=$<BOOL:${QWRT_WITH_CRYPTO_EXT}>
@@ -603,11 +535,6 @@ if(LIBUV_FOUND OR QWRT_PAL_MOCK)
     endif()
     if(QWRT_WITH_TEXTCODEC)
         target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_TEXTCODEC=1)
-    endif()
-    if(QWRT_WITH_WAMR)
-        target_include_directories(qwrt_full PUBLIC ${WAMR_DIR}/core/iwasm/include)
-        target_compile_definitions(qwrt_full PUBLIC QWRT_HAS_WAMR=1)
-        target_link_libraries(qwrt_full PUBLIC iwasm_static)
     endif()
     if(QWRT_WITH_WASM3)
         target_compile_definitions(qwrt_full PUBLIC QWRT_HAS_WASM3=1)
@@ -656,7 +583,7 @@ endif()
 if(QWRT_PAL_FREERTOS)
     install(FILES platform/freertos/pal_freertos.h DESTINATION include/qwrt/pal)
 endif()
-install(FILES include/qwrt/ext_wasm3.h include/qwrt/ext_wamr.h DESTINATION include/qwrt)
+install(FILES include/qwrt/ext_wasm3.h DESTINATION include/qwrt)
 if(TARGET qwrt_full)
     install(TARGETS qwrt_full
         ARCHIVE DESTINATION lib

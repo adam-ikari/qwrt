@@ -222,10 +222,10 @@ qwrt_ctx_t *qwrt_ctx_create(qwrt_t *rt, const qwrt_config_t *config)
         }
     }
 
-    /* Remove QuickJS built-in WebAssembly — it can parse but not execute
-     * WASM, which is misleading. WASM extensions (wasm3, wamr) register
-     * their own working WebAssembly implementation in their init hook.
-     * If no WASM extension is present, WebAssembly is simply unavailable. */
+    /* Remove QuickJS built-in WebAssembly - it can parse but not execute
+     * WASM, which is misleading. The wasm3 extension registers its own working
+     * WebAssembly implementation in its init hook. If no WASM extension is
+     * present, WebAssembly is simply unavailable. */
     {
         JSValue global = JS_GetGlobalObject(ctx->jsctx);
         JSAtom wasm_atom = JS_NewAtom(ctx->jsctx, "WebAssembly");
