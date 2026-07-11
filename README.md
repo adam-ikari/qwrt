@@ -174,7 +174,6 @@ full interface.
 | `QWRT_WITH_CRYPTO_EXT` | ON | crypto.subtle extension (undefined when OFF) |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8/Base64 extension |
 | `QWRT_WITH_WASM3` | ON | wasm3 WebAssembly engine |
-| `QWRT_WITH_WAMR` | OFF | WAMR WebAssembly engine (alternative) |
 | `QWRT_BUILD_TESTS` | OFF | Build test suite |
 | `QWRT_BUILD_EXAMPLES` | OFF | Build examples |
 | `QWRT_BUILD_DEBUGGER` | OFF | DAP step-debugger (patches QuickJS-ng; adds `src/debugger.c` + `src/debugger_dap.c`) |

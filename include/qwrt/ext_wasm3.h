@@ -11,10 +11,10 @@
  * Purpose: CPU-intensive compute acceleration (crypto, compression,
  * image processing, math).
  *
- * wasm3 is an alternative WASM engine (QWRT_WITH_WASM3, default OFF; mutually
- * exclusive with WAMR). When compiled in, it's in the default QWRT_EXTENSIONS
- * set (see qwrt_ext_registry.h), so WebAssembly is available out of the box.
- * Without wasm3 or WAMR compiled in, the WebAssembly global is not available.
+ * wasm3 is the WASM engine (QWRT_WITH_WASM3, default ON). When compiled in,
+ * it's in the default QWRT_EXTENSIONS set (see qwrt_ext_registry.h), so
+ * WebAssembly is available out of the box. Without wasm3 compiled in, the
+ * WebAssembly global is not available.
  */
 extern const qwrt_ext_t qwrt_wasm3_ext;
 

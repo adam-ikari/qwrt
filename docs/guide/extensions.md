@@ -10,7 +10,6 @@ Extensions are native C modules that add global objects and functions to JS cont
 | `ext_crypto` | `QWRT_WITH_CRYPTO_EXT` | SHA, HMAC, PBKDF2, AES-GCM |
 | `ext_textcodec` | `QWRT_WITH_TEXTCODEC` | UTF-8, Base64 encode/decode |
 | `ext_wasm3` | `QWRT_WITH_WASM3` | WebAssembly via wasm3 |
-| `ext_wamr` | `QWRT_WITH_WAMR` | WebAssembly via WAMR |
 
 Built-in extensions are automatically registered on every new context.
 
@@ -19,7 +18,6 @@ Built-in extensions are automatically registered on every new context.
 ```c
 typedef struct qwrt_ext_t {
     const char *name;          // Human-readable name for diagnostics
-    int version;               // Extension version
     int (*init)(qwrt_ext_t *ext, qwrt_t *rt);      // Called on context creation
     void (*destroy)(qwrt_ext_t *ext, qwrt_t *rt);   // Called on context destruction
     int (*suspend)(qwrt_ext_t *ext, qwrt_t *rt);    // Called on context suspend

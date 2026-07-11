@@ -102,11 +102,6 @@ add_executable(test_benchmark test_benchmark.c)
 target_include_directories(test_benchmark PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(test_benchmark qwrt qwrt_mock)
 
-if(QWRT_WITH_WAMR)
-    add_executable(bench_wamr_vs_node bench_wamr_vs_node.c)
-    target_include_directories(bench_wamr_vs_node PRIVATE ${PROJECT_SOURCE_DIR}/include)
-    target_link_libraries(bench_wamr_vs_node qwrt qwrt_mock)
-endif()
 
 # ============================================================================
 # Network tests and probes — gated behind LIBUV_FOUND, keep as plain executables
