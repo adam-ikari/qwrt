@@ -182,6 +182,15 @@ typedef struct pal_uv_http_op_t {
     size_t chunk_remaining;/* bytes remaining in current chunk */
     char chunk_size_buf[16];/* partial chunk-size line buffer */
     size_t chunk_size_buf_len;
+    /* Multi-read chunked decode: decoded bytes are compacted into resp_buf at
+     * [header_end_offset, chunk_write_pos). Raw (encoded) bytes arrive via
+     * process_data appended at resp_buf_len; the decoder consumes from
+     * header_end_offset + chunk_raw_consumed. These persist across reads so a
+     * chunked body split across multiple reads decodes correctly (previously
+     * write_pos reset each call, causing decoded bytes to be overwritten /
+     * re-parsed as framing -> body lost). */
+    size_t chunk_write_pos;  /* decoded body length so far (offset from header_end) */
+    size_t chunk_raw_consumed; /* raw encoded bytes consumed so far (from body start) */
 
     /* Streaming mode */
     int streaming;              /* 1 = streaming response via stream_ops */
@@ -1232,13 +1241,18 @@ static void pal_uv_http_finish_success(pal_uv_http_op_t *op)
 static int process_chunked_body(pal_uv_http_op_t *op,
                                 const char *body_start, size_t body_len)
 {
-    /* We write decoded chunks back into resp_buf at header_end_offset */
-    size_t write_pos = op->header_end_offset;
-    const char *p = body_start;
+    /* Decoded chunks are written into resp_buf at
+     * [header_end_offset + chunk_write_pos, ...). Raw encoded bytes are read
+     * from body_start + chunk_raw_consumed up to body_start + body_len. Both
+     * offsets persist across reads (multi-read chunked decode): process_data
+     * keeps appending raw bytes at resp_buf_len, and each call resumes where
+     * the last left off. We do NOT shrink resp_buf_len to the decoded length
+     * mid-decode (that was the bug: it caused the next read to append onto the
+     * decoded region and re-parse decoded bytes as framing, losing the body). */
+    size_t write_pos = op->header_end_offset + op->chunk_write_pos;
+    const char *p = body_start + op->chunk_raw_consumed;
     const char *end = body_start + body_len;
 
-    /* If we have leftover partial chunk-size from previous read,
-     * resume from chunk_state. */
     while (p < end) {
         if (op->chunk_state == CHUNK_STATE_SIZE) {
             /* Reading chunk-size line. Look for \r\n. */
@@ -1248,12 +1262,13 @@ static int process_chunked_body(pal_uv_http_op_t *op,
             }
 
             if (eol >= end) {
-                /* Partial chunk-size line — save what we have */
+                /* Partial chunk-size line - save what we have */
                 size_t avail = (size_t)(end - p);
                 if (op->chunk_size_buf_len + avail < sizeof(op->chunk_size_buf) - 1) {
                     memcpy(op->chunk_size_buf + op->chunk_size_buf_len, p, avail);
                     op->chunk_size_buf_len += avail;
                 }
+                op->chunk_raw_consumed = (size_t)(p - body_start);
                 break; /* need more data */
             }
 
@@ -1277,10 +1292,12 @@ static int process_chunked_body(pal_uv_http_op_t *op,
             size_t chunk_size = (size_t)strtoul(size_buf, NULL, 16);
 
             if (chunk_size == 0) {
-                /* Final chunk — skip trailing \r\n and we're done */
+                /* Final chunk - skip trailing \r\n and we're done */
                 p = eol + 2;
                 op->chunk_state = CHUNK_STATE_DONE;
-                op->resp_buf_len = write_pos;
+                op->chunk_raw_consumed = (size_t)(p - body_start);
+                op->chunk_write_pos = write_pos - op->header_end_offset;
+                op->resp_buf_len = op->header_end_offset + op->chunk_write_pos;
                 return 1;
             }
 
@@ -1304,10 +1321,8 @@ static int process_chunked_body(pal_uv_http_op_t *op,
             }
 
             /* memmove, not memcpy: decoded bytes are compacted back into
-             * resp_buf starting at write_pos (header_end_offset) while the
-             * source chunk data p sits further in the same buffer - the
-             * regions overlap when a chunk's size line is shorter than its
-             * data, and memcpy on overlapping memory is UB. */
+             * resp_buf starting at write_pos while the source chunk data p may
+             * sit further in the same buffer - regions can overlap. */
             memmove(op->resp_buf + write_pos, p, to_copy);
             write_pos += to_copy;
             p += to_copy;
@@ -1321,6 +1336,7 @@ static int process_chunked_body(pal_uv_http_op_t *op,
             /* Expect \r\n after chunk data */
             if (end - p < 2) {
                 /* Need more data for the trailer \r\n */
+                op->chunk_raw_consumed = (size_t)(p - body_start);
                 break;
             }
             if (p[0] != '\r' || p[1] != '\n') {
@@ -1334,8 +1350,12 @@ static int process_chunked_body(pal_uv_http_op_t *op,
         }
     }
 
-    /* Update body length with decoded bytes so far */
-    op->resp_buf_len = write_pos;
+    /* Persist decode progress for the next read. Do NOT shrink resp_buf_len:
+     * process_data appends new raw bytes at resp_buf_len, so shrinking would
+     * make the next read overwrite the decoded region. resp_buf_len keeps the
+     * raw length; only on completion (above) do we set it to the decoded length. */
+    op->chunk_raw_consumed = (size_t)(p - body_start);
+    op->chunk_write_pos = write_pos - op->header_end_offset;
     return (op->chunk_state == CHUNK_STATE_DONE) ? 1 : 0;
 }
 
