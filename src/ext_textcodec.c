@@ -12,7 +12,7 @@
 
 #include "qwrt_internal.h"
 
-#ifdef QWRT_WITH_TEXTCODEC
+#if QWRT_WITH_TEXTCODEC
 
 #include <string.h>
 #include <stdlib.h>
@@ -287,7 +287,7 @@ static int textcodec_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
 
 const qwrt_ext_t qwrt_textcodec_ext = {
     .name = "textcodec",
-#ifdef QWRT_WITH_TEXTCODEC
+#if QWRT_WITH_TEXTCODEC
     .init = textcodec_ext_init,
     .destroy = textcodec_ext_destroy,
     .suspend = textcodec_ext_suspend,

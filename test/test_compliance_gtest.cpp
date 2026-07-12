@@ -1379,7 +1379,7 @@ TEST_F(ComplianceTestBase, DecompressionStreamConstructor) {
 }
 
 TEST_F(ComplianceTestBase, CompressionDecompressionRoundtrip) {
-#if !defined(QWRT_WITH_COMPRESS)
+#if !QWRT_WITH_COMPRESS
     GTEST_SKIP() << "QWRT_WITH_COMPRESS is OFF — compression not compiled in";
 #endif
     qwrt_pal_t *pal2;
@@ -1608,7 +1608,7 @@ TEST_F(ComplianceTestBase, NavigatorExtended) {
  * TC55: crypto.subtle operations (needs crypto extension)
  * ================================================================ */
 
-#ifndef QWRT_WITH_CRYPTO_EXT
+#if !QWRT_WITH_CRYPTO_EXT
 TEST_F(ComplianceTestBase, CryptoSubtleOps) {
     GTEST_SKIP() << "QWRT_WITH_CRYPTO_EXT off — operational crypto.subtle requires native crypto extension";
 }
