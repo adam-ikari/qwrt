@@ -262,6 +262,94 @@ typedef struct {
     qwrt_pal_stream_ops_t stream_ops;
 } pal_freertos_http_task_t;
 
+/* Parse HTTP response headers from a buffer.
+ *   buf/len       the response bytes
+ *   http_status   out: status code (e.g. 200)
+ *   chunked       out: 1 if Transfer-Encoding: chunked
+ *   body_expected out: Content-Length value (0 if absent)
+ *   header_end    out: offset of the first body byte (past the final \n of
+ *                      the \r\n\r\n header terminator)
+ * Returns 0 if headers are complete, -1 otherwise.
+ *
+ * Mirrors pal_uv's parse_http_response logic, including the >= 18 chunked
+ * detection (NOT > 26, which misses "Transfer-Encoding: chunked" exactly). */
+static int parse_http_response(const char *buf, size_t len,
+                               int *http_status, int *chunked,
+                               size_t *body_expected, size_t *header_end)
+{
+    /* Find \r\n\r\n marking end of headers */
+    size_t he = 0;
+    int found = 0;
+    size_t i;
+    for (i = 3; i < len; i++) {
+        if (buf[i - 3] == '\r' && buf[i - 2] == '\n' &&
+            buf[i - 1] == '\r' && buf[i] == '\n') {
+            he = i + 1;
+            found = 1;
+            break;
+        }
+    }
+    if (!found) return -1;
+
+    /* Status line: HTTP/1.x NNN ... */
+    const char *line_end = NULL;
+    for (i = 0; i + 1 < he; i++) {
+        if (buf[i] == '\r' && buf[i + 1] == '\n') {
+            line_end = buf + i;
+            break;
+        }
+    }
+    if (!line_end) return -1;
+
+    const char *sp = buf;
+    while (sp < line_end && *sp != ' ') sp++;
+    if (sp >= line_end) return -1;
+    sp++;
+
+    int status = 0, digits = 0;
+    while (sp < line_end && *sp >= '0' && *sp <= '9' && digits < 3) {
+        status = status * 10 + (*sp - '0');
+        sp++;
+        digits++;
+    }
+    if (digits == 0) return -1;
+
+    /* Scan headers (region after status line up to he - 4) */
+    const char *hdrs = line_end + 2;
+    const char *hdrs_end = buf + he - 4;
+    int is_chunked = 0;
+    size_t cl = 0;
+
+    const char *hp = hdrs;
+    while (hp < hdrs_end) {
+        const char *eol = hp;
+        while (eol < hdrs_end &&
+               !(*eol == '\r' && (eol + 1 < hdrs_end) && *(eol + 1) == '\n')) {
+            eol++;
+        }
+        if (eol - hp >= 15 && strncasecmp(hp, "Content-Length:", 15) == 0) {
+            const char *val = hp + 15;
+            while (val < eol && (*val == ' ' || *val == '\t')) val++;
+            cl = (size_t)strtoull(val, NULL, 10);
+        } else if (eol - hp >= 18 &&
+                   strncasecmp(hp, "Transfer-Encoding:", 18) == 0) {
+            const char *val = hp + 18;
+            while (val < eol && (*val == ' ' || *val == '\t')) val++;
+            if (eol - val >= 7 && strncasecmp(val, "chunked", 7) == 0) {
+                is_chunked = 1;
+            }
+        }
+        if (eol >= hdrs_end) break;
+        hp = eol + 2;
+    }
+
+    *http_status = status;
+    *chunked = is_chunked;
+    *body_expected = cl;
+    *header_end = he;
+    return 0;
+}
+
 /* HTTP task — runs the blocking HTTP request */
 static void http_task(void *arg)
 {
@@ -1356,6 +1444,19 @@ typedef struct {
     TimerHandle_t handle;
 } pal_freertos_timer_op_t;
 
+/* Trampoline: the deferred queue / qwrt_defer_callback invokes a 1-arg
+ * void(*)(void*). The timer's real cb is a qwrt_pal_cb_t (4-arg). Calling a
+ * 4-arg function through a 1-arg pointer is UB, so this trampoline is what's
+ * enqueued; it calls op->cb with the correct signature (status 0, no data -
+ * the timer-fired contract). */
+static void freertos_timer_fire(void *data)
+{
+    pal_freertos_timer_op_t *op = (pal_freertos_timer_op_t *)data;
+    if (op && op->cb) {
+        op->cb(op->cb_data, 0, NULL, 0);
+    }
+}
+
 static void freertos_timer_callback(TimerHandle_t xTimer)
 {
     pal_freertos_timer_op_t *op =
@@ -1363,8 +1464,9 @@ static void freertos_timer_callback(TimerHandle_t xTimer)
 
     if (!op) return;
 
-    /* Enqueue the callback for qwrt_tick processing */
-    deferred_enqueue(op->pf, (pal_freertos_deferred_fn)op->cb, op->cb_data);
+    /* Enqueue the trampoline for qwrt_tick processing (calls op->cb with the
+     * correct qwrt_pal_cb_t signature; casting the 4-arg cb directly was UB). */
+    deferred_enqueue(op->pf, freertos_timer_fire, op);
 
     /* Signal event to wake run_cycle */
     signal_event(op->pf, EVENT_TIMER_FIRE);
@@ -1455,7 +1557,10 @@ static void pal_freertos_timer_stop(qwrt_pal_t *pal, void *handle)
 static uint64_t pal_freertos_time_now(qwrt_pal_t *pal)
 {
     (void)pal;
-    return (uint64_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    /* Milliseconds since boot, from the 64-bit esp_timer (no 32-bit wrap like
+     * xTaskGetTickCount() * portTICK_PERIOD_MS, which wraps ~49 days). Not
+     * wall-clock epoch time (no RTC) - sufficient for relative timing. */
+    return (uint64_t)esp_timer_get_time() / 1000ULL;
 }
 
 static uint64_t pal_freertos_hrtime(qwrt_pal_t *pal)
@@ -1479,8 +1584,15 @@ static void pal_freertos_log(qwrt_pal_t *pal, int level, const char *msg)
 static void *pal_freertos_mem_alloc(qwrt_pal_t *pal, size_t size)
 {
     (void)pal;
-    /* Prefer PSRAM for large allocations, fall back to internal SRAM */
-    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    /* Prefer PSRAM for large allocations (frees scarce internal SRAM); fall
+     * back to internal SRAM (the default heap) when PSRAM is absent or full.
+     * Previously this only requested PSRAM and returned NULL on boards without
+     * it, breaking all qwrt core allocations. */
+    void *p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) {
+        p = heap_caps_malloc(size, MALLOC_CAP_8BIT);
+    }
+    return p;
 }
 
 static void pal_freertos_mem_free(qwrt_pal_t *pal, void *ptr)
