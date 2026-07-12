@@ -32,16 +32,16 @@ static void fill_test_config(qwrt_config_t *config, const qwrt_pal_t *pal)
  * it is compiled in; a disabled built-in is a NULL slot. */
 static int ext_compiled_in(const char *name)
 {
-#if defined(QWRT_WITH_COMPRESS)
+#if QWRT_WITH_COMPRESS
     if (strcmp(name, "compress") == 0) return 1;
 #endif
-#if defined(QWRT_WITH_CRYPTO_EXT)
+#if QWRT_WITH_CRYPTO_EXT
     if (strcmp(name, "crypto") == 0) return 1;
 #endif
-#if defined(QWRT_WITH_TEXTCODEC)
+#if QWRT_WITH_TEXTCODEC
     if (strcmp(name, "textcodec") == 0) return 1;
 #endif
-#if defined(QWRT_WITH_WASM3)
+#if QWRT_WITH_WASM3
     if (strcmp(name, "wasm3") == 0) return 1;
 #endif
     (void)name;
@@ -87,23 +87,24 @@ TEST(QwrtExtension, BuiltinsRegistered) {
     ASSERT_NE(rt, nullptr);
 
     char *r = nullptr;
-    auto check = [&](const char *expr, int expect_compiled) {
+    /* typeof X returns a JSON-quoted string, e.g. "\"object\"". Only assert
+     * "defined" when the native ext is compiled in - when it's NOT compiled,
+     * the polyfill may still provide a JS fallback surface (e.g. a JS
+     * CompressionStream), so we don't assert undefined for the not-compiled
+     * case (that'd be implementation-dependent and fragile). */
+    auto check_defined = [&](const char *expr) {
         qwrt_eval(rt, expr, &r);
-        if (expect_compiled) {
-            EXPECT_STRNE(r, "undefined") << expr << " should be defined";
-        } else {
-            EXPECT_STREQ(r, "undefined") << expr << " should be undefined (not compiled)";
-        }
+        ASSERT_NE(r, nullptr) << expr;
+        EXPECT_STRNE(r, "\"undefined\"") << expr << " should be defined (compiled in)";
         qwrt_free(r);
         r = nullptr;
     };
 
-    check("typeof crypto.subtle", ext_compiled_in("crypto"));
-    check("typeof CompressionStream", ext_compiled_in("compress"));
-    check("typeof TextEncoder", ext_compiled_in("textcodec"));
-    /* WebAssembly: registered by whichever WASM engine is compiled in. */
-    check("typeof WebAssembly",
-          ext_compiled_in("wasm3"));
+    if (ext_compiled_in("crypto"))    check_defined("typeof crypto.subtle");
+    if (ext_compiled_in("compress"))  check_defined("typeof CompressionStream");
+    if (ext_compiled_in("textcodec")) check_defined("typeof TextEncoder");
+    /* WebAssembly: registered when a WASM engine is compiled in. */
+    if (ext_compiled_in("wasm3"))     check_defined("typeof WebAssembly");
 
     qwrt_destroy(rt);
     pal_mock_destroy(pal);

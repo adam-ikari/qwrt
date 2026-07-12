@@ -177,7 +177,7 @@ static void test_https_no_tls(void)
     http_result_t r;
     int rc = do_http(t_pal, &t_loop, "https://example.com/", "GET", NULL, NULL, 0, &r);
     ASSERT(rc == 0);
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
     ASSERT(r.status == 0);
     ASSERT(r.data != NULL);
     ASSERT_STR_CONTAINS(r.data, "example");

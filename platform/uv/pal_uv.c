@@ -19,7 +19,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
 #include <mbedtls/ssl.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/entropy.h>
@@ -145,7 +145,7 @@ typedef struct pal_uv_http_op_t {
     /* TLS flag: 1 = https requested */
     int use_tls;
 
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config ssl_conf;
     mbedtls_x509_crt ca_certs;
@@ -262,7 +262,7 @@ static void pal_uv_untrack_handle(pal_uv_t *self, uv_handle_t *h)
  * TLS helpers (mbedTLS)
  * ================================================================ */
 
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
 static int tls_init_op(pal_uv_http_op_t *op) {
     int ret;
     mbedtls_ssl_init(&op->ssl);
@@ -1073,7 +1073,7 @@ static void pal_uv_http_cleanup(pal_uv_http_op_t *op)
             pal_uv_untrack_handle(op->self, (uv_handle_t *)&op->tcp);
         }
     }
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
     if (op->use_tls) {
         tls_free_op(op);
     }
@@ -1397,7 +1397,7 @@ static void pal_uv_http_alloc_cb(uv_handle_t *handle, size_t suggested_size,
 
 static void pal_uv_http_write_cb(uv_write_t *req, int status);
 
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
 static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
                          const uv_buf_t *buf);
 static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
@@ -1501,7 +1501,7 @@ static void pal_uv_http_send_request(pal_uv_http_op_t *op)
     op->req_buf = req_buf;
     op->req_buf_len = pos;
 
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
     if (op->use_tls) {
         /* Encrypt and send through TLS */
         int ret = mbedtls_ssl_write(&op->ssl, (const unsigned char *)req_buf, pos);
@@ -1549,7 +1549,7 @@ static void pal_uv_http_send_request(pal_uv_http_op_t *op)
  * On handshake completion, proceeds to send the HTTP request.
  * ================================================================ */
 
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
 static void tls_handshake_read_cb(uv_stream_t *stream, ssize_t nread,
                                    const uv_buf_t *buf)
 {
@@ -1631,7 +1631,7 @@ static void pal_uv_http_connect_cb(uv_connect_t *req, int status)
 
     /* If TLS was requested, initiate handshake */
     if (op->use_tls) {
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
         if (tls_init_op(op) != 0) {
             pal_uv_http_finish_error(op, QWRT_ERR_NETWORK, "TLS init failed");
             return;
@@ -1789,7 +1789,7 @@ static int pal_uv_http_process_data(pal_uv_http_op_t *op, const char *data,
  * and feeds it to the HTTP response parser.
  * ================================================================ */
 
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
 static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
                          const uv_buf_t *buf)
 {
@@ -2319,7 +2319,7 @@ static void pal_uv_http_stream_read_cb(uv_stream_t *stream, ssize_t nread,
  * mbedTLS and feeds it to the streaming response processor.
  * ================================================================ */
 
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
 static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
                                 const uv_buf_t *buf)
 {
@@ -2525,7 +2525,7 @@ static void pal_uv_http_request(qwrt_pal_t *pal,
 
     /* If TLS is requested, check compile-time support */
     if (op->use_tls) {
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
         /* TLS handshake will be initiated after connect */
 #else
         /* Error out early before doing any network I/O */
@@ -2735,7 +2735,7 @@ static void pal_uv_http_request_stream(qwrt_pal_t *pal,
 
     /* If TLS is requested, check compile-time support */
     if (op->use_tls) {
-#ifdef QWRT_WITH_TLS
+#if QWRT_WITH_TLS
         /* TLS handshake will be initiated after connect */
 #else
         pal_uv_http_finalize(op);

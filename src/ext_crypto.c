@@ -12,7 +12,7 @@
 
 #include "qwrt_internal.h"
 
-#ifdef QWRT_WITH_CRYPTO_EXT
+#if QWRT_WITH_CRYPTO_EXT
 
 #include <mbedtls/md.h>
 #include <mbedtls/cipher.h>
@@ -498,7 +498,7 @@ static int crypto_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
 
 const qwrt_ext_t qwrt_crypto_ext = {
     .name = "crypto",
-#ifdef QWRT_WITH_CRYPTO_EXT
+#if QWRT_WITH_CRYPTO_EXT
     .init = crypto_ext_init,
     .destroy = crypto_ext_destroy,
     .suspend = crypto_ext_suspend,

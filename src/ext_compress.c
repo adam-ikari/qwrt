@@ -25,7 +25,7 @@
 
 #include "qwrt_internal.h"
 
-#ifdef QWRT_WITH_COMPRESS
+#if QWRT_WITH_COMPRESS
 
 #include <miniz.h>
 #include <string.h>
@@ -654,7 +654,7 @@ static int compress_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 
 const qwrt_ext_t qwrt_compress_ext = {
     .name = "compress",
-#ifdef QWRT_WITH_COMPRESS
+#if QWRT_WITH_COMPRESS
     .init = compress_ext_init,
     .destroy = NULL,
     .suspend = NULL,
