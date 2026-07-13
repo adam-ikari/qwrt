@@ -286,6 +286,11 @@ if(QWRT_WITH_WASM3)
         set(BUILD_WASI "none" CACHE STRING "wasm3 WASI mode (none)" FORCE)
         add_subdirectory(${WASM3_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/wasm3 EXCLUDE_FROM_ALL)
         message(STATUS "wasm3 enabled — building m3 from source (no WASI)")
+        # wasm3's m3_api_libc.c uses strnlen (POSIX); under strict C99 (clang)
+        # it needs _POSIX_C_SOURCE to be declared, else -Wimplicit-function-declaration.
+        if(TARGET m3)
+            target_compile_definitions(m3 PRIVATE _POSIX_C_SOURCE=200809L)
+        endif()
     else()
         message(FATAL_ERROR "QWRT_WITH_WASM3=ON but wasm3 source not found. "
             "Run: git submodule update --init deps/wasm3")
