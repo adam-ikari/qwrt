@@ -219,7 +219,6 @@ int qwrt_tick(qwrt_t *rt)
     JSContext *ctx1;
     int ret;
     int jobs_processed = 0;
-    int total_processed = 0;
 
     /* Clear the flag before processing - bridge callbacks set it */
     rt->has_pending_jobs = 0;
@@ -253,8 +252,6 @@ int qwrt_tick(qwrt_t *rt)
         if (ret < 0) {
             return -1;
         }
-
-        total_processed += jobs_processed;
     } while (jobs_processed > 0);
 
     return 0;
