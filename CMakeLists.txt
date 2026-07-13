@@ -140,6 +140,43 @@ set(QJS_BUILD_EXAMPLES       OFF CACHE BOOL "" FORCE)
 set(QJS_BUILD_CLI_STATIC     OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS        OFF CACHE BOOL "" FORCE)
 
+# ── QuickJS-ng C99 atomics patch ──────────────────────────────────────────
+# quickjs-ng uses C11 <stdatomic.h> (_Atomic) for its atomics. Its own
+# quickjs-c-atomics.h already has a GCC_BUILTIN_ATOMICS path that maps the
+# atomic_* ops to GCC/Clang __atomic_* builtins and #defines _Atomic to empty
+# — i.e. no C11 needed. The path is only taken on old GCC; this patch forces
+# it on for all GCC/Clang, so quickjs-ng compiles under -std=c99 (qwrt's
+# standard). Applied unconditionally (working-tree-only; submodule stays clean).
+set(QWRT_QUICKJS_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-c99-atomics.patch")
+if(EXISTS "${QWRT_QUICKJS_C99_PATCH}")
+    execute_process(
+        COMMAND patch -p1 --dry-run -f -i "${QWRT_QUICKJS_C99_PATCH}"
+        WORKING_DIRECTORY "${QUICKJS_DIR}"
+        RESULT_VARIABLE _c99_patch_dry
+        OUTPUT_QUIET ERROR_QUIET)
+    if(_c99_patch_dry EQUAL 0)
+        execute_process(
+            COMMAND patch -p1 -f -i "${QWRT_QUICKJS_C99_PATCH}"
+            WORKING_DIRECTORY "${QUICKJS_DIR}"
+            RESULT_VARIABLE _c99_patch_apply ERROR_QUIET)
+        if(NOT _c99_patch_apply EQUAL 0)
+            message(FATAL_ERROR "Failed to apply quickjs-ng C99 atomics patch")
+        endif()
+        message(STATUS "Applied quickjs-ng C99 atomics patch (deps/quickjs-ng-c99-atomics.patch)")
+    else()
+        # Already applied (e.g. reconfigure) — verify the patched symbol is present.
+        execute_process(
+            COMMAND grep -c "qwrt: force GCC/Clang __atomic"
+                    "${QUICKJS_DIR}/quickjs-c-atomics.h"
+            OUTPUT_QUIET ERROR_QUIET RESULT_VARIABLE _c99_grep_rc)
+        if(NOT _c99_grep_rc EQUAL 0)
+            message(FATAL_ERROR
+                "quickjs-ng C99 atomics patch does not apply cleanly and is not "
+                "already applied. Regenerate deps/quickjs-ng-c99-atomics.patch.")
+        endif()
+    endif()
+endif()
+
 # ── QuickJS-ng debugger patch ──────────────────────────────────────────────
 # When QWRT_BUILD_DEBUGGER is ON, apply deps/quickjs-ng-debugger.patch to the
 # quickjs-ng submodule working tree BEFORE add_subdirectory so the patched
@@ -204,6 +241,12 @@ set(CMAKE_BUILD_TYPE         ${_qwrt_saved_build_type})
 if(NOT TARGET qjs)
     message(FATAL_ERROR "quickjs-ng add_subdirectory did not define target 'qjs'")
 endif()
+
+# Force qjs to compile under C99, not C11. quickjs-ng's CMake sets
+# CMAKE_C_STANDARD=11, but with the C99-atomics patch applied (GCC_BUILTIN_ATOMICS,
+# no <stdatomic.h>), its sources need no C11. Target-level C_STANDARD overrides
+# the subdir's global setting.
+set_target_properties(qjs PROPERTIES C_STANDARD 99 C_EXTENSIONS OFF)
 
 # qjsc — quickjs-ng's bytecode compiler (target qjsc). EXCLUDE_FROM_ALL means it
 # isn't built by default; pull it in only when something needs JS→bytecode.
@@ -399,6 +442,39 @@ if(QWRT_PAL_UV)
     set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv")
 
     if(EXISTS "${LIBUV_SRC_DIR}/CMakeLists.txt")
+        # ── libuv C99 atomics patch ────────────────────────────────────────
+        # libuv uses C11 <stdatomic.h> (_Atomic). Apply a patch that maps the
+        # atomic_* ops + _Atomic qualifier to GCC/Clang __atomic_* builtins
+        # (in uv-common.h, which all libuv sources include), so it compiles
+        # under -std=c99. Working-tree-only; submodule stays clean.
+        set(QWRT_LIBUV_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv-c99-atomics.patch")
+        if(EXISTS "${QWRT_LIBUV_C99_PATCH}")
+            execute_process(
+                COMMAND patch -p1 --dry-run -f -i "${QWRT_LIBUV_C99_PATCH}"
+                WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
+                RESULT_VARIABLE _luv_dry OUTPUT_QUIET ERROR_QUIET)
+            if(_luv_dry EQUAL 0)
+                execute_process(
+                    COMMAND patch -p1 -f -i "${QWRT_LIBUV_C99_PATCH}"
+                    WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
+                    RESULT_VARIABLE _luv_apply ERROR_QUIET)
+                if(NOT _luv_apply EQUAL 0)
+                    message(FATAL_ERROR "Failed to apply libuv C99 atomics patch")
+                endif()
+                message(STATUS "Applied libuv C99 atomics patch (deps/libuv-c99-atomics.patch)")
+            else()
+                execute_process(
+                    COMMAND grep -c "qwrt: avoid C11 <stdatomic.h>"
+                            "${LIBUV_SRC_DIR}/src/uv-common.h"
+                    OUTPUT_QUIET ERROR_QUIET RESULT_VARIABLE _luv_grep_rc)
+                if(NOT _luv_grep_rc EQUAL 0)
+                    message(FATAL_ERROR
+                        "libuv C99 atomics patch does not apply cleanly and is not "
+                        "already applied. Regenerate deps/libuv-c99-atomics.patch.")
+                endif()
+            endif()
+        endif()
+
         # libuv via add_subdirectory. Its CMake mutates global CMAKE_C_STANDARD
         # (→11) and CMAKE_EXPORT_COMPILE_COMMANDS; save+restore to keep qwrt C99.
         set(_qwrt_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
@@ -419,6 +495,10 @@ if(QWRT_PAL_UV)
         if(NOT TARGET uv_a)
             message(FATAL_ERROR "libuv add_subdirectory did not define target 'uv_a'")
         endif()
+
+        # Force uv_a to C99 (libuv's CMake sets CMAKE_C_STANDARD=11, but with
+        # the C99-atomics patch its sources need no C11).
+        set_target_properties(uv_a PROPERTIES C_STANDARD 99 C_EXTENSIONS OFF)
 
         set(LIBUV_FOUND TRUE)
         set(LIBUV_INCLUDE_DIRS "${LIBUV_SRC_DIR}/include")

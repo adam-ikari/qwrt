@@ -237,17 +237,18 @@ All dependencies are built from source via CMake `add_subdirectory` — qwrt
 never links system libraries, and each dep's objects live in the main build
 tree (subject to `-j` and incremental rebuild). Most are vendored directly in
 the repo; only `libuv/` is a git submodule (fetch it with
-`git submodule update --init libuv`). qwrt itself is strict C99; deps that
-require C11 (QuickJS-ng, libuv) compile under their own standard with qwrt's
-C99 isolation preserved.
+`git submodule update --init libuv`). qwrt and all its dependencies build under
+**strict C99** — quickjs-ng and libuv ship C11 `<stdatomic.h>` code, but qwrt
+applies small patches (GCC/Clang `__atomic_*` builtins, no C11) so they
+compile under `-std=c99`.
 
 | Dependency | Source | Required | Purpose |
 |------------|--------|----------|---------|
-| QuickJS-ng | vendored source | Yes | JS engine (C11) |
+| QuickJS-ng | vendored source | Yes | JS engine (C99; atomics patched) |
 | mbedTLS | vendored source | No (QWRT_WITH_TLS) | TLS / crypto (C99) |
 | miniz | vendored source | No (QWRT_WITH_COMPRESS) | Compression (C90) |
-| libuv | git submodule | No (QWRT_PAL_UV) | Event loop, pal_uv (C11) |
-| wasm3 | vendored source | No (QWRT_WITH_WASM3) | WebAssembly (must be pre-built by hand) |
+| libuv | git submodule | No (QWRT_PAL_UV) | Event loop, pal_uv (C99; atomics patched) |
+| wasm3 | vendored source | No (QWRT_WITH_WASM3) | WebAssembly (C99) |
 
 ## Thread Safety
 

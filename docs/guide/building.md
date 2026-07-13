@@ -61,7 +61,7 @@ cd build && ctest --output-on-failure
 
 ## C Standard Isolation
 
-qwrt is **strict C99** (`-std=c99 -Wall -Wextra -Werror`). Dependencies that require C11 (QuickJS-ng, libuv) are built via `add_subdirectory` and their `CMAKE_C_STANDARD` is isolated — it does not leak into qwrt compilation units.
+qwrt and all its dependencies build under **strict C99** (`-std=c99`). quickjs-ng and libuv ship C11 `<stdatomic.h>` code, but qwrt applies small patches (`deps/quickjs-ng-c99-atomics.patch`, `deps/libuv-c99-atomics.patch`) that swap the C11 `_Atomic`/`atomic_*` ops for GCC/Clang `__atomic_*` builtins — so no C11 is required anywhere.
 
 ## Output Artifacts
 

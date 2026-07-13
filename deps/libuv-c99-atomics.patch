@@ -1,0 +1,90 @@
+diff --git a/src/unix/async.c b/src/unix/async.c
+index bb954a12..3f54330d 100644
+--- a/src/unix/async.c
++++ b/src/unix/async.c
+@@ -26,7 +26,6 @@
+ #include "internal.h"
+ 
+ #include <errno.h>
+-#include <stdatomic.h>
+ #include <stdio.h>  /* snprintf() */
+ #include <assert.h>
+ #include <stdlib.h>
+diff --git a/src/unix/fs.c b/src/unix/fs.c
+index 06a6986e..0dd7dabd 100644
+--- a/src/unix/fs.c
++++ b/src/unix/fs.c
+@@ -31,7 +31,6 @@
+ 
+ #include <errno.h>
+ #include <dlfcn.h>
+-#include <stdatomic.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+diff --git a/src/unix/linux.c b/src/unix/linux.c
+index b4612897..50d84699 100644
+--- a/src/unix/linux.c
++++ b/src/unix/linux.c
+@@ -28,7 +28,6 @@
+ 
+ #include <inttypes.h>
+ #include <limits.h>
+-#include <stdatomic.h>
+ #include <stddef.h>  /* offsetof */
+ #include <stdint.h>
+ #include <stdio.h>
+diff --git a/src/unix/tty.c b/src/unix/tty.c
+index 21d37882..e39bb537 100644
+--- a/src/unix/tty.c
++++ b/src/unix/tty.c
+@@ -22,7 +22,6 @@
+ #include "uv.h"
+ #include "internal.h"
+ 
+-#include <stdatomic.h>
+ #include <stdlib.h>
+ #include <assert.h>
+ #include <unistd.h>
+diff --git a/src/uv-common.h b/src/uv-common.h
+index 15f1027c..f4b9559a 100644
+--- a/src/uv-common.h
++++ b/src/uv-common.h
+@@ -39,7 +39,36 @@
+ #include "strscpy.h"
+ 
+ #ifndef _MSC_VER
+-# include <stdatomic.h>
++/* qwrt: avoid C11 <stdatomic.h>. Map the C11 atomic_* ops and the _Atomic
++ * type qualifier to GCC/Clang __atomic_* builtins (available on GCC 4.7+
++ * and Clang), so libuv compiles under -std=c99. Patched by
++ * deps/libuv-c99-atomics.patch. */
++# if defined(__GNUC__) || defined(__clang__)
++#  define _Atomic
++#  define atomic_fetch_add(obj, arg)      __atomic_fetch_add(obj, arg, __ATOMIC_SEQ_CST)
++#  define atomic_fetch_sub(obj, arg)      __atomic_fetch_sub(obj, arg, __ATOMIC_SEQ_CST)
++#  define atomic_fetch_or(obj, arg)       __atomic_fetch_or(obj, arg, __ATOMIC_SEQ_CST)
++#  define atomic_fetch_xor(obj, arg)      __atomic_fetch_xor(obj, arg, __ATOMIC_SEQ_CST)
++#  define atomic_fetch_and(obj, arg)      __atomic_fetch_and(obj, arg, __ATOMIC_SEQ_CST)
++#  define atomic_compare_exchange_strong(obj, expected, desired) \
++        __atomic_compare_exchange_n(obj, expected, desired, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)
++#  define atomic_compare_exchange_weak(obj, expected, desired) \
++        __atomic_compare_exchange_n(obj, expected, desired, 1, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)
++#  define atomic_exchange(obj, desired)   __atomic_exchange_n(obj, desired, __ATOMIC_SEQ_CST)
++#  define atomic_load(obj)                __atomic_load_n(obj, __ATOMIC_SEQ_CST)
++#  define atomic_store(obj, desired)       __atomic_store_n(obj, desired, __ATOMIC_SEQ_CST)
++#  define atomic_load_explicit(obj, ord)   __atomic_load_n(obj, ord)
++#  define atomic_store_explicit(obj, desired, ord) __atomic_store_n(obj, desired, ord)
++#  define atomic_fetch_add_explicit(obj, arg, ord) __atomic_fetch_add(obj, arg, ord)
++#  define atomic_fetch_or_explicit(obj, arg, ord)   __atomic_fetch_or(obj, arg, ord)
++#  define atomic_exchange_explicit(obj, desired, ord) __atomic_exchange_n(obj, desired, ord)
++#  define memory_order_relaxed  __ATOMIC_RELAXED
++#  define memory_order_acquire  __ATOMIC_ACQUIRE
++#  define memory_order_release  __ATOMIC_RELEASE
++#  define memory_order_seq_cst  __ATOMIC_SEQ_CST
++# else
++#  include <stdatomic.h>
++# endif
+ #endif
+ 
+ #if EDOM > 0

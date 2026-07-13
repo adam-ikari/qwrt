@@ -72,7 +72,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 
 ## Compiler Flags
 
-qwrt compiles with `-std=c99 -Wall -Wextra -Werror` (enforced via `qwrt_enable_warnings`). C11 deps (QuickJS-ng, libuv) are isolated — their `CMAKE_C_STANDARD` does not leak.
+qwrt and all dependencies compile under `-std=c99 -Wall -Wextra -Werror` (enforced via `qwrt_enable_warnings`). quickjs-ng and libuv ship C11 atomics, but qwrt patches them to use GCC/Clang `__atomic_*` builtins (`deps/*-c99-atomics.patch`), so no C11 is required.
 
 ### Suppressing Unused Parameter Warnings
 
