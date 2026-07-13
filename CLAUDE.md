@@ -42,9 +42,12 @@ separate `QWRT_PAL_*` prefix: `QWRT_PAL_UV` (default ON), `QWRT_PAL_MOCK`
 
 **qwrt is strict C99** (`CMAKE_C_STANDARD 99`, `CMAKE_C_EXTENSIONS OFF` →
 `-std=c99`, enforced with `-Wall -Wextra -Werror` via `qwrt_enable_warnings`).
-Vendored deps that *require* C11 (quickjs-ng, libuv) are built via
-`add_subdirectory` and **must not** leak their `CMAKE_C_STANDARD` into qwrt —
-`CMakeLists.txt` saves/restores global C standard around each such subdir.
+quickjs-ng and libuv ship C11 `<stdatomic.h>` code, but qwrt applies C99
+atomics patches (`deps/quickjs-ng-c99-atomics.patch`,
+`deps/libuv-c99-atomics.patch`) that swap the C11 `_Atomic`/`atomic_*` ops for
+GCC/Clang `__atomic_*` builtins, so they compile under `-std=c99` (qwrt forces
+`C_STANDARD 99` on the `qjs`/`uv_a` targets). The patches are applied at
+configure time (working-tree-only; submodules stay clean).
 `QWRT_UNUSED(x)` (qwrt_internal.h) marks QuickJS-callback fixed-signature
 params that would otherwise trip `-Wunused-parameter`.
 
@@ -172,8 +175,9 @@ Example: the Web Crypto 65536-byte cap on `getRandomValues` lives in
   **All dependencies are built from source — qwrt links no system libraries.**
   Each is pulled in via `add_subdirectory(... EXCLUDE_FROM_ALL)` (never
   `execute_process`), so its `.o` files live in the main build tree and are
-  subject to `-j` / incremental rebuild. Targets: quickjs-ng → `qjs` (C11),
-  libuv → `uv_a` (C11, when `QWRT_PAL_UV`), mbedtls → `mbedtls`/`mbedx509`/
+  subject to `-j` / incremental rebuild. Targets: quickjs-ng → `qjs` (C99;
+  atomics patched), libuv → `uv_a` (C99; atomics patched, when `QWRT_PAL_UV`),
+  mbedtls → `mbedtls`/`mbedx509`/
   `mbedcrypto` (C99, when `QWRT_WITH_TLS`/`QWRT_WITH_CRYPTO_EXT`), miniz →
   `miniz` (C90, when `QWRT_WITH_COMPRESS`), wasm3 → `m3` (C99, when
   `QWRT_WITH_WASM3`). qwrt's C99 / `-Werror` are PRIVATE to the qwrt targets
