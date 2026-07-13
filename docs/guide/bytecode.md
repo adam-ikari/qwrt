@@ -61,11 +61,11 @@ void inject_polyfill(qwrt_t *rt) {
 }
 ```
 
-qwrt's own WinterCG polyfill uses this pattern — it's precompiled to `src/polyfill_default.c` at build time.
+qwrt's own WinterCG modules use this pattern — they're precompiled to `src/polyfill_default.c` at build time.
 
-## Polyfill Rebuild
+## Rebuilding the WinterCG Modules
 
-To rebuild the polyfill bytecode after editing JS sources:
+To rebuild the module bytecode after editing JS sources:
 
 ```bash
 cd polyfill

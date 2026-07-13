@@ -1,6 +1,6 @@
 # Multi-Context
 
-qwrt supports multiple isolated JS contexts within a single runtime. Each context has its own global object, PAL, polyfill, and extension state — like lightweight sandboxes.
+qwrt supports multiple isolated JS contexts within a single runtime. Each context has its own global object, PAL, WinterCG modules, and extension state — like lightweight sandboxes.
 
 ## Why Multi-Context?
 
@@ -22,7 +22,6 @@ Only **one context is active at a time**. `qwrt_eval` and `qwrt_tick` always ope
 qwrt_config_t ctx_config = {
     .pal = restricted_pal,
     .debug = 0,
-    .extensions = NULL,
 };
 int ctx_id = qwrt_spawn(rt, &ctx_config);
 if (ctx_id < 0) {
@@ -67,16 +66,17 @@ JSContext *ctx = qwrt_get_jsctx(rt);
 
 ## Context Lifecycle Summary
 
-```
-qwrt_create()  ──→  [ctx 0] (active)
-                     │
-qwrt_spawn()   ──→  [ctx 0] (active) + [ctx 1] (suspended)
-                     │
-qwrt_suspend() ──→  [ctx 0] (suspended) + [ctx 1] (suspended)
-                     │
-qwrt_resume(1) ──→  [ctx 0] (suspended) + [ctx 1] (active)
-                     │
-qwrt_destroy_ctx(0) ──→ [ctx 1] (active)  // can't destroy last context
-                     │
-qwrt_destroy()  ──→  (all freed)
+```mermaid
+flowchart TB
+    A["qwrt_create()"] --> B["ctx 0 (active)"]
+    B --> C["qwrt_spawn()"]
+    C --> D["ctx 0 (active) + ctx 1 (suspended)"]
+    D --> E["qwrt_suspend()"]
+    E --> F["ctx 0 (suspended) + ctx 1 (suspended)"]
+    F --> G["qwrt_resume(1)"]
+    G --> H["ctx 0 (suspended) + ctx 1 (active)"]
+    H --> I["qwrt_destroy_ctx(0)"]
+    I --> J["ctx 1 (active) — can't destroy last context"]
+    J --> K["qwrt_destroy()"]
+    K --> L["all freed"]
 ```

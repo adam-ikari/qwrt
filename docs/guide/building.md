@@ -22,7 +22,6 @@ Build types: `Release` (optimized), `Debug` (with symbols and assertions), `RelW
 | `QWRT_WITH_CRYPTO_EXT` | ON | `crypto.subtle` (SHA, HMAC, PBKDF2, AES-GCM) |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8 / Base64 encoder/decoder |
 | `QWRT_WITH_WASM3` | ON | wasm3 WebAssembly interpreter |
-| `QWRT_WITH_WAMR` | OFF | WAMR WebAssembly engine (alternative) |
 
 ### PAL Backends (`QWRT_PAL_*`)
 

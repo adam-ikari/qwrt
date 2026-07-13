@@ -24,7 +24,7 @@ Parameters:
 
 Returns 0 on success, <0 on JS exception.
 
-The WinterCG polyfill is **automatically injected** before the first `qwrt_eval` on each context — you don't need to manually set up `fetch`, `console`, etc.
+The WinterCG-compatible runtime is **automatically injected** before the first `qwrt_eval` on each context — you don't need to manually set up `fetch`, `console`, etc.
 
 ## Evaluating Bytecode
 

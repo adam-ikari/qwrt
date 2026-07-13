@@ -62,7 +62,6 @@ static int my_ext_resume(qwrt_ext_t *ext, qwrt_t *rt) {
 
 qwrt_ext_t my_extension = {
     .name = "my_extension",
-    .version = 1,
     .init = my_ext_init,
     .destroy = my_ext_destroy,
     .suspend = my_ext_suspend,
@@ -73,28 +72,37 @@ qwrt_ext_t my_extension = {
 
 ## Registering Extensions
 
-### At Runtime Creation
+Extensions are registered at **build time** via the `QWRT_EXTENSIONS` macro
+(defined in `include/qwrt/qwrt_ext_registry.h`). There is no runtime
+registration API — the extension set is fixed when the qwrt library is compiled.
 
-```c
-const qwrt_ext_t *exts[] = { &my_extension, NULL };
-qwrt_config_t config = {
-    .pal = pal,
-    .extensions = exts,
-};
-qwrt_t *rt = qwrt_create(&config);
+### Built-in extensions
+
+Built-in extensions (compress/crypto/textcodec/wasm3) are auto-registered when
+their `QWRT_WITH_*` CMake option is on. They appear in `QWRT_DEFAULT_EXTENSIONS`
+as conditional slots (a disabled built-in becomes a NULL slot that's skipped at
+init).
+
+### Adding a custom extension (non-invasive)
+
+A parent project adds its own extension **without editing qwrt source**: compile
+the extension's `.c` into the qwrt target (so its `&my_extension` symbol is
+visible to `context.c`) and append it to `QWRT_EXTENSIONS`:
+
+```cmake
+# In the parent project's CMakeLists.txt, before add_subdirectory(qwrt):
+set(QWRT_EXTENSIONS "QWRT_DEFAULT_EXTENSIONS, &my_extension")
+set(QWRT_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
+add_subdirectory(deps/qwrt)
 ```
 
-### At Runtime (Dynamic)
-
-```c
-qwrt_register_ext(rt, &my_extension);
-```
-
-This calls `ext->init` immediately on the active context.
+`QWRT_EXTRA_SOURCES` adds the source to the `qwrt` target; `QWRT_EXTENSIONS`
+overrides the table to append `&my_extension` after the default set. To **trim**
+a built-in, list only the entries you want instead of `QWRT_DEFAULT_EXTENSIONS`.
 
 ## Lifecycle Hooks
 
-- **`init`** — called when the extension is registered on a context. Register JS globals, allocate resources. Return 0 on success, <0 on failure.
+- **`init`** — called when the extension is registered on a context (at `qwrt_create` / `qwrt_spawn` / `qwrt_reset`). Register JS globals, allocate resources. Return 0 on success, <0 on failure.
 - **`destroy`** — called when the context is destroyed. Free extension resources. JSContext cleanup is automatic — you only need to free your own allocations.
 - **`suspend`** — called when the context is suspended. Save state, pause timers, close connections.
 - **`resume`** — called when the context is resumed. Restore state, resume timers, reopen connections.

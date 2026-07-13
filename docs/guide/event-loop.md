@@ -21,23 +21,15 @@ while (running) {
 
 ## How Async Operations Work
 
-```
-JS code: fetch("https://example.com")
-    │
-    ▼
-bridge.c: calls pal->http_request(...)
-    │
-    ▼
-PAL: starts async HTTP (libuv TCP + mbedTLS)
-    │
-    ▼
-PAL callback fires on event loop thread:
-    ├── MUST NOT call JS directly!
-    └── Enqueues via qwrt_defer_callback(rt, fn, data)
-    │
-    ▼
-qwrt_tick(rt): drains deferred callback queue
-    └── fn(rt, data) runs in a valid JS context → resolves Promise
+```mermaid
+flowchart TB
+    A["JS code: fetch('https://example.com')"] --> B["bridge.c: calls pal->http_request(...)"]
+    B --> C["PAL: starts async HTTP (libuv TCP + mbedTLS)"]
+    C --> D["PAL callback fires on event loop thread"]
+    D --> E["MUST NOT call JS directly"]
+    D --> F["Enqueues via qwrt_defer_callback(rt, fn, data)"]
+    F --> G["qwrt_tick(rt): drains deferred callback queue"]
+    G --> H["fn(rt, data) runs in a valid JS context → resolves Promise"]
 ```
 
 ## Deferred Callbacks

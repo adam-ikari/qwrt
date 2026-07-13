@@ -1,8 +1,17 @@
 # Build Options
 
-All feature toggles are CMake options prefixed `QWRT_WITH_*` and `QWRT_PAL_*`. Defaults are sensible for a full-featured Linux/macOS build.
+qwrt's CMake options live on **two separate levels**: `QWRT_PAL_*` selects the
+**platform backend** (which `pal_*` implementation to compile), while
+`QWRT_WITH_*` toggles **optional features** (native extensions layered on top
+of the runtime). The two prefixes are independent — a PAL backend can be built
+with or without any given feature. `QWRT_BUILD_*` is a third, unrelated group
+that controls what gets built (tests, examples, debugger). Defaults are
+sensible for a full-featured Linux/macOS build.
 
-## Feature Toggles
+## Feature Toggles (`QWRT_WITH_*`)
+
+These toggle optional native extensions on top of the WinterCG-compatible
+runtime. They do **not** select a platform backend.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -11,10 +20,12 @@ All feature toggles are CMake options prefixed `QWRT_WITH_*` and `QWRT_PAL_*`. D
 | `QWRT_WITH_CRYPTO_EXT` | ON | `crypto.subtle` extension: SHA-256/384/512, HMAC, PBKDF2, AES-GCM via mbedTLS. May be used without TLS (HTTP-only); required by `QWRT_WITH_TLS`. When OFF, `crypto.subtle` is `undefined` (no JS fallback). |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8 and Base64 TextEncoder/TextDecoder. |
 | `QWRT_WITH_WASM3` | ON | wasm3 WebAssembly interpreter. Lightweight, no JIT. |
-| `QWRT_WITH_WAMR` | OFF | WAMR WebAssembly engine (alternative). Must be pre-built. |
-| `QWRT_BUILD_DEBUGGER` | OFF | DAP step-debugger. Patches QuickJS-ng to add breakpoint/step primitives and compiles `src/debugger.c` + `src/debugger_dap.c` into `libqwrt.a`. Zero overhead when OFF (patch not applied, sources not compiled). Enable with `QWRT_DEBUG=1` at runtime. See [Debugging](../dev/debugging.md). |
 
-## PAL Backends
+## PAL Backends (`QWRT_PAL_*`)
+
+These select the platform backend — **not on the same level** as the feature
+toggles above. Each controls compilation of one `platform/*/` PAL
+implementation.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -22,12 +33,13 @@ All feature toggles are CMake options prefixed `QWRT_WITH_*` and `QWRT_PAL_*`. D
 | `QWRT_PAL_MOCK` | ON | Mock backend for testing. Always build this for test support. |
 | `QWRT_PAL_FREERTOS` | OFF | FreeRTOS backend (ESP32-S3). Requires ESP-IDF. |
 
-## Build Targets
+## Build Targets (`QWRT_BUILD_*`)
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `QWRT_BUILD_TESTS` | OFF | Build the test suite. Enables FetchContent for GoogleTest. |
 | `QWRT_BUILD_EXAMPLES` | OFF | Build example programs in `examples/`. |
+| `QWRT_BUILD_DEBUGGER` | OFF | DAP step-debugger. Patches QuickJS-ng to add breakpoint/step primitives and compiles `src/debugger.c` + `src/debugger_dap.c` into `libqwrt.a`. Zero overhead when OFF (patch not applied, sources not compiled). Enable with `QWRT_DEBUG=1` at runtime. See [Debugging](../dev/debugging.md). |
 
 ## Common Configurations
 

@@ -23,7 +23,7 @@ let stream = new ReadableStream({
     },
     pull(controller) {
         // Called when the consumer wants more data.
-        // Not implemented in qwrt's polyfill.
+        // Not implemented in qwrt's WinterCG modules.
     },
     cancel(reason) {
         // Called when the consumer cancels the stream.
@@ -60,12 +60,12 @@ new ReadableStream({
 
 ### Stream States
 
-```
-Created → start() called
-    │
-    ├─ controller.enqueue() → Readable (chunks queued)
-    ├─ controller.close()   → Closed (done: true on next read)
-    └─ controller.error(e)  → Errored (rejects pending reads)
+```mermaid
+flowchart TB
+    A["Created → start() called"] --> B{"controller action"}
+    B -->|controller.enqueue()| C["Readable (chunks queued)"]
+    B -->|controller.close()| D["Closed (done: true on next read)"]
+    B -->|controller.error(e)| E["Errored (rejects pending reads)"]
 ```
 
 ## Usage with fetch()

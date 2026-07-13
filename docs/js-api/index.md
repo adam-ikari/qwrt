@@ -1,28 +1,20 @@
 # JS API Reference
 
-qwrt provides a WinterCG-compatible JavaScript API surface through its polyfill. All globals listed here are available in any `qwrt_eval()` or `qwrt_eval_bytecode()` call without requiring `require()` or `import`.
+qwrt provides a WinterCG-compatible JavaScript API surface through its WinterCG modules. All globals listed here are available in any `qwrt_eval()` or `qwrt_eval_bytecode()` call without requiring `require()` or `import`.
 
 ## Architecture
 
-```
-Your JS code
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│  Polyfill (IIFE, precompiled to bytecode)    │
-│  ┌──────────┐ ┌──────────┐ ┌─────────────┐  │
-│  │  fetch   │ │  crypto  │ │  streams     │  │
-│  │ console  │ │  timers  │ │  TextEncoder │  │
-│  │   URL    │ │  Blob    │ │  EventTarget │  │
-│  │ qwrt.fs │ │qwrt.store│ │  navigator   │  │
-│  └──────────┘ └──────────┘ └─────────────┘  │
-│                    │                         │
-│            pal.* (injected via               │
-│            __pal_inject__)                   │
-└────────────────────┬────────────────────────┘
-                     │
-                     ▼
-              qwrt_pal_t (C struct of function pointers)
+```mermaid
+flowchart TB
+    A["Your JS code"] --> B
+    subgraph B["WinterCG runtime (IIFE, precompiled to bytecode)"]
+        direction LR
+        C["fetch<br/>console<br/>URL<br/>qwrt.fs"]
+        D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
+        E["streams<br/>TextEncoder<br/>EventTarget<br/>navigator"]
+    end
+    B --> F["qwrt_pal_t (C struct of function pointers)"]
+    B -.->|pal.* injected via __pal_inject__| F
 ```
 
 ## API Categories

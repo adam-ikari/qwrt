@@ -8,7 +8,6 @@ Every qwrt program follows the same lifecycle: **create → use → destroy**.
 qwrt_config_t config = {
     .pal = pal,          // Platform Abstraction Layer (required)
     .debug = 0,          // Enable debug output (0 or 1)
-    .extensions = NULL,  // NULL-terminated array of qwrt_ext_t*, or NULL
 };
 qwrt_t *rt = qwrt_create(&config);
 if (!rt) {
@@ -19,9 +18,11 @@ if (!rt) {
 `qwrt_create` does the following:
 1. Calls `pal->init(pal)` if the hook is provided
 2. Creates a JSRuntime and initial context
-3. Registers default extensions (WASM, compress, crypto, textcodec — based on build config)
-4. Registers any user-provided extensions from `config.extensions`
-5. Injects the WinterCG polyfill into the initial context
+3. Registers the build-time extension set (the `QWRT_EXTENSIONS` table —
+   built-ins like compress/crypto/textcodec/wasm3 when their `QWRT_WITH_*` is on,
+   plus any user extensions added via `QWRT_EXTRA_SOURCES`)
+4. Injects the WinterCG-compatible runtime into the initial context
+5. Injects the WinterCG-compatible runtime into the initial context
 
 The PAL must outlive the runtime. `qwrt_destroy` does NOT free the PAL — the caller owns it.
 

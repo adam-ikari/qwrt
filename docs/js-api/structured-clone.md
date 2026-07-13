@@ -143,7 +143,7 @@ console.log(cloned.stack);    // stack trace is preserved
 
 ## Notes
 
-- `structuredClone` is a polyfill implementation — not the browser's native algorithm
+- `structuredClone` is a WinterCG module implementation — not the browser's native algorithm
 - All typed array variants are supported
 - `RegExp` flags (`g`, `i`, `m`, `s`, `u`, `y`) are preserved
 - `RegExp.lastIndex` is reset to 0 in the clone
