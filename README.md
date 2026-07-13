@@ -1,4 +1,4 @@
-# qwrt — Embeddable QuickJS Runtime
+# Qwrt.js — Embeddable QuickJS Runtime
 
 > 🌐 Website & API reference: **https://adam-ikari.github.io/qwrt/**
 

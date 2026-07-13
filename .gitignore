@@ -16,6 +16,8 @@ src/polyfill_default.c.bak
 # Node.js
 node_modules/
 package-lock.json
+# but commit the docs site lockfile (CI reproducibility)
+!docs/package-lock.json
 
 # IDE / editor
 .vscode/
