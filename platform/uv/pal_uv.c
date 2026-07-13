@@ -205,14 +205,14 @@ typedef struct pal_uv_http_op_t {
     size_t chunk_size;          /* parsed chunk size for current chunk */
 
     /* Handle initialization flags — only close handles that were init'd */
-    int tcp_init : 1;
-    int timer_init : 1;
-    int idle_timer_init : 1;
-    int aborted : 1;       /* set by pal_uv_http_abort; callbacks must no-op */
-    int teardown_started : 1; /* set at the top of pal_uv_http_stream_cleanup;
+    unsigned tcp_init : 1;
+    unsigned timer_init : 1;
+    unsigned idle_timer_init : 1;
+    unsigned aborted : 1;       /* set by pal_uv_http_abort; callbacks must no-op */
+    unsigned teardown_started : 1; /* set at the top of pal_uv_http_stream_cleanup;
                                * makes it idempotent and lets the read cb no-op
                                * on the ECANCELED delivered after a forced close */
-    int tearing_down : 1;    /* 1 once a teardown function (finish_error/
+    unsigned tearing_down : 1;    /* 1 once a teardown function (finish_error/
                               * finish_success/stream_cleanup/stream_finish_error)
                               * begins closing op's handles. Only handles closed
                               * while tearing_down participate in the close
