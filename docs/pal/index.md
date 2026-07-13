@@ -6,23 +6,13 @@ The Platform Abstraction Layer is the heart of qwrt's portability. It's a struct
 
 Every interaction between JavaScript and the outside world goes through the PAL:
 
-```
-JS code: fetch("https://example.com")
-    │
-    ▼
-bridge.c (builds request, allocates callback)
-    │
-    ▼
-qwrt_pal_t->http_request(pal, url, method, headers, body, cb, data)
-    │
-    ▼
-PAL implementation (opens socket, sends HTTP request)
-    │
-    ▼
-cb(user_data, QWRT_OK, response_json, len)  ← fires on event thread
-    │
-    ▼
-bridge.c (parses JSON, resolves JS Promise)
+```mermaid
+flowchart TB
+    A["JS code: fetch('https://example.com')"] --> B["bridge.c (builds request, allocates callback)"]
+    B --> C["qwrt_pal_t->http_request(pal, url, method, headers, body, cb, data)"]
+    C --> D["PAL implementation (opens socket, sends HTTP request)"]
+    D --> E["cb(user_data, QWRT_OK, response_json, len) ← fires on event thread"]
+    E --> F["bridge.c (parses JSON, resolves JS Promise)"]
 ```
 
 ## PAL Categories

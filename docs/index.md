@@ -2,16 +2,13 @@
 layout: home
 
 hero:
-  name: "qwrt"
+  name: "Qwrt.js"
   text: "Embeddable QuickJS Runtime"
-  tagline: C99 · WinterCG Polyfill · Platform Abstraction Layer · Zero System Dependencies
+  tagline: C99 · WinterCG Compatible · Platform Abstraction Layer · Zero System Dependencies
   actions:
     - theme: brand
       text: Get Started
       link: /guide/
-    - theme: alt
-      text: PAL Reference
-      link: /pal/
     - theme: alt
       text: JS API
       link: /js-api/
@@ -19,16 +16,16 @@ hero:
 features:
   - icon: ⚡
     title: Strict C99
-    details: Embeddable in any C99 codebase. C11 deps (QuickJS-ng, libuv) are isolated to their own compilation units with no standard leakage.
+    details: Embeddable in any C99 codebase. No host compiler requirements beyond C99.
   - icon: 📦
     title: Zero System Dependencies
-    details: QuickJS-ng, mbedTLS, miniz, libuv, wasm3 — all built from source via CMake add_subdirectory. No system packages required.
+    details: QuickJS-ng, mbedTLS, miniz, libuv, wasm3 — all built from source via CMake. No system packages required.
   - icon: 🌐
-    title: 21 WinterCG Modules
-    details: fetch, console, crypto.subtle, ReadableStream, timers, fs, URL, TextEncoder, AbortController, and more — precompiled to bytecode.
+    title: WinterCG Compatible
+    details: A WinterCG-compatible JavaScript runtime — the standard Web APIs embedders expect, precompiled to bytecode.
   - icon: 🔌
     title: Platform Abstraction Layer
-    details: Same JS runs on libuv (Linux/macOS), FreeRTOS (ESP32-S3), and mock (testing). ~30 function pointers to implement your own backend.
+    details: Run the same JS across platforms through a thin PAL contract (~30 function pointers). Implement your own backend without touching the core.
   - icon: 🧵
     title: Multi-Context Isolation
     details: Spawn, suspend, and resume isolated JS contexts within one runtime. Each context has its own PAL, permissions, and extension state.
@@ -73,23 +70,24 @@ int main(void) {
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                        qwrt                               │
-│  ┌──────────┐  ┌───────────┐  ┌───────────────┐         │
-│  │  qwrt.c  │  │ context.c │  │  extension.c  │         │
-│  │(core API)│  │(multi-ctx)│  │(ext register) │         │
-│  └────┬─────┘  └─────┬─────┘  └───────┬───────┘         │
-│       └──────────────┼────────────────┘                  │
-│                bridge.c (JS↔PAL bridge)                   │
-│                       │                                   │
-│              qwrt_pal_t (PAL interface)                   │
-│  ┌──────────┬─────────┼───────────┐                      │
-│  │  pal_uv  │pal_freertos│ pal_mock│                      │
-│  │ (libuv)  │(ESP-IDF)  │(testing)│                      │
-│  └──────────┴─────────┴───────────┘                      │
-│                                                           │
-│  JS Polyfill: fetch │ console │ crypto │ streams │ ...    │
-│  Extensions: compress │ crypto │ textcodec │ wasm3       │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph QWRT["Qwrt.js"]
+        direction TB
+        Core["qwrt.c (core API)"]
+        Ctx["context.c (multi-context)"]
+        Ext["extension.c (extension registry)"]
+        Bridge["bridge.c — JS ↔ PAL bridge"]
+        Core --> Bridge
+        Ctx --> Bridge
+        Ext --> Bridge
+        Bridge --> PAL["qwrt_pal_t (PAL interface)"]
+        PAL --> PalUV["pal_uv (libuv)"]
+        PAL --> PalFR["pal_freertos (ESP-IDF)"]
+        PAL --> PalMock["pal_mock (testing)"]
+        JS["WinterCG modules: fetch · console · crypto · streams · timers · …"]
+        ExtList["Extensions: compress · crypto · textcodec · wasm3"]
+        Bridge -.injects.-> JS
+        Ext -.registers.-> ExtList
+    end
 ```

@@ -42,14 +42,11 @@ Used by: `http_request_stream`.
 
 ### Call Sequence
 
-```
-on_headers  ── called exactly once (may be the only call on error)
-    │
-on_data     ── called zero or more times (body chunks)
-    │
-on_data     ── ...
-    │
-on_end      ── called exactly once (stream finished, aborted, or errored)
+```mermaid
+flowchart TB
+    A["on_headers — called exactly once (may be the only call on error)"] --> B["on_data — called zero or more times (body chunks)"]
+    B --> C["on_data — ..."]
+    C --> D["on_end — called exactly once (stream finished, aborted, or errored)"]
 ```
 
 ### `on_headers`

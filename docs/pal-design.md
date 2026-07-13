@@ -13,81 +13,41 @@
 
 | 原则               | 定义                                | 实现方式                                     |
 | ------------------ | ----------------------------------- | -------------------------------------------- |
-| **最小 C 层**      | C 只做 PAL 原语注册，不实现业务 API | WinterCG API 用 JS polyfill 实现             |
+| **最小 C 层**      | C 只做 PAL 原语注册，不实现业务 API | WinterCG API 用 JS 模块实现             |
 | **PAL 回调式异步** | PAL async 操作通过回调通知完成      | 桥接层将回调转换为 JS Promise                |
 | **驱动无关**       | PAL 不涉及事件循环                  | 驱动由 PAL 实现层负责（libuv/wasi/自定义）   |
 | **对标 WASI**      | PAL 类似 WASI 的 syscall 级接口     | 宿主提供实现，运行时只消费接口               |
 | **可嵌入**         | 宿主完全控制运行时生命周期          | qwrt_create/tick/eval/destroy API            |
-| **Web 标准**       | 用户 JS 看到 WinterCG 标准 API      | polyfill bundle 基于 `pal.*` 原语封装        |
+| **Web 标准**       | 用户 JS 看到 WinterCG 标准 API      | WinterCG 模块基于 `pal.*` 原语封装        |
 | **可复用**         | 独立于任何应用，不绑定特定品牌     | qwrt 是通用运行时，上层应用在其上构建 |
 
 ---
 
 ## 2. 架构总览
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    用户 JS 程序                              │
-│   fetch() / setTimeout() / console.log() / fs.readFile()    │
-└────────────────────────┬────────────────────────────────────┘
-                         │ 调用 WinterCG 标准 API
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              WinterCG Polyfill Bundle (JS)                   │
-│                                                             │
-│   fetch()          → pal.httpRequest()                       │
-│   setTimeout()     → pal.timerStart() / pal.timerStop()      │
-│   console.log()    → pal.log()                               │
-│   performance.now()→ pal.timeNow()                           │
-│   fs.readFile()    → pal.fsRead()                            │
-│   TextEncoder      → pal.textEncode() / pal.textDecode()     │
-│   URL              → 纯 JS 实现                              │
-│   EventTarget      → 纯 JS 实现                              │
-│   AbortController  → 纯 JS 实现                              │
-│   atob / btoa      → 纯 JS 实现                              │
-│   crypto           → pal.randomBytes()                       │
-│   storage.get()    → pal.storageGet()                        │
-└────────────────────────┬────────────────────────────────────┘
-                         │ 调用内部 PAL 原语
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              qwrt C 层 (薄桥接 ~500行)                       │
-│                                                             │
-│   qwrt_pal_t 函数指针 → pal 内部 JS 对象（不挂 globalThis）   │
-│   async PAL 回调     → JS Promise resolve/reject            │
-│   JS_ExecutePendingJob ← qwrt_tick() 触发                   │
-└────────────────────────┬────────────────────────────────────┘
-                         │ 调用
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              qwrt_pal_t (PAL C 接口)                          │
-│   http_request / fs_* / storage_* / timer / time / log / mem│
-└────────────────────────┬────────────────────────────────────┘
-                         │ 实现
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              PAL 实现 (宿主提供)                              │
-│   libuv │ wasi+事件循环 │ curl+epoll │ mock                │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    A["用户 JS 程序<br/>fetch() / setTimeout() / console.log() / fs.readFile()"]
+    A -->|调用 WinterCG 标准 API| B["WinterCG 运行时 Bundle (JS)<br/>fetch() → pal.httpRequest()<br/>setTimeout() → pal.timerStart() / pal.timerStop()<br/>console.log() → pal.log()<br/>performance.now() → pal.timeNow()<br/>fs.readFile() → pal.fsRead()<br/>TextEncoder → pal.textEncode() / pal.textDecode()<br/>URL / EventTarget / AbortController / atob / btoa → 纯 JS 实现<br/>crypto → pal.randomBytes()<br/>storage.get() → pal.storageGet()"]
+    B -->|调用内部 PAL 原语| C["qwrt C 层 (薄桥接 ~500行)<br/>qwrt_pal_t 函数指针 → pal 内部 JS 对象（不挂 globalThis）<br/>async PAL 回调 → JS Promise resolve/reject<br/>JS_ExecutePendingJob ← qwrt_tick() 触发"]
+    C -->|调用| D["qwrt_pal_t (PAL C 接口)<br/>http_request / fs_* / storage_* / timer / time / log / mem"]
+    D -->|实现| E["PAL 实现 (宿主提供)<br/>libuv │ wasi+事件循环 │ curl+epoll │ mock"]
 ```
 
 **与上层应用的关系：**
 
-```
-qwrt (可嵌入 C 库)         ← 通用运行时，任何项目可复用
-  │
-  ├── QuickJS-NG            ← JS 引擎
-  ├── PAL (qwrt_pal_t)       ← 平台抽象层
-  ├── C 桥接层              ← PAL → pal 内部对象（闭包注入）
-  └── WinterCG polyfill     ← pal.* → 标准 Web API
-      │
-      ▼
-上层应用 (JS 层)            ← 用 qwrt 提供的 Web 标准 API 开发的应用层
-  │
-  ├── LLMClient             ← 基于 fetch()
-  ├── Memory                ← 基于 storage API
-  ├── Tool / Skill / Agent  ← 业务逻辑
-  └── ...
+```mermaid
+flowchart TB
+    A["qwrt (可嵌入 C 库) — 通用运行时，任何项目可复用"]
+    A --> B["QuickJS-NG — JS 引擎"]
+    A --> C["PAL (qwrt_pal_t) — 平台抽象层"]
+    A --> D["C 桥接层 — PAL → pal 内部对象（闭包注入）"]
+    D --> E["WinterCG 运行时 — pal.* → 标准 Web API"]
+    E --> F["上层应用 (JS 层) — 用 qwrt 提供的 Web 标准 API 开发的应用层"]
+    F --> G["LLMClient — 基于 fetch()"]
+    F --> H["Memory — 基于 storage API"]
+    F --> I["Tool / Skill / Agent — 业务逻辑"]
+    F --> J["..."]
 ```
 
 qwrt 是独立的运行时，不知道上层应用的存在。
@@ -98,11 +58,11 @@ qwrt 是独立的运行时，不知道上层应用的存在。
 
 ### 3.1 第一层：PAL 原语（qwrt C 层注册，对用户 JS 完全隐藏）
 
-C 桥接层将 qwrt_pal_t 函数注册到一个内部 `pal` 对象，通过闭包注入给 polyfill bundle。
+C 桥接层将 qwrt_pal_t 函数注册到一个内部 `pal` 对象，通过闭包注入给 WinterCG 模块。
 PAL 原语**不挂载到 `globalThis`**，用户 JS 无法访问或绕过。
 
 ```javascript
-// pal 对象仅在 polyfill 闭包内可见
+// pal 对象仅在 WinterCG 模块闭包内可见
 // 用户 JS 执行时，globalThis 上没有任何 PAL 原语引用
 pal.httpRequest(url, method, headers_json, body) → Promise<string>
   // 返回 JSON: {"status":200,"headers":{...},"body":"..."}
@@ -124,26 +84,26 @@ pal.timeNow() → number  // ms timestamp
 pal.log(level, msg) → void
 ```
 
-### 3.2 第二层：WinterCG 标准 API（polyfill bundle 实现）
+### 3.2 第二层：WinterCG 标准 API（JS 模块实现）
 
 基于 `pal.*` 原语封装的标准 Web API。用户 JS 通过这些 API 编程。
 
 | WinterCG API             | 底层原语              | 实现方式    |
 | ------------------------ | --------------------- | ----------- |
-| `fetch(url, init)`       | `pal.httpRequest`     | JS polyfill |
-| `setTimeout(fn, ms)`     | `pal.timerStart/Stop` | JS polyfill |
-| `clearTimeout(id)`       | `pal.timerStop`       | JS polyfill |
-| `setInterval(fn, ms)`    | `pal.timerStart`      | JS polyfill |
-| `clearInterval(id)`      | `pal.timerStop`       | JS polyfill |
-| `console.log/warn/error` | `pal.log`             | JS polyfill |
-| `performance.now()`      | `pal.timeNow`         | JS polyfill |
-| `TextEncoder/Decoder`    | `pal.textEncode/Decode` | JS polyfill |
+| `fetch(url, init)`       | `pal.httpRequest`     | JS 模块 |
+| `setTimeout(fn, ms)`     | `pal.timerStart/Stop` | JS 模块 |
+| `clearTimeout(id)`       | `pal.timerStop`       | JS 模块 |
+| `setInterval(fn, ms)`    | `pal.timerStart`      | JS 模块 |
+| `clearInterval(id)`      | `pal.timerStop`       | JS 模块 |
+| `console.log/warn/error` | `pal.log`             | JS 模块 |
+| `performance.now()`      | `pal.timeNow`         | JS 模块 |
+| `TextEncoder/Decoder`    | `pal.textEncode/Decode` | JS 模块 |
 | `URL / URLSearchParams`  | 无                    | 纯 JS       |
 | `Event / EventTarget`    | 无                    | 纯 JS       |
 | `AbortController/Signal` | 无                    | 纯 JS       |
 | `ReadableStream`         | 无                    | 纯 JS       |
 | `atob / btoa`            | 无                    | 纯 JS       |
-| `crypto.getRandomValues` | `pal.randomBytes`     | JS polyfill |
+| `crypto.getRandomValues` | `pal.randomBytes`     | JS 模块 |
 
 ### 3.3 第三层：扩展 API（非标准但实用）
 
@@ -255,7 +215,7 @@ typedef struct qwrt_pal_t {
 ```c
 typedef struct qwrt_config_t {
     const qwrt_pal_t *pal;       /* PAL 实现（必须） */
-    const uint8_t *polyfill;    /* WinterCG polyfill bundle（可选，内含默认） */
+    const uint8_t *polyfill;    /* WinterCG 模块 bytecode（可选，内含默认） */
     size_t polyfill_len;
     int debug;                  /* 0=正常, 1=打印JS错误栈 */
 } qwrt_config_t;
@@ -269,7 +229,7 @@ typedef struct qwrt_config_t {
  *
  * 1. 创建 QuickJS 运行时
  * 2. 创建内部 pal JS 对象（不挂 globalThis）
- * 3. 加载 WinterCG polyfill bundle
+ * 3. 加载 WinterCG 模块
  *
  * @return 运行时实例, NULL=失败
  */
@@ -340,7 +300,7 @@ qwrt_free(result);
 ## 6. C 桥接层实现
 
 C 桥接层负责：1）将 qwrt_pal_t 函数注册到一个内部 `pal` JS 对象（**不挂载到 `globalThis`**）；
-2）通过闭包注入给 polyfill bundle；3）管理 PAL 回调 → JS Promise 的转换。
+2）通过闭包注入给 WinterCG 模块；3）管理 PAL 回调 → JS Promise 的转换。
 
 PAL 原语对用户 JS **完全隐藏**——用户无法绕过 WinterCG API 直接调原语。
 
@@ -375,9 +335,9 @@ static JSValue qwrt_create_pal_object(qwrt_t *rt) {
 }
 ```
 
-### 6.2 闭包注入给 polyfill
+### 6.2 闭包注入给 WinterCG 模块
 
-`qwrt_create` 将 `pal` 对象作为闭包参数注入 polyfill bundle：
+`qwrt_create` 将 `pal` 对象作为闭包参数注入 WinterCG 模块：
 
 ```c
 qwrt_t *qwrt_create(const qwrt_config_t *config) {
@@ -391,8 +351,8 @@ qwrt_t *qwrt_create(const qwrt_config_t *config) {
     // 2. 创建内部 pal 对象
     JSValue pal = qwrt_create_pal_object(rt);
 
-    // 3. 执行 polyfill bundle — pal 对象作为闭包参数注入
-    //    polyfill.js 格式: (function(pal){ ... })(__PAL_INJECT__);
+    // 3. 执行 WinterCG 模块 — pal 对象作为闭包参数注入
+    //    入口格式: (function(pal){ ... })(__PAL_INJECT__);
     //    C 层将 __PAL_INJECT__ 替换为 pal 对象
     char *polyfill_code = inject_pal_into_polyfill(
         config->polyfill, config->polyfill_len, pal);
@@ -400,7 +360,7 @@ qwrt_t *qwrt_create(const qwrt_config_t *config) {
     JSValue result = JS_Eval(rt->ctx, polyfill_code,
                               strlen(polyfill_code),
                               "<qwrt-polyfill>", JS_EVAL_TYPE_GLOBAL);
-    // polyfill 执行完毕后，pal 只存在于闭包中
+    // 模块执行完毕后，pal 只存在于闭包中
 
     JS_FreeValue(rt->ctx, pal);
     JS_FreeValue(rt->ctx, result);
@@ -504,11 +464,11 @@ static void pal_async_cb(void *user_data, int status,
 
 ---
 
-## 7. WinterCG Polyfill Bundle
+## 7. WinterCG 模块 Bundle
 
 ### 7.1 结构
 
-polyfill 是一个 JS 文件（`qwrt-polyfill.js`），由 qwrt*create 加载时执行。
+WinterCG 模块打包为一个 JS 文件（`qwrt-polyfill.js`），由 qwrt*create 加载时执行。
 它基于 `\_\_pal*\*` 原语实现 WinterCG 标准 API。
 
 ### 7.2 示例：fetch()
@@ -618,7 +578,7 @@ globalThis.storage = {
 
 以下 API 纯 JS 实现，不依赖 PAL 原语：
 
-- `URL` / `URLSearchParams` — 参考现有 polyfill
+- `URL` / `URLSearchParams` — 参考现有 WinterCG 模块
 - `Event` / `EventTarget` — 标准 DOM 事件模型
 - `AbortController` / `AbortSignal` — 取消机制
 - `ReadableStream` / `WritableStream` — 流 API
@@ -635,8 +595,8 @@ globalThis.storage = {
 | `js/event-target.js` | 参考                            | EventTarget           |
 | `js/abort-signal.js` | 参考                            | AbortController       |
 | `js/fetch.js`        | 参考，改用 `pal.httpRequest`  | fetch()               |
-| `mod_fs.c`           | 参考 C 逻辑，改写为 JS polyfill | fs.\*                 |
-| `timers.c`           | 参考 C 逻辑，改写为 JS polyfill | setTimeout            |
+| `mod_fs.c`           | 参考 C 逻辑，改写为 JS 模块 | fs.\*                 |
+| `timers.c`           | 参考 C 逻辑，改写为 JS 模块 | setTimeout            |
 
 ---
 
@@ -791,7 +751,7 @@ qwrt/
 │   ├── bridge.c            # PAL → pal 内部对象 + 回调→Promise
 │   └── pal_uv.c            # libuv PAL 实现（可选模块）
 ├── polyfill/
-│   ├── qwrt-polyfill.js    # 主入口，加载所有 polyfill
+│   ├── qwrt-polyfill.js    # 主入口，加载所有 WinterCG 模块
 │   ├── fetch.js            # fetch() 实现
 │   ├── timers.js           # setTimeout/setInterval
 │   ├── console.js          # console.*
@@ -816,10 +776,10 @@ qwrt/
 | 方面           | v1.0 (PAL 暴露)           | v2.0 (qwrt)                      |
 | -------------- | ------------------------- | -------------------------------- |
 | 运行时名称     | 未命名                    | qwrt                             |
-| PAL 暴露方式   | app.pal.* 直接暴露给 JS  | pal 内部对象，闭包注入 polyfill |
+| PAL 暴露方式   | app.pal.* 直接暴露给 JS  | pal 内部对象，闭包注入 WinterCG 模块 |
 | 用户 JS 看到的 | app.fetch       | fetch() — WinterCG 标准         |
 | LLMClient      | 调用 app.fetch  | 调用 fetch()                    |
-| Web API 实现   | C 层实现                  | JS polyfill（基于 pal.*）       |
+| Web API 实现   | C 层实现                  | JS 模块（基于 pal.*）       |
 | C 代码量       | 大（每个 Web API 都写 C） | 小（只注册原语 ~500行）          |
 | 可复用性       | 绑定特定品牌             | 独立通用运行时                   |
 | 参考来源       | 无                        | txiki.js 模块移植                |
@@ -837,7 +797,7 @@ qwrt/
 - [ ] 实现 qwrt 公共 API (`qwrt.c`)
 - [ ] 实现 libuv PAL 适配器 (`pal_uv.c`)
 
-### 阶段 2：Polyfill Bundle
+### 阶段 2：WinterCG 模块 Bundle
 
 - [ ] 实现 console / performance / atob-btoa
 - [ ] 实现 setTimeout / setInterval
@@ -864,5 +824,5 @@ qwrt/
 ### 阶段 5：测试与验证
 
 - [ ] Mock PAL + qwrt 单元测试
-- [ ] Polyfill 兼容性测试
+- [ ] WinterCG 模块兼容性测试
 - [ ] REPL 端到端测试

@@ -1,41 +1,34 @@
 # PAL Injection (`__pal_inject__`)
 
-The `__pal_inject__` mechanism is the bridge between the C PAL layer and the JavaScript polyfill. It's how `pal.*` functions become available inside JS code.
+The `__pal_inject__` mechanism is the bridge between the C PAL layer and the JavaScript WinterCG modules. It's how `pal.*` functions become available inside JS code.
 
 ## How It Works
 
 1. **C side** (`bridge.c`): `qwrt_create_pal_object_ctx()` builds a JS object with all PAL methods bound as JavaScript functions
-2. **Injection**: Before evaluating the polyfill bytecode, the C bridge sets `globalThis.__pal_inject__` to this PAL object
-3. **Polyfill side** (`pal.js`): The polyfill reads `globalThis.__pal_inject__` and uses it as the `pal` parameter for all setup functions
+2. **Injection**: Before evaluating the WinterCG module bytecode, the C bridge sets `globalThis.__pal_inject__` to this PAL object
+3. **Runtime side** (`pal.js`): The runtime reads `globalThis.__pal_inject__` and uses it as the `pal` parameter for all setup functions
 
-```
-C (bridge.c)                          JS (polyfill)
-──────────────────────────            ──────────────────────────
-qwrt_create_pal_object_ctx()
-  │
-  ├─ JS_NewObject(ctx)
-  ├─ Set pal.timeNow → C wrapper
-  ├─ Set pal.httpRequest → C wrapper
-  ├─ Set pal.fsRead → C wrapper
-  └─ ...all PAL methods...
-  │
-  ▼
-JS_SetPropertyStr(ctx, global,
-  "__pal_inject__", pal_obj)
-  │
-  ▼
-qwrt_eval_bytecode(polyfill)
-  │
-  └─► (function(pal){ ... })(__pal_inject__)
-        │
-        ├─ setupFetch(pal)
-        ├─ setupTimers(pal)
-        └─ ...all setup functions...
+```mermaid
+sequenceDiagram
+    participant C as C (bridge.c)
+    participant JS as JS (WinterCG modules)
+    C->>C: qwrt_create_pal_object_ctx()
+    C->>C: JS_NewObject(ctx)
+    C->>C: Set pal.timeNow → C wrapper
+    C->>C: Set pal.httpRequest → C wrapper
+    C->>C: Set pal.fsRead → C wrapper
+    C->>C: ...all PAL methods...
+    C->>JS: JS_SetPropertyStr(ctx, global, "__pal_inject__", pal_obj)
+    C->>JS: qwrt_eval_bytecode(polyfill)
+    JS->>JS: (function(pal){ ... })(__pal_inject__)
+    JS->>JS: setupFetch(pal)
+    JS->>JS: setupTimers(pal)
+    JS->>JS: ...all setup functions...
 ```
 
 ## Available PAL Primitives
 
-These are the raw primitives exposed through `pal.*` inside the polyfill. User code rarely calls them directly — the higher-level APIs (fetch, fs, etc.) wrap them.
+These are the raw primitives exposed through `pal.*` inside the WinterCG modules. User code rarely calls them directly — the higher-level APIs (fetch, fs, etc.) wrap them.
 
 ### Synchronous
 
@@ -89,6 +82,6 @@ The PAL object is the **security boundary** between JS and the host. Different c
 ## Lifecycle
 
 - Created: during `qwrt_create_ctx()` → `qwrt_create_pal_object_ctx()`
-- Injected: before polyfill evaluation
+- Injected: before module evaluation
 - Destroyed: with the context (garbage collected by QuickJS)
-- Re-created: on `qwrt_reset()` — the polyfill is re-injected fresh
+- Re-created: on `qwrt_reset()` — the modules are re-injected fresh

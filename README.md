@@ -4,7 +4,7 @@
 
 qwrt is a lightweight QuickJS-ng runtime wrapper with a Platform Abstraction
 Layer (PAL) for embedding JavaScript in C applications. It provides a
-WinterCG-compatible JS polyfill (fetch, console, crypto, streams, timers)
+WinterCG-compatible runtime of standard Web APIs (fetch, console, crypto, streams, timers)
 and a clean C API for JS execution, multi-context management, and native
 extensions.
 
@@ -12,7 +12,7 @@ extensions.
 
 - **QuickJS-ng engine** — full ES2023 support, fast startup, low memory
 - **Platform Abstraction Layer** — libuv (Linux/macOS), FreeRTOS (ESP32-S3), mock (testing)
-- **WinterCG polyfill** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more
+- **WinterCG-compatible runtime** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more
 - **Streaming HTTP + TLS** — mbedTLS for HTTPS, chunked transfer decoding, certificate verification
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec (UTF-8/Base64), WebAssembly (wasm3)
 - **Multi-context** — spawn/suspend/resume isolated JS contexts within one runtime
@@ -45,7 +45,7 @@ int main() {
     qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
 
     /* Create runtime */
-    qwrt_config_t config = { .pal = pal, .debug = 0, .extensions = NULL };
+    qwrt_config_t config = { .pal = pal, .debug = 0 };
     qwrt_t *rt = qwrt_create(&config);
 
     /* Evaluate JavaScript */
@@ -83,26 +83,26 @@ cd build && ctest --output-on-failure
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    qwrt                              │
-│                                                      │
-│  ┌─────────────┐  ┌───────────┐  ┌───────────────┐ │
-│  │  qwrt.c     │  │ context.c │  │ extension.c   │ │
-│  │  (core API) │  │ (multi-ctx)│  │ (ext register)│ │
-│  └──────┬──────┘  └─────┬─────┘  └───────┬───────┘ │
-│         └───────────────┼─────────────────┘         │
-│                   bridge.c (JS↔PAL bridge)           │
-│                         │                            │
-│              qwrt_pal_t (PAL interface)              │
-│  ┌──────────┬───────────┼───────────┐                │
-│  │ pal_uv   │pal_freertos│ pal_mock │                │
-│  │ (libuv)  │(ESP-IDF)   │ (testing)│                │
-│  └──────────┴───────────┴───────────┘                │
-│                                                      │
-│  JS Polyfill: fetch | console | crypto | streams ... │
-│  Extensions: compress | crypto | textcodec | wasm3   │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph QWRT["qwrt"]
+        direction TB
+        Core["qwrt.c (core API)"]
+        Ctx["context.c (multi-context)"]
+        Ext["extension.c (ext registry)"]
+        Bridge["bridge.c — JS ↔ PAL bridge"]
+        Core --> Bridge
+        Ctx --> Bridge
+        Ext --> Bridge
+        Bridge --> PAL["qwrt_pal_t (PAL interface)"]
+        PAL --> PalUV["pal_uv (libuv)"]
+        PAL --> PalFR["pal_freertos (ESP-IDF)"]
+        PAL --> PalMock["pal_mock (testing)"]
+        JS["WinterCG modules: fetch · console · crypto · streams · timers · …"]
+        ExtList["Extensions: compress · crypto · textcodec · wasm3"]
+        Bridge -.injects.-> JS
+        Ext -.registers.-> ExtList
+    end
 ```
 
 ## API Reference
@@ -145,9 +145,11 @@ cd build && ctest --output-on-failure
 
 ### Extensions
 
-| Function | Description |
-|----------|-------------|
-| `qwrt_register_ext(rt, ext)` | Register a native extension at runtime. |
+Extensions are registered at build time via the `QWRT_EXTENSIONS` macro (see
+`include/qwrt/qwrt_ext_registry.h`); there is no runtime registration API.
+Built-in extensions (compress/crypto/textcodec/wasm3) are auto-registered when
+their `QWRT_WITH_*` is on. A parent project adds its own extension to the table
+non-invasively via the CMake `QWRT_EXTENSIONS` / `QWRT_EXTRA_SOURCES` variables.
 
 ### PAL Interface
 
@@ -167,6 +169,14 @@ full interface.
 
 ## CMake Options
 
+qwrt's CMake options live on **two separate levels**: `QWRT_PAL_*` selects the
+**platform backend** (which `pal_*` implementation to compile), while
+`QWRT_WITH_*` toggles **optional features** (native extensions layered on top
+of the runtime). The two prefixes are independent — a PAL backend can be built
+with or without any given feature.
+
+### Feature Toggles (`QWRT_WITH_*`)
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `QWRT_WITH_TLS` | ON | mbedTLS HTTPS (forces `QWRT_WITH_CRYPTO_EXT=ON`) |
@@ -174,6 +184,19 @@ full interface.
 | `QWRT_WITH_CRYPTO_EXT` | ON | crypto.subtle extension (undefined when OFF) |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8/Base64 extension |
 | `QWRT_WITH_WASM3` | ON | wasm3 WebAssembly engine |
+
+### PAL Backends (`QWRT_PAL_*`)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `QWRT_PAL_UV` | ON | libuv backend (Linux/macOS) |
+| `QWRT_PAL_MOCK` | ON | Mock backend for testing |
+| `QWRT_PAL_FREERTOS` | OFF | FreeRTOS backend (ESP32-S3, ESP-IDF only) |
+
+### Build Targets (`QWRT_BUILD_*`)
+
+| Option | Default | Description |
+|--------|---------|-------------|
 | `QWRT_BUILD_TESTS` | OFF | Build test suite |
 | `QWRT_BUILD_EXAMPLES` | OFF | Build examples |
 | `QWRT_BUILD_DEBUGGER` | OFF | DAP step-debugger (patches QuickJS-ng; adds `src/debugger.c` + `src/debugger_dap.c`) |
@@ -186,7 +209,7 @@ full interface.
 | `pal_freertos` | ESP32-S3 | lwIP + mbedTLS | mbedTLS + cert bundle | LittleFS | NVS |
 | `pal_mock` | Testing | Mock responses | — | In-memory KV | In-memory KV |
 
-## JS Polyfill Modules
+## WinterCG Modules
 
 | Module | Globals | PAL Dependency |
 |--------|---------|----------------|

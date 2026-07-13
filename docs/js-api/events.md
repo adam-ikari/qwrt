@@ -152,14 +152,10 @@ navigator.reportError(new Error('Test error'));
 
 ## Event Phases
 
-```
-1. Capturing phase (listeners with { capture: true })
-    │
-    ▼
-2. At target (listeners on the dispatching object)
-    │
-    ▼
-3. Bubbling phase (listeners with { capture: false }, default)
+```mermaid
+flowchart TB
+    A["1. Capturing phase (listeners with { capture: true })"] --> B["2. At target (listeners on the dispatching object)"]
+    B --> C["3. Bubbling phase (listeners with { capture: false }, default)"]
 ```
 
 Since qwrt has no DOM tree, bubbling/capturing only matters if you build your own event hierarchy.
