@@ -64,6 +64,8 @@ typedef struct qwrt_ctx_t {
 struct qwrt_t {
     uint32_t magic;      /* QWRT_MAGIC — set in qwrt_create, validates opaque ptr */
     JSRuntime *jsrt;
+    void *host_data;     /* per-runtime opaque ptr (from config->host_data);
+                          * readable by ext init via qwrt_get_runtime_data */
     qwrt_ctx_t *contexts[QWRT_MAX_CONTEXTS];  /* array of context pointers */
     int context_count;
     int active_ctx_id;   /* -1 if no active context */

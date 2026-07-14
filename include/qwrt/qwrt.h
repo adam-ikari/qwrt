@@ -438,6 +438,9 @@ struct qwrt_ext_t {
 typedef struct qwrt_config_t {
     const qwrt_pal_t *pal;
     int debug;
+    void *host_data;  /* per-runtime opaque pointer copied to qwrt_t; readable
+                       * by extension init hooks via qwrt_get_runtime_data()
+                       * during qwrt_create (before the host receives the rt). */
 } qwrt_config_t;
 
 /* qwrt_t forward declaration already provided above */
@@ -522,6 +525,13 @@ int qwrt_get_active_ctx_id(qwrt_t *rt);
  * NULL if no active context. The pointer is valid until the context is
  * destroyed or reset. */
 struct JSContext *qwrt_get_jsctx(qwrt_t *rt);
+
+/* Per-runtime host data. qwrt_create copies config->host_data onto the
+ * runtime, so an extension's init hook can read it via qwrt_get_runtime_data
+ * during qwrt_create — before the host has the rt pointer (resolving the
+ * init-time ordering deadlock). Set to NULL by default. */
+void *qwrt_get_runtime_data(qwrt_t *rt);
+void qwrt_set_runtime_data(qwrt_t *rt, void *data);
 
 /* ================================================================
  * Bytecode compilation API

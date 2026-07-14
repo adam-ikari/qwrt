@@ -61,6 +61,7 @@ qwrt_t *qwrt_create(const qwrt_config_t *config)
     rt->context_count = 0;
     rt->active_ctx_id = -1;
     rt->debug = config->debug;
+    rt->host_data = config->host_data;  /* readable by ext init via qwrt_get_runtime_data */
     rt->has_pending_jobs = 0;
     rt->deferred_cb_head = NULL;
     rt->deferred_cb_tail = NULL;
@@ -732,6 +733,23 @@ struct JSContext *qwrt_get_jsctx(qwrt_t *rt)
         return NULL;
     }
     return (struct JSContext *)qwrt_get_active_jsctx(rt);
+}
+
+/* qwrt_get_runtime_data / qwrt_set_runtime_data - per-runtime host data. */
+void *qwrt_get_runtime_data(qwrt_t *rt)
+{
+    if (!rt || rt->magic != QWRT_MAGIC) {
+        return NULL;
+    }
+    return rt->host_data;
+}
+
+void qwrt_set_runtime_data(qwrt_t *rt, void *data)
+{
+    if (!rt || rt->magic != QWRT_MAGIC) {
+        return;
+    }
+    rt->host_data = data;
 }
 
 /* ================================================================

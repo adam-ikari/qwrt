@@ -159,3 +159,35 @@ TEST(QwrtExtension, SuspendResumeDefaultSet) {
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
 }
+
+/* config.host_data is copied onto the runtime and readable via
+ * qwrt_get_runtime_data — including from an extension init hook that runs
+ * during qwrt_create (before the host has the rt). This resolves the
+ * init-time ordering deadlock where the host can't yet register a
+ * qwrt_t*->host* side-channel. */
+static int host_data_marker = 0x1234;
+TEST(QwrtExtension, RuntimeDataFromConfig) {
+    qwrt_pal_t *pal = pal_mock_create();
+    ASSERT_NE(pal, nullptr);
+
+    qwrt_config_t config;
+    fill_test_config(&config, pal);
+    config.host_data = &host_data_marker;
+
+    qwrt_t *rt = qwrt_create(&config);
+    ASSERT_NE(rt, nullptr);
+
+    /* Readable after create */
+    EXPECT_EQ(qwrt_get_runtime_data(rt), &host_data_marker);
+
+    /* NULL rt is safe */
+    EXPECT_EQ(qwrt_get_runtime_data(nullptr), nullptr);
+
+    /* Settable and readable */
+    int other = 0;
+    qwrt_set_runtime_data(rt, &other);
+    EXPECT_EQ(qwrt_get_runtime_data(rt), &other);
+
+    qwrt_destroy(rt);
+    pal_mock_destroy(pal);
+}

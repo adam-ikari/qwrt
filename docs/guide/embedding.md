@@ -170,4 +170,9 @@ if (ret < 0) {
 - Results from `qwrt_eval`/`qwrt_call`/`qwrt_compile` must be freed with `qwrt_free`
 - `qwrt_free(NULL)` is safe
 - The PAL is owned by the caller — free it after `qwrt_destroy`
-- Extensions' `user_data` is managed by the extension, not by qwrt
+- Per-runtime host data: set `config.host_data` before `qwrt_create`; an
+  extension's `init` hook reads it via `qwrt_get_runtime_data(rt)` during
+  create (the rt is valid inside init, before the host receives it). Note:
+  `qwrt_ext_t.user_data` is on the shared compile-time extension struct — use
+  `qwrt_get_runtime_data`/`qwrt_set_runtime_data` for per-instance data, not
+  `user_data` (which is shared across runtimes).

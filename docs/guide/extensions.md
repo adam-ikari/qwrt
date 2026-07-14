@@ -108,3 +108,27 @@ a built-in, list only the entries you want instead of `QWRT_DEFAULT_EXTENSIONS`.
 - **`resume`** — called when the context is resumed. Restore state, resume timers, reopen connections.
 
 All hooks receive both the extension and the runtime. Get the active `JSContext*` via `qwrt_get_jsctx(rt)`.
+
+### Per-runtime data in init
+
+The `qwrt_ext_t.user_data` field lives on the **shared compile-time** extension
+struct — it is NOT per-instance. To get per-runtime data inside `init` (which
+runs during `qwrt_create`, before the host has the `rt`), set
+`config.host_data` before `qwrt_create` and read it via
+`qwrt_get_runtime_data(rt)`:
+
+```c
+/* host: */
+qwrt_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
+qwrt_t *rt = qwrt_create(&cfg);
+
+/* extension init: */
+static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
+    my_state_t *st = (my_state_t *)qwrt_get_runtime_data(rt);
+    /* st is the per-instance data the host set via config */
+    ...
+}
+```
+
+This resolves the init-time ordering deadlock: the `rt` is valid inside `init`
+even though the host hasn't received it yet.
