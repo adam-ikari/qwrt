@@ -621,10 +621,22 @@ if(LIBUV_FOUND OR QWRT_PAL_MOCK)
         target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_COMPRESS=1)
         target_link_libraries(qwrt_full PUBLIC miniz)
     endif()
+    if(QWRT_WITH_TLS)
+        # pal_uv.c (compiled into qwrt_full when QWRT_PAL_UV) uses the mbedTLS SSL
+        # API (mbedtls_ssl_*), which lives in libmbedtls.a / libmbedx509.a — not
+        # just libmbedcrypto.a. Link all three so consumers of qwrt_full (e.g. a
+        # shared lib linking qwrt_full statically) resolve the SSL symbols;
+        # otherwise the .so carries undefined mbedtls_ssl_* references.
+        target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_TLS=1)
+        target_include_directories(qwrt_full PUBLIC ${MBEDTLS_INCLUDE_DIR})
+        target_link_libraries(qwrt_full PUBLIC ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB})
+    endif()
     if(QWRT_WITH_CRYPTO_EXT)
         target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_CRYPTO_EXT=1)
-        target_include_directories(qwrt_full PUBLIC ${MBEDCRYPTO_INCLUDE_DIR})
-        target_link_libraries(qwrt_full PUBLIC ${MBEDCRYPTO_LIB})
+        if(NOT QWRT_WITH_TLS)
+            target_include_directories(qwrt_full PUBLIC ${MBEDCRYPTO_INCLUDE_DIR})
+            target_link_libraries(qwrt_full PUBLIC ${MBEDCRYPTO_LIB})
+        endif()
     endif()
     if(QWRT_WITH_TEXTCODEC)
         target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_TEXTCODEC=1)
