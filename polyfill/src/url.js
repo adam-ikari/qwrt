@@ -17,6 +17,7 @@ export function setupURL() {
   class URLSearchParams {
     constructor(init) {
       this._params = [];
+      this._url = null;  /* parent URL object for sync-back */
 
       if (init === undefined || init === null) {
         // Empty
@@ -87,8 +88,15 @@ export function setupURL() {
         });
     }
 
+    _sync() {
+      if (this._url) {
+        this._url._search = this.toString();
+      }
+    }
+
     append(name, value) {
       this._params.push([String(name), String(value)]);
+      this._sync();
     }
 
     delete(name) {
@@ -96,6 +104,7 @@ export function setupURL() {
       this._params = this._params.filter(function(p) {
         return p[0] !== name;
       });
+      this._sync();
     }
 
     get(name) {
@@ -147,12 +156,14 @@ export function setupURL() {
       }
 
       this._params = result;
+      this._sync();
     }
 
     sort() {
       this._params.sort(function(a, b) {
         return a[0].localeCompare(b[0]);
       });
+      this._sync();
     }
 
     toString() {
@@ -279,8 +290,9 @@ export function setupURL() {
       this._search = query || '';
       this._hash = hash || '';
 
-      // Create searchParams
+      // Create searchParams with back-link
       this._searchParams = new URLSearchParams(this._search);
+      this._searchParams._url = this;
     }
 
     _resolvePath(path) {
@@ -373,7 +385,11 @@ export function setupURL() {
     set search(v) {
       v = String(v);
       this._search = v[0] === '?' ? v.slice(1) : v;
-      this._searchParams = new URLSearchParams(this._search);
+      /* Update existing searchParams in-place (keeps the back-link) */
+      if (this._searchParams) {
+        this._searchParams._params = [];
+        this._searchParams._parse(this._search);
+      }
     }
 
     set hash(v) {

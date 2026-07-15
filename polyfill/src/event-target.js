@@ -260,6 +260,11 @@ export function setupEventTarget() {
         }
       }
 
+      // Reset event state after dispatch
+      event._setEventPhase(0);
+      event._setCurrentTarget(null);
+      event._target = null;
+
       return !event._defaultPrevented;
     }
   }
