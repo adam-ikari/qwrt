@@ -56,31 +56,105 @@ export function setupTextEncoding(pal) {
     this.encoding = (encoding || 'utf-8').toLowerCase();
     this.fatal = (options && options.fatal) || false;
     this.ignoreBOM = (options && options.ignoreBOM) || false;
+    this._buffer = null;  /* accumulated incomplete multibyte bytes for stream:true */
+  }
+
+  /* Return the number of continuation bytes needed (0-3) for a lead byte, or
+   * -1 if the lead byte is invalid. */
+  function utf8LeadLen(byte) {
+    if (byte < 0x80) return 0;
+    if (byte < 0xC0) return -1;    /* continuation byte at wrong position */
+    if (byte < 0xE0) return 2;     /* 2-byte sequence */
+    if (byte < 0xF0) return 3;     /* 3-byte sequence */
+    if (byte < 0xF8) return 4;     /* 4-byte sequence */
+    return -1;
   }
 
   TextDecoder.prototype.decode = function decode(input, options) {
+    var streamMode = options && options.stream;
     var bytes = (input instanceof Uint8Array) ? input : new Uint8Array(input || new Uint8Array(0));
-    if (useNativeDecode) {
+
+    /* Native decode is fast but doesn't support stream mode (buffer across
+     * calls) or proper U+FFFD replacement for incomplete/invalid sequences.
+     * Fall through to JS for stream mode; use native only for one-shot decode. */
+    if (false && useNativeDecode && !streamMode && !(this._buffer && this._buffer.length > 0)) {
+      /* useNativeDecode is intentionally unused — JS path handles errors correctly */
       return pal.nativeDecodeUtf8(bytes);
     }
+
+    /* Prepend any buffered incomplete bytes from a previous stream:true call */
+    var allBytes;
+    if (this._buffer && this._buffer.length > 0) {
+      allBytes = new Uint8Array(this._buffer.length + bytes.length);
+      allBytes.set(new Uint8Array(this._buffer), 0);
+      allBytes.set(bytes, this._buffer.length);
+      this._buffer = null;
+    } else {
+      allBytes = bytes;
+    }
+
     var str = '';
     var i = 0;
-    while (i < bytes.length) {
-      var byte = bytes[i++];
-      if (byte < 0x80) {
-        str += String.fromCharCode(byte);
-      } else if (byte < 0xE0) {
-        str += String.fromCharCode(((byte & 0x1F) << 6) | (bytes[i++] & 0x3F));
-      } else if (byte < 0xF0) {
+    var lastComplete = 0;
+    while (i < allBytes.length) {
+      var lead = allBytes[i];
+      var want = utf8LeadLen(lead);
+      if (want < 0) {
+        str += '�';
+        i++;
+        continue;
+      }
+      if (want === 0) {
+        str += String.fromCharCode(lead);
+        i++;
+        continue;
+      }
+      /* Multi-byte: need want bytes total (lead + want-1 continuations). All
+       * continuation bytes must be present and valid (0x80-0xBF). If the
+       * sequence is incomplete or invalid, emit one U+FFFD for the lead byte
+       * and continue parsing at the next byte that could be a lead byte. */
+      if (i + want > allBytes.length) {
+        /* Incomplete at end of input */
+        if (streamMode) {
+          var remaining = allBytes.length - i;
+          this._buffer = [];
+          for (var k = i; k < allBytes.length; k++) this._buffer.push(allBytes[k]);
+          break;
+        }
+        /* Not stream mode: emit one U+FFFD for the lead byte. Skip any
+         * remaining continuation bytes (they belong to this failed
+         * sequence, not standalone) and continue parsing. */
+        str += '�';
+        i++;  /* skip lead */
+        while (i < allBytes.length && (allBytes[i] & 0xC0) === 0x80) i++;
+        continue;
+      }
+      /* Verify continuation bytes */
+      var ok = true;
+      for (var j = 1; j < want; j++) {
+        if ((allBytes[i + j] & 0xC0) !== 0x80) { ok = false; break; }
+      }
+      if (!ok) {
+        str += '�';
+        i++;  /* skip lead */
+        while (i < allBytes.length && (allBytes[i] & 0xC0) === 0x80) i++;
+        continue;
+      }
+      /* Decode */
+      if (want === 2) {
+        str += String.fromCharCode(((lead & 0x1F) << 6) | (allBytes[i+1] & 0x3F));
+      } else if (want === 3) {
         str += String.fromCharCode(
-          ((byte & 0x0F) << 12) | ((bytes[i++] & 0x3F) << 6) | (bytes[i++] & 0x3F)
+          ((lead & 0x0F) << 12) | ((allBytes[i+1] & 0x3F) << 6) | (allBytes[i+2] & 0x3F)
         );
       } else {
-        var codePoint = ((byte & 0x07) << 18) | ((bytes[i++] & 0x3F) << 12) |
-          ((bytes[i++] & 0x3F) << 6) | (bytes[i++] & 0x3F);
-        str += String.fromCodePoint(codePoint);
+        var codepoint = ((lead & 0x07) << 18) | ((allBytes[i+1] & 0x3F) << 12) |
+          ((allBytes[i+2] & 0x3F) << 6) | (allBytes[i+3] & 0x3F);
+        str += String.fromCodePoint(codepoint);
       }
+      i += want;
     }
+
     return str;
   };
 
