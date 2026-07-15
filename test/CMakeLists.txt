@@ -227,3 +227,14 @@ if(LIBUV_FOUND)
         set_tests_properties(test_tls PROPERTIES LABELS "network")
     endif()
 endif()
+
+# ============================================================================
+# WPT (Web Platform Tests) runner — runs vendored .any.js tests
+# Non-blocking: WPT is an upstream standard, qwrt's WinterCG subset may have
+# known gaps. Acts as a regression detector, not a pass/fail gate.
+# ============================================================================
+add_executable(wpt_runner wpt_runner.c)
+target_include_directories(wpt_runner PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(wpt_runner qwrt qwrt_mock)
+add_test(NAME wpt_runner COMMAND wpt_runner WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(wpt_runner PROPERTIES LABELS "wpt")
