@@ -109,35 +109,63 @@ export function setupTextEncoding(pal) {
         i++;
         continue;
       }
-      /* Multi-byte: need want bytes total (lead + want-1 continuations). All
-       * continuation bytes must be present and valid (0x80-0xBF). If the
-       * sequence is incomplete or invalid, emit one U+FFFD for the lead byte
-       * and continue parsing at the next byte that could be a lead byte. */
+      /* Lead-specific continuation range check (RFC 3629 / WHATWG Encoding).
+       * Overlong sequences and out-of-range continuations are caught here.
+       * Must run BEFORE the truncated check so overlong sequences produce
+       * per-byte U+FFFD (not just one for the lead). */
+      var ok = true;
+      if (want >= 2 && i + 1 < allBytes.length) {
+        var b1 = allBytes[i + 1];
+        if ((lead === 0xE0 && b1 < 0xA0) ||
+            (lead === 0xED && b1 > 0x9F) ||
+            (lead === 0xF0 && b1 < 0x90) ||
+            (lead === 0xF4 && b1 > 0x8F)) {
+          ok = false;
+        }
+      }
+      if (!ok) {
+        str += '�';
+        i++;  /* skip lead; continuation bytes caught by want<0 */
+        continue;
+      }
+      /* Multi-byte: need want bytes total (lead + want-1 continuations). */
       if (i + want > allBytes.length) {
         /* Incomplete at end of input */
         if (streamMode) {
-          var remaining = allBytes.length - i;
+          /* Buffer the lead + any available continuation bytes (up to
+           * want total). Remaining bytes (e.g. 'A' after [0xF0,0x9F])
+           * must continue to be processed. */
+          var bufWant = Math.min(want, allBytes.length - i);
           this._buffer = [];
-          for (var k = i; k < allBytes.length; k++) this._buffer.push(allBytes[k]);
-          break;
+          for (var k = i; k < i + bufWant; k++) this._buffer.push(allBytes[k]);
+          i += bufWant;
+          if (i >= allBytes.length) break;
+          continue;
         }
-        /* Not stream mode: emit one U+FFFD for the lead byte. Skip any
-         * remaining continuation bytes (they belong to this failed
-         * sequence, not standalone) and continue parsing. */
+        /* Not stream mode: emit one U+FFFD for the lead. If the
+         * available bytes after this are all valid continuation bytes,
+         * skip them (they belong to this failed lead). Otherwise each
+         * gets its own U+FFFD (overlong/invalid case). */
         str += '�';
         i++;  /* skip lead */
-        while (i < allBytes.length && (allBytes[i] & 0xC0) === 0x80) i++;
+        var availCont = 0;
+        while (i + availCont < allBytes.length &&
+               (allBytes[i + availCont] & 0xC0) === 0x80) {
+          availCont++;
+        }
+        if (availCont > 0 && availCont <= want - 1) {
+          i += availCont;  /* skip all valid continuation bytes */
+        }
         continue;
       }
-      /* Verify continuation bytes */
+      /* Verify generic continuation byte format */
       var ok = true;
-      for (var j = 1; j < want; j++) {
+      for (var j = 1; j < want && i + j < allBytes.length; j++) {
         if ((allBytes[i + j] & 0xC0) !== 0x80) { ok = false; break; }
       }
       if (!ok) {
         str += '�';
-        i++;  /* skip lead */
-        while (i < allBytes.length && (allBytes[i] & 0xC0) === 0x80) i++;
+        i++;  /* skip lead; continuation bytes caught by want<0 */
         continue;
       }
       /* Decode */
