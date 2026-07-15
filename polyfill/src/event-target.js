@@ -260,10 +260,10 @@ export function setupEventTarget() {
         }
       }
 
-      // Reset event state after dispatch
+      // Reset transient event state after dispatch (not _target — that's
+      // the event's original target, which should persist per spec).
       event._setEventPhase(0);
       event._setCurrentTarget(null);
-      event._target = null;
 
       return !event._defaultPrevented;
     }
