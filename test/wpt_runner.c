@@ -98,6 +98,42 @@ static int meta_allows_shell(const char *src, size_t len)
 static const char *PRINT_INJECT =
     "var __wpt_out = []; globalThis.print = function(s){__wpt_out.push(String(s));};";
 
+/* ---- URL test data (urltestdata-javascript-only.json, 902 bytes) ---- */
+static const char *URL_TEST_DATA_JS =
+    "var __urlTestDataJS = [\n"
+    "    \"See ../README.md for a description of the format.\",\n"
+    "    {\n"
+    "        \"input\": \"http://example.com/\\uD800\\uD801\\uDFFE\\uDFFF\\uFDD0\\uFDCF\\uFDEF\\uFDF0\\uFFFE\\uFFFF"
+    "?\\uD800\\uD801\\uDFFE\\uDFFF\\uFDD0\\uFDCF\\uFDEF\\uFDF0\\uFFFE\\uFFFF\",\n"
+    "        \"base\": null,\n"
+    "        \"href\": \"http://example.com/%EF%BF%BD%F0%90%9F%BE%EF%BF%BD%EF%B7%90%EF%B7%8F%EF%B7%AF%EF%B7%B0%EF%BF%BE"
+    "%EF%BF%BF?%EF%BF%BD%F0%90%9F%BE%EF%BF%BD%EF%B7%90%EF%B7%8F%EF%B7%AF%EF%B7%B0%EF%BF%BE%EF%BF%BF\",\n"
+    "        \"origin\": \"http://example.com\",\n"
+    "        \"protocol\": \"http:\",\n"
+    "        \"username\": \"\",\n"
+    "        \"password\": \"\",\n"
+    "        \"host\": \"example.com\",\n"
+    "        \"hostname\": \"example.com\",\n"
+    "        \"port\": \"\",\n"
+    "        \"pathname\": \"/%EF%BF%BD%F0%90%9F%BE%EF%BF%BD%EF%B7%90%EF%B7%8F%EF%B7%AF%EF%B7%B0%EF%BF%BE%EF%BF%BF\",\n"
+    "        \"search\": \"?%EF%BF%BD%F0%90%9F%BE%EF%BF%BD%EF%B7%90%EF%B7%8F%EF%B7%AF%EF%B7%B0%EF%BF%BE%EF%BF%BF\",\n"
+    "        \"hash\": \"\"\n"
+    "    }\n"
+    "];";
+
+/* ---- mock fetch for URL test data ---- */
+static const char *MOCK_FETCH_JS =
+    "var _origFetch = globalThis.fetch;\n"
+    "globalThis.fetch = function(urlOrReq) {\n"
+    "  var url = typeof urlOrReq === 'string' ? urlOrReq : urlOrReq.url;\n"
+    "  if (typeof url === 'string' && url.indexOf('urltestdata') !== -1) {\n"
+    "    var data = (typeof __urlTestDataJS !== 'undefined') ? __urlTestDataJS : [];\n"
+    "    return Promise.resolve({ json: function() { return Promise.resolve(data); } });\n"
+    "  }\n"
+    "  if (_origFetch) return _origFetch(urlOrReq);\n"
+    "  return Promise.reject(new Error('fetch not available'));\n"
+    "};\n";
+
 /* ---- run one test ---- */
 static int run_one_test(const char *test_path,
                          const char *harness_src, size_t hlen,
@@ -126,8 +162,12 @@ static int run_one_test(const char *test_path,
         pal_mock_destroy(pal); free(test_src); (*errors)++; return -1;
     }
 
-    /* ---- eval inject, harness, report, test ---- */
-    int rc = qwrt_eval(rt, PRINT_INJECT, NULL);
+        int rc = qwrt_eval(rt, PRINT_INJECT, NULL);
+    /* For URL tests, inject test data + mock fetch before harness */
+    if (strstr(test_path, "/url/")) {
+        rc = rc == 0 ? qwrt_eval(rt, URL_TEST_DATA_JS, NULL) : rc;
+        rc = rc == 0 ? qwrt_eval(rt, MOCK_FETCH_JS, NULL) : rc;
+    }
     rc = rc == 0 ? qwrt_eval(rt, harness_src, NULL) : rc;
     /* Drain microtasks: ShellTestEnvironment uses Promise.resolve().then()
      * to set all_loaded = true. Must tick here so the harness is ready
@@ -157,6 +197,10 @@ static int run_one_test(const char *test_path,
     size_t olen = strlen(out);
     if (olen > 0 && out[olen - 1] == '"') out[olen - 1] = '\0';  /* strip closing " */
     qwrt_free(out_raw);
+    /* Debug: always dump full raw output for TextDecoder tests */
+    if (strstr(test_path, "encoding")) {
+        fprintf(stderr, "[wpt-raw] %s\n", out ? out : "(null)");
+    }
 
     int tpassed = 0, tfailed = 0;
     char *line = strtok(out, "\\n");
