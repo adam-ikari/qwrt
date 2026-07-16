@@ -83,7 +83,9 @@ export function setupEventTarget() {
     }
 
     composedPath() {
-      // Simplified - just return [target] since we don't have a DOM tree
+      /* Only returns path during dispatch (eventPhase != 0). After dispatch
+       * (eventPhase === 0), returns empty array per spec. */
+      if (this._eventPhase === 0) return [];
       const path = [];
       let target = this._target;
       while (target) {

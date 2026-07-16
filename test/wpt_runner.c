@@ -129,8 +129,14 @@ static int run_one_test(const char *test_path,
     /* ---- eval inject, harness, report, test ---- */
     int rc = qwrt_eval(rt, PRINT_INJECT, NULL);
     rc = rc == 0 ? qwrt_eval(rt, harness_src, NULL) : rc;
+    /* Drain microtasks: ShellTestEnvironment uses Promise.resolve().then()
+     * to set all_loaded = true. Must tick here so the harness is ready
+     * before the shell report and test execute. */
+    qwrt_tick(rt);
     rc = rc == 0 ? qwrt_eval(rt, report_src, NULL) : rc;
     rc = rc == 0 ? qwrt_eval(rt, test_src, NULL) : rc;
+    /* Drain any microtasks queued during test execution (completion
+     * callbacks, etc.) */
     qwrt_tick(rt);
 
     if (rc != 0) {

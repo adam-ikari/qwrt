@@ -412,6 +412,7 @@
         this._eventPhase = phase;
       }
       composedPath() {
+        if (this._eventPhase === 0) return [];
         const path = [];
         let target = this._target;
         while (target) {
