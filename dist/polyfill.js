@@ -1,6 +1,8 @@
-(function(pal) {
-  // src/pal.js
-// src/console.js
+(() => {
+  // polyfill/src/pal.js
+  var pal = globalThis.__pal_inject__;
+
+  // polyfill/src/console.js
   function setupConsole(pal2) {
     const timers = /* @__PURE__ */ new Map();
     const LEVELS = {
@@ -101,7 +103,7 @@
     globalThis.console = console2;
   }
 
-  // src/performance.js
+  // polyfill/src/performance.js
   function setupPerformance(pal2) {
     const marks = /* @__PURE__ */ new Map();
     const measures = [];
@@ -234,7 +236,7 @@
     globalThis.performance = performance;
   }
 
-  // src/timers.js
+  // polyfill/src/timers.js
   function setupTimers(pal2) {
     const timerEntries = /* @__PURE__ */ new Map();
     let nextIntervalHandle = -1;
@@ -323,7 +325,7 @@
     };
   }
 
-  // src/event-target.js
+  // polyfill/src/event-target.js
   function setupEventTarget() {
     class Event2 {
       constructor(type, options) {
@@ -546,7 +548,7 @@
     globalThis.EventTarget = EventTarget2;
   }
 
-  // src/abort.js
+  // polyfill/src/abort.js
   function setupAbort() {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("AbortController requires EventTarget to be loaded first");
@@ -696,7 +698,7 @@
     globalThis.AbortSignal = AbortSignal;
   }
 
-  // src/url.js
+  // polyfill/src/url.js
   function setupURL() {
     class URLSearchParams {
       constructor(init) {
@@ -1062,7 +1064,7 @@
     globalThis.URLSearchParams = URLSearchParams;
   }
 
-  // src/encoding.js
+  // polyfill/src/encoding.js
   function setupEncoding(pal2) {
     var useNativeBtoa = typeof pal2.nativeBtoa === "function";
     var useNativeAtob = typeof pal2.nativeAtob === "function";
@@ -1146,7 +1148,7 @@
     };
   }
 
-  // src/fetch.js
+  // polyfill/src/fetch.js
   function setupFetch(pal2) {
     "use strict";
     var STATUS_TEXTS = {
@@ -1772,7 +1774,7 @@
     globalThis.fetch = fetch;
   }
 
-  // src/fs.js
+  // polyfill/src/fs.js
   function setupFS(pal2) {
     if (!globalThis.qwrt) globalThis.qwrt = {};
     var fs = {
@@ -1805,7 +1807,7 @@
     globalThis.qwrt.fs = fs;
   }
 
-  // src/storage.js
+  // polyfill/src/storage.js
   function setupStorage(pal2) {
     if (!globalThis.qwrt) globalThis.qwrt = {};
     var storage = {
@@ -1823,7 +1825,7 @@
     globalThis.qwrt.storage = storage;
   }
 
-  // src/text-encoding.js
+  // polyfill/src/text-encoding.js
   function setupTextEncoding(pal2) {
     var useNativeEncode = typeof pal2.nativeEncodeUtf8 === "function";
     var useNativeDecode = typeof pal2.nativeDecodeUtf8 === "function";
@@ -1971,7 +1973,7 @@
     globalThis.TextDecoder = TextDecoder2;
   }
 
-  // src/crypto.js
+  // polyfill/src/crypto.js
   function setupCrypto(pal2) {
     var crypto2 = {
       getRandomValues: function getRandomValues(typedArray) {
@@ -2004,7 +2006,7 @@
     globalThis.crypto = crypto2;
   }
 
-  // src/error-events.js
+  // polyfill/src/error-events.js
   function setupErrorEvents() {
     if (typeof globalThis.Event !== "function") {
       throw new Error("ErrorEvent requires Event to be loaded first");
@@ -2051,7 +2053,7 @@
     globalThis.PromiseRejectionEvent = PromiseRejectionEvent;
   }
 
-  // src/message-channel.js
+  // polyfill/src/message-channel.js
   function setupMessageChannel() {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("MessagePort requires EventTarget to be loaded first");
@@ -2168,7 +2170,7 @@
     globalThis.MessageEvent = MessageEvent;
   }
 
-  // src/streams.js
+  // polyfill/src/streams.js
   function setupStreams(pal2) {
     function ReadableStreamUnderlyingSourceDefaultCancel() {
     }
@@ -2847,7 +2849,7 @@
     globalThis.TextDecoderStream = TextDecoderStream;
   }
 
-  // src/blob-file-formdata.js
+  // polyfill/src/blob-file-formdata.js
   function setupBlobFileFormData() {
     class Blob2 {
       constructor(blobParts, options) {
@@ -3065,7 +3067,7 @@
     globalThis.FormData = FormData;
   }
 
-  // src/url-pattern.js
+  // polyfill/src/url-pattern.js
   function setupURLPattern() {
     class URLPattern {
       constructor(input, baseURL) {
@@ -3273,7 +3275,7 @@
     globalThis.URLPattern = URLPattern;
   }
 
-  // src/navigator.js
+  // polyfill/src/navigator.js
   function setupNavigatorReportError() {
     var navigator = {
       userAgent: "qwrt/1.0 (WinterCG)",
@@ -3361,7 +3363,7 @@
     });
   }
 
-  // src/crypto-subtle.js
+  // polyfill/src/crypto-subtle.js
   function setupCryptoSubtle(pal2) {
     pal2.__installCryptoSubtle__ = function() {
       installCryptoSubtle(pal2);
@@ -3685,7 +3687,7 @@
     globalThis.CryptoKey = CryptoKey;
   }
 
-  // src/structured-clone.js
+  // polyfill/src/structured-clone.js
   function setupStructuredClone() {
     globalThis.structuredClone = function structuredClone(value, options) {
       var seen = /* @__PURE__ */ new Map();
@@ -3808,7 +3810,7 @@
     }
   }
 
-  // src/index.js
+  // polyfill/src/index.js
   setupConsole(pal);
   setupPerformance(pal);
   setupTimers(pal);
@@ -3837,4 +3839,4 @@
       Promise.resolve().then(callback);
     };
   }
-})(__pal_inject__);
+})();
