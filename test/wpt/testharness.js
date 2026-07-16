@@ -484,14 +484,8 @@
      */
     function ShellTestEnvironment() {
         this.name_counter = 0;
-        this.all_loaded = false;
+        this.all_loaded = true;  /* qwrt: sync — no async loading needed */
         this.on_loaded_callback = null;
-        Promise.resolve().then(function() {
-            this.all_loaded = true;
-            if (this.on_loaded_callback) {
-                this.on_loaded_callback();
-            }
-        }.bind(this));
         this.message_list = [];
         this.message_ports = [];
     }

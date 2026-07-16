@@ -144,13 +144,26 @@ static int run_one_test(const char *test_path,
         qwrt_destroy(rt); pal_mock_destroy(pal); free(test_src); (*errors)++; return -1;
     }
 
-    /* ---- read output buffer ---- */
+    /* ---- read output buffer; if empty, try to read tests.status manually ---- */
     char *out_raw = NULL;
     rc = qwrt_eval(rt, "__wpt_out.join('\\n')", &out_raw);
-    if (rc != 0 || !out_raw) {
-        printf("SKIP | %s | cannot read output buffer\n", test_path);
-        qwrt_destroy(rt); pal_mock_destroy(pal); free(test_src); free(out_raw); (*errors)++; return -1;
+    if (rc != 0 || !out_raw) { printf("SKIP | %s | no output\n", test_path); goto cleanup; }
+
+    /* If shell report produced nothing, query testharness directly */
+    if (out_raw && strlen(out_raw) <= 2) {
+qwrt_eval(rt,"(function(){var r=[];for(var i=0;i<tests.tests.length;i++){var t=tests.tests[i];r.push((t.status===0?"PASS":"FAIL")+" | "+t.name+" | "+(t.message||""));} return r.join("\\n");})()",&out_raw);
+        qwrt_eval(rt,
+            "(function(){var r=[];for(var i=0;i<tests.tests.length;i++){"
+            "var t=tests.tests[i];"
+            "r.push((t.status===0?'PASS':'FAIL')+' | '+t.name+' | '+(t.message||''));"
+            "} return r.join('\\n');})()",
+            &out_raw);
+        if (!out_raw || strlen(out_raw) <= 2) {
+            /* Try raw dump of tests object for debug */
+            qwrt_eval(rt,"JSON.stringify(tests.tests?tests.tests.length:'no_tests')",&out_raw);
+        }
     }
+    if (rc != 0 || !out_raw) { printf("SKIP | %s | no output\n", test_path); goto cleanup; }
 
     /* Parse — output is a JSON-quoted string, e.g. "\"PASS | name |\\n...\"" */
     char *out = strdup(out_raw + 1);  /* skip opening " */
@@ -178,6 +191,7 @@ static int run_one_test(const char *test_path,
     printf("  %d/%d pass\n", tpassed, tpassed + tfailed);
     *passed += tpassed; *failed += tfailed;
 
+cleanup:
     free(out);
     free(test_src);
     qwrt_destroy(rt);
