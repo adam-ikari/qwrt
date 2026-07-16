@@ -197,11 +197,7 @@ static int run_one_test(const char *test_path,
     size_t olen = strlen(out);
     if (olen > 0 && out[olen - 1] == '"') out[olen - 1] = '\0';  /* strip closing " */
     qwrt_free(out_raw);
-    /* Debug: always dump full raw output for TextDecoder tests */
-    if (strstr(test_path, "encoding")) {
-        fprintf(stderr, "[wpt-raw] %s\n", out ? out : "(null)");
-    }
-
+    
     int tpassed = 0, tfailed = 0;
     char *line = strtok(out, "\\n");
     while (line) {
