@@ -75,16 +75,29 @@ static int meta_allows_shell(const char *src, size_t len)
             if (eol - g > 7 && strncmp(g, "global=", 7) == 0) {
                 g += 7;
                 const char *sp = g;
+                int has_shell = 0, has_worker = 0, has_window = 0;
                 while (sp < eol) {
                     while (sp < eol && (*sp == ' ' || *sp == ',' || *sp == '\t')) sp++;
                     if (eol - sp >= 5 && strncmp(sp, "shell", 5) == 0) {
                         sp += 5;
-                        if (sp >= eol || *sp == ',' || *sp == ' ' || *sp == '\t')
-                            return 1;
+                        has_shell = 1;
+                    } else if (eol - sp >= 6 && strncmp(sp, "worker", 6) == 0) {
+                        sp += 6;
+                        has_worker = 1;
+                    } else if (eol - sp >= 16 && strncmp(sp, "dedicatedworker", 16) == 0) {
+                        sp += 16;
+                        has_worker = 1;
+                    } else if (eol - sp >= 6 && strncmp(sp, "window", 6) == 0) {
+                        sp += 6;
+                        has_window = 1;
                     }
-                    while (sp < eol && *sp != ',') sp++;
+                    while (sp < eol && *sp != ',' && *sp != ' ' && *sp != '\t') sp++;
                     if (sp < eol) sp++;
                 }
+                /* Allow if no "window" restriction, or if shell/worker is listed.
+                 * Only skip when the test is explicitly window-only with no shell. */
+                if (!has_window || has_shell || has_worker)
+                    return 1;
                 return 0;
             }
         }
