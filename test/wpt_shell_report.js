@@ -1,8 +1,11 @@
 /*
- * qwrt WPT shell report — uses add_result_callback (fires per-test, does
- * NOT depend on tests.all_done() which requires async ShellTestEnvironment
- * completion). add_completion_callback may never fire if all_done conditions
- * aren't met in the QuickJS shell. Per-test results are more reliable.
+ * qwrt WPT shell report — registered as add_result_callback so each
+ * test's result is printed immediately when the test completes (does not
+ * depend on tests.all_done() or the async ShellTestEnvironment completion).
+ *
+ * Additionally register add_completion_callback to print a SUMMARY line
+ * after all tests are done, so the runner can tally results even if some
+ * callbacks were never triggered.
  */
 add_result_callback(function(test) {
     var st = "SKIP";
@@ -12,3 +15,4 @@ add_result_callback(function(test) {
     else if (test.status === 3) st = "NOTRUN";
     print(st + " | " + test.name + " | " + (test.message || ""));
 });
+
