@@ -205,17 +205,33 @@ static int run_one_test(const char *test_path,
                 const char *s = meta + 15;
                 while (s < eol && (*s == ' ' || *s == '\t')) s++;
                 char spath[WPT_MAX_PATH];
-                int p = (int)(strrchr(test_path, '/') - test_path + 1);
-                snprintf(spath, sizeof(spath), "%.*s/%.*s", p, test_path, (int)(eol-s), s);
-                /* resolve ../ */
-                char *dotdot = strstr(spath, "/../");
-                if (dotdot) {
-                    /* find the directory before /../ and remove both */
-                    *dotdot = '\0';
-                    char *prev = strrchr(spath, '/');
-                    if (prev) {
-                        memmove(prev, dotdot+3, strlen(dotdot+3)+1);
+                /* Resolve META: script= path relative to test/wpt/ */
+                size_t slen_r = (size_t)(eol - s);
+                char rel[WPT_MAX_PATH];
+                if (slen_r < sizeof(rel)) {
+                    memcpy(rel, s, slen_r);
+                    rel[slen_r] = '\0';
+                }
+                if (rel[0] == '/') {
+                    /* absolute: /common/... → test/wpt/common/... */
+                    snprintf(spath, sizeof(spath), "test/wpt%s", rel);
+                } else if (rel[0] == '.' && rel[1] == '.' && rel[2] == '/') {
+                    /* ../ → test path dir's parent */
+                    snprintf(spath, sizeof(spath), "%.*s%s",
+                             (int)(strrchr(test_path, '/') - test_path + 1),
+                             test_path, rel);
+                    /* resolve ../ */
+                    char *dotdot = strstr(spath, "/../");
+                    if (dotdot) {
+                        *dotdot = '\0';
+                        char *prev = strrchr(spath, '/');
+                        if (prev) memmove(prev, dotdot+3, strlen(dotdot+3)+1);
                     }
+                } else {
+                    /* relative: test path dir/rel */
+                    snprintf(spath, sizeof(spath), "%.*s%s",
+                             (int)(strrchr(test_path, '/') - test_path + 1),
+                             test_path, rel);
                 }
                 size_t slen = 0; char *ss = read_file(spath, &slen);
                 if (ss) { rc = rc==0?qwrt_eval(rt,ss,NULL):rc; free(ss); }
