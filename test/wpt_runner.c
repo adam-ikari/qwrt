@@ -111,41 +111,52 @@ static int meta_allows_shell(const char *src, size_t len)
 static const char *PRINT_INJECT =
     "var __wpt_out = []; globalThis.print = function(s){__wpt_out.push(String(s));};";
 
-/* ---- URL test data (urltestdata-javascript-only.json, 902 bytes) ---- */
-static const char *URL_TEST_DATA_JS =
-    "var __urlTestDataJS = [\n"
-    "    \"See ../README.md for a description of the format.\",\n"
-    "    {\n"
-    "        \"input\": \"http://example.com/\\uD800\\uD801\\uDFFE\\uDFFF\\uFDD0\\uFDCF\\uFDEF\\uFDF0\\uFFFE\\uFFFF"
-    "?\\uD800\\uD801\\uDFFE\\uDFFF\\uFDD0\\uFDCF\\uFDEF\\uFDF0\\uFFFE\\uFFFF\",\n"
-    "        \"base\": null,\n"
-    "        \"href\": \"http://example.com/%EF%BF%BD%F0%90%9F%BE%EF%BF%BD%EF%B7%90%EF%B7%8F%EF%B7%AF%EF%B7%B0%EF%BF%BE"
-    "%EF%BF%BF?%EF%BF%BD%F0%90%9F%BE%EF%BF%BD%EF%B7%90%EF%B7%8F%EF%B7%AF%EF%B7%B0%EF%BF%BE%EF%BF%BF\",\n"
-    "        \"origin\": \"http://example.com\",\n"
-    "        \"protocol\": \"http:\",\n"
-    "        \"username\": \"\",\n"
-    "        \"password\": \"\",\n"
-    "        \"host\": \"example.com\",\n"
-    "        \"hostname\": \"example.com\",\n"
-    "        \"port\": \"\",\n"
-    "        \"pathname\": \"/%EF%BF%BD%F0%90%9F%BE%EF%BF%BD%EF%B7%90%EF%B7%8F%EF%B7%AF%EF%B7%B0%EF%BF%BE%EF%BF%BF\",\n"
-    "        \"search\": \"?%EF%BF%BD%F0%90%9F%BE%EF%BF%BD%EF%B7%90%EF%B7%8F%EF%B7%AF%EF%B7%B0%EF%BF%BE%EF%BF%BF\",\n"
-    "        \"hash\": \"\"\n"
-    "    }\n"
-    "];";
+/* Inject URL test data (read from disk at runtime) before harness eval.
+ * Returns 0 on success, -1 on error. The two JSON files are evaled as
+ * global __urlTestData and __urlTestDataJSOnly, then fetch() is mocked
+ * to return them for URL tests. */
+static int inject_url_test_data(qwrt_t *rt, const char *res_dir)
+{
+    char path[WPT_MAX_PATH];
+    size_t len1 = 0, len2 = 0;
 
-/* ---- mock fetch for URL test data ---- */
-static const char *MOCK_FETCH_JS =
-    "var _origFetch = globalThis.fetch;\n"
-    "globalThis.fetch = function(urlOrReq) {\n"
-    "  var url = typeof urlOrReq === 'string' ? urlOrReq : urlOrReq.url;\n"
-    "  if (typeof url === 'string' && url.indexOf('urltestdata') !== -1) {\n"
-    "    var data = (typeof __urlTestDataJS !== 'undefined') ? __urlTestDataJS : [];\n"
-    "    return Promise.resolve({ json: function() { return Promise.resolve(data); } });\n"
-    "  }\n"
-    "  if (_origFetch) return _origFetch(urlOrReq);\n"
-    "  return Promise.reject(new Error('fetch not available'));\n"
-    "};\n";
+    snprintf(path, sizeof(path), "%s/urltestdata.json", res_dir);
+    char *j1 = read_file(path, &len1);
+    snprintf(path, sizeof(path), "%s/urltestdata-javascript-only.json", res_dir);
+    char *j2 = read_file(path, &len2);
+    if (!j1 || !j2) { free(j1); free(j2); return -1; }
+
+    /* Build a JS string defining the data and mocking fetch().
+     * Snprintf the json directly — safe since the data is valid JSON (no
+     * single quotes or backslashes that would break the JS string). */
+    size_t cap = len1 + len2 + 4096;
+    char *js = malloc(cap);
+    if (!js) { free(j1); free(j2); return -1; }
+
+    snprintf(js, cap,
+        "var __urlTestData = %s;\n"
+        "var __urlTestDataJSOnly = %s;\n"
+        "var _origFetch = globalThis.fetch;\n"
+        "globalThis.fetch = function(urlOrReq) {\n"
+        "  var url = typeof urlOrReq === 'string' ? urlOrReq : urlOrReq.url;\n"
+        "  if (typeof url === 'string') {\n"
+        "    if (url.indexOf('urltestdata.json') !== -1 && url.indexOf('javascript-only') !== -1)\n"
+        "      return Promise.resolve({json:function(){return Promise.resolve(__urlTestDataJSOnly);}});\n"
+        "    if (url.indexOf('urltestdata.json') !== -1)\n"
+        "      return Promise.resolve({json:function(){return Promise.resolve(__urlTestData);}});\n"
+        "  }\n"
+        "  if (_origFetch) return _origFetch(urlOrReq);\n"
+        "  return Promise.reject(new Error('fetch not available'));\n"
+        "};\n",
+        j1, j2);
+    free(j1); free(j2);
+
+    char *r = NULL;
+    int rc = qwrt_eval(rt, js, &r);
+    if (r) qwrt_free(r);
+    free(js);
+    return rc;
+}
 
 /* ---- run one test ---- */
 static int run_one_test(const char *test_path,
@@ -181,8 +192,7 @@ static int run_one_test(const char *test_path,
     int rc = qwrt_eval(rt, PRINT_INJECT, NULL);
     /* For URL tests, inject test data + mock fetch before harness */
     if (strstr(test_path, "/url/")) {
-        rc = rc == 0 ? qwrt_eval(rt, URL_TEST_DATA_JS, NULL) : rc;
-        rc = rc == 0 ? qwrt_eval(rt, MOCK_FETCH_JS, NULL) : rc;
+        rc = rc == 0 ? inject_url_test_data(rt, "test/wpt/url/resources") : rc;
     }
     /* Load META: script= dependencies */
     {
