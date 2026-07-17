@@ -175,11 +175,44 @@ static int run_one_test(const char *test_path,
         pal_mock_destroy(pal); free(test_src); (*errors)++; return -1;
     }
 
-        int rc = qwrt_eval(rt, PRINT_INJECT, NULL);
+    /* Load META: script= dependencies (inline <script> support files) */
+
+    /* ---- eval inject, harness, report, test ---- */
+    int rc = qwrt_eval(rt, PRINT_INJECT, NULL);
     /* For URL tests, inject test data + mock fetch before harness */
     if (strstr(test_path, "/url/")) {
         rc = rc == 0 ? qwrt_eval(rt, URL_TEST_DATA_JS, NULL) : rc;
         rc = rc == 0 ? qwrt_eval(rt, MOCK_FETCH_JS, NULL) : rc;
+    }
+    /* Load META: script= dependencies */
+    {
+        const char *meta = test_src;
+        int meta_lines = 0;
+        while (meta < test_src + test_len && meta_lines < 5) {
+            const char *eol = meta;
+            while (eol < test_src + test_len && *eol != '\n') eol++;
+            if (eol - meta > 14 && strncmp(meta, "// META: script=", 15) == 0) {
+                const char *s = meta + 15;
+                while (s < eol && (*s == ' ' || *s == '\t')) s++;
+                char spath[WPT_MAX_PATH];
+                int p = (int)(strrchr(test_path, '/') - test_path + 1);
+                snprintf(spath, sizeof(spath), "%.*s/%.*s", p, test_path, (int)(eol-s), s);
+                /* resolve ../ */
+                char *dotdot = strstr(spath, "/../");
+                if (dotdot) {
+                    /* find the directory before /../ and remove both */
+                    *dotdot = '\0';
+                    char *prev = strrchr(spath, '/');
+                    if (prev) {
+                        memmove(prev, dotdot+3, strlen(dotdot+3)+1);
+                    }
+                }
+                size_t slen = 0; char *ss = read_file(spath, &slen);
+                if (ss) { rc = rc==0?qwrt_eval(rt,ss,NULL):rc; free(ss); }
+            }
+            meta = eol + 1;
+            meta_lines++;
+        }
     }
     rc = rc == 0 ? qwrt_eval(rt, harness_src, NULL) : rc;
     /* Drain microtasks: ShellTestEnvironment uses Promise.resolve().then()
