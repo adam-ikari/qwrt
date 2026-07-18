@@ -123,7 +123,6 @@ const sidebar = {
       text: 'JS API Reference',
       items: [
         { text: 'Overview', link: '/js-api/' },
-        { text: 'PAL Injection', link: '/js-api/pal-injection' },
       ],
     },
     {

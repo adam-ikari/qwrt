@@ -54,7 +54,6 @@ flowchart TB
 |-----|--------|-------|
 | [fs](/zh/js-api/fs) | `qwrt.fs` | 文件系统操作 |
 | [storage](/zh/js-api/storage) | `qwrt.storage` | 键值存储 |
-| [PAL 注入](/zh/js-api/pal-injection) | `globalThis.__pal_inject__` | C 与 JS 之间的桥接 |
 
 ## 标准合规性
 

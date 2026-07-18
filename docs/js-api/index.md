@@ -54,7 +54,6 @@ flowchart TB
 |-----|--------|-------|
 | [fs](/js-api/fs) | `qwrt.fs` | Filesystem operations |
 | [storage](/js-api/storage) | `qwrt.storage` | Key-value storage |
-| [PAL injection](/js-api/pal-injection) | `globalThis.__pal_inject__` | Bridge between C and JS |
 
 ## Standards Compliance
 
