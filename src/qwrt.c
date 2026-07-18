@@ -24,6 +24,18 @@ qwrt_t *qwrt_create(const qwrt_config_t *config)
     }
 
     qwrt_pal_t *pal = (qwrt_pal_t *)config->pal;
+
+    /* When TLS or crypto extension is compiled in, the PAL MUST provide
+     * cryptographically-secure random bytes (random_bytes). Without it,
+     * there is no source of entropy — HTTPS and crypto.subtle cannot
+     * operate securely. Reject at create time rather than silently
+     * falling back to insecure defaults. */
+#if QWRT_WITH_TLS || QWRT_WITH_CRYPTO_EXT
+    if (!pal->random_bytes) {
+        return NULL;
+    }
+#endif
+
     qwrt_t *rt = NULL;
 
     /* Allocate qwrt_t via pal->mem_alloc if available, else malloc */
