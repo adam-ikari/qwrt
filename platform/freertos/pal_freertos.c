@@ -359,7 +359,6 @@ static void http_task(void *arg)
     char *host = NULL;
     int port = 80;
     char *path = NULL;
-    int use_tls = 0;
     int sock = -1;
     char *resp_buf = NULL;
     size_t resp_buf_len = 0;
@@ -378,7 +377,7 @@ static void http_task(void *arg)
         host    = parts.host;
         port    = parts.port;
         path    = parts.path;
-        use_tls = parts.tls;
+
         /* parts fields are now owned by local vars — do NOT call pal_url_free */
     }
 
