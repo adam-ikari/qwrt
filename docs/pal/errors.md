@@ -1,3 +1,8 @@
+---
+title: PAL Error Codes
+description: Standardized qwrt_pal_err_t error codes for Qwrt.js PAL implementations — QWRT_OK, QWRT_ERR_IO, QWRT_ERR_NETWORK, and more.
+---
+
 # PAL Error Codes
 
 All PAL methods use standardized error codes from the `qwrt_pal_err_t` enum. Return these instead of magic numbers like `-1`, `-2`, etc.

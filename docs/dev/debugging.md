@@ -1,3 +1,8 @@
+---
+title: Debugging
+description: Debug Qwrt.js with the DAP debugger — breakpoints, step-through, variable inspection, and VS Code integration.
+---
+
 # Debugging qwrt programs with VS Code
 
 qwrt ships a **DAP (Debug Adapter Protocol)** step-debugger built into the

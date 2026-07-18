@@ -1,3 +1,8 @@
+---
+title: MessageChannel
+description: The MessageChannel API in Qwrt.js — structured clone, port messaging, and inter-context communication.
+---
+
 # MessageChannel / MessagePort
 
 WHATWG Channel Messaging API for communication between execution contexts. `MessageChannel` creates two connected ports; `MessagePort` sends and receives messages.

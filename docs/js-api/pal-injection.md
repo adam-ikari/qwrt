@@ -1,3 +1,8 @@
+---
+title: PAL Injection
+description: How the Qwrt.js bridge layer injects the PAL as a JavaScript object — __pal_inject__ mechanism and bridge layer discipline.
+---
+
 # PAL Injection (`__pal_inject__`)
 
 The `__pal_inject__` mechanism is the bridge between the C PAL layer and the JavaScript WinterCG modules. It's how `pal.*` functions become available inside JS code.

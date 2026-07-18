@@ -1,3 +1,8 @@
+---
+title: pal_uv (libuv)
+description: The libuv-based PAL backend for Qwrt.js on Linux and macOS — event loop integration, HTTP/HTTPS, timers, and filesystem.
+---
+
 # pal_uv — libuv Backend
 
 The production PAL for Linux and macOS. Uses libuv for the event loop and TCP, mbedTLS for HTTPS, and POSIX APIs for filesystem operations.

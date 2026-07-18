@@ -1,3 +1,8 @@
+---
+title: Runtime Lifecycle
+description: Qwrt.js runtime lifecycle — create, configure, use, and destroy. Understand qwrt_create, qwrt_destroy, qwrt_reset, and the event loop.
+---
+
 # Runtime Lifecycle
 
 Every qwrt program follows the same lifecycle: **create → use → destroy**.
@@ -19,10 +24,9 @@ if (!rt) {
 1. Calls `pal->init(pal)` if the hook is provided
 2. Creates a JSRuntime and initial context
 3. Registers the build-time extension set (the `QWRT_EXTENSIONS` table —
-   built-ins like compress/crypto/textcodec/wasm3 when their `QWRT_WITH_*` is on,
+   built-ins like compress/crypto/textcodec/wamr when their `QWRT_WITH_*` is on,
    plus any user extensions added via `QWRT_EXTRA_SOURCES`)
 4. Injects the WinterCG-compatible runtime into the initial context
-5. Injects the WinterCG-compatible runtime into the initial context
 
 The PAL must outlive the runtime. `qwrt_destroy` does NOT free the PAL — the caller owns it.
 

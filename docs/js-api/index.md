@@ -1,3 +1,8 @@
+---
+title: JS API Reference
+description: Complete JavaScript API reference for Qwrt.js — WinterCG-compatible Web APIs including fetch, crypto, streams, timers, URL, and more.
+---
+
 # JS API Reference
 
 qwrt provides a WinterCG-compatible JavaScript API surface through its WinterCG modules. All globals listed here are available in any `qwrt_eval()` or `qwrt_eval_bytecode()` call without requiring `require()` or `import`.

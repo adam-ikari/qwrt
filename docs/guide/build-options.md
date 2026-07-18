@@ -1,3 +1,8 @@
+---
+title: Build Options
+description: Complete reference of Qwrt.js CMake options — QWRT_WITH_* feature toggles, QWRT_PAL_* platform backends, and QWRT_BUILD_* targets.
+---
+
 # Build Options
 
 qwrt's CMake options live on **two separate levels**: `QWRT_PAL_*` selects the
@@ -19,7 +24,10 @@ runtime. They do **not** select a platform backend.
 | `QWRT_WITH_COMPRESS` | ON | miniz compression extension. Adds gzip/zlib/deflate to the JS API. |
 | `QWRT_WITH_CRYPTO_EXT` | ON | `crypto.subtle` extension: SHA-256/384/512, HMAC, PBKDF2, AES-GCM via mbedTLS. May be used without TLS (HTTP-only); required by `QWRT_WITH_TLS`. When OFF, `crypto.subtle` is `undefined` (no JS fallback). |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8 and Base64 TextEncoder/TextDecoder. |
-| `QWRT_WITH_WASM3` | ON | wasm3 WebAssembly interpreter. Lightweight, no JIT. |
+| `QWRT_WITH_WAMR` | ON | WAMR WebAssembly engine (Fast Interpreter + AOT). Default WASM engine. |
+| `QWRT_WITH_WASM3` | OFF | wasm3 WebAssembly interpreter (alternative, more portable). |
+
+**Note:** `QWRT_WITH_WAMR` and `QWRT_WITH_WASM3` are mutually exclusive — both register the `WebAssembly` global.
 
 ## PAL Backends (`QWRT_PAL_*`)
 
@@ -49,7 +57,7 @@ implementation.
 cmake -B build -DCMAKE_BUILD_TYPE=Debug \
       -DQWRT_BUILD_TESTS=ON -DQWRT_WITH_TLS=ON \
       -DQWRT_WITH_COMPRESS=ON -DQWRT_WITH_CRYPTO_EXT=ON \
-      -DQWRT_WITH_TEXTCODEC=ON -DQWRT_WITH_WASM3=ON
+      -DQWRT_WITH_TEXTCODEC=ON -DQWRT_WITH_WAMR=ON
 ```
 
 ### Minimal (embedded, no networking)
@@ -58,7 +66,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug \
 cmake -B build -DCMAKE_BUILD_TYPE=MinSizeRel \
       -DQWRT_WITH_TLS=OFF -DQWRT_WITH_COMPRESS=OFF \
       -DQWRT_WITH_CRYPTO_EXT=OFF -DQWRT_WITH_TEXTCODEC=OFF \
-      -DQWRT_WITH_WASM3=OFF -DQWRT_PAL_UV=OFF
+      -DQWRT_WITH_WAMR=OFF -DQWRT_PAL_UV=OFF
 ```
 
 ### Release (production, all features)
@@ -67,7 +75,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=MinSizeRel \
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
       -DQWRT_WITH_TLS=ON -DQWRT_WITH_COMPRESS=ON \
       -DQWRT_WITH_CRYPTO_EXT=ON -DQWRT_WITH_TEXTCODEC=ON \
-      -DQWRT_WITH_WASM3=ON
+      -DQWRT_WITH_WAMR=ON
 ```
 
 ## Compiler Flags
@@ -95,4 +103,3 @@ static JSValue my_callback(JSContext *ctx, JSValue this_val,
 | `build/lib/libqwrt_mock.a` | Mock PAL backend |
 | `build/lib/libqwrt_freertos.a` | FreeRTOS PAL backend |
 | `build/test/test_*` | Test binaries (when `QWRT_BUILD_TESTS=ON`) |
-| `build/cmake/libqwrt.pc` | pkg-config file for downstream consumers |

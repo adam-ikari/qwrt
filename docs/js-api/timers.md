@@ -1,3 +1,8 @@
+---
+title: timers
+description: Timer APIs in Qwrt.js — setTimeout, clearTimeout, setInterval, clearInterval, and microtask scheduling.
+---
+
 # Timers API
 
 Standard `setTimeout` / `setInterval` with millisecond resolution. Backed by PAL `timer_start` / `timer_stop`.

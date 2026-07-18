@@ -1,3 +1,8 @@
+---
+title: JS Execution
+description: How Qwrt.js evaluates JavaScript — qwrt_eval, bytecode evaluation, result handling, error propagation, and promise support.
+---
+
 # JS Execution
 
 qwrt provides three ways to run JavaScript: evaluate source code, evaluate bytecode, and call named functions.

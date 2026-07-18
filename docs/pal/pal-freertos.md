@@ -1,3 +1,8 @@
+---
+title: pal_freertos (ESP32)
+description: The FreeRTOS PAL backend for Qwrt.js on ESP32-S3 — WiFi, TCP/TLS, filesystem, and low-power operation.
+---
+
 # pal_freertos — FreeRTOS Backend
 
 The FreeRTOS PAL targets ESP32-S3 and similar microcontrollers. Uses lwIP sockets for networking and FreeRTOS primitives for timers and synchronization.

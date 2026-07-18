@@ -1,3 +1,8 @@
+---
+title: Async Operations
+description: Asynchronous PAL operations in Qwrt.js — callback-based I/O, timer integration, and the deferred callback queue.
+---
+
 # Async Operations
 
 Most PAL methods are asynchronous — they start an operation and deliver the result later via a callback. This page explains the patterns for implementing async operations correctly.

@@ -1,3 +1,8 @@
+---
+title: fetch
+description: The fetch API in Qwrt.js — HTTP and HTTPS requests, headers, streaming responses, AbortController, and WinterCG compatibility.
+---
+
 # fetch API
 
 The WHATWG Fetch API with streaming support. Uses `pal.httpRequestStream` for chunked transfer encoding and `pal.httpRequest` as a fallback.

@@ -1,3 +1,8 @@
+---
+title: console
+description: The console API in Qwrt.js — console.log, console.error, console.warn, and structured logging.
+---
+
 # console API
 
 The WHATWG Console standard for logging and debugging.

@@ -1,3 +1,8 @@
+---
+title: PAL Overview
+description: Qwrt.js Platform Abstraction Layer — a thin vtable of ~30 function pointers enabling the same JS runtime across Linux, macOS, and ESP32-S3.
+---
+
 # PAL — Platform Abstraction Layer
 
 The Platform Abstraction Layer is the heart of qwrt's portability. It's a struct of ~30 function pointers that every backend must implement. Three backends ship with qwrt; you can add your own.

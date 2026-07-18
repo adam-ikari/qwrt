@@ -1,3 +1,8 @@
+---
+title: pal_mock (Testing)
+description: The mock PAL backend for deterministic Qwrt.js testing — no network, no system calls, fully controllable responses.
+---
+
 # pal_mock — Mock Backend
 
 The mock PAL is a pure-C, dependency-free implementation used for testing and as a reference for PAL authors. All operations are synchronous and in-memory.

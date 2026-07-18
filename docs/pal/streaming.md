@@ -1,3 +1,8 @@
+---
+title: Streaming HTTP
+description: Streaming HTTP response handling in Qwrt.js PAL — on_headers, on_data, on_end callbacks, and chunked transfer encoding.
+---
+
 # Streaming HTTP
 
 Streaming HTTP responses are delivered through `qwrt_pal_stream_ops_t` — three callbacks instead of one. This enables chunked transfer encoding, Server-Sent Events (SSE), and LLM streaming.

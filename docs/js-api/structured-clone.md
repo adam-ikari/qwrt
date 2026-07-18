@@ -1,3 +1,8 @@
+---
+title: structuredClone
+description: The structuredClone API in Qwrt.js — deep cloning of JavaScript objects with transferable support.
+---
+
 # structuredClone
 
 Deep cloning of JavaScript values using the structured clone algorithm. Handles circular references, typed arrays, Date, Map, Set, ArrayBuffer, and more.

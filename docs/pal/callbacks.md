@@ -1,3 +1,8 @@
+---
+title: PAL Callback Types
+description: PAL callback types in Qwrt.js — qwrt_pal_cb_t for one-shot operations and qwrt_pal_stream_ops_t for streaming HTTP responses.
+---
+
 # PAL Callback Types
 
 The PAL uses two callback types: a single-shot completion callback and a streaming callback trio.

@@ -1,3 +1,8 @@
+---
+title: streams
+description: The Streams API in Qwrt.js — ReadableStream, WritableStream, TransformStream, piping, and backpressure.
+---
+
 # ReadableStream / WritableStream
 
 WHATWG Streams API for incremental data processing. `ReadableStream` is used internally by `fetch()` for streaming HTTP responses. `WritableStream` and `TransformStream` provide stream pipeline primitives.

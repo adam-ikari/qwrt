@@ -1,3 +1,8 @@
+---
+title: Embedding Patterns
+description: Patterns for embedding Qwrt.js in C applications — host data, custom extensions, PAL integration, and multi-instance setups.
+---
+
 # Embedding Patterns
 
 Common patterns for embedding qwrt in C applications.

@@ -1,3 +1,8 @@
+---
+title: TextEncoder / TextDecoder
+description: The Encoding API in Qwrt.js — TextEncoder, TextDecoder, UTF-8 encoding/decoding, streaming decode, and fatal error mode.
+---
+
 # TextEncoder / TextDecoder
 
 WHATWG Encoding API for converting between strings and byte arrays using standard character encodings.

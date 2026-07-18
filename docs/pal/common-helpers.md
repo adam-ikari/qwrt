@@ -1,3 +1,8 @@
+---
+title: Shared PAL Helpers
+description: Shared utility functions for Qwrt.js PAL implementations — JSON helpers, string utilities, and common patterns.
+---
+
 # Shared PAL Helpers
 
 `pal_common.h` and `pal_common.c` provide shared utilities used by all three built-in PAL implementations. Use them in your own PAL to avoid duplicating JSON construction and URL parsing code.

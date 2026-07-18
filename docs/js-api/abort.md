@@ -1,3 +1,8 @@
+---
+title: AbortController
+description: The AbortController API in Qwrt.js — AbortController, AbortSignal, fetch cancellation, and timeout patterns.
+---
+
 # AbortController / AbortSignal / DOMException
 
 The WHATWG AbortController API for cancelling async operations. Used with `fetch()` to abort in-flight requests.

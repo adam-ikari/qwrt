@@ -1,3 +1,8 @@
+---
+title: storage
+description: The storage API in Qwrt.js — key-value persistence with getItem, setItem, removeItem, and clear.
+---
+
 # storage — Key-Value Storage API
 
 qwrt extension API for persistent key-value storage. Exposed as methods on `qwrt.storage`.

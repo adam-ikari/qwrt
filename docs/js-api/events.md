@@ -1,3 +1,8 @@
+---
+title: EventTarget / Event
+description: The EventTarget and Event APIs in Qwrt.js — addEventListener, dispatchEvent, CustomEvent, and event propagation.
+---
+
 # EventTarget / Event / CustomEvent / ErrorEvent
 
 The WHATWG DOM Events subset (no DOM nodes). `EventTarget` provides a mixin for `addEventListener` / `dispatchEvent` patterns. `ErrorEvent` integrates with `navigator.reportError`.

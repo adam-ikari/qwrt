@@ -19,7 +19,7 @@ features:
     details: Embeddable in any C99 codebase. No host compiler requirements beyond C99.
   - icon: 📦
     title: Zero System Dependencies
-    details: QuickJS-ng, mbedTLS, miniz, libuv, wasm3 — all built from source via CMake. No system packages required.
+    details: QuickJS-ng, mbedTLS, miniz, libuv, WAMR — all built from source via CMake. No system packages required.
   - icon: 🌐
     title: WinterCG Compatible
     details: A WinterCG-compatible JavaScript runtime — the standard Web APIs embedders expect, precompiled to bytecode.
@@ -86,7 +86,7 @@ flowchart TB
         PAL --> PalFR["pal_freertos (ESP-IDF)"]
         PAL --> PalMock["pal_mock (testing)"]
         JS["WinterCG modules: fetch · console · crypto · streams · timers · …"]
-        ExtList["Extensions: compress · crypto · textcodec · wasm3"]
+        ExtList["Extensions: compress · crypto · textcodec · wamr"]
         Bridge -.injects.-> JS
         Ext -.registers.-> ExtList
     end

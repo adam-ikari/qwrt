@@ -1,3 +1,8 @@
+---
+title: ESP32-S3 Porting Design
+description: Qwrt.js ESP32-S3 porting design — FreeRTOS PAL backend, WiFi integration, memory constraints, and ESP-IDF build system.
+---
+
 # qwrt ESP32-S3 Porting Design
 
 > **Status:** Approved

@@ -1,3 +1,8 @@
+---
+title: Extensions
+description: Build-time native C extensions for Qwrt.js — qwrt_ext_t interface, QWRT_EXTENSIONS macro, lifecycle hooks, and per-runtime data.
+---
+
 # Extensions
 
 Extensions are native C modules that add global objects and functions to JS contexts. They implement the `qwrt_ext_t` interface with lifecycle hooks.
@@ -9,7 +14,10 @@ Extensions are native C modules that add global objects and functions to JS cont
 | `ext_compress` | `QWRT_WITH_COMPRESS` | gzip/zlib/deflate compression |
 | `ext_crypto` | `QWRT_WITH_CRYPTO_EXT` | SHA, HMAC, PBKDF2, AES-GCM |
 | `ext_textcodec` | `QWRT_WITH_TEXTCODEC` | UTF-8, Base64 encode/decode |
-| `ext_wasm3` | `QWRT_WITH_WASM3` | WebAssembly via wasm3 |
+| `ext_wamr` | `QWRT_WITH_WAMR` | WebAssembly via WAMR (default) |
+| `ext_wasm3` | `QWRT_WITH_WASM3` | WebAssembly via wasm3 (optional) |
+
+**Note:** `ext_wamr` and `ext_wasm3` are mutually exclusive — both register the `WebAssembly` global, so only one can be enabled per build.
 
 Built-in extensions are automatically registered on every new context.
 
@@ -78,7 +86,7 @@ registration API — the extension set is fixed when the qwrt library is compile
 
 ### Built-in extensions
 
-Built-in extensions (compress/crypto/textcodec/wasm3) are auto-registered when
+Built-in extensions (compress/crypto/textcodec/wamr) are auto-registered when
 their `QWRT_WITH_*` CMake option is on. They appear in `QWRT_DEFAULT_EXTENSIONS`
 as conditional slots (a disabled built-in becomes a NULL slot that's skipped at
 init).

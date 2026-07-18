@@ -1,3 +1,8 @@
+---
+title: fs (Filesystem)
+description: The filesystem API in Qwrt.js — readFile, writeFile, stat, directory operations, and PAL-backed file I/O.
+---
+
 # fs — Filesystem API
 
 qwrt extension API for reading and writing files. Exposed as methods on `qwrt.fs`.

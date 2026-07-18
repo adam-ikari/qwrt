@@ -1,3 +1,8 @@
+---
+title: Blob / File / FormData
+description: Binary data APIs in Qwrt.js — Blob, File, FormData, text(), arrayBuffer(), and multipart form handling.
+---
+
 # Blob / File / FormData
 
 File API subset for working with binary data. `Blob` provides immutable raw data, `File` extends it with metadata, and `FormData` builds multipart form submissions.

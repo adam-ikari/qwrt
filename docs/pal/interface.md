@@ -1,3 +1,8 @@
+---
+title: PAL Interface Reference
+description: Complete reference of the qwrt_pal_t interface — function pointers, callback types, streaming operations, and lifetime requirements.
+---
+
 # PAL Interface Reference
 
 Complete reference for every field in `qwrt_pal_t`.

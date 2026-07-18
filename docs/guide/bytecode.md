@@ -1,3 +1,8 @@
+---
+title: Bytecode Compilation
+description: Precompile JavaScript to QuickJS bytecode in Qwrt.js — qjsc workflow, polyfill injection, and bytecode evaluation.
+---
+
 # Bytecode Compilation
 
 qwrt can compile JavaScript to QuickJS bytecode for faster startup and smaller deployment size.

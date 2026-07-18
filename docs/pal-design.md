@@ -1,3 +1,8 @@
+---
+title: PAL Design
+description: Qwrt.js Platform Abstraction Layer design document — vtable contract, callback model, streaming design, and backend requirements (Chinese).
+---
+
 # qwrt — 可嵌入 QuickJS + WinterCG 运行时 设计文档 (Design Doc — 中文)
 
 > **Note**: This document is in Chinese. For English documentation, see the [PAL docs](/pal/) and [guide](/guide/).

@@ -1,3 +1,8 @@
+---
+title: performance
+description: The performance API in Qwrt.js — performance.now() for high-resolution timestamps and performance measurement.
+---
+
 # performance
 
 High-resolution time measurement API. Provides `now()`, `timeOrigin`, and `mark()`/`measure()` for performance profiling.

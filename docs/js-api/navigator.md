@@ -1,3 +1,8 @@
+---
+title: navigator
+description: The navigator API in Qwrt.js — platform and runtime information, user agent, and hardware concurrency.
+---
+
 # navigator
 
 WinterCG `navigator` global providing runtime identification and hardware concurrency. Minimal compared to browser `navigator` — no DOM, no user agent sniffing.

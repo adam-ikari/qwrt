@@ -1,3 +1,8 @@
+---
+title: Event Loop
+description: Qwrt.js event loop — qwrt_tick, deferred callbacks, PAL run_cycle integration, microtask draining, and async operation patterns.
+---
+
 # Event Loop
 
 qwrt is single-threaded. All async operations (HTTP requests, file I/O, timers) are driven by a cooperative event loop.

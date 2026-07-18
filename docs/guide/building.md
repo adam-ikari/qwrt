@@ -1,3 +1,8 @@
+---
+title: Building
+description: CMake build options for Qwrt.js — feature toggles, PAL backends, C99 toolchain, and example configurations for development and production.
+---
+
 # Building
 
 qwrt uses CMake with feature toggles. All dependencies are built from source — no system packages required.
@@ -21,7 +26,10 @@ Build types: `Release` (optimized), `Debug` (with symbols and assertions), `RelW
 | `QWRT_WITH_COMPRESS` | ON | miniz compression/decompression extension |
 | `QWRT_WITH_CRYPTO_EXT` | ON | `crypto.subtle` (SHA, HMAC, PBKDF2, AES-GCM) |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8 / Base64 encoder/decoder |
-| `QWRT_WITH_WASM3` | ON | wasm3 WebAssembly interpreter |
+| `QWRT_WITH_WAMR` | ON | WAMR WebAssembly engine (Fast Interp + AOT, default) |
+| `QWRT_WITH_WASM3` | OFF | wasm3 WebAssembly engine (alternative, lighter weight) |
+
+**Note:** `QWRT_WITH_WAMR` and `QWRT_WITH_WASM3` are mutually exclusive — only one WASM engine can be enabled at a time.
 
 ### PAL Backends (`QWRT_PAL_*`)
 
@@ -40,12 +48,12 @@ Build types: `Release` (optimized), `Debug` (with symbols and assertions), `RelW
 
 ## Example Configurations
 
-### Minimal (no TLS, no compression)
+### Minimal (no TLS, no compression, stub WASM)
 
 ```bash
 cmake -B build -DQWRT_WITH_TLS=OFF -DQWRT_WITH_COMPRESS=OFF \
       -DQWRT_WITH_CRYPTO_EXT=OFF -DQWRT_WITH_TEXTCODEC=OFF \
-      -DQWRT_WITH_WASM3=OFF
+      -DQWRT_WITH_WAMR=OFF
 ```
 
 ### Full Development Build
@@ -54,9 +62,16 @@ cmake -B build -DQWRT_WITH_TLS=OFF -DQWRT_WITH_COMPRESS=OFF \
 cmake -B build -DCMAKE_BUILD_TYPE=Debug \
       -DQWRT_BUILD_TESTS=ON -DQWRT_WITH_TLS=ON \
       -DQWRT_WITH_COMPRESS=ON -DQWRT_WITH_CRYPTO_EXT=ON \
-      -DQWRT_WITH_TEXTCODEC=ON -DQWRT_WITH_WASM3=ON
+      -DQWRT_WITH_TEXTCODEC=ON -DQWRT_WITH_WAMR=ON
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
+```
+
+### wasm3 Alternative Engine
+
+```bash
+cmake -B build -DQWRT_WITH_WAMR=OFF -DQWRT_WITH_WASM3=ON
+cmake --build build -j$(nproc)
 ```
 
 ## C Standard Isolation
@@ -72,7 +87,6 @@ qwrt and all its dependencies build under **strict C99** (`-std=c99`). quickjs-n
 | `libqwrt_mock.a` | `build/lib/` (when `QWRT_PAL_MOCK`) |
 | `libqwrt_freertos.a` | `build/lib/` (when `QWRT_PAL_FREERTOS`) |
 | Test binaries | `build/test/` |
-| pkg-config | `build/cmake/libqwrt.pc` |
 
 ## ESP32-S3 Build
 

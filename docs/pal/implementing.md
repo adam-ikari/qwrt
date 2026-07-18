@@ -1,3 +1,8 @@
+---
+title: Implementing a PAL
+description: Step-by-step guide to implementing a custom Qwrt.js PAL backend — required functions, optional hooks, async patterns, and testing.
+---
+
 # Implementing a PAL
 
 Step-by-step guide to implementing your own Platform Abstraction Layer backend.
