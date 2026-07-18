@@ -1441,6 +1441,7 @@ typedef struct {
     void *cb_data;
     pal_freertos_t *pf;
     int repeat;
+    int deleted;       /* set to 1 by timer_stop before free(); callback checks this */
     TimerHandle_t handle;
 } pal_freertos_timer_op_t;
 
@@ -1452,7 +1453,7 @@ typedef struct {
 static void freertos_timer_fire(void *data)
 {
     pal_freertos_timer_op_t *op = (pal_freertos_timer_op_t *)data;
-    if (op && op->cb) {
+    if (op && !op->deleted && op->cb) {
         op->cb(op->cb_data, 0, NULL, 0);
     }
 }
@@ -1534,8 +1535,19 @@ static void pal_freertos_timer_stop(qwrt_pal_t *pal, void *handle)
 
     pal_freertos_timer_op_t *op = (pal_freertos_timer_op_t *)handle;
 
-    xTimerStop(op->handle, 0);
-    xTimerDelete(op->handle, 0);
+    /* Mark as deleted BEFORE stopping — if the callback fires after this
+     * point, freertos_timer_fire sees `deleted` and skips the deferred
+     * enqueue, avoiding UAF on op. */
+    op->deleted = 1;
+
+    /* Stop the timer synchronously (block until the timer command is
+     * processed by the FreeRTOS timer task). Block-time portMAX_DELAY
+     * ensures the timer daemon has processed the stop before we proceed,
+     * so the callback won't fire after this call. */
+    if (xTimerIsTimerActive(op->handle)) {
+        xTimerStop(op->handle, portMAX_DELAY);
+    }
+    xTimerDelete(op->handle, portMAX_DELAY);
 
     /* Remove from tracked timers */
     int i;
@@ -1784,8 +1796,8 @@ void pal_freertos_destroy(pal_freertos_t *pf)
     int i;
     for (i = 0; i < pf->timer_count; i++) {
         if (pf->timers[i]) {
-            xTimerStop(pf->timers[i], 0);
-            xTimerDelete(pf->timers[i], 0);
+            xTimerStop(pf->timers[i], portMAX_DELAY);
+            xTimerDelete(pf->timers[i], portMAX_DELAY);
         }
     }
 
