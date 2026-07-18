@@ -73,6 +73,7 @@ const sidebar = {
         { text: 'Bytecode Compilation', link: '/guide/bytecode' },
         { text: 'Build Options', link: '/guide/build-options' },
         { text: 'Embedding Patterns', link: '/guide/embedding' },
+        { text: 'Testing', link: '/dev/testing' },
         { text: 'Debugging', link: '/dev/debugging' },
       ],
     },
