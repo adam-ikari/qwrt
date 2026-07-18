@@ -381,7 +381,7 @@ static int run_one_test(const char *test_path,
                 if (chk) qwrt_free(chk);
             }
             if (!verified) {
-                printf("  FAIL | %s\n", line + 7);
+                printf("  FAIL | %s | %s\n", test_path, line + 7);
                 tfailed++;
             }
         } else if (strncmp(line, "TIMEOUT | ", 10) == 0) {
