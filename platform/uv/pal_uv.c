@@ -1291,6 +1291,11 @@ static int process_chunked_body(pal_uv_http_op_t *op,
             /* Parse chunk size (hex, may have extensions after ;) */
             size_t chunk_size = (size_t)strtoul(size_buf, NULL, 16);
 
+            /* Reject oversized chunks (DoS protection — matches streaming path) */
+            if (errno == ERANGE || chunk_size > PAL_UV_MAX_CHUNK_SIZE) {
+                return -1; /* chunk too large or overflow */
+            }
+
             if (chunk_size == 0) {
                 /* Final chunk - skip trailing \r\n and we're done */
                 p = eol + 2;
