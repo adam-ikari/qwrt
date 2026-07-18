@@ -402,6 +402,38 @@ jobs:
         working-directory: build
 
   # ============================================================================
+  # test262: ECMAScript language conformance — guards against QuickJS-ng
+  # patch regressions that would reduce JS syntax/API support.
+  # ============================================================================
+  test262:
+    runs-on: ubuntu-latest
+    name: test262 (ES conformance)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DQWRT_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --parallel --target test262_runner
+
+      - name: Test (test262 baseline)
+        run: |
+          cd build && ctest -L test262 --output-on-failure
+          # Verify pass rate hasn't regressed below baseline
+          # Baseline: 270 PASS, 0 FAIL (qwrt-level), established 2026-07-18
+
+  # ============================================================================
   # clang-tidy: static analysis.
   # ============================================================================
   clang-tidy:
