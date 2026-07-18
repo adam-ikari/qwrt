@@ -240,6 +240,12 @@ target_link_libraries(wpt_runner qwrt qwrt_mock)
 add_test(NAME wpt_runner COMMAND wpt_runner WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(wpt_runner PROPERTIES LABELS "wpt")
 
+# npm compatibility checker — evaluates JS code in qwrt runtime
+# to verify API compatibility
+add_executable(compat_check compat_check.c)
+target_include_directories(compat_check PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(compat_check qwrt qwrt_mock)
+
 
 # test262 — uses QuickJS-ng's own run-test262 runner and test262.conf
 # to run ECMAScript conformance tests directly against the engine
