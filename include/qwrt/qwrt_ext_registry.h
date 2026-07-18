@@ -27,6 +27,7 @@
 #include <qwrt/ext_compress.h>
 #include <qwrt/ext_crypto.h>
 #include <qwrt/ext_textcodec.h>
+#include <qwrt/ext_wamr.h>
 #include <qwrt/ext_wasm3.h>
 
 /* QWRT_EXT_IF_WITH(FEATURE, ptr): when QWRT_WITH_<FEATURE> == 1, expands to
@@ -47,13 +48,14 @@
 #define QWRT_EXT_IF_WITH_1(feature, ptr) QWRT_EXT_IF_WITH_2(QWRT_WITH_##feature, ptr)
 #define QWRT_EXT_IF_WITH(feature, ptr) QWRT_EXT_IF_WITH_1(feature, ptr)
 
-/* qwrt's built-in default set. wasm3 is the WASM engine; it's listed when
- * QWRT_WITH_WASM3 is on (the default). */
+/* qwrt's built-in default set. wamr is the default WASM engine (Fast Interp +
+ * AOT); wasm3 is optional (list &qwrt_wasm3_ext in QWRT_EXTENSIONS override
+ * with QWRT_WITH_WASM3=ON, QWRT_WITH_WAMR=OFF). */
 #define QWRT_DEFAULT_EXTENSIONS \
     QWRT_EXT_IF_WITH(COMPRESS,   &qwrt_compress_ext) \
     QWRT_EXT_IF_WITH(CRYPTO_EXT, &qwrt_crypto_ext)   \
     QWRT_EXT_IF_WITH(TEXTCODEC,  &qwrt_textcodec_ext) \
-    QWRT_EXT_IF_WITH(WASM3,      &qwrt_wasm3_ext)
+    QWRT_EXT_IF_WITH(WAMR,       &qwrt_wamr_ext)
 
 /* The effective extension set. Overridable by:
  *   (a) parent-project CMake variable (recommended, non-invasive);

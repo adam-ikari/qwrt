@@ -86,6 +86,11 @@ struct qwrt_t {
     JSClassID wasm3_global_class_id;
     void *wasm3_env;   /* IM3Environment */
 #endif
+#ifdef QWRT_HAS_WAMR
+    JSClassID wamr_module_class_id;
+    JSClassID wamr_instance_class_id;
+    JSClassID wamr_global_class_id;
+#endif
 
 #ifdef QWRT_DEBUG_SUPPORT
     /* DAP debugger session (NULL when no debugger attached). Opaque here to

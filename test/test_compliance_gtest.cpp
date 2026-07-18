@@ -2075,8 +2075,8 @@ protected:
     WasmTestBase() : rt(nullptr), pal(nullptr) {}
 
     void SetUp() override {
-#if !defined(QWRT_HAS_WASM3)
-        GTEST_SKIP() << "No WASM engine linked (QWRT_HAS_WASM3 not defined)";
+#if !defined(QWRT_HAS_WAMR) && !defined(QWRT_HAS_WASM3)
+        GTEST_SKIP() << "No WASM engine linked (neither QWRT_HAS_WAMR nor QWRT_HAS_WASM3 defined)";
         return;
 #endif
         pal = pal_mock_create();
