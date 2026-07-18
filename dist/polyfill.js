@@ -1874,7 +1874,7 @@
         this._decoder = "utf8";
       } else if (label === "replacement") {
         throw new RangeError('The "replacement" label is not a valid encoding label');
-      } else if (1) {
+      } else if (0) {
         if (label === "iso-8859-1" || label === "iso_8859-1" || label === "latin1" || label === "l1" || label === "ibm819" || label === "cp819" || label === "csisolatin1" || label === "iso-ir-100" || label === "windows-28591") {
           this.encoding = "windows-1252";
           this._decoder = "latin1";
@@ -2920,13 +2920,17 @@
         return this._type;
       }
       slice(start, end, contentType) {
-        start = start || 0;
+        start = start === void 0 ? 0 : start;
+        start = start | 0;
         if (start < 0) start = Math.max(this._size + start, 0);
         if (start > this._size) start = this._size;
         end = end === void 0 ? this._size : end;
+        end = end | 0;
         if (end < 0) end = Math.max(this._size + end, 0);
         if (end > this._size) end = this._size;
-        var sliceLen = end > start ? end - start : 0;
+        if (end < start) end = start;
+        var sliceLen = end - start;
+        var effectiveCT = contentType !== void 0 ? String(contentType) : "";
         var result = new Uint8Array(sliceLen);
         var offset = 0;
         var globalStart = start;
@@ -2939,11 +2943,13 @@
           var localStart = globalStart;
           var localEnd = Math.min(buf.length, localStart + sliceLen - offset);
           var copyLen = localEnd - localStart;
-          result.set(buf.subarray(localStart, localEnd), offset);
-          offset += copyLen;
+          if (copyLen > 0) {
+            result.set(buf.subarray(localStart, localEnd), offset);
+            offset += copyLen;
+          }
           globalStart = 0;
         }
-        return new Blob2([result], { type: contentType || "" });
+        return new Blob2([result], { type: effectiveCT });
       }
       arrayBuffer() {
         var result = new ArrayBuffer(this._size);
@@ -3081,10 +3087,9 @@
       }
     }
     function normalizeType(type) {
-      var s = String(type).toLowerCase().trim();
-      if (s === "") return "";
-      if (s.indexOf("/") === -1) return "";
-      return s;
+      var s = String(type).toLowerCase();
+      s = s.replace(/[\x09\x0A\x0D]/g, "");
+      return s.trim();
     }
     function decodeUint8Array(bytes) {
       return new TextDecoder().decode(bytes);

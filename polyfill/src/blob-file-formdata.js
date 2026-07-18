@@ -57,16 +57,22 @@ export function setupBlobFileFormData() {
     get type() { return this._type; }
 
     slice(start, end, contentType) {
-      start = start || 0;
+      start = start === undefined ? 0 : start;
+      start = start | 0;  /* ToInteger */
       if (start < 0) start = Math.max(this._size + start, 0);
       if (start > this._size) start = this._size;
       end = end === undefined ? this._size : end;
+      end = end | 0;  /* ToInteger */
       if (end < 0) end = Math.max(this._size + end, 0);
       if (end > this._size) end = this._size;
 
-      var sliceLen = end > start ? end - start : 0;
+      if (end < start) end = start;
+      var sliceLen = end - start;
 
-      // Extract the slice bytes
+      /* contentType: null → default (empty string), provided → string */
+      var effectiveCT = contentType !== undefined ? String(contentType) : '';
+
+      /* Extract the slice bytes */
       var result = new Uint8Array(sliceLen);
       var offset = 0;
       var globalStart = start;
@@ -80,12 +86,14 @@ export function setupBlobFileFormData() {
         var localStart = globalStart;
         var localEnd = Math.min(buf.length, localStart + sliceLen - offset);
         var copyLen = localEnd - localStart;
-        result.set(buf.subarray(localStart, localEnd), offset);
-        offset += copyLen;
+        if (copyLen > 0) {
+          result.set(buf.subarray(localStart, localEnd), offset);
+          offset += copyLen;
+        }
         globalStart = 0;
       }
 
-      return new Blob([result], { type: contentType || '' });
+      return new Blob([result], { type: effectiveCT });
     }
 
     arrayBuffer() {
@@ -241,12 +249,12 @@ export function setupBlobFileFormData() {
 
   // Helper: normalize MIME type
   function normalizeType(type) {
-    // Remove any parameters, lower-case
-    var s = String(type).toLowerCase().trim();
-    if (s === '') return '';
-    // Basic validation: must contain a /
-    if (s.indexOf('/') === -1) return '';
-    return s;
+    /* Per WHATWG File API: convert to ASCII lowercase, then remove
+     * HTTP tab (0x09) and newline (0x0A LF, 0x0D CR) bytes.
+     * Empty string stays empty. The spec does NOT validate MIME format. */
+    var s = String(type).toLowerCase();
+    s = s.replace(/[\x09\x0A\x0D]/g, '');
+    return s.trim();
   }
 
   // Helper: decode Uint8Array to string (UTF-8)
