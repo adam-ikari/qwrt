@@ -240,9 +240,12 @@ target_link_libraries(wpt_runner qwrt qwrt_mock)
 add_test(NAME wpt_runner COMMAND wpt_runner WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(wpt_runner PROPERTIES LABELS "wpt")
 
-# test262 ECMAScript conformance runner
-add_executable(test262_runner test262_runner.c)
-target_include_directories(test262_runner PRIVATE ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(test262_runner qwrt qwrt_mock)
-add_test(NAME test262_runner COMMAND test262_runner WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-set_tests_properties(test262_runner PROPERTIES LABELS "test262")
+
+# test262 — uses QuickJS-ng's own run-test262 runner and test262.conf
+# to run ECMAScript conformance tests directly against the engine
+add_test(NAME test262_quickjs
+  COMMAND ${CMAKE_BINARY_DIR}/deps/quickjs-ng/run-test262
+    -c ${CMAKE_SOURCE_DIR}/deps/quickjs-ng/test262.conf
+    ${CMAKE_SOURCE_DIR}/deps/quickjs-ng/test262/test
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/deps/quickjs-ng)
+set_tests_properties(test262_quickjs PROPERTIES LABELS "test262")
