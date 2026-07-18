@@ -1,8 +1,6 @@
-(() => {
-  // polyfill/src/pal.js
-  var pal = globalThis.__pal_inject__;
-
-  // polyfill/src/console.js
+(function(pal) {
+  // src/pal.js
+// src/console.js
   function setupConsole(pal2) {
     const timers = /* @__PURE__ */ new Map();
     const LEVELS = {
@@ -103,7 +101,7 @@
     globalThis.console = console2;
   }
 
-  // polyfill/src/performance.js
+  // src/performance.js
   function setupPerformance(pal2) {
     const marks = /* @__PURE__ */ new Map();
     const measures = [];
@@ -236,7 +234,7 @@
     globalThis.performance = performance;
   }
 
-  // polyfill/src/timers.js
+  // src/timers.js
   function setupTimers(pal2) {
     const timerEntries = /* @__PURE__ */ new Map();
     let nextIntervalHandle = -1;
@@ -325,7 +323,7 @@
     };
   }
 
-  // polyfill/src/event-target.js
+  // src/event-target.js
   function setupEventTarget() {
     class Event2 {
       constructor(type, options) {
@@ -548,7 +546,7 @@
     globalThis.EventTarget = EventTarget2;
   }
 
-  // polyfill/src/abort.js
+  // src/abort.js
   function setupAbort() {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("AbortController requires EventTarget to be loaded first");
@@ -698,7 +696,7 @@
     globalThis.AbortSignal = AbortSignal;
   }
 
-  // polyfill/src/url.js
+  // src/url.js
   function setupURL() {
     class URLSearchParams {
       constructor(init) {
@@ -1064,7 +1062,7 @@
     globalThis.URLSearchParams = URLSearchParams;
   }
 
-  // polyfill/src/encoding.js
+  // src/encoding.js
   function setupEncoding(pal2) {
     var useNativeBtoa = typeof pal2.nativeBtoa === "function";
     var useNativeAtob = typeof pal2.nativeAtob === "function";
@@ -1148,7 +1146,7 @@
     };
   }
 
-  // polyfill/src/fetch.js
+  // src/fetch.js
   function setupFetch(pal2) {
     "use strict";
     var STATUS_TEXTS = {
@@ -1774,7 +1772,7 @@
     globalThis.fetch = fetch;
   }
 
-  // polyfill/src/fs.js
+  // src/fs.js
   function setupFS(pal2) {
     if (!globalThis.qwrt) globalThis.qwrt = {};
     var fs = {
@@ -1807,7 +1805,7 @@
     globalThis.qwrt.fs = fs;
   }
 
-  // polyfill/src/storage.js
+  // src/storage.js
   function setupStorage(pal2) {
     if (!globalThis.qwrt) globalThis.qwrt = {};
     var storage = {
@@ -1825,7 +1823,7 @@
     globalThis.qwrt.storage = storage;
   }
 
-  // polyfill/src/text-encoding.js
+  // src/text-encoding.js
   function setupTextEncoding(pal2) {
     var useNativeEncode = typeof pal2.nativeEncodeUtf8 === "function";
     var useNativeDecode = typeof pal2.nativeDecodeUtf8 === "function";
@@ -1867,10 +1865,32 @@
       return { read: src.length, written: len };
     };
     function TextDecoder2(encoding, options) {
-      this.encoding = (encoding || "utf-8").toLowerCase();
+      var label = (encoding || "utf-8").toLowerCase();
       this.fatal = options && options.fatal || false;
       this.ignoreBOM = options && options.ignoreBOM || false;
       this._buffer = null;
+      if (label === "unicode-1-1-utf-8" || label === "utf-8" || label === "utf8") {
+        this.encoding = "utf-8";
+        this._decoder = "utf8";
+      } else if (label === "replacement") {
+        throw new RangeError('The "replacement" label is not a valid encoding label');
+      } else if (1) {
+        if (label === "iso-8859-1" || label === "iso_8859-1" || label === "latin1" || label === "l1" || label === "ibm819" || label === "cp819" || label === "csisolatin1" || label === "iso-ir-100" || label === "windows-28591") {
+          this.encoding = "windows-1252";
+          this._decoder = "latin1";
+        } else if (this.fatal) {
+          throw new RangeError('Encoding "' + encoding + '" not supported');
+        } else {
+          this.encoding = "utf-8";
+          this._decoder = "utf8";
+        }
+      } else {
+        if (this.fatal) {
+          throw new RangeError('Encoding "' + encoding + '" not supported');
+        }
+        this.encoding = "utf-8";
+        this._decoder = "utf8";
+      }
     }
     function utf8LeadLen(byte) {
       if (byte < 128) return 0;
@@ -1883,6 +1903,13 @@
     TextDecoder2.prototype.decode = function decode(input, options) {
       var streamMode = options && options.stream;
       var bytes = input instanceof Uint8Array ? input : new Uint8Array(input || new Uint8Array(0));
+      if (this._decoder === "latin1") {
+        var str = "";
+        for (var i = 0; i < bytes.length; i++) {
+          str += String.fromCharCode(bytes[i] & 255);
+        }
+        return str;
+      }
       if (false) {
         return pal2.nativeDecodeUtf8(bytes);
       }
@@ -1973,7 +2000,7 @@
     globalThis.TextDecoder = TextDecoder2;
   }
 
-  // polyfill/src/crypto.js
+  // src/crypto.js
   function setupCrypto(pal2) {
     var crypto2 = {
       getRandomValues: function getRandomValues(typedArray) {
@@ -2006,7 +2033,7 @@
     globalThis.crypto = crypto2;
   }
 
-  // polyfill/src/error-events.js
+  // src/error-events.js
   function setupErrorEvents() {
     if (typeof globalThis.Event !== "function") {
       throw new Error("ErrorEvent requires Event to be loaded first");
@@ -2053,7 +2080,7 @@
     globalThis.PromiseRejectionEvent = PromiseRejectionEvent;
   }
 
-  // polyfill/src/message-channel.js
+  // src/message-channel.js
   function setupMessageChannel() {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("MessagePort requires EventTarget to be loaded first");
@@ -2170,7 +2197,7 @@
     globalThis.MessageEvent = MessageEvent;
   }
 
-  // polyfill/src/streams.js
+  // src/streams.js
   function setupStreams(pal2) {
     function ReadableStreamUnderlyingSourceDefaultCancel() {
     }
@@ -2849,7 +2876,7 @@
     globalThis.TextDecoderStream = TextDecoderStream;
   }
 
-  // polyfill/src/blob-file-formdata.js
+  // src/blob-file-formdata.js
   function setupBlobFileFormData() {
     class Blob2 {
       constructor(blobParts, options) {
@@ -3067,7 +3094,7 @@
     globalThis.FormData = FormData;
   }
 
-  // polyfill/src/url-pattern.js
+  // src/url-pattern.js
   function setupURLPattern() {
     class URLPattern {
       constructor(input, baseURL) {
@@ -3275,7 +3302,7 @@
     globalThis.URLPattern = URLPattern;
   }
 
-  // polyfill/src/navigator.js
+  // src/navigator.js
   function setupNavigatorReportError() {
     var navigator = {
       userAgent: "qwrt/1.0 (WinterCG)",
@@ -3363,7 +3390,7 @@
     });
   }
 
-  // polyfill/src/crypto-subtle.js
+  // src/crypto-subtle.js
   function setupCryptoSubtle(pal2) {
     pal2.__installCryptoSubtle__ = function() {
       installCryptoSubtle(pal2);
@@ -3687,7 +3714,7 @@
     globalThis.CryptoKey = CryptoKey;
   }
 
-  // polyfill/src/structured-clone.js
+  // src/structured-clone.js
   function setupStructuredClone() {
     globalThis.structuredClone = function structuredClone(value, options) {
       var seen = /* @__PURE__ */ new Map();
@@ -3810,7 +3837,7 @@
     }
   }
 
-  // polyfill/src/index.js
+  // src/index.js
   setupConsole(pal);
   setupPerformance(pal);
   setupTimers(pal);
@@ -3839,4 +3866,4 @@
       Promise.resolve().then(callback);
     };
   }
-})();
+})(__pal_inject__);

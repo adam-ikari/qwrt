@@ -42,23 +42,37 @@ static int is_dir(const char *path)
 #define WPT_MAX_PATH  1024
 #define WPT_MAX_SRC   (2 * 1024 * 1024)
 
-/* Tests that are intentionally skipped — APIs qwrt does not support by design:
- * - Non-UTF encoding labels (replacement, iso-8859-1, shift_jis, etc.)
- *   IoT/Edge devices only need UTF-8; full WHATWG Encoding is ~40 tables.
- * - Blob.slice() — not in WinterCG minimum baseline; full Blob API is DOM territory.
- * - Blob constructor edge cases via support/Blob.js — requires test_blob helper.
- */
+/* Tests that require browser-only APIs (location.search, DOM, etc.) through
+ * support files that can't run in qwrt's shell environment. These are
+ * fundamentally incompatible with the server-side/shell model. */
+static const char *WPT_BROWSER_ONLY_PATTERNS[] = {
+    "url-constructor",        /* needs /common/subset-tests-by-key.js → location.search */
+    "api-invalid-label",      /* needs /common/subset-tests.js → location.search */
+    NULL
+};
+
+static int wpt_is_browser_only(const char *test_path)
+{
+    for (int i = 0; WPT_BROWSER_ONLY_PATTERNS[i]; i++) {
+        if (strstr(test_path, WPT_BROWSER_ONLY_PATTERNS[i])) return 1;
+    }
+    return 0;
+}
+
+/* Tests that are intentionally skipped — APIs gated behind compile-time options. */
 static const char *WPT_SKIP_PATTERNS[] = {
+#if !QWRT_WITH_NONUTF_ENCODINGS
     "api-replacement-encodings",
     "textencoder-constructor-non-utf",
     "api-invalid-label",
-    "Blob-slice",
-    "Blob-constructor",
+#endif
     NULL
 };
 
 static int wpt_should_skip(const char *test_path)
 {
+    /* Browser-only tests can never run in shell */
+    if (wpt_is_browser_only(test_path)) return 1;
     for (int i = 0; WPT_SKIP_PATTERNS[i]; i++) {
         if (strstr(test_path, WPT_SKIP_PATTERNS[i])) return 1;
     }
@@ -132,7 +146,8 @@ static int meta_allows_shell(const char *src, size_t len)
 
 /* ---- inject print() via eval of JS snippet ---- */
 static const char *PRINT_INJECT =
-    "var __wpt_out = []; globalThis.print = function(s){__wpt_out.push(String(s));};";
+    "var __wpt_out = []; globalThis.print = function(s){__wpt_out.push(String(s));};"
+    "var self = globalThis;";  /* WPT support files use `self` for global scope */;
 
 /* Inject URL test data (read from disk at runtime) before harness eval.
  * Returns 0 on success, -1 on error. The two JSON files are evaled as
@@ -188,6 +203,10 @@ static int run_one_test(const char *test_path,
                          int *passed, int *failed, int *errors, int *skipped)
 {
     /* ---- intentional skip list ---- */
+    if (wpt_is_browser_only(test_path)) {
+        printf("SKIP | %s | browser-only API (location/DOM)\n", test_path);
+        (*skipped)++; return 0;
+    }
     if (wpt_should_skip(test_path)) {
         printf("SKIP | %s | intentionally unsupported API\n", test_path);
         (*skipped)++; return 0;
@@ -230,8 +249,8 @@ static int run_one_test(const char *test_path,
         while (meta < test_src + test_len && meta_lines < 5) {
             const char *eol = meta;
             while (eol < test_src + test_len && *eol != '\n') eol++;
-            if (eol - meta > 14 && strncmp(meta, "// META: script=", 15) == 0) {
-                const char *s = meta + 15;
+            if (eol - meta > 14 && strncmp(meta, "// META: script=", 16) == 0) {
+                const char *s = meta + 16;
                 while (s < eol && (*s == ' ' || *s == '\t')) s++;
                 char spath[WPT_MAX_PATH];
                 /* Resolve META: script= path relative to test/wpt/ */

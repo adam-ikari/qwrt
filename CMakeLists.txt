@@ -30,6 +30,7 @@ option(QWRT_WITH_TLS "Build with mbedTLS for HTTPS support" ON)
 option(QWRT_WITH_COMPRESS "Enable native compression via miniz" ON)
 option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
 option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
+option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
 
 # WAMR and wasm3 are mutually exclusive (both register the WebAssembly global)
 if(QWRT_WITH_WAMR AND QWRT_WITH_WASM3)
@@ -283,6 +284,24 @@ function(qwrt_compile_js out_var js_file)
 endfunction()
 
 # ============================================================================
+# Polyfill rebuild — triggered when QWRT_WITH_NONUTF_ENCODINGS changes.
+# The polyfill is precompiled to bytecode via npm run build; this custom
+# target regenerates it when the option is toggled.
+# ============================================================================
+if(QWRT_WITH_NONUTF_ENCODINGS)
+    message(STATUS "Non-UTF encoding support ENABLED (Latin-1, replacement)")
+    set(_polyfill_env QWRT_WITH_NONUTF_ENCODINGS=1)
+else()
+    set(_polyfill_env QWRT_WITH_NONUTF_ENCODINGS=0)
+endif()
+
+add_custom_target(polyfill_rebuild
+    COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
+    COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS}"
+    VERBATIM
+)
+
+# ============================================================================
 # WAMR dependency (default WASM engine) — built from source via add_subdirectory
 # ============================================================================
 # WAMR-2.4.5: Fast Interpreter + AOT. Target vmlib → libiwasm.a.
@@ -436,6 +455,7 @@ target_compile_definitions(qwrt PUBLIC
     QWRT_WITH_CRYPTO_EXT=$<BOOL:${QWRT_WITH_CRYPTO_EXT}>
     QWRT_WITH_TEXTCODEC=$<BOOL:${QWRT_WITH_TEXTCODEC}>
     QWRT_WITH_TLS=$<BOOL:${QWRT_WITH_TLS}>
+    QWRT_WITH_NONUTF_ENCODINGS=$<BOOL:${QWRT_WITH_NONUTF_ENCODINGS}>
 )
 if(QWRT_WITH_WAMR)
     target_include_directories(qwrt PUBLIC

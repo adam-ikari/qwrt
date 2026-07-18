@@ -45,6 +45,9 @@ if (!fs.existsSync(DIST_DIR)) {
 
 const isWatch = process.argv.includes('--watch');
 
+// Whether non-UTF encoding support is compiled in (matches CMake option)
+const QWRT_WITH_NONUTF_ENCODINGS = process.env.QWRT_WITH_NONUTF_ENCODINGS === '1';
+
 // Common esbuild options
 const esbuildOptions = {
   entryPoints: [ENTRY_POINT],
@@ -53,6 +56,9 @@ const esbuildOptions = {
   globalName: 'qwrt_polyfill',
   target: ['es2020'],
   minify: false,
+  define: {
+    'QWRT_WITH_NONUTF_ENCODINGS': QWRT_WITH_NONUTF_ENCODINGS ? '1' : '0',
+  },
 };
 
 /**

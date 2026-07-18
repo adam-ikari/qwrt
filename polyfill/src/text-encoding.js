@@ -53,10 +53,41 @@ export function setupTextEncoding(pal) {
   };
 
   function TextDecoder(encoding, options) {
-    this.encoding = (encoding || 'utf-8').toLowerCase();
+    var label = (encoding || 'utf-8').toLowerCase();
     this.fatal = (options && options.fatal) || false;
     this.ignoreBOM = (options && options.ignoreBOM) || false;
     this._buffer = null;  /* accumulated incomplete multibyte bytes for stream:true */
+
+    /* Resolve encoding label to canonical name per WHATWG Encoding Standard.
+     * Only UTF-8 is always supported; Latin-1 and replacement require the
+     * compile-time QWRT_WITH_NONUTF_ENCODINGS option. */
+    if (label === 'unicode-1-1-utf-8' || label === 'utf-8' || label === 'utf8') {
+      this.encoding = 'utf-8';
+      this._decoder = 'utf8';
+    } else if (label === 'replacement') {
+        /* 'replacement' is a fatal-only encoding per WHATWG spec */
+        throw new RangeError('The "replacement" label is not a valid encoding label');
+      } else if (QWRT_WITH_NONUTF_ENCODINGS) {
+      if (label === 'iso-8859-1' || label === 'iso_8859-1' || label === 'latin1' ||
+          label === 'l1' || label === 'ibm819' || label === 'cp819' ||
+          label === 'csisolatin1' || label === 'iso-ir-100' || label === 'windows-28591') {
+        this.encoding = 'windows-1252';
+        this._decoder = 'latin1';
+      } else if (this.fatal) {
+        throw new RangeError('Encoding "' + encoding + '" not supported');
+      } else {
+        /* Non-fatal: fall back to UTF-8 for unknown labels */
+        this.encoding = 'utf-8';
+        this._decoder = 'utf8';
+      }
+    } else {
+      /* Non-UTF encodings not compiled in */
+      if (this.fatal) {
+        throw new RangeError('Encoding "' + encoding + '" not supported');
+      }
+      this.encoding = 'utf-8';
+      this._decoder = 'utf8';
+    }
   }
 
   /* Return the number of continuation bytes needed (0-3) for a lead byte, or
@@ -74,11 +105,19 @@ export function setupTextEncoding(pal) {
     var streamMode = options && options.stream;
     var bytes = (input instanceof Uint8Array) ? input : new Uint8Array(input || new Uint8Array(0));
 
-    /* Native decode is fast but doesn't support stream mode (buffer across
-     * calls) or proper U+FFFD replacement for incomplete/invalid sequences.
-     * Fall through to JS for stream mode; use native only for one-shot decode. */
+    /* Non-UTF-8 decoders */
+    if (this._decoder === 'latin1') {
+      var str = '';
+      for (var i = 0; i < bytes.length; i++) {
+        str += String.fromCharCode(bytes[i] & 0xFF);
+      }
+      return str;
+    }
+
+    /* UTF-8 decode follows */
+    /* Native decode is fast but doesn't support stream mode or proper error
+     * handling. Always use the JS path for correctness. */
     if (false && useNativeDecode && !streamMode && !(this._buffer && this._buffer.length > 0)) {
-      /* useNativeDecode is intentionally unused — JS path handles errors correctly */
       return pal.nativeDecodeUtf8(bytes);
     }
 

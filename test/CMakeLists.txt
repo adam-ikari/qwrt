@@ -235,6 +235,7 @@ endif()
 # ============================================================================
 add_executable(wpt_runner wpt_runner.c)
 target_include_directories(wpt_runner PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_compile_definitions(wpt_runner PRIVATE QWRT_WITH_NONUTF_ENCODINGS=$<BOOL:${QWRT_WITH_NONUTF_ENCODINGS}>)
 target_link_libraries(wpt_runner qwrt qwrt_mock)
 add_test(NAME wpt_runner COMMAND wpt_runner WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(wpt_runner PROPERTIES LABELS "wpt")
