@@ -238,3 +238,10 @@ target_include_directories(wpt_runner PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(wpt_runner qwrt qwrt_mock)
 add_test(NAME wpt_runner COMMAND wpt_runner WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(wpt_runner PROPERTIES LABELS "wpt")
+
+# test262 ECMAScript conformance runner
+add_executable(test262_runner test262_runner.c)
+target_include_directories(test262_runner PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(test262_runner qwrt qwrt_mock)
+add_test(NAME test262_runner COMMAND test262_runner WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(test262_runner PROPERTIES LABELS "test262")
