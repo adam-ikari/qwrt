@@ -3206,7 +3206,18 @@ static void pal_uv_walk_close_cb(uv_handle_t *handle, void *arg)
 {
     (void)arg;
     if (!uv_is_closing(handle)) {
-        uv_close(handle, NULL);
+        /* Use the handle's close callback (pal_uv_http_close_cb /
+         * pal_uv_http_timer_close_cb) so that teardown refcount
+         * (closes_pending / tearing_down) is respected and the op
+         * is freed via pal_uv_http_close_done → cleanup. NULL cb
+         * would skip cleanup and leak the op + mbedTLS contexts. */
+        if (handle->data) {
+            uv_close(handle, handle->type == UV_TCP
+                ? pal_uv_http_close_cb
+                : pal_uv_http_timer_close_cb);
+        } else {
+            uv_close(handle, NULL);
+        }
     }
 }
 
@@ -3216,11 +3227,26 @@ void pal_uv_destroy(qwrt_pal_t *pal)
 
     pal_uv_t *self = pal_uv_self(pal);
 
-    /* Close all tracked handles */
+    /* Mark all tracked handles as tearing down so close callbacks
+     * participate in the close refcount and free the op. */
     int i;
     for (i = 0; i < self->handle_count; i++) {
+        if (self->handles[i]) {
+            uv_handle_t *h = self->handles[i];
+            if (h->data && !uv_is_closing(h)) {
+                pal_uv_http_op_t *op = (pal_uv_http_op_t *)h->data;
+                op->tearing_down = 1;
+            }
+        }
+    }
+
+    /* Close all tracked handles */
+    for (i = 0; i < self->handle_count; i++) {
         if (self->handles[i] && !uv_is_closing(self->handles[i])) {
-            uv_close(self->handles[i], NULL);
+            uv_close(self->handles[i],
+                self->handles[i]->type == UV_TCP
+                    ? pal_uv_http_close_cb
+                    : pal_uv_http_timer_close_cb);
         }
     }
 
