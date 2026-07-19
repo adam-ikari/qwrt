@@ -1,53 +1,59 @@
----
-title: Event Loop
-description: Qwrt.js event loop — qwrt_tick, deferred callbacks, PAL run_cycle integration, microtask draining, and async operation patterns.
----
-
 # Event Loop
 
-qwrt is single-threaded. All async operations (HTTP requests, file I/O, timers) are driven by a cooperative event loop.
+qwrt is single-threaded. All async operations are driven by a cooperative event loop controlled by the host.
 
-## The Loop
+## The Golden Rule
 
-The host drives the event loop by alternating between two calls:
+**qwrt_tick processes one batch and returns.** It does NOT loop internally. The host decides the timing:
 
 ```c
 while (running) {
-    // 1. Drive the PAL event loop — process I/O, fire timers
-    int events = pal->run_cycle(pal, 100);  // 100ms timeout
-
-    // 2. Drain JS microtasks — resolve Promises, dispatch callbacks
-    qwrt_tick(rt);
-
-    // 3. Check exit condition
-    if (events < 0) break;  // PAL requested stop
+    pal->run_cycle(pal, 100);   // collect I/O events, fire timers
+    qwrt_tick(rt);               // process one batch of JS work
+    my_other_work();             // YOUR code — never starved
 }
 ```
 
-## How Async Operations Work
+This is the key design decision: qwrt never blocks the host. Your code runs every loop iteration, no matter how many callbacks are queued.
+
+## How It Works
 
 ```mermaid
 flowchart TB
-    A["JS code: fetch('https://example.com')"] --> B["bridge.c: calls pal->http_request(...)"]
-    B --> C["PAL: starts async HTTP (libuv TCP + mbedTLS)"]
-    C --> D["PAL callback fires on event loop thread"]
-    D --> E["MUST NOT call JS directly"]
-    D --> F["Enqueues via qwrt_defer_callback(rt, fn, data)"]
-    F --> G["qwrt_tick(rt): drains deferred callback queue"]
-    G --> H["fn(rt, data) runs in a valid JS context → resolves Promise"]
+    HOST["Host: run_cycle() + tick() + my_work()"] --> PAL["PAL: collects I/O events"]
+    PAL --> DEFER["Enqueues callbacks via qwrt_defer_callback()"]
+    DEFER --> TICK["qwrt_tick(): drains queue + microtasks"]
+    TICK --> HOST
 ```
+
+## qwrt_tick Semantics
+
+```c
+int ret = qwrt_tick(rt);
+// ret == 1:  work was processed (callbacks fired, promises resolved)
+// ret == 0:  nothing to do (idle)
+// ret == -1: error
+```
+
+One call to `qwrt_tick` does exactly:
+1. Process all deferred PAL callbacks queued since last tick
+2. Execute all pending JS microtasks (Promise resolutions)
+
+Then returns. No loops, no blocking, no starvation.
 
 ## Deferred Callbacks
 
-PAL implementations must not call into JavaScript directly from their callbacks (libuv callbacks, timer fires, etc.). Instead, they enqueue work via:
+PAL implementations NEVER call JS directly from their callbacks. They enqueue via:
 
 ```c
 void qwrt_defer_callback(qwrt_t *rt, qwrt_deferred_fn fn, void *data);
 ```
 
-`qwrt_tick` drains this queue, calling each `fn(rt, data)` in a valid JS context.
+`qwrt_tick` drains this queue in a valid JS context.
 
-## `run_cycle` Semantics
+## run_cycle Semantics
+
+Optional. If provided, the PAL collects I/O events and fires timers:
 
 | timeout_ms | Behavior |
 |------------|----------|
@@ -55,11 +61,18 @@ void qwrt_defer_callback(qwrt_t *rt, qwrt_deferred_fn fn, void *data);
 | `0` | Non-blocking — process ready work only |
 | `> 0` | Block up to timeout_ms milliseconds |
 
-Returns: number of events processed, 0 if timeout elapsed, or `< 0` if the loop should stop.
+Returns events processed, or `< 0` to request loop stop.
 
-`run_cycle` is **optional** — if NULL, the host calls `qwrt_tick` directly on its own schedule.
+## Why Not One Big Loop Inside qwrt_tick?
 
-## Complete Event Loop Example
+If `qwrt_tick` looped until all work was done:
+- A burst of HTTP responses could delay your sensor reading by seconds
+- Timer-heavy JS code could starve your UI thread
+- You can't interleave qwrt with your own event sources
+
+By returning after each batch, YOU control the scheduling.
+
+## Complete Example
 
 ```c
 #include <qwrt/qwrt.h>
@@ -76,13 +89,17 @@ int main(void) {
         "  .then(d => console.log('got:', JSON.stringify(d)))",
         NULL);
 
-    // Drive the event loop
+    // Drive the event loop — your code runs every iteration
     int running = 1;
     while (running) {
         int events = pal->run_cycle(pal, 100);
         if (events < 0) break;
         qwrt_tick(rt);
-        // Check if there's more work to do...
+
+        // Your code here — never delayed by qwrt
+        check_sensors();
+        update_display();
+        if (should_exit()) running = 0;
     }
 
     qwrt_destroy(rt);
@@ -92,7 +109,7 @@ int main(void) {
 
 ## Without an Event Loop
 
-If your PAL has no `run_cycle` and all operations are synchronous, you can skip the loop:
+If your PAL has no `run_cycle`:
 
 ```c
 qwrt_eval(rt, "console.log('Hello!');", NULL);
@@ -100,4 +117,11 @@ qwrt_tick(rt);  // drain microtasks
 qwrt_destroy(rt);
 ```
 
-`qwrt_tick` is still needed — it drains Promise microtasks that accumulate even in synchronous code.
+## Synchronous Code Still Needs Tick
+
+Even synchronous JS can accumulate Promise microtasks that need draining:
+
+```c
+qwrt_eval(rt, "Promise.resolve(42).then(v => console.log(v));", NULL);
+qwrt_tick(rt);  // required — otherwise console.log never fires
+```
