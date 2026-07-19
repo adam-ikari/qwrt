@@ -7,6 +7,7 @@ These packages have been **downloaded and run** in the actual qwrt runtime. Each
 | Package | Version | Size | Test | Result |
 |---------|---------|------|------|--------|
 | [lodash](https://npmjs.com/package/lodash) | 4.18.1 | 544KB | `_.sum([1,2,3,4]) === 10` | ✅ PASS |
+| [mitt](https://npmjs.com/package/mitt) | 3.0.1 | 520B | on+emit+off+wildcard+clear | ✅ PASS |
 | [dayjs](https://npmjs.com/package/dayjs) | 1.11.21 | 7KB | `dayjs('2024-01-01').year() === 2024` | ✅ PASS |
 | [semver](https://npmjs.com/package/semver) | 7.8.5 | 3KB | `semver.gt('1.2.3','1.2.0') === true` | ✅ PASS |
 | [ms](https://npmjs.com/package/ms) | 2.1.3 | 3KB | `ms('2 days') === 172800000` | ✅ PASS¹ |
