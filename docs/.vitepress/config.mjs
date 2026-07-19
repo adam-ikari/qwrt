@@ -56,6 +56,7 @@ const sidebar = {
         { text: 'Quick Start', link: '/guide/quickstart' },
         { text: 'Building', link: '/guide/building' },
         { text: 'Examples', link: '/guide/examples' },
+        { text: 'Compatible Packages', link: '/guide/compatible-packages' },
       ],
     },
     {
