@@ -1,98 +1,145 @@
 # Playground
 
-Try Qwrt.js code snippets. Select an example, copy it, and run it in your qwrt application.
+Run JavaScript directly in your browser using the real Qwrt.js engine compiled to WebAssembly.
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 
+const running = ref(false)
+const output = ref('')
 const examples = ref([
-  { name: 'Hello World', code: '// Qwrt.js WinterCG Runtime\nconsole.log("Hello from Qwrt.js!");\n`Runtime: ${typeof fetch !== "undefined" ? "WinterCG ready" : "minimal"}`' },
-  { name: 'fetch', code: 'const res = await fetch("https://httpbin.org/json");\nconst data = await res.json();\nJSON.stringify(data, null, 2)' },
-  { name: 'Crypto SHA-256', code: 'const enc = new TextEncoder();\nconst data = enc.encode("Qwrt.js");\nconst hash = await crypto.subtle.digest("SHA-256", data);\nArray.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("")' },
-  { name: 'Text Encoding', code: 'const enc = new TextEncoder();\nconst dec = new TextDecoder();\nconst bytes = enc.encode("Hello, 世界! 🚀");\n`${bytes.length} bytes → "${dec.decode(bytes)}"`' },
-  { name: 'setTimeout', code: 'const start = Date.now();\nawait new Promise(r => setTimeout(r, 100));\n`Slept ${Date.now() - start}ms`' },
-  { name: 'URL', code: 'const u = new URL("https://example.com:8080/path?q=hello#s");\nJSON.stringify({hostname:u.hostname,port:u.port,pathname:u.pathname,search:u.search,hash:u.hash}, null, 2)' },
-  { name: 'ReadableStream', code: 'const s = new ReadableStream({start(c){c.enqueue("H");c.enqueue("i");c.close()}});\nconst r = s.getReader(); let out="";\nwhile(true){const{done,value}=await r.read();if(done)break;out+=value;}\nout' },
-  { name: 'EventTarget', code: 'const t = new EventTarget();\nlet msgs = [];\nt.addEventListener("hi", e => msgs.push(e.detail));\nt.dispatchEvent(new CustomEvent("hi", {detail:"hello"}));\nt.dispatchEvent(new CustomEvent("hi", {detail:"world"}));\nJSON.stringify(msgs)' },
-  { name: 'AbortController', code: 'const ctrl = new AbortController();\nsetTimeout(() => ctrl.abort(), 50);\ntry {\n  await fetch("https://httpbin.org/delay/10", {signal:ctrl.signal});\n} catch(e) { e.name }' },
-  { name: 'structuredClone', code: 'const obj = {a:1, b:[2,3], c:{d:4}};\nconst cloned = structuredClone(obj);\ncloned.a = 99;\nJSON.stringify({original:obj.a, cloned:cloned.a})' },
+  { name: 'Hello World', code: '"Hello from Qwrt.js! Runtime: " + (typeof fetch !== "undefined" ? "WinterCG ready" : "minimal")' },
+  { name: 'Crypto', code: 'const enc = new TextEncoder(); const data = enc.encode("Qwrt.js"); const hash = await crypto.subtle.digest("SHA-256", data); Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,"0")).join("")' },
+  { name: 'Text Encoding', code: 'const enc = new TextEncoder(); const dec = new TextDecoder(); const bytes = enc.encode("Hello, 世界!"); bytes.length + " bytes decoded: " + dec.decode(bytes)' },
+  { name: 'setTimeout', code: 'const t0 = Date.now(); await new Promise(r => setTimeout(r, 100)); "Slept " + (Date.now() - t0) + "ms"' },
+  { name: 'URL', code: 'const u = new URL("https://example.com:8080/path?q=hello#s"); JSON.stringify({hostname:u.hostname,port:u.port,pathname:u.pathname,search:u.search,hash:u.hash})' },
+  { name: 'structuredClone', code: 'const obj = {a:1, b:[2,3], c:{d:4}}; const cloned = structuredClone(obj); cloned.a = 99; JSON.stringify({original:obj.a, cloned:cloned.a})' },
+  { name: 'EventTarget', code: 'const t = new EventTarget(); let msgs = []; t.addEventListener("hi", e => msgs.push(e.detail.name)); t.dispatchEvent(new CustomEvent("hi", {detail:{name:"Qwrt"}})); JSON.stringify(msgs)' },
+  { name: 'Blob', code: 'const b = new Blob(["Hello, Qwrt!"]); const t = await b.text(); t + " (" + b.size + " bytes, type: " + b.type + ")"' },
+  { name: 'fib(40)', code: '(function fib(n){if(n<2)return n;return fib(n-1)+fib(n-2)})(40)' },
+  { name: 'Array methods', code: 'const arr = [3,1,4,1,5,9,2,6,5,3,5]; JSON.stringify({sum:arr.reduce((a,b)=>a+b),unique:[...new Set(arr)].sort(),max:Math.max(...arr),min:Math.min(...arr)})' },
 ])
 
 const selected = ref(examples.value[0])
+let wasmReady = false
 
-function copy() {
-  navigator.clipboard.writeText(selected.value.code)
+async function initWasm() {
+  try {
+    const mod = await window.Module()
+    const initFn = mod.cwrap('qwrt_playground_init', 'number', [])
+    const rc = initFn()
+    if (rc === 0) wasmReady = true
+    return wasmReady
+  } catch(e) {
+    console.error('WASM init failed:', e)
+    return false
+  }
 }
+
+async function runCode() {
+  if (!wasmReady) {
+    output.value = 'Loading qwrt WebAssembly engine...'
+    const ok = await initWasm()
+    if (!ok) {
+      output.value = 'Error: Failed to initialize qwrt WASM engine'
+      return
+    }
+    output.value = ''
+  }
+
+  running.value = true
+  output.value = ''
+
+  try {
+    const mod = window.Module()
+    const evalFn = mod.cwrap('qwrt_playground_eval', 'number', ['string'])
+    const freeFn = mod.cwrap('qwrt_playground_free', null, ['number'])
+    const utf8Fn = mod.cwrap('UTF8ToString', 'string', ['number'])
+
+    const code = selected.value.code
+    const ptr = evalFn(code)
+
+    if (ptr) {
+      const result = utf8Fn(ptr)
+      freeFn(ptr)
+
+      try {
+        const parsed = JSON.parse(result)
+        if (parsed.error) {
+          output.value = 'Error: ' + parsed.error
+        } else {
+          output.value = JSON.stringify(parsed.result, null, 2)
+        }
+      } catch(e) {
+        output.value = result
+      }
+    } else {
+      output.value = 'Error: null result'
+    }
+  } catch(e) {
+    output.value = 'Exception: ' + e.message
+  }
+  running.value = false
+}
+
+onMounted(async () => {
+  // Load WASM module
+  const script = document.createElement('script')
+  script.src = '/qwrt/qwrt-playground.js'
+  script.onload = async () => {
+    await initWasm()
+  }
+  document.head.appendChild(script)
+})
 </script>
 
-<div class="playground">
+<div class="pg-wrap">
   <div class="pg-sidebar">
     <h3>Examples</h3>
-    <ul>
-      <li v-for="ex in examples" :key="ex.name">
-        <button :class="{ active: selected.name === ex.name }" @click="selected = ex">{{ ex.name }}</button>
-      </li>
-    </ul>
+    <div class="pg-list">
+      <button v-for="ex in examples" :key="ex.name"
+        :class="{ active: selected.name === ex.name }"
+        @click="selected = ex"
+      >{{ ex.name }}</button>
+    </div>
   </div>
-
   <div class="pg-main">
     <div class="pg-editor">
       <textarea v-model="selected.code" spellcheck="false"></textarea>
     </div>
-    <div class="pg-bar">
-      <button class="pg-copy" @click="copy">📋 Copy</button>
-      <span class="pg-hint">Paste into qwrt_eval() to run</span>
+    <div class="pg-controls">
+      <button class="pg-run" @click="runCode" :disabled="running">
+        {{ running ? 'Running...' : '▶ Run' }}
+      </button>
+    </div>
+    <div class="pg-output">
+      <pre><code>{{ output || 'Click "Run" to execute in real Qwrt.js' }}</code></pre>
     </div>
   </div>
 </div>
 
 <style>
-.playground { display: flex; gap: 1rem; min-height: 300px; border: 1px solid var(--vp-c-divider); border-radius: 8px; overflow: hidden; }
+.pg-wrap { display: flex; gap: 1rem; min-height: 400px; border: 1px solid var(--vp-c-divider); border-radius: 8px; overflow: hidden; }
 .pg-sidebar { width: 180px; background: var(--vp-c-bg-soft); padding: 1rem; border-right: 1px solid var(--vp-c-divider); }
 .pg-sidebar h3 { font-size: 0.85rem; margin-bottom: 0.5rem; }
-.pg-sidebar ul { list-style: none; padding: 0; margin: 0; }
-.pg-sidebar li { margin-bottom: 0.2rem; }
-.pg-sidebar button { width: 100%; text-align: left; padding: 0.25rem 0.5rem; border: none; background: transparent; font-size: 0.8rem; cursor: pointer; border-radius: 4px; color: var(--vp-c-text-1); }
-.pg-sidebar button:hover { background: var(--vp-c-bg-mute); }
-.pg-sidebar button.active { background: var(--vp-c-brand); color: white; }
+.pg-list button { display: block; width: 100%; text-align: left; padding: 0.3rem 0.5rem; border: none; background: transparent; font-size: 0.82rem; cursor: pointer; border-radius: 4px; color: var(--vp-c-text-1); margin-bottom: 0.15rem; }
+.pg-list button:hover { background: var(--vp-c-bg-mute); }
+.pg-list button.active { background: var(--vp-c-brand); color: white; }
 .pg-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.pg-editor textarea { width: 100%; min-height: 250px; padding: 1rem; border: none; background: var(--vp-c-bg); color: var(--vp-c-text-1); font-family: 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.6; resize: vertical; outline: none; }
-.pg-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border-top: 1px solid var(--vp-c-divider); }
-.pg-copy { padding: 0.3rem 1rem; background: var(--vp-c-brand); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
-.pg-copy:hover { background: var(--vp-c-brand-dark); }
-.pg-hint { font-size: 0.75rem; color: var(--vp-c-text-2); }
-@media (max-width: 768px) { .playground { flex-direction: column; } .pg-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--vp-c-divider); } .pg-sidebar ul { display: flex; flex-wrap: wrap; gap: 0.25rem; } .pg-sidebar button { width: auto; } }
-</style>
+.pg-editor textarea { width: 100%; min-height: 180px; padding: 1rem; border: none; background: var(--vp-c-bg); color: var(--vp-c-text-1); font-family: 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.6; resize: vertical; outline: none; }
+.pg-controls { padding: 0.5rem 1rem; border-top: 1px solid var(--vp-c-divider); border-bottom: 1px solid var(--vp-c-divider); }
+.pg-run { padding: 0.4rem 1.2rem; background: var(--vp-c-brand); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+.pg-run:hover { background: var(--vp-c-brand-dark); }
+.pg-run:disabled { opacity: 0.6; }
+.pg-output { flex: 1; min-height: 120px; overflow: auto; background: #1a1a2e; }
+.pg-output pre { margin: 0; padding: 1rem; font-family: 'Fira Code', monospace; font-size: 0.8rem; line-height: 1.5; color: #e2e8f0; }
+@media (max-width: 768px) { .pg-wrap { flex-direction: column; } .pg-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--vp-c-divider); } .pg-list { display: flex; flex-wrap: wrap; gap: 0.2rem; } .pg-list button { width: auto; } }
+</style>## How It Works
 
-## Run in Your Application
+The playground compiles Qwrt.js to WebAssembly using Emscripten. Your JavaScript code runs in a real QuickJS-ng engine — the same engine used in production qwrt deployments. The WASM module includes:
 
-Copy any example and paste it into your qwrt application:
+- **QuickJS-ng** — full ES2023 JavaScript engine
+- **Mock PAL** — no network, no filesystem, deterministic
+- **WinterCG polyfills** — fetch stubs, timers, crypto.subtle, URL, Blob, etc.
 
-```c
-#include <qwrt/qwrt.h>
-#include <pal_uv.h>
-
-int main() {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
-
-    char *result = NULL;
-    qwrt_eval(rt, "<paste code here>", &result);
-    printf("%s\n", result);
-    qwrt_free(result);
-
-    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);
-
-    qwrt_destroy(rt);
-    pal_uv_destroy(pal);
-}
-```
-
-## Quick Start
-
-```bash
-git clone --recursive https://github.com/adam-ikari/qwrt.git
-cd qwrt
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-```
+The playground has no simulated output — every result comes from the actual qwrt runtime.
