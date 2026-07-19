@@ -9,7 +9,7 @@ qwrt 是一个用**严格 C99** 编写的**可嵌入 QuickJS-ng 运行时封装*
 
 ## qwrt 为你提供什么
 
-- **完整的 ES2023 JavaScript 引擎** — 底层基于 QuickJS-ng，启动快，内存占用低
+- **ECMAScript 引擎（ES2020）** — 底层基于 QuickJS-ng，启动快，内存占用低
 - **WinterCG 兼容运行时** — `fetch`、`console`、`crypto.subtle`、`ReadableStream`、定时器、`fs`、`URL`、`TextEncoder` 等
 - **平台抽象层** — 约 30 个函数指针；内置三个后端，可添加自己的后端
 - **多上下文** — 在一个运行时内创建/挂起/恢复隔离的 JS 上下文

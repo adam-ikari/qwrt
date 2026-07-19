@@ -9,7 +9,7 @@ qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. 
 
 ## What qwrt Gives You
 
-- **Full ES2023 JavaScript engine** — QuickJS-ng under the hood, fast startup, low memory
+- **ECMAScript engine (ES2020)** — QuickJS-ng under the hood, fast startup, low memory
 - **WinterCG-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, and more
 - **Platform Abstraction Layer** — ~30 function pointers; ship three backends, add your own
 - **Multi-context** — spawn/suspend/resume isolated JS contexts within one runtime

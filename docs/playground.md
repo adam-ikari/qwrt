@@ -138,7 +138,7 @@ onMounted(async () => {
 
 The playground compiles Qwrt.js to WebAssembly using Emscripten. Your JavaScript code runs in a real QuickJS-ng engine — the same engine used in production qwrt deployments. The WASM module includes:
 
-- **QuickJS-ng** — full ES2023 JavaScript engine
+- **QuickJS-ng** — ES2020 JavaScript engine (QuickJS-ng)
 - **Mock PAL** — no network, no filesystem, deterministic
 - **WinterCG polyfills** — fetch stubs, timers, crypto.subtle, URL, Blob, etc.
 
