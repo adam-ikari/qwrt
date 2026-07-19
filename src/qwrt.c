@@ -220,7 +220,19 @@ void qwrt_destroy(qwrt_t *rt)
 }
 
 /* ================================================================
- * qwrt_tick - Process pending JS jobs
+ * qwrt_tick - Process one batch of pending work
+ *
+ * Drains all deferred PAL callbacks queued since the last tick, then
+ * executes pending JS microtasks (Promise reactions). Returns immediately
+ * after one pass — does NOT loop. The caller controls the pace:
+ *
+ *   while (running) {
+ *       pal->run_cycle(pal, timeout_ms);  // collect events
+ *       qwrt_tick(rt);                     // process one batch
+ *       my_other_work();                   // never starved
+ *   }
+ *
+ * Returns 1 if any work was done, 0 if idle, -1 on error.
  * ================================================================ */
 
 int qwrt_tick(qwrt_t *rt)
@@ -233,41 +245,27 @@ int qwrt_tick(qwrt_t *rt)
     int ret;
     int jobs_processed = 0;
 
-    /* Clear the flag before processing - bridge callbacks set it */
-    rt->has_pending_jobs = 0;
+    /* Step 1: Process ALL deferred PAL callbacks queued since last tick */
+    while (rt->deferred_cb_head) {
+        struct pal_deferred_cb *cb = rt->deferred_cb_head;
+        rt->deferred_cb_head = cb->next;
+        if (!rt->deferred_cb_head) rt->deferred_cb_tail = NULL;
 
-    /* Loop until both deferred callbacks and JS jobs are exhausted.
-     * JS promise jobs can trigger new PAL calls (e.g. storage.set),
-     * which enqueue new deferred callbacks. We must keep draining
-     * both queues until neither has work. */
-    do {
-        jobs_processed = 0;
+        cb->fn(cb->data);
+        free(cb);
+        jobs_processed++;
+    }
 
-        /* Step 1: Drain deferred PAL callbacks (libuv callbacks enqueue here).
-         * These call JS functions (resolve/reject promises, stream callbacks)
-         * from the qwrt_tick stack frame, which IS a valid QuickJS context. */
-        while (rt->deferred_cb_head) {
-            struct pal_deferred_cb *cb = rt->deferred_cb_head;
-            rt->deferred_cb_head = cb->next;
-            if (!rt->deferred_cb_head) rt->deferred_cb_tail = NULL;
+    /* Step 2: Execute ALL pending JS microtasks (Promise reactions) */
+    while ((ret = JS_ExecutePendingJob(rt->jsrt, &ctx1)) > 0) {
+        jobs_processed++;
+    }
 
-            cb->fn(cb->data);
-            free(cb);
-            jobs_processed++;
-        }
+    if (ret < 0) {
+        return -1;
+    }
 
-        /* Step 2: Execute pending JS jobs (Promise reactions enqueued by step 1) */
-        while ((ret = JS_ExecutePendingJob(rt->jsrt, &ctx1)) > 0) {
-            jobs_processed++;
-        }
-
-        /* ret == 0: no more jobs, ret < 0: error */
-        if (ret < 0) {
-            return -1;
-        }
-    } while (jobs_processed > 0);
-
-    return 0;
+    return jobs_processed > 0 ? 1 : 0;
 }
 
 /* ================================================================
