@@ -38,7 +38,7 @@ cmake --build build -j$(nproc)
 
 int main(void) {
     // 创建平台抽象层（libuv）
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
 
     // 创建运行时
     qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });

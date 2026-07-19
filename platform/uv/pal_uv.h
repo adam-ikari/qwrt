@@ -3,7 +3,7 @@
  *
  * Provides qwrt_pal_t function pointers backed by libuv async operations.
  * Usage:
- *   qwrt_pal_t *pal = pal_uv_create(NULL);   // creates own loop
+ *   qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
  *   // or
  *   qwrt_pal_t *pal = pal_uv_create(my_loop); // uses existing loop
  *   ...

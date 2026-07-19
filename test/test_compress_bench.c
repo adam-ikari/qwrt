@@ -30,7 +30,7 @@ int main(void) {
     uint8_t *bench = load_file("../test/bench_compress_sync.js", &blen);
     if (!bench) { printf("SKIP: bench_compress_sync.js not found\n"); return 0; }
 
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
     if (!pal) { free(bench); return 1; }
 
     qwrt_config_t cfg;

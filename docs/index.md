@@ -51,7 +51,7 @@ cmake --build build -j$(nproc)
 #include <pal_uv.h>
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
     qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
 
     // Evaluate JavaScript

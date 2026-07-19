@@ -15,7 +15,7 @@ Linux 和 macOS 的生产环境 PAL。使用 libuv 处理事件循环和 TCP，m
 
 int main(void) {
     // 使用默认 libuv 循环创建
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
 
     // 或者传入一个已有的 uv_loop_t*
     // uv_loop_t *loop = uv_default_loop();

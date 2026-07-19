@@ -3199,6 +3199,13 @@ qwrt_pal_t *pal_uv_create_with_config(uv_loop_t *loop, int storage_max)
 
 qwrt_pal_t *pal_uv_create(uv_loop_t *loop)
 {
+    /* Require the caller to provide a uv_loop_t. The PAL is not
+     * responsible for creating or owning the event loop — it only
+     * uses the loop the embedder provides. This keeps the PAL
+     * stateless with respect to loop lifecycle. */
+    if (!loop) {
+        return NULL;
+    }
     return pal_uv_create_with_config(loop, PAL_UV_STORAGE_DEFAULT);
 }
 

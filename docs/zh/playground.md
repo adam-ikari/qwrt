@@ -281,7 +281,7 @@ function runCode() {
 #include <qwrt/qwrt.h>
 #include <pal_uv.h>
 
-qwrt_pal_t *pal = pal_uv_create(NULL);
+qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
 qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
 ```
 

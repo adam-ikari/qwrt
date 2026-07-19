@@ -15,7 +15,7 @@ The production PAL for Linux and macOS. Uses libuv for the event loop and TCP, m
 
 int main(void) {
     // Create with default libuv loop
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
 
     // Or pass an existing uv_loop_t*
     // uv_loop_t *loop = uv_default_loop();

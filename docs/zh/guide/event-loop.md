@@ -66,7 +66,7 @@ void qwrt_defer_callback(qwrt_t *rt, qwrt_deferred_fn fn, void *data);
 #include <pal_uv.h>
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
     qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
 
     // 启动异步操作

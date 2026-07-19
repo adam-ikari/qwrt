@@ -38,7 +38,7 @@ Create `hello.c`:
 
 int main(void) {
     // Create the Platform Abstraction Layer (libuv)
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
 
     // Create the runtime
     qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });

@@ -13,7 +13,7 @@ The simplest possible qwrt program. Creates a runtime, evaluates JavaScript, pri
 #include <stdio.h>
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
     qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
     if (!rt) return 1;
 
@@ -85,7 +85,7 @@ Makes HTTP requests from JavaScript using the `fetch()` API. Requires the libuv 
 #include <stdio.h>
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
     qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
     if (!rt) return 1;
 
@@ -125,7 +125,7 @@ Demonstrates setTimeout, setInterval, and timer cleanup.
 #include <stdio.h>
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
     qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
     if (!rt) return 1;
 
@@ -160,7 +160,7 @@ Uses the key-value storage API to persist data between evaluations.
 #include <stdio.h>
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
     qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
     if (!rt) return 1;
 

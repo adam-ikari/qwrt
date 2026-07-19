@@ -14,7 +14,7 @@
 #include <string.h>
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(NULL);
+    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
     if (!pal) {
         fprintf(stderr, "failed to create pal_uv\n");
         return 1;
