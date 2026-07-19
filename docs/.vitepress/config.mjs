@@ -77,6 +77,7 @@ const sidebar = {
         { text: 'Embedding Patterns', link: '/guide/embedding' },
         { text: 'Testing', link: '/dev/testing' },
         { text: 'Debugging', link: '/dev/debugging' },
+        { text: 'Website Guidelines', link: '/dev/website-guidelines' },
       ],
     },
   ],
