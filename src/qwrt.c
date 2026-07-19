@@ -406,6 +406,18 @@ int qwrt_eval(qwrt_t *rt, const char *code, char **result)
     JSValue val = JS_Eval(ctx, code, strlen(code), "<eval>", JS_EVAL_TYPE_GLOBAL);
 
     if (JS_IsException(val)) {
+        /* Extract the exception message so callers can see what went wrong */
+        if (result != NULL) {
+            JSValue exc = JS_GetException(ctx);
+            const char *msg = JS_ToCString(ctx, exc);
+            if (msg) {
+                *result = strdup(msg);
+                JS_FreeCString(ctx, msg);
+            } else {
+                *result = NULL;
+            }
+            JS_FreeValue(ctx, exc);
+        }
         JS_FreeValue(ctx, val);
         return -1;
     }
