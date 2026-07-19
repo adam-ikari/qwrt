@@ -48,14 +48,17 @@ pal_mock_destroy(pal);  // caller owns the PAL
 int qwrt_tick(qwrt_t *rt);
 ```
 
-Drains pending JS microtasks and deferred PAL callbacks. Returns 0 on success, -1 on error.
+Processes one batch of deferred PAL callbacks and pending JS microtasks. Returns immediately — does NOT loop internally.
 
-The host drives the event loop by calling this after `pal->run_cycle`:
+- Returns `1` if any work was processed, `0` if idle, `-1` on error
+
+The host controls the event loop by interleaving `qwrt_tick` with its own work:
 
 ```c
-while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt);
-}
+// One tick per iteration — your code never starved
+pal->run_cycle(pal, 100);
+qwrt_tick(rt);
+my_other_work();  // always runs, never delayed
 ```
 
 ## `qwrt_reset`

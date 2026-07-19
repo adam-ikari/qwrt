@@ -21,7 +21,7 @@ void app_main(void) {
     // ... 使用运行时 ...
 
     // 驱动事件循环
-    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt);
 
     qwrt_destroy(rt);
     pal_freertos_destroy(pal);

@@ -23,7 +23,7 @@ int main(void) {
         qwrt_free(result);
     }
 
-    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt);
 
     qwrt_destroy(rt);
     pal_uv_destroy(pal);
@@ -99,7 +99,7 @@ int main(void) {
     printf("Fetch: %s\n", result ? result : "ERROR");
     qwrt_free(result);
 
-    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt);
 
     qwrt_destroy(rt);
     pal_uv_destroy(pal);
@@ -136,7 +136,7 @@ int main(void) {
         "})()",
         &result);
 
-    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt);
 
     printf("Result: %s\n", result ? result : "ERROR");
     qwrt_free(result);
@@ -163,7 +163,7 @@ int main(void) {
     if (!rt) return 1;
 
     qwrt_eval(rt, "localStorage.setItem('key', 'hello')", NULL);
-    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt);
 
     char *result = NULL;
     qwrt_eval(rt, "localStorage.getItem('key')", &result);

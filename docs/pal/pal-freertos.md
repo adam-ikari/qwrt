@@ -21,7 +21,7 @@ void app_main(void) {
     // ... use runtime ...
 
     // Drive the event loop
-    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt);
 
     qwrt_destroy(rt);
     pal_freertos_destroy(pal);

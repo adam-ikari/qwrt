@@ -23,7 +23,7 @@ int main(void) {
     qwrt_free(result);
 
     // 事件循环
-    while (pal->run_cycle(pal, 100) > 0) qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt);
 
     qwrt_destroy(rt);
     pal_uv_destroy(pal);
