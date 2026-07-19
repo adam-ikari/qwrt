@@ -7,6 +7,8 @@
 | 包 | 版本 | 大小 | 测试 | 结果 |
 |---|------|------|------|------|
 | [lodash](https://npmjs.com/package/lodash) | 4.18.1 | 544KB | `_.sum([1,2,3,4]) === 10` | ✅ PASS |
+| [dequal](https://npmjs.com/package/dequal) | 2.0.3 | 500B | 深度相等检查 | ✅ PASS¹ |
+| [clsx](https://npmjs.com/package/clsx) | 2.1.1 | 400B | className 构建器 | ✅ PASS¹ |
 | [mitt](https://npmjs.com/package/mitt) | 3.0.1 | 520B | on+emit+off+wildcard+clear | ✅ PASS |
 | [dayjs](https://npmjs.com/package/dayjs) | 1.11.21 | 7KB | `dayjs('2024-01-01').year() === 2024` | ✅ PASS |
 | [semver](https://npmjs.com/package/semver) | 7.8.5 | 3KB | `semver.gt('1.2.3','1.2.0') === true` | ✅ PASS |
