@@ -63,7 +63,7 @@ int main(void) {
     qwrt_free(result);
 
     // 驱动事件循环
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     qwrt_destroy(rt);
     return 0;

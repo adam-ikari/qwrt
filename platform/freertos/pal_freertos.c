@@ -28,7 +28,7 @@
  *   while (running) {
  *       pal_freertos_run_cycle(pf, 1000);  // block up to 1s
  *       pal_freertos_drain_deferred(pf, rt);
- *       qwrt_tick(rt);
+ *       qwrt_tick(rt, 100);
  *   }
  *
  *   qwrt_destroy(rt);

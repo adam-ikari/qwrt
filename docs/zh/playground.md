@@ -296,7 +296,7 @@ qwrt_free(result);
 **事件循环：**
 ```c
 while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 }
 ```
 

@@ -21,7 +21,7 @@ void app_main(void) {
     // ... 使用运行时 ...
 
     // 驱动事件循环
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     qwrt_destroy(rt);
     pal_freertos_destroy(pal);
@@ -48,7 +48,7 @@ FreeRTOS PAL 使用 lwIP 套接字轮询和 FreeRTOS 定时器检查实现 `run_
 
 ```c
 while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 }
 ```
 

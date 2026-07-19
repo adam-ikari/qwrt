@@ -102,7 +102,7 @@ while (running) {
     drain_deferred_queue();
     
     // 3. Process JS jobs
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
     
     // 4. Check done condition
 }
@@ -118,7 +118,7 @@ FreeRTOS timer/lwIP callback
 Main loop
   → xQueueReceive(deferred_queue, &cb_data)
   → qwrt_defer_callback(rt, bridge_callback_fn, cb_data)
-  → qwrt_tick(rt)
+  → qwrt_tick(rt, 100)
   → bridge_callback_fn calls JS resolve/reject
 ```
 
@@ -277,7 +277,7 @@ void qwrt_event_loop(qwrt_t *rt) {
         drain_deferred_queue(rt);
         
         // Process JS jobs
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
     }
 }
 ```
@@ -306,7 +306,7 @@ When an upper-layer application is ported on top of qwrt, the event loop becomes
 while (!done) {
     pal_freertos_run_cycle(pf, timeout_ms);
     pal_freertos_drain_deferred(pf, rt);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
     check_done();
 }
 ```

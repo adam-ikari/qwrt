@@ -61,7 +61,7 @@ int main(void)
     printf("JS eval'd, running tick...\n");
 
     /* Run tick — mock PAL completes synchronously, deferred callbacks fire */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *done_val = NULL;
     rc = qwrt_eval(rt, "_done", &done_val);

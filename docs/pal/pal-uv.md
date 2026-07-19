@@ -26,7 +26,7 @@ int main(void) {
     // ... use runtime ...
 
     // Drive the event loop
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     qwrt_destroy(rt);
     pal_uv_destroy(pal);  // frees the uv_loop_t
@@ -54,7 +54,7 @@ int main(void) {
 
 ```c
 while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 }
 ```
 

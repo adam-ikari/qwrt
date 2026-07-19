@@ -42,7 +42,7 @@ int main(void) {
         "  globalThis.__fired = true; }, 0);",
         NULL);
     pal_mock_fire_all_timers(pal);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *r = NULL;
     if (qwrt_eval(rt, "globalThis.__rand", &r) == 0 && r) {

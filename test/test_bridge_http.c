@@ -45,7 +45,7 @@ int main(void)
     if (rc != 0) { fprintf(stderr, "eval failed: %d\n", rc); qwrt_destroy(rt); pal_mock_destroy(pal); return 1; }
 
     /* Run tick — mock PAL completes synchronously, deferred callbacks fire */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *done_val = NULL;
     rc = qwrt_eval(rt, "_done", &done_val);
@@ -89,7 +89,7 @@ int main(void)
         if (rc != 0) {
             fprintf(stderr, "stream eval failed: %d\n", rc);
         } else {
-            qwrt_tick(rt);
+            qwrt_tick(rt, 100);
 
             char *final2 = NULL;
             rc = qwrt_eval(rt, "_result2", &final2);

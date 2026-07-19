@@ -57,7 +57,7 @@ The host controls the event loop by interleaving `qwrt_tick` with its own work:
 ```c
 // One tick per iteration — your code never starved
 pal->run_cycle(pal, 100);
-qwrt_tick(rt);
+qwrt_tick(rt, 100);
 my_other_work();  // always runs, never delayed
 ```
 

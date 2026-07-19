@@ -56,7 +56,7 @@ int main(void) {
 
     // 驱动事件循环（即使是同步 eval 也需要，用于排空微任务）
     while (pal->run_cycle(pal, 100) > 0) {
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
     }
 
     // 清理

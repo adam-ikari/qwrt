@@ -249,7 +249,7 @@ TEST(tick_no_pending) {
     ASSERT_NOT_NULL(rt);
 
     /* No pending jobs — tick should return 0 */
-    int rc = qwrt_tick(rt);
+    int rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     destroy_test_runtime(rt, pal);
@@ -272,7 +272,7 @@ TEST(tick_with_promise) {
     ASSERT_EQ(rc, 0);
 
     /* Tick to process the resolved promise */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     /* Check that the .then callback ran */
@@ -348,7 +348,7 @@ TEST(mock_storage) {
     ASSERT_EQ(rc, 0);
 
     /* Tick to process the resolved promise */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     /* Verify set result */
@@ -368,7 +368,7 @@ TEST(mock_storage) {
         NULL);
     ASSERT_EQ(rc, 0);
 
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_getResult", &result);
@@ -394,7 +394,7 @@ TEST(mock_fs) {
         NULL);
     ASSERT_EQ(rc, 0);
 
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     char *result = NULL;
@@ -413,7 +413,7 @@ TEST(mock_fs) {
         NULL);
     ASSERT_EQ(rc, 0);
 
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_readResult", &result);
@@ -443,7 +443,7 @@ TEST(mock_http) {
         NULL);
     ASSERT_EQ(rc, 0);
 
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     char *result = NULL;
@@ -475,7 +475,7 @@ TEST(mock_timer) {
     ASSERT_EQ(rc, 0);
 
     /* Process the initial promise setup */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     /* Timer should not have fired yet */
@@ -490,7 +490,7 @@ TEST(mock_timer) {
     pal_mock_fire_timer(pal, 1);
 
     /* Tick to process the resolved promise */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     /* Now the callback should have run */
@@ -558,7 +558,7 @@ TEST(reset_clears_timers) {
 
     int rc = qwrt_eval(rt, "var _resetTimerInfo = testHelper.timerStart(1000, 0)", NULL);
     ASSERT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     qwrt_config_t config;
@@ -600,7 +600,7 @@ TEST(reset_different_pal) {
         "  _httpOk = v; "
         "})", NULL);
     ASSERT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     /* Reset with no-http PAL */
@@ -620,7 +620,7 @@ TEST(reset_different_pal) {
         "  function(e) { _httpDenied = 'err:' + e; }"
         ")", NULL);
     ASSERT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_httpDenied", &result);
@@ -658,7 +658,7 @@ TEST(pal_denied_fs_write) {
         "  function(e) { _writeErr = 'err:' + e; }"
         ")", NULL);
     ASSERT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_writeErr", &result);
@@ -691,7 +691,7 @@ TEST(pal_denied_http) {
         "  function(e) { _httpErr = 'err:' + e; }"
         ")", NULL);
     ASSERT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     ASSERT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_httpErr", &result);

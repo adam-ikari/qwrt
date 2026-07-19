@@ -48,7 +48,7 @@ int main(void)
     int max_iter = 5000;
     int iter = 0;
     while (iter < max_iter) {
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
         uv_run(loop, UV_RUN_ONCE);
 
         char *result = NULL;

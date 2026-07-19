@@ -23,7 +23,7 @@ int main(void) {
         qwrt_free(result);
     }
 
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     qwrt_destroy(rt);
     pal_uv_destroy(pal);
@@ -61,7 +61,7 @@ int main(void) {
     qwrt_free(result);
 
     // No event loop needed for mock PAL
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
@@ -101,7 +101,7 @@ int main(void) {
     printf("Fetch: %s\n", result ? result : "ERROR");
     qwrt_free(result);
 
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     qwrt_destroy(rt);
     pal_uv_destroy(pal);
@@ -138,7 +138,7 @@ int main(void) {
         "})()",
         &result);
 
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     printf("Result: %s\n", result ? result : "ERROR");
     qwrt_free(result);
@@ -166,7 +166,7 @@ int main(void) {
 
     // Set a value
     qwrt_eval(rt, "localStorage.setItem('key', 'hello')", NULL);
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     // Read it back
     char *result = NULL;

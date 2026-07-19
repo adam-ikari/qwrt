@@ -106,4 +106,4 @@ static void my_http_callback(void *user_data, int status,
 }
 ```
 
-延迟的回调在宿主调用 `qwrt_tick(rt)` 时运行。
+延迟的回调在宿主调用 `qwrt_tick(rt, 100)` 时运行。

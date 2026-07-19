@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
 
         char *r = NULL;
         int rc = qwrt_eval(rt, src, &r);
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
 
         if (rc == 0) {
             printf("Result: COMPATIBLE\n");

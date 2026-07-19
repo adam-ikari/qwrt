@@ -292,7 +292,7 @@ while (result == NULL) {
     // 驱动 PAL 实现（如 uv_run）
     my_event_loop_step();
     // 处理 JS Promise 回调
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
     // qwrt_call 会在 Promise resolve 后填充 result
 }
 
@@ -729,7 +729,7 @@ int main(int argc, char *argv[]) {
 
         while (result == NULL) {
             uv_run(loop, UV_RUN_ONCE);
-            qwrt_tick(rt);
+            qwrt_tick(rt, 100);
         }
 
         printf("%s\n", result);

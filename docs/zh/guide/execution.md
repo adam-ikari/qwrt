@@ -76,14 +76,14 @@ qwrt_free(result);
 
 ```c
 // 在任何创建 Promise 的求值之后：
-qwrt_tick(rt);
+qwrt_tick(rt, 100);
 ```
 
 通常你在循环中与 PAL 事件循环一起驱动它：
 
 ```c
 while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 }
 ```
 

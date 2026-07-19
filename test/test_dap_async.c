@@ -135,7 +135,7 @@ static int child_main(int in_fd, int out_fd, const char *js_path)
      * while on_stopped pumps the uv loop so the 100ms timer fires. */
     JS_Eval(ctx, src, (size_t)sz, js_path, JS_EVAL_TYPE_GLOBAL);
     /* Drain any remaining deferred work. */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Read __fired and __n; write the verdict. If the timer fired DURING the
      * pause, the loop exits with small n (the breakpoint is on line 5, first

@@ -21,7 +21,7 @@ void app_main(void) {
     // ... use runtime ...
 
     // Drive the event loop
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     qwrt_destroy(rt);
     pal_freertos_destroy(pal);
@@ -48,7 +48,7 @@ The FreeRTOS PAL implements `run_cycle` using lwIP socket polling and FreeRTOS t
 
 ```c
 while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 }
 ```
 

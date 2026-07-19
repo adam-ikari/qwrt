@@ -32,7 +32,7 @@ int main(void) {
         qwrt_free(result);
     }
 
-    qwrt_tick(rt);  // drain microtasks
+    qwrt_tick(rt, 100);  // drain microtasks
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
     return 0;

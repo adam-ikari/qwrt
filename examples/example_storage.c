@@ -24,7 +24,7 @@ static void run_async(qwrt_t *rt, qwrt_pal_t *pal, const char *js) {
         if (pal->run_cycle) {
             pal->run_cycle(pal, 50);
         }
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
         char *out = NULL;
         if (qwrt_eval(rt, "globalThis.__out", &out) == 0) {
             int ready = out && strcmp(out, "null") != 0;

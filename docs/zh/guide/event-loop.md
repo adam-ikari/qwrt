@@ -17,7 +17,7 @@ while (running) {
     int events = pal->run_cycle(pal, 100);  // 100ms 超时
 
     // 2. 排空 JS 微任务 — 解决 Promise、分发回调
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     // 3. 检查退出条件
     if (events < 0) break;  // PAL 请求停止
@@ -33,7 +33,7 @@ flowchart TB
     C --> D["PAL 回调在事件循环线程上触发"]
     D --> E["禁止直接调用 JS"]
     D --> F["通过 qwrt_defer_callback(rt, fn, data) 入队"]
-    F --> G["qwrt_tick(rt)：排空延迟回调队列"]
+    F --> G["qwrt_tick(rt, 100)：排空延迟回调队列"]
     G --> H["fn(rt, data) 在有效的 JS 上下文中运行 → 解决 Promise"]
 ```
 
@@ -81,7 +81,7 @@ int main(void) {
     while (running) {
         int events = pal->run_cycle(pal, 100);
         if (events < 0) break;
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
         // 检查是否还有更多工作要做...
     }
 
@@ -96,7 +96,7 @@ int main(void) {
 
 ```c
 qwrt_eval(rt, "console.log('Hello!');", NULL);
-qwrt_tick(rt);  // 排空微任务
+qwrt_tick(rt, 100);  // 排空微任务
 qwrt_destroy(rt);
 ```
 

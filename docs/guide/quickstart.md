@@ -56,7 +56,7 @@ int main(void) {
 
     // Drive the event loop (needed even for synchronous eval to drain microtasks)
     while (pal->run_cycle(pal, 100) > 0) {
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
     }
 
     // Clean up

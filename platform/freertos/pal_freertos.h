@@ -11,7 +11,7 @@
  *   // Event loop (runs in a FreeRTOS task):
  *   while (running) {
  *       pal_freertos_run_cycle(pf, portMAX_DELAY);
- *       qwrt_tick(rt);
+ *       qwrt_tick(rt, 100);
  *   }
  *   ...
  *   pal_freertos_destroy(pf);

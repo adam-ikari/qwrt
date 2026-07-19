@@ -9,7 +9,7 @@ qwrt is single-threaded. All async operations are driven by a cooperative event 
 ```c
 while (running) {
     pal->run_cycle(pal, 100);   // collect I/O events, fire timers
-    qwrt_tick(rt);               // process one batch of JS work
+    qwrt_tick(rt, 100);               // process one batch of JS work
     my_other_work();             // YOUR code — never starved
 }
 ```
@@ -29,7 +29,7 @@ flowchart TB
 ## qwrt_tick Semantics
 
 ```c
-int ret = qwrt_tick(rt);
+int ret = qwrt_tick(rt, 100);
 // ret == 1:  work was processed (callbacks fired, promises resolved)
 // ret == 0:  nothing to do (idle)
 // ret == -1: error
@@ -94,7 +94,7 @@ int main(void) {
     while (running) {
         int events = pal->run_cycle(pal, 100);
         if (events < 0) break;
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
 
         // Your code here — never delayed by qwrt
         check_sensors();
@@ -113,7 +113,7 @@ If your PAL has no `run_cycle`:
 
 ```c
 qwrt_eval(rt, "console.log('Hello!');", NULL);
-qwrt_tick(rt);  // drain microtasks
+qwrt_tick(rt, 100);  // drain microtasks
 qwrt_destroy(rt);
 ```
 
@@ -123,5 +123,5 @@ Even synchronous JS can accumulate Promise microtasks that need draining:
 
 ```c
 qwrt_eval(rt, "Promise.resolve(42).then(v => console.log(v));", NULL);
-qwrt_tick(rt);  // required — otherwise console.log never fires
+qwrt_tick(rt, 100);  // required — otherwise console.log never fires
 ```

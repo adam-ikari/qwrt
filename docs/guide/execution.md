@@ -76,14 +76,14 @@ Many JS APIs (Promises, async/await) enqueue microtasks. Call `qwrt_tick` to dra
 
 ```c
 // After any eval that creates promises:
-qwrt_tick(rt);
+qwrt_tick(rt, 100);
 ```
 
 Typically you drive this in a loop with the PAL event loop:
 
 ```c
 while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 }
 ```
 

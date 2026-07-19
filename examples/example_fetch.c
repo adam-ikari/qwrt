@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
      * iteration. Order (tick then run) matches the contract in qwrt.h: PAL
      * callbacks fire on the loop thread and enqueue JS work via qwrt_tick. */
     for (int iter = 0; iter < 5000; ++iter) {
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
         uv_run(loop, UV_RUN_ONCE);
 
         char *done = NULL;

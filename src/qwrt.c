@@ -222,20 +222,25 @@ void qwrt_destroy(qwrt_t *rt)
 /* ================================================================
  * qwrt_tick - Process one batch of pending work
  *
- * Drains all deferred PAL callbacks queued since the last tick, then
- * executes pending JS microtasks (Promise reactions). Returns immediately
- * after one pass — does NOT loop. The caller controls the pace:
+ * If the PAL has run_cycle, calls it first to collect I/O events
+ * (HTTP responses, timers, file I/O). Then drains all deferred
+ * PAL callbacks and pending JS microtasks.
+ *
+ * Returns immediately after one pass — does NOT loop internally.
+ * The caller wraps this in a while loop:
  *
  *   while (running) {
- *       pal->run_cycle(pal, timeout_ms);  // collect events
- *       qwrt_tick(rt);                     // process one batch
- *       my_other_work();                   // never starved
+ *       qwrt_tick(rt, timeout_ms);  // collect + process one batch
+ *       my_other_work();             // never starved
  *   }
+ *
+ * If the PAL has no run_cycle (NULL), only drains callbacks + jobs.
+ * timeout_ms is passed through to pal->run_cycle.
  *
  * Returns 1 if any work was done, 0 if idle, -1 on error.
  * ================================================================ */
 
-int qwrt_tick(qwrt_t *rt)
+int qwrt_tick(qwrt_t *rt, int timeout_ms)
 {
     if (!rt || !rt->jsrt) {
         return -1;
@@ -244,6 +249,14 @@ int qwrt_tick(qwrt_t *rt)
     JSContext *ctx1;
     int ret;
     int jobs_processed = 0;
+
+    /* Step 0: Collect I/O events (optional — PAL may have no run_cycle) */
+    {
+        qwrt_ctx_t *ctx = qwrt_get_active_ctx(rt);
+        if (ctx && ctx->pal && ctx->pal->run_cycle) {
+            ctx->pal->run_cycle((qwrt_pal_t *)ctx->pal, timeout_ms);
+        }
+    }
 
     /* Step 1: Process ALL deferred PAL callbacks queued since last tick */
     while (rt->deferred_cb_head) {
@@ -351,7 +364,7 @@ int qwrt_eval_bytecode(qwrt_t *rt, const uint8_t *bytecode, size_t len,
          * then extract the fulfillment value */
         if (JS_IsPromise(val)) {
             /* Run pending jobs to advance Promise state */
-            qwrt_tick(rt);
+            qwrt_tick(rt, 100);
             JSPromiseStateEnum state = JS_PromiseState(ctx, val);
             if (state == JS_PROMISE_FULFILLED) {
                 res = JS_PromiseResult(ctx, val);

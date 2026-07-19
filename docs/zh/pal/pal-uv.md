@@ -26,7 +26,7 @@ int main(void) {
     // ... 使用运行时 ...
 
     // 驱动事件循环
-    pal->run_cycle(pal, 100); qwrt_tick(rt);
+    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
 
     qwrt_destroy(rt);
     pal_uv_destroy(pal);  // 释放 uv_loop_t
@@ -54,7 +54,7 @@ int main(void) {
 
 ```c
 while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 }
 ```
 

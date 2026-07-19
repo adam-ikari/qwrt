@@ -32,7 +32,7 @@ int main(void) {
         qwrt_free(result);
     }
 
-    qwrt_tick(rt);  // 排空微任务
+    qwrt_tick(rt, 100);  // 排空微任务
     qwrt_destroy(rt);
     pal_mock_destroy(pal);
     return 0;

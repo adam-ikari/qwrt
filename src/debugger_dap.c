@@ -383,7 +383,7 @@ static void dap_pump_pal(qwrt_dap_t *d)
     if (pal->run_cycle) {
         pal->run_cycle((qwrt_pal_t *)pal, 0);  /* non-blocking */
     }
-    qwrt_tick(d->rt);
+    qwrt_tick(d->rt, 100);
 }
 
 /* Poll stdin for a DAP message with a timeout. Returns:

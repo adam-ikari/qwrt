@@ -331,7 +331,7 @@ static void bench_async(qwrt_t *rt) {
     qwrt_eval(rt, "var _pcount=0;", NULL);
     for (int i = 0; i < N; i++) {
         qwrt_eval(rt, "Promise.resolve(1).then(function(v){_pcount++})", NULL);
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
     }
     double elapsed = now_ms() - t0;
     double ops = N / (elapsed / 1000.0);
@@ -343,7 +343,7 @@ static void bench_async(qwrt_t *rt) {
     t0 = now_ms();
     for (int i = 0; i < N; i++) {
         qwrt_eval(rt, "queueMicrotask(function(){_mcount++})", NULL);
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
     }
     elapsed = now_ms() - t0;
     ops = N / (elapsed / 1000.0);
@@ -352,7 +352,7 @@ static void bench_async(qwrt_t *rt) {
 
     /* Tick overhead (no pending) */
     t0 = now_ms();
-    for (int i = 0; i < 100000; i++) qwrt_tick(rt);
+    for (int i = 0; i < 100000; i++) qwrt_tick(rt, 100);
     elapsed = now_ms() - t0;
     ops = 100000 / (elapsed / 1000.0);
     printf("  %-40s %10.0f ops/s  (%.1f ms total)\n", "async.tick_empty", ops, elapsed);

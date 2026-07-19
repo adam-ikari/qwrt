@@ -86,7 +86,7 @@ static int child_main(int in_fd, int out_fd, const char *js_path)
 
     struct JSContext *ctx = qwrt_get_jsctx(rt);
     JS_Eval(ctx, src, (size_t)sz, js_path, JS_EVAL_TYPE_GLOBAL);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     free(src);
     qwrt_destroy(rt);

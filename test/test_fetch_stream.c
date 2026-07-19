@@ -82,7 +82,7 @@ static void test_fetch_stream_body(void)
     int rc = qwrt_eval(rt, code, NULL);
     if (rc != 0) TEST_FAIL("eval fetch code");
 
-    for (int i = 0; i < 200; i++) qwrt_tick(rt);
+    for (int i = 0; i < 200; i++) qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_result", &result);
@@ -128,7 +128,7 @@ static void test_fetch_text_streaming(void)
     int rc = qwrt_eval(rt, code, NULL);
     if (rc != 0) TEST_FAIL("eval text code");
 
-    for (int i = 0; i < 200; i++) qwrt_tick(rt);
+    for (int i = 0; i < 200; i++) qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_text_result", &result);

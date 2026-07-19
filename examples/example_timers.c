@@ -57,7 +57,7 @@ int main(void) {
         if (pal->run_cycle) {
             pal->run_cycle(pal, 100);  /* block up to 100ms for events */
         }
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
 
         char *done = NULL;
         if (qwrt_eval(rt, "globalThis.__done", &done) == 0) {

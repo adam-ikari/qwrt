@@ -39,7 +39,7 @@ int main(void) {
 
     /* Drive the PAL event loop + JS microtasks until idle. */
     while (pal->run_cycle && pal->run_cycle(pal, 100) > 0) {
-        qwrt_tick(rt);
+        qwrt_tick(rt, 100);
     }
 
     qwrt_destroy(rt);

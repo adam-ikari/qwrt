@@ -23,7 +23,7 @@ static uint8_t *load_file(const char *path, size_t *out_len) {
 }
 
 static void pump(qwrt_t *rt, qwrt_pal_t *pal) {
-    for (int i = 0; i < 10; i++) { qwrt_tick(rt); pal_mock_fire_all_timers(pal); qwrt_tick(rt); }
+    for (int i = 0; i < 10; i++) { qwrt_tick(rt, 100); pal_mock_fire_all_timers(pal); qwrt_tick(rt, 100); }
 }
 
 static int js_bool(qwrt_t *rt, const char *expr) {

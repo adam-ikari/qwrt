@@ -292,12 +292,12 @@ static int run_one_test(const char *test_path,
     /* Drain microtasks: ShellTestEnvironment uses Promise.resolve().then()
      * to set all_loaded = true. Must tick here so the harness is ready
      * before the shell report and test execute. */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
     rc = rc == 0 ? qwrt_eval(rt, report_src, NULL) : rc;
     rc = rc == 0 ? qwrt_eval(rt, test_src, NULL) : rc;
     /* Drain any microtasks queued during test execution (completion
      * callbacks, etc.) */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     if (rc != 0) {
         printf("SKIP | %s | eval failed (missing API?)\n", test_path);

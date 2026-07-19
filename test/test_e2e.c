@@ -209,7 +209,7 @@ TEST(e2e_storage) {
         "var _r = null; storage.set('test_key', 'test_value').then(function() { _r = 'ok'; })",
         NULL);
     ASSERT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Verify set worked */
     char *result = NULL;
@@ -223,7 +223,7 @@ TEST(e2e_storage) {
         "var _v = null; storage.get('test_key').then(function(v) { _v = v; })",
         NULL);
     ASSERT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_v", &result);
@@ -248,7 +248,7 @@ TEST(e2e_fs) {
         "var _fw = null; fs.writeFile('/test.txt', 'hello fs').then(function() { _fw = 'written'; })",
         NULL);
     ASSERT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_fw", &result);
@@ -261,7 +261,7 @@ TEST(e2e_fs) {
         "var _fr = null; fs.readFile('/test.txt').then(function(d) { _fr = d; })",
         NULL);
     ASSERT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_fr", &result);
@@ -287,7 +287,7 @@ TEST(e2e_fetch) {
         "fetch('http://example.com/api').then(function(r) { return r.text(); }).then(function(t) { _fetch_result = t; })",
         NULL);
     ASSERT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_fetch_result", &result);
@@ -314,7 +314,7 @@ TEST(e2e_timer) {
     ASSERT_EQ(rc, 0);
 
     /* Process the timer setup */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Timer hasn't fired yet */
     char *result = NULL;
@@ -325,7 +325,7 @@ TEST(e2e_timer) {
 
     /* Fire all mock timers */
     pal_mock_fire_all_timers(pal);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Now it should have fired */
     rc = qwrt_eval(rt, "_timer_fired", &result);
@@ -437,7 +437,7 @@ TEST(e2e_full_agent) {
     ASSERT_EQ(rc, 0);
 
     /* Process async operations */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Verify agent completed without error */
     char *result = NULL;
@@ -456,7 +456,7 @@ TEST(e2e_full_agent) {
         "var _stored = null; storage.get('last_result').then(function(v) { _stored = v; })",
         NULL);
     ASSERT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_stored", &result);

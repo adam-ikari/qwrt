@@ -106,4 +106,4 @@ static void my_http_callback(void *user_data, int status,
 }
 ```
 
-The deferred callback runs when the host calls `qwrt_tick(rt)`.
+The deferred callback runs when the host calls `qwrt_tick(rt, 100)`.

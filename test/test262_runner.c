@@ -252,7 +252,7 @@ static int run_one_test(const char *test_path,
     /* Run the test */
     char *result = NULL;
     rc = qwrt_eval(rt, test_src, &result);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     if (rc != 0) {
         if (is_negative) {

@@ -463,9 +463,17 @@ qwrt_t *qwrt_create(const qwrt_config_t *config);
  * The PAL is NOT freed — caller owns it. Safe to call with NULL. */
 void qwrt_destroy(qwrt_t *rt);
 
-/* Drain pending JS microtasks and deferred PAL callbacks. Returns 0 on
- * success, -1 on error. The host calls this after pal->run_cycle. */
-int qwrt_tick(qwrt_t *rt);
+/* Process one batch: collects I/O events (if PAL has run_cycle), then
+ * drains deferred callbacks + pending JS microtasks. Returns immediately
+ * — does NOT loop internally. Use in a while loop:
+ *
+ *   while (running) {
+ *       qwrt_tick(rt, 100);  // collect events + process one batch
+ *       my_other_work();      // never starved
+ *   }
+ *
+ * Returns 1 if any work was done, 0 if idle, -1 on error. */
+int qwrt_tick(qwrt_t *rt, int timeout_ms);
 
 /* Evaluate JS `code` on the active context. If `result` is non-NULL, receives
  * a malloc'd stringified result (free with qwrt_free). Returns 0 on success,
