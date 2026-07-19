@@ -160,9 +160,12 @@ const sidebar = {
   ],
 }
 
+// C API reference pages exist for completeness but are NOT linked from
+// navigation. C developers can find them via search or direct URL if needed.
+// The website is user-facing; C API is for embedders who use the headers.
+
 const nav = [
   { text: 'Guide', link: '/guide/' },
-  { text: 'C API', link: '/c-api/' },
   { text: 'PAL', link: '/pal/' },
   { text: 'JS API', link: '/js-api/' },
   { text: 'Playground', link: '/playground' },
@@ -286,10 +289,10 @@ const zhSidebar = {
 
 const zhNav = [
   { text: '指南', link: '/zh/guide/' },
-  { text: 'C API', link: '/zh/c-api/' },
   { text: 'PAL', link: '/zh/pal/' },
   { text: 'JS API', link: '/zh/js-api/' },
   { text: '演练场', link: '/zh/playground' },
+  { text: '兼容检查', link: '/zh/compat-checker' },
   { text: 'GitHub', link: 'https://github.com/adam-ikari/qwrt' },
 ]
 
