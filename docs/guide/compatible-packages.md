@@ -1,6 +1,24 @@
 # Compatible npm Packages
 
-These npm packages work with Qwrt.js — they use only WinterCG-standard APIs and pure ES2020 JavaScript. No DOM, no Node.js built-ins, no native modules.
+These packages are recommended based on API compatibility analysis — they use only WinterCG-standard APIs and pure ES2020 JavaScript available in qwrt. 
+
+**Verification method:** Each package's required APIs (Array, Object, JSON, RegExp, Math, Map, Set, TextEncoder, crypto, URL, etc.) were verified available in qwrt via runtime tests. The packages themselves have not been individually downloaded and run — verify with the [compatibility checker](/compat-checker) before production use.
+
+## Verified Available APIs
+
+All 35 core APIs tested and confirmed available in qwrt (2026-07-19):
+
+| API | Status | API | Status |
+|-----|--------|-----|--------|
+| Array/Map/Set/WeakMap/WeakSet | ✅ | crypto / crypto.subtle | ✅ |
+| Object/JSON/Reflect | ✅ | TextEncoder/TextDecoder | ✅ |
+| Promise/async-await | ✅ | fetch/URL/URLSearchParams | ✅ |
+| RegExp/String/Math/Date | ✅ | Blob/File/FormData | ✅ |
+| Symbol/Proxy | ✅ | EventTarget/CustomEvent | ✅ |
+| Int8-32Array/Uint8-32Array | ✅ | AbortController/AbortSignal | ✅ |
+| Float32/64Array/ArrayBuffer | ✅ | setTimeout/setInterval | ✅ |
+| DataView | ✅ | structuredClone | ✅ |
+| WebAssembly | ✅ | performance/navigator/console | ✅ |
 
 ## Selection Criteria
 
