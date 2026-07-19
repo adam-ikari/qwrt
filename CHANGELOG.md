@@ -1,32 +1,44 @@
 # Changelog
 
-All notable changes to qwrt will be documented in this file.
+All notable changes to Qwrt.js.
 
 ## [Unreleased]
 
 ### Added
-- Initial standalone repository (split from monorepo)
-- `run_cycle` PAL interface for event-loop abstraction
-- `http_abort` PAL interface for cancelling in-flight HTTP streams
-- `qwrt_pal_stream_ops_t` streaming HTTP callbacks (on_headers/on_data/on_end)
-- pal_freertos: streaming HTTP with mbedTLS + chunked decode
-- pal_freertos: TLS certificate verification via ESP cert bundle
-- ESP32-S3 platform support (FreeRTOS PAL, WiFi, NVS storage, LittleFS)
-- `qwrt_set_owner_thread()` for debug-build thread-ownership transfer
+- qwrt_tick encapsulates run_cycle — single unified call with timeout_ms
+- qwrt_tick non-blocking design (returns 1/0/-1, no internal loop)
+- pal_uv_create requires explicit loop injection (no NULL)
+- QWRT_WITH_NONUTF_ENCODINGS compile-time option (Latin-1 support)
+- Promise resolution in qwrt_eval (async/await returns resolved value)
+- JS exception messages captured in qwrt_eval result
+- Runtime-verified npm packages: lodash, dayjs, semver, ms, pako, mitt, clsx, dequal
+- WASM playground (qwrt compiled to WebAssembly via Emscripten)
+- npm compatibility checker (compat_check tool)
+- test262 CI job (prevents QuickJS-ng patch regression)
+- ESP32 FreeRTOS PAL timer UAF fix (build-verified with ESP-IDF v5.5.4)
+- CONTRIBUTING.md
+- Website: Chinese translations, C API reference, examples page, compatible packages
+
+### Changed
+- WAMR-2.4.5 as default WASM engine with Fast JIT (wasm3 optional)
+- QuickJS-ng ES support: ES2020 (not ES2023 — website corrected)
 
 ### Fixed
-- pal_uv: `pal_uv_destroy` uv_close assertion — timer handles now untracked before free
-- pal_uv: streaming teardown use-after-free — `teardown_started` idempotency guard
-- pal_uv: `bridge_validate_path` rejected all paths (strchr(path,'\0') bug)
-- pal_uv: forced-close double-fire on_end via UV_ECANCELED read callback
+- META: script= parsing off-by-one (16 chars not 15)
+- Blob.slice edge cases (start/end handling, normalizeType spec compliance)
+- pal_uv chunk-size cap for non-streaming chunked decode
+- pal_uv_destroy in-flight op leak (proper close callbacks)
+- Missing self=globalThis injection in WPT runner
+- WPT: 0 ERRORs (down from 5), 165 PASS
 
-## [0.1.0] - 2026-06-26
+## [0.1.0] — Initial
 
-### Added
-- QuickJS-ng runtime wrapper (qwrt_create/destroy/eval/tick)
-- PAL interface (qwrt_pal_t) with libuv, mock backends
-- JS polyfill: fetch, console, crypto, streams, timers, fs, storage, url, encoding (21 modules)
-- Native extensions: compress (miniz), crypto (mbedTLS), textcodec, wasm3
-- Multi-context API (spawn/suspend/resume/destroy_ctx)
-- Streaming HTTP with TLS (mbedTLS) and chunked transfer decoding
-- Test suite: test_qwrt, test_context_gtest, test_extension_gtest, test_robustness_gtest
+- Core runtime: qwrt_create/destroy/tick/eval/call
+- Multi-context: spawn/suspend/resume/destroy_ctx
+- WinterCG runtime: fetch, console, crypto, streams, timers, URL, encoding, Blob, EventTarget, AbortController, structuredClone
+- PAL: libuv (Linux/macOS), mock (testing), FreeRTOS (ESP32-S3)
+- Extensions: compress, crypto, textcodec, WAMR, wasm3
+- DAP debugger (VS Code)
+- WPT runner
+- test262 integration
+- VitePress documentation (en + zh)
