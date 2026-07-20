@@ -14,10 +14,69 @@
 
 ### 原则
 
-1. **编译时决定，不是运行时。** 宿主通过 CMake 选项选择组合。不需要新的 C API。
-2. **选项互相独立。** PAL、WASM 引擎、Worker 三个维度正交。
-3. **零开销。** 未选择的选项不编译任何代码。
-4. **扩展模式。** WASM 引擎作为 `qwrt_ext_t` 实现。Worker 作为 `src/worker_*.c` 编译时选择。
+1. **qwrt 永远是单线程的。** 一个 qwrt 实例 = 一个线程 = 一个 JSRuntime。qwrt 不创建线程/进程。
+2. **并行由宿主提供。** 宿主创建多个 qwrt 实例，各自独立运行。宿主控制并行方式。
+3. **编译时决定，不是运行时。** 宿主通过 CMake 选项选择组合。不需要新的 C API。
+4. **选项互相独立。** PAL、WASM 引擎、Worker 三个维度正交。
+5. **零开销。** 未选择的选项不编译任何代码。
+6. **扩展模式。** WASM 引擎作为 `qwrt_ext_t` 实现。Worker 是宿主模式，不是 qwrt 代码。
+
+### 核心模型
+
+```
+宿主 = 并行管理者
+qwrt = 单线程 JS 运行时
+
+宿主创建 N 个 qwrt 实例：
+  实例1 (线程A): qwrt_t + WAMR + pal_uv
+  实例2 (线程B): qwrt_t + web_wasm + pal_wasm
+  实例3 (进程C): qwrt_t + wasm3 + pal_uv
+
+宿主决定：
+  - 每个实例在哪个线程/进程/browser Worker 中运行
+  - 每个实例用哪个 WASM 引擎
+  - 实例之间如何通信（MessagePort）
+```
+
+### 三个维度
+
+#### 维度 1: PAL 后端（已有）
+
+```
+QWRT_PAL_UV       → platform/uv/pal_uv.c        (libuv, Linux/macOS)
+QWRT_PAL_MOCK     → platform/mock/pal_mock.c    (测试，确定性)
+QWRT_PAL_FREERTOS → platform/freertos/pal_freertos.c (ESP32-S3)
+QWRT_PAL_WASM     → platform/wasm/pal_wasm.c    (Emscripten，浏览器)
+```
+
+PAL 实现是参考代码，宿主直接 `#include` 到自己的构建中。qwrt 构建系统不将它们编译为独立库。
+
+#### 维度 2: WASM 引擎（扩展）
+
+```
+QWRT_WITH_WAMR    → src/ext_wamr.c    (WAMR Fast JIT，默认)
+QWRT_WITH_WASM3   → src/ext_wasm3.c   (wasm3 解释器，备选)
+QWRT_WITH_WEB_WASM → src/ext_web_wasm.c (浏览器原生 WebAssembly)
+```
+
+三者互斥（都注册 `WebAssembly` 全局对象）。宿主为每个 qwrt 实例选择一个。
+
+**`ext_web_wasm.c`**（新增）：
+- 仅在 `__EMSCRIPTEN__` 下编译
+- 不实现 WASM——直接桥接到浏览器的 `WebAssembly.*`
+- 零代码体积（浏览器提供所有实现）
+
+#### 维度 3: 并行方式（宿主决定，不是 qwrt 代码）
+
+```
+宿主自行选择：
+  单线程    → 一个 qwrt 实例，宿主的主线程
+  pthread   → 宿主创建线程，每个线程一个 qwrt 实例
+  fork      → 宿主创建进程，每个进程一个 qwrt 实例
+  浏览器    → 宿主创建 browser Worker，每个 Worker 一个 qwrt 实例
+```
+
+qwrt 提供 MessagePort（JS API）用于实例间通信。qwrt 不管理线程/进程/Worker 生命周期——宿主管理。
 
 ### 三个维度
 
@@ -133,10 +192,52 @@ platform/
 CMakeLists.txt        # 选项: QWRT_PAL_*, QWRT_WITH_*, QWRT_WORKER_*
 ```
 
+
+### 宿主并行模式（参考实现）
+
+宿主创建多个 qwrt 实例的示例代码：
+
+**多线程模式：**
+```c
+// 每个线程一个 qwrt 实例
+void *worker_thread(void *arg) {
+    qwrt_t *rt = qwrt_create(&config);
+    while (running) {
+        qwrt_tick(rt, 100);
+        // 通过 thread-safe queue 收发消息
+    }
+    qwrt_destroy(rt);
+}
+// 主线程
+pthread_create(&t1, NULL, worker_thread, config1);
+pthread_create(&t2, NULL, worker_thread, config2);
+```
+
+**多进程模式：**
+```c
+pid_t pid = fork();
+if (pid == 0) {
+    // 子进程: 创建独立的 qwrt 实例
+    qwrt_t *rt = qwrt_create(&config);
+    while (running) qwrt_tick(rt, 100);
+    qwrt_destroy(rt);
+} else {
+    // 父进程: 另一个 qwrt 实例
+    qwrt_t *rt = qwrt_create(&config);
+    // 通过 pipe 与子进程通信
+}
+```
+
+**浏览器 Worker 模式：**
+```js
+// 宿主在浏览器中创建 Worker，每个 Worker 加载 qwrt WASM
+const worker = new Worker('qwrt-worker.js');
+worker.postMessage({ code: '1+1' });
+worker.onmessage = (e) => console.log(e.data);
+```
+
 ### 实现优先级
 
-1. `ext_web_wasm.c` — 浏览器原生 WASM 桥接（最小工作量，最大价值）
-2. `QWRT_WORKER_*` CMake 选项骨架 — 编译时选择框架
-3. `worker_thread.c` — pthread 实现（Linux/macOS 可用，pthread 库已有）
-4. `worker_browser.c` — 浏览器 Worker（配合 PAL_WASM）
-5. `worker_process.c` — fork 实现（适配已有 spawn/join PAL 接口）
+1. `ext_web_wasm.c` — 浏览器原生 WASM 桥接（编译时扩展）
+2. 宿主并行模式文档 — pthread/fork/browser Worker 示例
+3. MessagePort 跨实例通信 — JS API 已有，补齐不同传输后端
