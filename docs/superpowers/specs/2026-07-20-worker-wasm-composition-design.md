@@ -155,6 +155,44 @@ QWRT_WORKER_BROWSER → src/worker_browser.c (浏览器 Worker)
 - 通过浏览器的 `postMessage`/`onmessage` 通信
 - 仅当 `QWRT_PAL_WASM=ON` 时可用
 
+
+
+### PAL 同步原语（Worker 和 WASM Threads 的基础设施）
+
+Worker 间通信和 WASM 多线程需要共享内存和同步。这些作为 PAL 的可选接口：
+
+```c
+/* 共享内存（同一进程内多个 qwrt 实例可访问） */
+void *(*shm_alloc)(qwrt_pal_t *pal, size_t size);
+void  (*shm_free)(qwrt_pal_t *pal, void *ptr, size_t size);
+
+/* 互斥锁（跨 qwrt 实例） */
+void *(*mutex_create)(qwrt_pal_t *pal);
+void  (*mutex_lock)(qwrt_pal_t *pal, void *m);
+void  (*mutex_unlock)(qwrt_pal_t *pal, void *m);
+void  (*mutex_destroy)(qwrt_pal_t *pal, void *m);
+
+/* 条件变量（跨 qwrt 实例） */
+void *(*cond_create)(qwrt_pal_t *pal);
+void  (*cond_wait)(qwrt_pal_t *pal, void *c, void *m);
+void  (*cond_signal)(qwrt_pal_t *pal, void *c);
+void  (*cond_destroy)(qwrt_pal_t *pal, void *c);
+```
+
+全部可选（置 NULL）——不需要时零开销。
+
+| PAL | 共享内存 | 互斥锁 | 条件变量 | 场景 |
+|-----|---------|--------|---------|------|
+| pal_uv | mmap | pthread_mutex | pthread_cond | WASM threads, Worker |
+| pal_mock | malloc | spinlock | 无（单线程） | 测试 |
+| pal_freertos | heap_caps_malloc | xSemaphoreMutex | xTaskNotify | ESP32 |
+| pal_wasm | SharedArrayBuffer | Atomics | 不需要 | 浏览器原生 |
+
+这些同步原语的用途：
+- **WASM threads**: WAMR 的 WASM 模块内部使用 SharedArrayBuffer + Atomics
+- **Worker lock-free queue**: 同一进程内的 Worker 用共享内存 + 原子操作做高效通信
+- **宿主并行**: 宿主可以在 qwrt 实例之间安全共享数据
+
 ### 组合示例
 
 ```bash
