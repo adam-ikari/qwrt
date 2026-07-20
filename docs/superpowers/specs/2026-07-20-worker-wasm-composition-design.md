@@ -66,32 +66,36 @@ QWRT_WITH_WEB_WASM → src/ext_web_wasm.c (浏览器原生 WebAssembly)
 - 不实现 WASM——直接桥接到浏览器的 `WebAssembly.*`
 - 零代码体积（浏览器提供所有实现）
 
-#### 维度 3: Worker（polyfill 层 JS API，不是底层实现）
+#### 维度 3: PalWorker — Worker 通过 PAL Spawn API 创建
 
-Worker 是 qwrt polyfill 的概念——在 JS 层面提供 `new Worker()` 编程模型来简化并行编程。底层不预设线程/进程——宿主决定如何并行执行：
+Worker 的创建委托给 PAL。不同 PAL 有不同实现，但 JS API 一致。
 
+**核心流程：**
 ```
-JS 层（polyfill）:
-  new Worker('script.js')     → Worker 对象
-  worker.postMessage(data)    → 发送消息
-  worker.onmessage = fn       → 接收消息
-
-宿主层（C）:
-  宿主决定如何执行 Worker:
-    - 同一线程内的新 qwrt 实例（模拟，无真正并行）
-    - 新线程中的 qwrt 实例（pthread）
-    - 新进程中的 qwrt 实例（fork）
-    - 浏览器 Worker 中的 qwrt WASM 实例
-
-MessagePort 传输:
-  JS 层的 postMessage/onmessage 通过宿主提供的传输后端:
-    - 单线程: 直接函数调用
-    - 多线程: thread-safe queue
-    - 多进程: pipe/fifo
-    - 浏览器: 原生 postMessage
+JS 层:    new Worker('script.js')
+            ↓
+Worker polyfill 调用 pal.spawn(config)
+            ↓
+PAL 创建新的 qwrt 实例 + MessagePort
+            ↓
+返回 Worker 对象给 JS
 ```
 
-qwrt 不实现线程/进程——只提供 Worker JS API 和 MessagePort 接口。宿主实现消息传输。
+**不同 PAL 的 Worker 实现：**
+
+| PAL | Worker 创建方式 | 消息通道 |
+|-----|----------------|----------|
+| pal_uv | fork() + pipe | pipe fd |
+| pal_mock | 同线程新 qwrt_t | 内存 queue |
+| pal_wasm | 浏览器 new Worker(url) | 原生 postMessage |
+| pal_freertos | xTaskCreate | FreeRTOS queue |
+
+**为什么这是对的：**
+- Worker 创建是 PAL 的职责，不是 qwrt 核心的
+- PAL 已经抽象了平台差异——Worker 是同一个抽象的延伸
+- 宿主选择 PAL → 自动获得对应的 Worker 行为
+- 符合依赖注入原则（PAL loop 注入 → PAL Worker 注入）
+- 安全：PAL 控制 Worker 的创建方式和权限边界
 
 ### 三个维度
 
