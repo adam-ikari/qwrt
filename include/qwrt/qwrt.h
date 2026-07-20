@@ -67,20 +67,32 @@ typedef struct qwrt_pal_stream_ops {
     void *user_data;
 } qwrt_pal_stream_ops_t;
 
-/* ================================================================
+/*
  * PAL interface (qwrt_pal_t)
  *
- * A vtable of function pointers that every PAL backend must fill in.
- * PAL implementations embed this struct as their first or near-first
- * member and recover their private state from the `pal` pointer.
+ * THE universal platform abstraction layer. This struct is the single
+ * contract between qwrt and the outside world. Every resource qwrt
+ * needs — memory, network, files, timers, entropy, workers — comes
+ * through this interface. qwrt makes NO direct system calls.
  *
- * Lifetime:
- *   The embedder creates a PAL, fills in the function pointers, and
- *   passes it to qwrt_create().  The PAL must outlive the qwrt_t.
- *   When init/destroy hooks are provided, qwrt_create calls init()
- *   and qwrt_destroy calls destroy().
+ * PAL Consumer: every qwrt component that uses this interface.
+ * PAL Provider: the implementation that fills in the function pointers.
  *
- * Fields are grouped by category; optional methods may be NULL.
+ * Contract levels:
+ *   [REQUIRED]  Must be non-NULL. qwrt_create rejects NULL.
+ *   [OPTIONAL]  May be NULL. qwrt returns QWRT_ERR_NOT_SUPPORTED.
+ *   [WORKER]    Required for Worker (new Worker()) support.
+ *
+ * Versioning: the `version` field identifies the ABI. Bump when
+ * adding new required fields. PAL implementations set it to the
+ * version they implement. qwrt checks compatibility at create time.
+ *
+ * Thread model: PAL methods are called from the qwrt thread only.
+ * PAL callbacks (qwrt_pal_cb_t) may fire from any thread — they must
+ * enqueue via qwrt_defer_callback, never call JS directly.
+ *
+ * Lifetime: embedder creates PAL, passes to qwrt_create(). PAL must
+ * outlive qwrt_t. qwrt_destroy() calls pal->destroy() if provided.
  * ================================================================ */
 
 typedef struct qwrt_pal_t qwrt_pal_t;
@@ -112,8 +124,7 @@ struct qwrt_pal_t {
     /* ── Core I/O ──────────────────────────────────────────────── */
 
     /**
-     * Perform an HTTP request and deliver the full response body.
-     *
+     * [REQUIRED] Perform an HTTP request and deliver the full response body.
      * @param pal       this PAL
      * @param url       full URL (http:// or https://)
      * @param method    HTTP method ("GET", "POST", …)
@@ -227,9 +238,7 @@ struct qwrt_pal_t {
     /* ── Timers ────────────────────────────────────────────────── */
 
     /**
-     * Start a timer.
-     *
-     * @param delay_ms  delay before first (or only) fire
+     * [REQUIRED] Start a timer.
      * @param repeat    if non-zero, the timer fires repeatedly
      * @param cb        called with QWRT_OK on each fire
      * @param cb_data   opaque user data
@@ -247,14 +256,12 @@ struct qwrt_pal_t {
     /* ── Time & entropy ────────────────────────────────────────── */
 
     /**
-     * Current wall-clock time in milliseconds since Unix epoch.
-     */
+     * [REQUIRED] Current wall-clock time in milliseconds since Unix epoch.
     uint64_t (*time_now)(qwrt_pal_t *pal);
 
     /**
-     * High-resolution monotonic time in nanoseconds since an
+     * [REQUIRED] High-resolution monotonic time in nanoseconds since an
      * arbitrary (but fixed) epoch.  Used for performance timing.
-     */
     uint64_t (*hrtime)(qwrt_pal_t *pal);
 
     /* ── Logging & memory ──────────────────────────────────────── */
@@ -267,23 +274,16 @@ struct qwrt_pal_t {
     void (*log)(qwrt_pal_t *pal, int level, const char *msg);
 
     /**
-     * Allocate memory.  If NULL, malloc() is used by the core.
-     */
+     * [OPTIONAL] Allocate memory.  If NULL, malloc() is used by the core.
     void *(*mem_alloc)(qwrt_pal_t *pal, size_t size);
 
     /**
-     * Free memory allocated by mem_alloc.  If NULL, free() is used.
-     */
+     * [OPTIONAL] Free memory allocated by mem_alloc.  If NULL, free() is used.
     void (*mem_free)(qwrt_pal_t *pal, void *ptr);
 
     /**
-     * Fill buf[0..len-1] with cryptographically-secure random bytes.
-     *
-     * Synchronous by design — hardware RNGs and /dev/urandom are
-     * fast enough that an async API adds complexity without benefit.
-     * If a future platform truly needs async entropy, this signature
-     * can be changed to accept a callback.
-     */
+     * [REQUIRED] Fill buf[0..len-1] with cryptographically-secure random bytes.
+     * Synchronous by design.
     void (*random_bytes)(qwrt_pal_t *pal, uint8_t *buf, size_t len);
 
     /* ── Event loop ────────────────────────────────────────────── */
