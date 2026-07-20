@@ -66,17 +66,32 @@ QWRT_WITH_WEB_WASM → src/ext_web_wasm.c (浏览器原生 WebAssembly)
 - 不实现 WASM——直接桥接到浏览器的 `WebAssembly.*`
 - 零代码体积（浏览器提供所有实现）
 
-#### 维度 3: 并行方式（宿主决定，不是 qwrt 代码）
+#### 维度 3: Worker（polyfill 层 JS API，不是底层实现）
+
+Worker 是 qwrt polyfill 的概念——在 JS 层面提供 `new Worker()` 编程模型来简化并行编程。底层不预设线程/进程——宿主决定如何并行执行：
 
 ```
-宿主自行选择：
-  单线程    → 一个 qwrt 实例，宿主的主线程
-  pthread   → 宿主创建线程，每个线程一个 qwrt 实例
-  fork      → 宿主创建进程，每个进程一个 qwrt 实例
-  浏览器    → 宿主创建 browser Worker，每个 Worker 一个 qwrt 实例
+JS 层（polyfill）:
+  new Worker('script.js')     → Worker 对象
+  worker.postMessage(data)    → 发送消息
+  worker.onmessage = fn       → 接收消息
+
+宿主层（C）:
+  宿主决定如何执行 Worker:
+    - 同一线程内的新 qwrt 实例（模拟，无真正并行）
+    - 新线程中的 qwrt 实例（pthread）
+    - 新进程中的 qwrt 实例（fork）
+    - 浏览器 Worker 中的 qwrt WASM 实例
+
+MessagePort 传输:
+  JS 层的 postMessage/onmessage 通过宿主提供的传输后端:
+    - 单线程: 直接函数调用
+    - 多线程: thread-safe queue
+    - 多进程: pipe/fifo
+    - 浏览器: 原生 postMessage
 ```
 
-qwrt 提供 MessagePort（JS API）用于实例间通信。qwrt 不管理线程/进程/Worker 生命周期——宿主管理。
+qwrt 不实现线程/进程——只提供 Worker JS API 和 MessagePort 接口。宿主实现消息传输。
 
 ### 三个维度
 
