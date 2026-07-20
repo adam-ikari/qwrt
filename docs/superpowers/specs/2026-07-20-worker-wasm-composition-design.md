@@ -12,6 +12,44 @@
 
 ## 设计
 
+## PAL Consumer 概念
+
+qwrt 项目中所有消费平台能力的组件都是 PAL Consumer——它们通过 `qwrt_pal_t` 接口获取平台能力，不直接访问系统调用。
+
+```
+                     ┌─────────────────────────────┐
+                     │        qwrt_pal_t           │
+                     │  (PAL 接口 — 平台能力契约)    │
+                     └─────────────────────────────┘
+                              ▲
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+   ┌──────┴──────┐   ┌───────┴───────┐   ┌───────┴───────┐
+   │ QuickJS-ng  │   │  WASM 引擎    │   │   Worker      │
+   │ + polyfill  │   │ WAMR/wasm3/   │   │   polyfill    │
+   │             │   │ web_wasm      │   │               │
+   │ fetch/crypto│   │               │   │ new Worker()  │
+   │ timers/fs   │   │ SharedMemory  │   │ postMessage   │
+   │ storage/log │   │ Mutex/Cond    │   │               │
+   └─────────────┘   └───────────────┘   └───────────────┘
+          │                   │                   │
+          └───────────────────┼───────────────────┘
+                              │
+                    所有都是 PAL Consumer
+                    不直接访问系统调用
+```
+
+**PAL Consumer 列表：**
+
+| Consumer | 消费的 PAL 接口 | 提供的 JS API |
+|----------|----------------|---------------|
+| QuickJS-ng + polyfill | http_request, timer_*, fs_*, storage_*, random_bytes, log | fetch, setTimeout, fs, localStorage, crypto, console |
+| ext_wamr / ext_wasm3 | shm_alloc/free, mutex_*, cond_* | WebAssembly.* |
+| ext_web_wasm | 无（浏览器原生） | WebAssembly.* |
+| Worker polyfill | spawn, channel_*, mutex_*, cond_* | new Worker(), postMessage |
+
+
+
 ### 原则
 
 1. **qwrt 永远是单线程的。** 一个 qwrt 实例 = 一个线程 = 一个 JSRuntime。qwrt 不创建线程/进程。
