@@ -25,7 +25,12 @@ let wasmReady = false
 
 async function initWasm() {
   try {
-    const mod = await window.Module()
+    // Emscripten Module is a global object, not a function.
+    // Wait for it to be ready, then use cwrap.
+    const mod = await new Promise((resolve) => {
+      if (Module.calledRun) { resolve(Module); return; }
+      Module.onRuntimeInitialized = () => resolve(Module);
+    })
     const initFn = mod.cwrap('qwrt_playground_init', 'number', [])
     const rc = initFn()
     if (rc === 0) wasmReady = true
@@ -51,7 +56,7 @@ async function runCode() {
   output.value = ''
 
   try {
-    const mod = window.Module()
+    const mod = Module
     const evalFn = mod.cwrap('qwrt_playground_eval', 'number', ['string'])
     const freeFn = mod.cwrap('qwrt_playground_free', null, ['number'])
     const utf8Fn = mod.cwrap('UTF8ToString', 'string', ['number'])
@@ -136,7 +141,7 @@ onMounted(async () => {
 @media (max-width: 768px) { .pg-wrap { flex-direction: column; } .pg-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--vp-c-divider); } .pg-list { display: flex; flex-wrap: wrap; gap: 0.2rem; } .pg-list button { width: auto; } }
 </style>## 工作原理
 
-演练场使用 Emscripten 将 Qwrt.js 编译为 WebAssembly。你的 JavaScript 代码在真实的 QuickJS-ng 引擎中运行——与生产环境 qwrt 部署使用的是同一个引擎。WASM 模块包含：
+演练场使用 Emscripten 将 Qwrt.js 编译为 WebAssembly。
 
 - **QuickJS-ng** — ES2020 JavaScript engine (QuickJS-ng)
 - **Mock PAL** — no network, no filesystem, deterministic

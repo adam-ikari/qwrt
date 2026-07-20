@@ -25,7 +25,12 @@ let wasmReady = false
 
 async function initWasm() {
   try {
-    const mod = await window.Module()
+    // Emscripten Module is a global object, not a function.
+    // Wait for it to be ready, then use cwrap.
+    const mod = await new Promise((resolve) => {
+      if (Module.calledRun) { resolve(Module); return; }
+      Module.onRuntimeInitialized = () => resolve(Module);
+    })
     const initFn = mod.cwrap('qwrt_playground_init', 'number', [])
     const rc = initFn()
     if (rc === 0) wasmReady = true
@@ -51,7 +56,7 @@ async function runCode() {
   output.value = ''
 
   try {
-    const mod = window.Module()
+    const mod = Module
     const evalFn = mod.cwrap('qwrt_playground_eval', 'number', ['string'])
     const freeFn = mod.cwrap('qwrt_playground_free', null, ['number'])
     const utf8Fn = mod.cwrap('UTF8ToString', 'string', ['number'])
