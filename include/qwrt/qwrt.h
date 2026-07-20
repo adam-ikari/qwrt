@@ -72,7 +72,7 @@ typedef struct qwrt_pal_stream_ops {
  *
  * THE universal platform abstraction layer. This struct is the single
  * contract between qwrt and the outside world. Every resource qwrt
- * needs — memory, network, files, timers, entropy, workers — comes
+ * needs — memory, network, files, timers, entropy, execution units — comes
  * through this interface. qwrt makes NO direct system calls.
  *
  * PAL Consumer: every qwrt component that uses this interface.
@@ -81,7 +81,13 @@ typedef struct qwrt_pal_stream_ops {
  * Contract levels:
  *   [REQUIRED]  Must be non-NULL. qwrt_create rejects NULL.
  *   [OPTIONAL]  May be NULL. qwrt returns QWRT_ERR_NOT_SUPPORTED.
- *   [WORKER]    Required for Worker (new Worker()) support.
+ *
+ * Execution primitives (universal across all platforms):
+ *   spawn — create a new execution unit
+ *   exit  — terminate the current execution unit
+ *   yield — relinquish CPU to other execution units
+ *   sleep — suspend the current execution unit for a duration
+ *   wait  — wait for a child execution unit to complete
  *
  * Versioning: the `version` field identifies the ABI. Bump when
  * adding new required fields. PAL implementations set it to the
@@ -98,45 +104,104 @@ typedef struct qwrt_pal_stream_ops {
 typedef struct qwrt_pal_t qwrt_pal_t;
 
 struct qwrt_pal_t {
-    /* ── Identity & lifecycle ──────────────────────────────────── */
+    /* ── Identity ───────────────────────────────────────────────── */
 
-    /**
-     * Opaque pointer for the PAL implementation's private state.
-     * Set by the PAL constructor, never touched by qwrt core.
-     */
+    /** Opaque pointer for PAL implementation's private state. */
     void *user_data;
 
-    /**
-     * PAL interface version.  MUST be 1 for the current ABI.
-     * Future additions to qwrt_pal_t will bump this so embedders
-     * can check compatibility at runtime.  Old PALs that leave this
-     * at 0 are treated as "pre-versioning" and still work.
-     */
+    /** PAL interface version. Must be 1 for the current ABI. */
     uint32_t version;
 
-    /**
-     * Human-readable PAL name for diagnostics (e.g. "libuv", "mock",
-     * "freertos").  Must be a static string literal or otherwise
-     * outlive the PAL struct.  May be NULL.
-     */
+    /** Human-readable name for diagnostics ("libuv", "mock", etc.).
+     *  OPTIONAL — may be NULL. */
     const char *name;
 
-    /* ── Core I/O ──────────────────────────────────────────────── */
+    /* ── Execution primitives (five universals) ─────────────────── */
 
     /**
-     * [REQUIRED] Perform an HTTP request and deliver the full response body.
-     * @param pal       this PAL
-     * @param url       full URL (http:// or https://)
-     * @param method    HTTP method ("GET", "POST", …)
-     * @param headers   JSON object string of headers, or NULL
-     * @param body      request body, or NULL
-     * @param body_len  request body length in bytes
-     * @param cb        callback receiving QWRT_OK + JSON response on
-     *                  success, or QWRT_ERR_* on failure
-     * @param cb_data   opaque user data forwarded to cb
+     * [REQUIRED] Create a new execution unit.
      *
-     * The JSON delivered to cb has the form:
-     *   {"status":NNN,"headers":{...},"body":"..."}
+     * @param entry_fn  function to execute in the new unit
+     * @param arg       argument passed to entry_fn
+     * @return          opaque handle to the new unit, NULL on failure
+     *
+     * The execution unit runs independently. Its lifecycle is managed
+     * by the caller via wait() and exit().
+     */
+    void *(*spawn)(qwrt_pal_t *pal, void (*entry_fn)(void *arg), void *arg);
+
+    /**
+     * [REQUIRED] Terminate the current execution unit.
+     *
+     * @param code  exit code (0 = success, non-zero = error)
+     *
+     * After exit(), the execution unit stops and no further PAL
+     * methods are called on it. Resources are reclaimed by the
+     * parent via wait().
+     */
+    void (*exit)(qwrt_pal_t *pal, int code);
+
+    /**
+     * [REQUIRED] Relinquish the CPU to other execution units.
+     *
+     * Gives other units a chance to run. In single-threaded
+     * environments (mock PAL), this is a no-op. In multi-tasking
+     * environments (FreeRTOS), this triggers a context switch.
+     */
+    void (*yield)(qwrt_pal_t *pal);
+
+    /**
+     * [REQUIRED] Suspend the current execution unit.
+     *
+     * @param ms  duration in milliseconds
+     *
+     * The unit does NOT consume CPU during sleep. Other execution
+     * units may run. Replaces timer_start/timer_stop for scheduling.
+     */
+    void (*sleep)(qwrt_pal_t *pal, uint64_t ms);
+
+    /**
+     * [REQUIRED] Wait for a child execution unit to complete.
+     *
+     * @param unit        handle returned by spawn()
+     * @param timeout_ms  -1 = block forever, 0 = poll, >0 = timeout
+     * @return           exit code (>=0), QWRT_ERR_TIMEOUT, or error
+     */
+    int (*wait)(qwrt_pal_t *pal, void *unit, int timeout_ms);
+
+    /* ── Memory ─────────────────────────────────────────────────── */
+
+    /** [OPTIONAL] Allocate memory. If NULL, malloc() is used. */
+    void *(*mem_alloc)(qwrt_pal_t *pal, size_t size);
+
+    /** [OPTIONAL] Free memory allocated by mem_alloc. If NULL, free() is used. */
+    void (*mem_free)(qwrt_pal_t *pal, void *ptr);
+
+    /* ── I/O ────────────────────────────────────────────────────── */
+
+    /**
+     * [REQUIRED] Fill buf[0..len-1] with cryptographically-secure
+     * random bytes. Synchronous — hardware RNGs are fast enough.
+     */
+    void (*random_bytes)(qwrt_pal_t *pal, uint8_t *buf, size_t len);
+
+    /** [REQUIRED] Current wall-clock time in milliseconds since Unix epoch. */
+    uint64_t (*time_now)(qwrt_pal_t *pal);
+
+    /** [REQUIRED] High-resolution monotonic time in nanoseconds. */
+    uint64_t (*hrtime)(qwrt_pal_t *pal);
+
+    /**
+     * [OPTIONAL] Emit a log message. Level: 0=EMERG ... 7=DEBUG.
+     * If NULL, logs are silently dropped.
+     */
+    void (*log)(qwrt_pal_t *pal, int level, const char *msg);
+
+    /**
+     * [REQUIRED] Perform an HTTP request. Delivers full response
+     * body to callback.
+     *
+     * JSON delivered to cb: {"status":NNN,"headers":{...},"body":"..."}
      */
     void (*http_request)(qwrt_pal_t *pal,
                          const char *url, const char *method,
@@ -145,14 +210,8 @@ struct qwrt_pal_t {
                          qwrt_pal_cb_t cb, void *cb_data);
 
     /**
-     * Perform a streaming HTTP request.
-     *
-     * Same parameters as http_request, but the response is delivered
-     * through qwrt_pal_stream_ops callbacks instead of a single final
-     * callback.  Use this for large / long-lived responses (SSE, LLM
-     * streaming).
-     *
-     * OPTIONAL: set to NULL if the PAL does not support streaming.
+     * [OPTIONAL] Streaming HTTP request. Same as http_request but
+     * delivers response via qwrt_pal_stream_ops callbacks.
      */
     void (*http_request_stream)(qwrt_pal_t *pal,
                                 const char *url, const char *method,
@@ -160,256 +219,82 @@ struct qwrt_pal_t {
                                 size_t body_len,
                                 qwrt_pal_stream_ops_t *ops);
 
-    /**
-     * Abort the currently-active streaming HTTP request (if any).
-     *
-     * Closes the in-flight TCP connection and any associated timers,
-     * delivering QWRT_ERR_CANCELLED to the stream's on_end callback.
-     * Safe to call when no stream is active (no-op).
-     *
-     * OPTIONAL: platforms without streaming HTTP may leave this NULL;
-     * the caller then only sets its cancellation flag without forcing
-     * the underlying request down.
-     */
+    /** [OPTIONAL] Abort in-flight streaming HTTP request. */
     void (*http_abort)(qwrt_pal_t *pal);
 
-    /* ── Filesystem ────────────────────────────────────────────── */
+    /* ── Filesystem ─────────────────────────────────────────────── */
 
-    /**
-     * Read the full contents of a file.
-     * cb receives QWRT_OK + file content, or QWRT_ERR_* on failure.
-     */
+    /** [OPTIONAL] Read file contents. */
     void (*fs_read)(qwrt_pal_t *pal, const char *path,
                     qwrt_pal_cb_t cb, void *cb_data);
-
-    /**
-     * Write data to a file (creates or overwrites).
-     * cb receives QWRT_OK or QWRT_ERR_*.
-     */
+    /** [OPTIONAL] Write data to file. */
     void (*fs_write)(qwrt_pal_t *pal, const char *path,
                      const char *data, size_t data_len,
                      qwrt_pal_cb_t cb, void *cb_data);
-
-    /**
-     * Check whether a file exists.
-     * cb receives QWRT_OK (exists) or QWRT_ERR_NOT_FOUND (doesn't).
-     */
+    /** [OPTIONAL] Check file existence. */
     void (*fs_exists)(qwrt_pal_t *pal, const char *path,
                       qwrt_pal_cb_t cb, void *cb_data);
-
-    /**
-     * Delete a file.
-     * cb receives QWRT_OK or QWRT_ERR_*.
-     */
+    /** [OPTIONAL] Delete a file. */
     void (*fs_remove)(qwrt_pal_t *pal, const char *path,
                       qwrt_pal_cb_t cb, void *cb_data);
-
-    /**
-     * List entries in a directory.
-     * cb receives QWRT_OK + JSON array of entry names, or QWRT_ERR_*.
-     */
+    /** [OPTIONAL] List directory entries (JSON array). */
     void (*fs_list)(qwrt_pal_t *pal, const char *path,
                     qwrt_pal_cb_t cb, void *cb_data);
 
-    /* ── Key-value storage ─────────────────────────────────────── */
+    /* ── Key-value storage ──────────────────────────────────────── */
 
-    /**
-     * Get a value by key.
-     * cb receives QWRT_OK + value, or QWRT_ERR_NOT_FOUND.
-     */
+    /** [OPTIONAL] Get value by key. */
     void (*storage_get)(qwrt_pal_t *pal, const char *key,
                        qwrt_pal_cb_t cb, void *cb_data);
-
-    /**
-     * Set a key-value pair (creates or overwrites).
-     * cb receives QWRT_OK or QWRT_ERR_*.
-     */
+    /** [OPTIONAL] Set key-value pair. */
     void (*storage_set)(qwrt_pal_t *pal, const char *key,
                        const char *value, size_t value_len,
                        qwrt_pal_cb_t cb, void *cb_data);
-
-    /**
-     * Delete a key.
-     * cb receives QWRT_OK or QWRT_ERR_* (QWRT_ERR_NOT_FOUND if absent).
-     */
+    /** [OPTIONAL] Delete a key. */
     void (*storage_del)(qwrt_pal_t *pal, const char *key,
                        qwrt_pal_cb_t cb, void *cb_data);
 
-    /* ── Timers ────────────────────────────────────────────────── */
+    /* ── Inter-unit communication ───────────────────────────────── */
 
     /**
-     * [REQUIRED] Start a timer.
-     * @param repeat    if non-zero, the timer fires repeatedly
-     * @param cb        called with QWRT_OK on each fire
-     * @param cb_data   opaque user data
-     * @return          opaque timer handle for timer_stop(), or NULL
-     *                  on QWRT_ERR_NO_MEMORY
-     */
-    void *(*timer_start)(qwrt_pal_t *pal, uint64_t delay_ms, int repeat,
-                          qwrt_pal_cb_t cb, void *cb_data);
-
-    /**
-     * Stop and free a timer.  Safe to call with NULL (no-op).
-     */
-    void (*timer_stop)(qwrt_pal_t *pal, void *handle);
-
-    /* ── Time & entropy ────────────────────────────────────────── */
-
-    /**
-     * [REQUIRED] Current wall-clock time in milliseconds since Unix epoch.
-    uint64_t (*time_now)(qwrt_pal_t *pal);
-
-    /**
-     * [REQUIRED] High-resolution monotonic time in nanoseconds since an
-     * arbitrary (but fixed) epoch.  Used for performance timing.
-    uint64_t (*hrtime)(qwrt_pal_t *pal);
-
-    /* ── Logging & memory ──────────────────────────────────────── */
-
-    /**
-     * Emit a log message at the given level.
-     * Level semantics follow syslog: 0=EMERG … 7=DEBUG.
-     * OPTIONAL: may be NULL (logs are silently dropped).
-     */
-    void (*log)(qwrt_pal_t *pal, int level, const char *msg);
-
-    /**
-     * [OPTIONAL] Allocate memory.  If NULL, malloc() is used by the core.
-    void *(*mem_alloc)(qwrt_pal_t *pal, size_t size);
-
-    /**
-     * [OPTIONAL] Free memory allocated by mem_alloc.  If NULL, free() is used.
-    void (*mem_free)(qwrt_pal_t *pal, void *ptr);
-
-    /**
-     * [REQUIRED] Fill buf[0..len-1] with cryptographically-secure random bytes.
-     * Synchronous by design.
-    void (*random_bytes)(qwrt_pal_t *pal, uint8_t *buf, size_t len);
-
-    /* ── Event loop ────────────────────────────────────────────── */
-
-    /**
-     * Drive one iteration of the PAL's event loop, blocking up to
-     * timeout_ms:
-     *   timeout_ms < 0   block until an event arrives
-     *   timeout_ms == 0  non-blocking (process ready work only)
-     *   timeout_ms > 0   block up to timeout_ms milliseconds
-     *
-     * Returns the number of events processed, 0 if the timeout
-     * elapsed with no events, or QWRT_ERR_GENERIC if the loop was
-     * asked to stop (host should exit its poll loop).
-     *
-     * OPTIONAL: NULL means the PAL exposes no event loop to drive
-     * (the embedder pumps qwrt_tick directly).  pal_uv wraps uv_run,
-     * pal_freertos wraps its event-group wait + deferred queue drain.
-     */
-    int (*run_cycle)(qwrt_pal_t *pal, int timeout_ms);
-
-    /* ── Process management ────────────────────────────────────── */
-
-    /**
-     * Spawn a child process.
-     *
-     * @param cmd   executable path
-     * @param args  NULL-terminated argument array (args[0] = cmd by
-     *              convention)
-     * @param env   NULL-terminated environment array ("KEY=VALUE"),
-     *              or NULL to inherit
-     * @return      opaque process handle, or NULL on failure
-     *
-     * OPTIONAL: set to NULL if the platform doesn't support
-     * multi-process isolation (e.g. embedded MCU).
-     */
-    void *(*spawn)(qwrt_pal_t *pal,
-                   const char *cmd,
-                   const char *const *args,
-                   const char *const *env);
-
-    /* ── Channel (IPC pipe to child) ───────────────────────────── */
-
-    /**
-     * Get the send channel to the child's stdin.
-     * Returns an opaque channel handle, or NULL if not available.
-     */
-    void *(*spawn_get_stdin)(qwrt_pal_t *pal, void *proc);
-
-    /**
-     * Get the receive channel from the child's stdout.
-     * Returns an opaque channel handle, or NULL if not available.
-     */
-    void *(*spawn_get_stdout)(qwrt_pal_t *pal, void *proc);
-
-    /**
-     * Send data to the child process.
-     * Returns the number of bytes written, or QWRT_ERR_* on error.
+     * [OPTIONAL] Send data to another execution unit.
+     * @param ch    channel handle (from spawn or created separately)
      */
     int (*channel_send)(qwrt_pal_t *pal, void *ch,
                         const char *data, size_t len);
 
     /**
-     * Receive data from the child (async).
-     * cb fires with data, or with data_len==0 on EOF.
+     * [OPTIONAL] Receive data from another execution unit (async).
+     * cb fires with data, or data_len==0 on EOF.
      */
     void (*channel_recv)(qwrt_pal_t *pal, void *ch,
                          qwrt_pal_cb_t cb, void *cb_data);
 
-    /**
-     * Close the channel.  Safe to call with NULL (no-op).
-     */
+    /** [OPTIONAL] Close a communication channel. */
     void (*channel_close)(qwrt_pal_t *pal, void *ch);
 
-    /* ── Process lifecycle ─────────────────────────────────────── */
+    /* ── Lifecycle hooks ────────────────────────────────────────── */
 
-    /**
-     * Wait for the child process to exit.
-     *
-     * @param timeout_ms  -1 = block forever, 0 = poll, >0 = wait up
-     *                    to timeout_ms
-     * @return            exit code (>=0), QWRT_ERR_TIMEOUT if the
-     *                    timeout expired, or QWRT_ERR_GENERIC on error
-     */
-    int (*join)(qwrt_pal_t *pal, void *proc, int timeout_ms);
-
-    /**
-     * Force-terminate the child process.
-     */
-    void (*terminate)(qwrt_pal_t *pal, void *proc);
-
-    /* ── Lifecycle hooks ───────────────────────────────────────── */
-
-    /**
-     * Initialize the PAL.  Called once by qwrt_create() before any
-     * other method.  The PAL should allocate resources, open
-     * connections, etc.
-     *
-     * Returns QWRT_OK on success, QWRT_ERR_* on failure.  If this
-     * fails, qwrt_create() returns NULL.
-     *
-     * OPTIONAL: NULL means no initialization is needed (the PAL was
-     * fully set up by its constructor).
-     */
+    /** [OPTIONAL] Initialize PAL. Called once by qwrt_create(). */
     int (*init)(qwrt_pal_t *pal);
 
-    /**
-     * Tear down the PAL.  Called once by qwrt_destroy() after all
-     * contexts have been freed.  The PAL should release all
-     * resources and cancel any pending async operations.
-     *
-     * After destroy() returns, no further PAL methods will be called.
-     *
-     * OPTIONAL: NULL means no cleanup is needed (the embedder will
-     * free the PAL manually after qwrt_destroy returns).
-     */
+    /** [OPTIONAL] Tear down PAL. Called once by qwrt_destroy(). */
     void (*destroy)(qwrt_pal_t *pal);
 
-    /* ── Reserved for future expansion ─────────────────────────── */
+    /* ── Reserved ───────────────────────────────────────────────── */
 
-    /**
-     * Reserved slots for future PAL interface additions.
-     * Must be initialized to NULL.  Future versions of qwrt will
-     * assign meaning to these slots; PAL implementations that
-     * zero-initialize the struct are forward-compatible.
-     */
+    /** Must be initialized to NULL. */
+    /* ── Timer (legacy, built on sleep + spawn) ────────────────── */
+
+    /** [OPTIONAL] Start a timer. Built on sleep() internally.
+     *  Kept for backward compatibility with setTimeout/setInterval.
+     *  If NULL, timers are not available. */
+    void *(*timer_start)(qwrt_pal_t *pal, uint64_t delay_ms, int repeat,
+                          qwrt_pal_cb_t cb, void *cb_data);
+
+    /** [OPTIONAL] Stop a timer. Safe to call with NULL (no-op). */
+    void (*timer_stop)(qwrt_pal_t *pal, void *handle);
+
     void *reserved[4];
 };
 

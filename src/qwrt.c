@@ -222,9 +222,9 @@ void qwrt_destroy(qwrt_t *rt)
 /* ================================================================
  * qwrt_tick - Process one batch of pending work
  *
- * If the PAL has run_cycle, calls it first to collect I/O events
- * (HTTP responses, timers, file I/O). Then drains all deferred
- * PAL callbacks and pending JS microtasks.
+ * If the PAL has yield, calls it first to give other execution units
+ * CPU time. Then drains all deferred PAL callbacks and pending JS
+ * microtasks.
  *
  * Returns immediately after one pass — does NOT loop internally.
  * The caller wraps this in a while loop:
@@ -234,14 +234,14 @@ void qwrt_destroy(qwrt_t *rt)
  *       my_other_work();             // never starved
  *   }
  *
- * If the PAL has no run_cycle (NULL), only drains callbacks + jobs.
- * timeout_ms is passed through to pal->run_cycle.
+ * If the PAL has no yield (NULL), only drains callbacks + jobs.
  *
  * Returns 1 if any work was done, 0 if idle, -1 on error.
  * ================================================================ */
 
 int qwrt_tick(qwrt_t *rt, int timeout_ms)
 {
+    QWRT_UNUSED(timeout_ms);
     if (!rt || !rt->jsrt) {
         return -1;
     }
@@ -250,11 +250,13 @@ int qwrt_tick(qwrt_t *rt, int timeout_ms)
     int ret;
     int jobs_processed = 0;
 
-    /* Step 0: Collect I/O events (optional — PAL may have no run_cycle) */
+    /* Step 0: Let other execution units run — yield to the PAL's scheduler.
+     * If the PAL has yield(), it gives other units CPU time. For PALs
+     * without multi-tasking (mock), this is a no-op. */
     {
         qwrt_ctx_t *ctx = qwrt_get_active_ctx(rt);
-        if (ctx && ctx->pal && ctx->pal->run_cycle) {
-            ctx->pal->run_cycle((qwrt_pal_t *)ctx->pal, timeout_ms);
+        if (ctx && ctx->pal && ctx->pal->yield) {
+            ctx->pal->yield((qwrt_pal_t *)ctx->pal);
         }
     }
 

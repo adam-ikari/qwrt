@@ -1,3 +1,5 @@
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 /*
  * libuv PAL Implementation
  *
@@ -3112,6 +3114,8 @@ static void pal_uv_terminate(qwrt_pal_t *pal, void *proc)
 /* Forward decl: assigned to pal->run_cycle in pal_uv_create_with_config,
  * defined below pal_uv_get_loop. */
 static int pal_uv_run_cycle(qwrt_pal_t *pal, int timeout_ms);
+static void pal_uv_yield(qwrt_pal_t *pal);
+static void pal_uv_sleep(qwrt_pal_t *pal, uint64_t ms);
 
 qwrt_pal_t *pal_uv_create_with_config(uv_loop_t *loop, int storage_max)
 {
@@ -3176,17 +3180,16 @@ qwrt_pal_t *pal_uv_create_with_config(uv_loop_t *loop, int storage_max)
     pal->mem_alloc    = pal_uv_mem_alloc;
     pal->mem_free     = pal_uv_mem_free;
     pal->random_bytes = pal_uv_random_bytes;
-    pal->run_cycle    = pal_uv_run_cycle;
+    pal->yield  = pal_uv_yield;
+    pal->sleep  = pal_uv_sleep;
 
     /* Process management */
-    pal->spawn            = pal_uv_spawn;
-    pal->spawn_get_stdin  = pal_uv_spawn_get_stdin;
-    pal->spawn_get_stdout = pal_uv_spawn_get_stdout;
+    pal->spawn  = NULL;  /* old spawn removed */
     pal->channel_send     = pal_uv_channel_send;
     pal->channel_recv     = pal_uv_channel_recv;
     pal->channel_close    = pal_uv_channel_close;
-    pal->join             = pal_uv_join;
-    pal->terminate        = pal_uv_terminate;
+    pal->channel_recv     = pal_uv_channel_recv;
+    pal->channel_close    = pal_uv_channel_close;
 
     /* Lifecycle — all setup is done in pal_uv_create_with_config,
      * teardown is done via pal_uv_destroy() by the embedder. */
@@ -3322,3 +3325,18 @@ static int pal_uv_run_cycle(qwrt_pal_t *pal, int timeout_ms)
     }
     return uv_run(loop, UV_RUN_NOWAIT);
 }
+
+/* ── Five execution primitives ─────────────────────────────────── */
+
+static void pal_uv_yield(qwrt_pal_t *pal)
+{
+    pal_uv_t *self = pal_uv_self(pal);
+    if (self->loop) uv_run(self->loop, UV_RUN_NOWAIT);
+}
+
+static void pal_uv_sleep(qwrt_pal_t *pal, uint64_t ms)
+{
+    (void)pal;
+    uv_sleep(ms);
+}
+#pragma GCC diagnostic pop
