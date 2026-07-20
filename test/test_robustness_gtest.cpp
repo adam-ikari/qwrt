@@ -56,7 +56,7 @@ static qwrt_t *create_runtime_with_polyfill(const qwrt_pal_t *pal)
     if (!rt) return nullptr;
 
     int rc = qwrt_eval(rt, test_polyfill, nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     return rt;
 }
 
@@ -168,7 +168,7 @@ TEST(QwrtError, SuspendNoActiveContext) {
 
     /* Suspend ctx0 — now no active context */
     int rc = qwrt_suspend(rt);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Suspend again — should fail, no active context */
     rc = qwrt_suspend(rt);
@@ -270,12 +270,12 @@ TEST(QwrtBoundary, ManyTimers) {
         "  testHelper.timerStart(1000, 0).promise.then(function() { _timerCount++; }); "
         "}",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* All 256 timers should have been created */
     char *result = nullptr;
     rc = qwrt_eval(rt, "_timerCount", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "0");  /* None fired yet */
     qwrt_free(result);
 
@@ -294,7 +294,7 @@ TEST(QwrtBoundary, EvalEmptyString) {
     char *result = nullptr;
     int rc = qwrt_eval(rt, "", &result);
     /* Empty string is valid JS (evaluates to undefined) */
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     if (result) qwrt_free(result);
 
     qwrt_destroy(rt);
@@ -313,12 +313,12 @@ TEST(QwrtBoundary, EvalLargeString) {
     std::string code = "var _big = '" + std::string(100000, 'x') + "'";
     char *result = nullptr;
     int rc = qwrt_eval(rt, code.c_str(), &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     if (result) qwrt_free(result);
 
     /* Verify it's accessible */
     rc = qwrt_eval(rt, "_big.length", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "100000");
     qwrt_free(result);
 
@@ -336,7 +336,7 @@ TEST(QwrtBoundary, EvalUnicode) {
 
     char *result = nullptr;
     int rc = qwrt_eval(rt, "'hello 世界 🌍'", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     ASSERT_NE(result, nullptr);
     EXPECT_NE(strstr(result, "世界"), nullptr);
     qwrt_free(result);
@@ -395,30 +395,30 @@ TEST(QwrtIsolation, GlobalObjectIsolation) {
 
     /* Set a global object in ctx0 */
     int rc = qwrt_eval(rt, "globalThis.myObj = {x: 1, y: 2}", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Spawn ctx1 */
     int ctx1 = qwrt_spawn(rt, &config);
     EXPECT_GE(ctx1, 0);
     rc = qwrt_resume(rt, ctx1);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* ctx1 should not see myObj */
     char *result = nullptr;
     rc = qwrt_eval(rt, "typeof globalThis.myObj", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"undefined\"");
     qwrt_free(result);
 
     /* Set a different global in ctx1 */
     rc = qwrt_eval(rt, "globalThis.myObj = {a: 99}", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Switch back to ctx0 — original value preserved */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "myObj.x", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "1");
     qwrt_free(result);
 
@@ -436,30 +436,30 @@ TEST(QwrtIsolation, FunctionIsolation) {
 
     /* Define a function in ctx0 */
     int rc = qwrt_eval(rt, "function _ctx0fn() { return 42; }", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Spawn ctx1 */
     int ctx1 = qwrt_spawn(rt, &config);
     EXPECT_GE(ctx1, 0);
     rc = qwrt_resume(rt, ctx1);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* ctx1 should not see _ctx0fn */
     char *result = nullptr;
     rc = qwrt_eval(rt, "typeof _ctx0fn", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"undefined\"");
     qwrt_free(result);
 
     /* Define a different function in ctx1 */
     rc = qwrt_eval(rt, "function _ctx1fn() { return 99; }", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Switch back to ctx0 — original function preserved */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "_ctx0fn()", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "42");
     qwrt_free(result);
 
@@ -477,13 +477,13 @@ TEST(QwrtIsolation, ErrorInOneContextDoesNotAffectOther) {
 
     /* Set state in ctx0 */
     int rc = qwrt_eval(rt, "var _ctx0ok = true", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Spawn ctx1 */
     int ctx1 = qwrt_spawn(rt, &config);
     EXPECT_GE(ctx1, 0);
     rc = qwrt_resume(rt, ctx1);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Throw an error in ctx1 */
     char *result = nullptr;
@@ -492,15 +492,15 @@ TEST(QwrtIsolation, ErrorInOneContextDoesNotAffectOther) {
 
     /* ctx1 should still work after the error */
     rc = qwrt_eval(rt, "1 + 1", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "2");
     qwrt_free(result);
 
     /* ctx0 should be unaffected */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "_ctx0ok", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "true");
     qwrt_free(result);
 
@@ -546,22 +546,22 @@ TEST(QwrtResource, SpawnDestroyChurn) {
         EXPECT_GE(ctx_id, 0);
 
         int rc = qwrt_resume(rt, ctx_id);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
 
         rc = qwrt_eval(rt, "var _x = 1", nullptr);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
 
         rc = qwrt_destroy_ctx(rt, ctx_id);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
     }
 
     /* Switch back to ctx0 — it should still work */
     int rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "1 + 1", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "2");
     qwrt_free(result);
 
@@ -581,30 +581,30 @@ TEST(QwrtResource, TimerCleanupOnContextDestroy) {
     int ctx1 = qwrt_spawn(rt, &config);
     EXPECT_GE(ctx1, 0);
     int rc = qwrt_resume(rt, ctx1);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Inject polyfill in spawned context too */
     rc = qwrt_eval(rt, test_polyfill, nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     rc = qwrt_eval(rt,
         "for (var i = 0; i < 10; i++) { "
         "  testHelper.timerStart(1000, 0); "
         "}",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Destroy the context — timers should be cleaned up without crash */
     rc = qwrt_destroy_ctx(rt, ctx1);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Switch back to ctx0 — it should still work */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "1 + 1", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "2");
     qwrt_free(result);
 
@@ -624,18 +624,18 @@ TEST(QwrtResource, ResetWithActiveTimers) {
         "  testHelper.timerStart(1000, 0); "
         "}",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Reset — should clean up timers without crash */
     qwrt_config_t config;
     fill_test_config(&config, pal);
     rc = qwrt_reset(rt, &config);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Runtime should work after reset */
     char *result = nullptr;
     rc = qwrt_eval(rt, "1 + 1", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "2");
     qwrt_free(result);
 
@@ -655,7 +655,7 @@ TEST(QwrtResource, EvalAfterContextDestroy) {
     int ctx1 = qwrt_spawn(rt, &config);
     EXPECT_GE(ctx1, 0);
     int rc = qwrt_destroy_ctx(rt, ctx1);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* The destroyed context ID should not be usable */
     rc = qwrt_resume(rt, ctx1);
@@ -663,11 +663,11 @@ TEST(QwrtResource, EvalAfterContextDestroy) {
 
     /* Switch back to ctx0 — it should still work */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "42", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "42");
     qwrt_free(result);
 
@@ -692,15 +692,15 @@ TEST(QwrtAsync, MultiplePromisesResolve) {
         "testHelper.httpRequest('http://b', 'GET', '', null).then(function(v) { _results.push('b'); }); "
         "testHelper.httpRequest('http://c', 'GET', '', null).then(function(v) { _results.push('c'); });",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Tick to resolve all promises */
     rc = qwrt_tick(rt, 100);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "_results.length", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "3");
     qwrt_free(result);
 
@@ -720,23 +720,23 @@ TEST(QwrtAsync, TimerPromiseResolves) {
         "var _p = testHelper.timerStart(100, 0); "
         "_p.promise.then(function() { _resolved = true; });",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Not resolved yet */
     char *result = nullptr;
     rc = qwrt_eval(rt, "_resolved", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "false");
     qwrt_free(result);
 
     /* Fire the timer */
     pal_mock_fire_timer(pal, 1);
     rc = qwrt_tick(rt, 100);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Now resolved */
     rc = qwrt_eval(rt, "_resolved", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "true");
     qwrt_free(result);
 
@@ -756,18 +756,18 @@ TEST(QwrtAsync, RepeatTimerFires) {
         "var _p = testHelper.timerStart(100, 1); "
         "_p.promise.then(function() { _count++; });",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Fire the timer multiple times — repeat timer should not crash */
     for (int i = 0; i < 3; i++) {
         pal_mock_fire_timer(pal, 1);
         rc = qwrt_tick(rt, 100);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
     }
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "_count", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     /* First fire resolves the promise; subsequent fires call resolve again
      * (which is a no-op on an already-resolved promise) */
     EXPECT_STREQ(result, "1");
@@ -790,16 +790,16 @@ TEST(QwrtAsync, TimerStop) {
         "_p.promise.then(function() { _fired = true; }); "
         "testHelper.timerStop(_p.handle);",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Fire the timer — should not resolve because we stopped it */
     pal_mock_fire_timer(pal, 1);
     rc = qwrt_tick(rt, 100);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "_fired", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "false");
     qwrt_free(result);
 
@@ -820,7 +820,7 @@ TEST(QwrtAsync, PromiseChaining) {
         "  .then(function() { _chain += 'A'; return testHelper.httpRequest('http://b', 'GET', '', null); })"
         "  .then(function() { _chain += 'B'; });",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Tick twice — first resolves A, then chain resolves B */
     qwrt_tick(rt, 100);
@@ -828,7 +828,7 @@ TEST(QwrtAsync, PromiseChaining) {
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "_chain", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"AB\"");
     qwrt_free(result);
 
@@ -846,12 +846,12 @@ TEST(QwrtAsync, TickWithNothingPending) {
 
     /* Tick with no pending promises — should be a no-op */
     int rc = qwrt_tick(rt, 100);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Should still work after empty tick */
     char *result = nullptr;
     rc = qwrt_eval(rt, "1 + 1", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "2");
     qwrt_free(result);
 

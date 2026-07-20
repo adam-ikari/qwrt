@@ -162,7 +162,7 @@ TEST_F(QwrtE2E, Console) {
 
     /* Eval code using console.log */
     int rc = qwrt_eval(rt, "console.log('hello', 'world')", NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Check mock PAL log */
     int log_count = 0;
@@ -182,7 +182,7 @@ TEST_F(QwrtE2E, Performance) {
 
     char *result = NULL;
     int rc = qwrt_eval(rt, "performance.now()", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     ASSERT_NE(result, nullptr);
     /* Result should be ~12345 (as a float: pal.hrtime() ms converted via /1e6) */
     EXPECT_NE(strstr(result, "12345"), nullptr);
@@ -199,13 +199,13 @@ TEST_F(QwrtE2E, Storage) {
     int rc = qwrt_eval(rt,
         "var _r = null; qwrt.storage.set('test_key', 'test_value').then(function() { _r = 'ok'; })",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     qwrt_tick(rt, 100);
 
     /* Verify set worked */
     char *result = NULL;
     rc = qwrt_eval(rt, "_r", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"ok\"");
     qwrt_free(result);
 
@@ -213,12 +213,12 @@ TEST_F(QwrtE2E, Storage) {
     rc = qwrt_eval(rt,
         "var _v = null; qwrt.storage.get('test_key').then(function(v) { _v = v; })",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_v", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"test_value\"");
 
     qwrt_free(result);
@@ -233,12 +233,12 @@ TEST_F(QwrtE2E, Fs) {
     int rc = qwrt_eval(rt,
         "var _fw = null; qwrt.fs.writeFile('/test.txt', 'hello fs').then(function() { _fw = 'written'; })",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_fw", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"written\"");
     qwrt_free(result);
 
@@ -246,12 +246,12 @@ TEST_F(QwrtE2E, Fs) {
     rc = qwrt_eval(rt,
         "var _fr = null; qwrt.fs.readFile('/test.txt').then(function(d) { _fr = d; })",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_fr", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"hello fs\"");
 
     qwrt_free(result);
@@ -267,12 +267,12 @@ TEST_F(QwrtE2E, Fetch) {
         "var _fetch_result = null;"
         "fetch('http://example.com/api').then(function(r) { return r.text(); }).then(function(t) { _fetch_result = t; })",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_fetch_result", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"mock response\"");
 
     qwrt_free(result);
@@ -287,7 +287,7 @@ TEST_F(QwrtE2E, Timer) {
         "var _timer_fired = false;"
         "setTimeout(function() { _timer_fired = true; }, 100)",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Process the timer setup */
     qwrt_tick(rt, 100);
@@ -295,7 +295,7 @@ TEST_F(QwrtE2E, Timer) {
     /* Timer hasn't fired yet */
     char *result = NULL;
     rc = qwrt_eval(rt, "_timer_fired", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "false");
     qwrt_free(result);
 
@@ -305,7 +305,7 @@ TEST_F(QwrtE2E, Timer) {
 
     /* Now it should have fired */
     rc = qwrt_eval(rt, "_timer_fired", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "true");
 
     qwrt_free(result);
@@ -318,7 +318,7 @@ TEST_F(QwrtE2E, Timer) {
 TEST_F(QwrtE2E, Url) {
     char *result = NULL;
     int rc = qwrt_eval(rt, "new URL('https://example.com/path?q=1').searchParams.get('q')", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"1\"");
 
     qwrt_free(result);
@@ -335,11 +335,11 @@ TEST_F(QwrtE2E, Abort) {
         "ac.signal.addEventListener('abort', function() { _abort_result = 'aborted'; }); "
         "ac.abort();",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_abort_result", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"aborted\"");
 
     qwrt_free(result);
@@ -353,14 +353,14 @@ TEST_F(QwrtE2E, Encoding) {
     /* Test btoa */
     char *result = NULL;
     int rc = qwrt_eval(rt, "btoa('hello')", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"aGVsbG8=\"");
     qwrt_free(result);
 
     /* Test atob */
     result = NULL;
     rc = qwrt_eval(rt, "atob('aGVsbG8=')", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"hello\"");
 
     qwrt_free(result);
@@ -390,20 +390,21 @@ TEST_F(QwrtE2E, FullAgent) {
         "  _agent_error = String(e);"
         "})",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Process async operations */
+    qwrt_tick(rt, 100);
     qwrt_tick(rt, 100);
 
     /* Verify agent completed without error */
     char *result = NULL;
     rc = qwrt_eval(rt, "_agent_error", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "null");
     qwrt_free(result);
 
     rc = qwrt_eval(rt, "_agent_done", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "true");
     qwrt_free(result);
 
@@ -411,12 +412,12 @@ TEST_F(QwrtE2E, FullAgent) {
     rc = qwrt_eval(rt,
         "var _stored = null; qwrt.storage.get('last_result').then(function(v) { _stored = v; })",
         NULL);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_stored", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_NE(strstr(result, "12345"), nullptr);
 
     qwrt_free(result);

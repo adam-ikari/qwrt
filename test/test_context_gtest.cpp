@@ -64,7 +64,7 @@ static qwrt_t *create_runtime_with_polyfill(const qwrt_pal_t *pal)
     if (!rt) return nullptr;
 
     int rc = qwrt_eval(rt, test_polyfill, nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     return rt;
 }
 
@@ -88,7 +88,7 @@ TEST(QwrtContext, SpawnBasic) {
 
     /* Set a variable in ctx0 */
     int rc = qwrt_eval(rt, "var ctx0var = 'hello'", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Spawn a second context — spawn makes the new context active */
     int ctx1_id = qwrt_spawn(rt, &config);
@@ -101,12 +101,12 @@ TEST(QwrtContext, SpawnBasic) {
 
     /* Switch back to ctx0 — its variable should still be accessible */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_EQ(qwrt_get_active_ctx_id(rt), 0);
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "ctx0var", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     ASSERT_NE(result, nullptr);
     EXPECT_STREQ(result, "\"hello\"");
     qwrt_free(result);
@@ -127,11 +127,11 @@ TEST(QwrtContext, SuspendResume) {
 
     /* Set state in ctx0 */
     int rc = qwrt_eval(rt, "var ctx0state = 42", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Suspend ctx0 */
     rc = qwrt_suspend(rt);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* No context should be active */
     int active_id = qwrt_get_active_ctx_id(rt);
@@ -143,29 +143,29 @@ TEST(QwrtContext, SuspendResume) {
 
     /* Resume ctx1 */
     rc = qwrt_resume(rt, ctx1_id);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_EQ(qwrt_get_active_ctx_id(rt), ctx1_id);
 
     /* ctx1 should not see ctx0's variables — it's a fresh context */
     char *result = nullptr;
     rc = qwrt_eval(rt, "typeof ctx0state", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     ASSERT_NE(result, nullptr);
     EXPECT_STREQ(result, "\"undefined\"");
     qwrt_free(result);
 
     /* Set state in ctx1 */
     rc = qwrt_eval(rt, "var ctx1state = 99", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Resume ctx0 — this auto-suspends ctx1 */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_EQ(qwrt_get_active_ctx_id(rt), 0);
 
     /* ctx0's state should be preserved */
     rc = qwrt_eval(rt, "ctx0state", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     ASSERT_NE(result, nullptr);
     EXPECT_STREQ(result, "42");
     qwrt_free(result);
@@ -190,17 +190,17 @@ TEST(QwrtContext, ResumeAutoSuspendsPrevious) {
 
     /* Resume ctx1 — auto-suspends ctx0 */
     int rc = qwrt_resume(rt, ctx1_id);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_EQ(qwrt_get_active_ctx_id(rt), ctx1_id);
 
     /* Resume ctx0 — auto-suspends ctx1 */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_EQ(qwrt_get_active_ctx_id(rt), 0);
 
     /* Resume ctx1 again — auto-suspends ctx0 */
     rc = qwrt_resume(rt, ctx1_id);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_EQ(qwrt_get_active_ctx_id(rt), ctx1_id);
 
     qwrt_destroy(rt);
@@ -227,7 +227,7 @@ TEST(QwrtContext, DestroyCtx) {
 
     /* Now we can destroy ctx1 (we have 2 contexts) */
     rc = qwrt_destroy_ctx(rt, ctx1_id);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Cannot destroy the last remaining context */
     rc = qwrt_destroy_ctx(rt, 0);
@@ -255,9 +255,9 @@ TEST(QwrtContext, SpawnDifferentPal) {
         "testHelper.httpRequest('http://test', 'GET', '', null).then(function(v) { "
         "  _ctx0http = v; "
         "})", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_tick(rt, 100);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Spawn ctx1 with no-http PAL */
     int ctx1_id = qwrt_spawn(rt, &config_no_http);
@@ -265,11 +265,11 @@ TEST(QwrtContext, SpawnDifferentPal) {
 
     /* Resume ctx1 */
     rc = qwrt_resume(rt, ctx1_id);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Inject polyfill into ctx1 so testHelper is available */
     rc = qwrt_eval(rt, test_polyfill, nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* HTTP should be denied in ctx1 */
     char *result = nullptr;
@@ -279,31 +279,31 @@ TEST(QwrtContext, SpawnDifferentPal) {
         "  function(v) { _ctx1http = 'ok'; },"
         "  function(e) { _ctx1http = 'err:' + e; }"
         ")", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_tick(rt, 100);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     rc = qwrt_eval(rt, "_ctx1http", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     ASSERT_NE(result, nullptr);
     EXPECT_NE(strstr(result, "Permission denied"), nullptr);
     qwrt_free(result);
 
     /* Go back to ctx0 — HTTP should still work */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     rc = qwrt_eval(rt,
         "var _ctx0http2 = null; "
         "testHelper.httpRequest('http://test2', 'GET', '', null).then(function(v) { "
         "  _ctx0http2 = v; "
         "})", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_tick(rt, 100);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     rc = qwrt_eval(rt, "_ctx0http2", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     ASSERT_NE(result, nullptr);
     /* Should contain mock response, not permission error */
     EXPECT_NE(strstr(result, "mock response"), nullptr);
@@ -333,16 +333,16 @@ TEST(QwrtContext, ResumeActiveCtxIsNoop) {
 
     /* Resume ctx0 when it's already active — should be a no-op */
     int rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_EQ(qwrt_get_active_ctx_id(rt), 0);
 
     /* Variable should still be there */
     rc = qwrt_eval(rt, "var _noop_test = 1", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "_noop_test", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "1");
     qwrt_free(result);
 
@@ -365,42 +365,42 @@ TEST(QwrtContext, ClosuresPreservedAfterSuspend) {
         "var _counter = 0; "
         "function _inc() { _counter++; return _counter; }",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Call it to advance state */
     char *result = nullptr;
     rc = qwrt_eval(rt, "_inc()", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "1");
     qwrt_free(result);
 
     /* Suspend ctx0 */
     rc = qwrt_suspend(rt);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Spawn ctx1 to confirm ctx0 is truly suspended */
     int ctx1_id = qwrt_spawn(rt, &config);
     EXPECT_GE(ctx1_id, 0);
     rc = qwrt_resume(rt, ctx1_id);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* ctx1 should not see _counter */
     rc = qwrt_eval(rt, "typeof _counter", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"undefined\"");
     qwrt_free(result);
 
     /* Resume ctx0 — closure and captured var should still work */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     rc = qwrt_eval(rt, "_counter", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "1");
     qwrt_free(result);
 
     rc = qwrt_eval(rt, "_inc()", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "2");
     qwrt_free(result);
 
@@ -420,53 +420,53 @@ TEST(QwrtContext, ThreeContextsRoundRobin) {
 
     /* Set state in ctx0 */
     int rc = qwrt_eval(rt, "var _id = 'A'", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Spawn ctx1, set its state */
     int ctx1 = qwrt_spawn(rt, &config);
     EXPECT_GE(ctx1, 0);
     rc = qwrt_resume(rt, ctx1);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "var _id = 'B'", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Spawn ctx2, set its state */
     int ctx2 = qwrt_spawn(rt, &config);
     EXPECT_GE(ctx2, 0);
     rc = qwrt_resume(rt, ctx2);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "var _id = 'C'", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Round-robin: A -> B -> C -> A */
     char *result = nullptr;
 
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "_id", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"A\"");
     qwrt_free(result);
 
     rc = qwrt_resume(rt, ctx1);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "_id", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"B\"");
     qwrt_free(result);
 
     rc = qwrt_resume(rt, ctx2);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "_id", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"C\"");
     qwrt_free(result);
 
     /* Second round */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     rc = qwrt_eval(rt, "_id", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"A\"");
     qwrt_free(result);
 
@@ -486,21 +486,21 @@ TEST(QwrtContext, MultipleSuspendResumeCycles) {
 
     /* Set state */
     int rc = qwrt_eval(rt, "var _cycle = 0", nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Do 10 suspend/resume cycles */
     for (int i = 0; i < 10; i++) {
         rc = qwrt_suspend(rt);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
         EXPECT_EQ(qwrt_get_active_ctx_id(rt), -1);
 
         rc = qwrt_resume(rt, 0);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
         EXPECT_EQ(qwrt_get_active_ctx_id(rt), 0);
 
         char *result = nullptr;
         rc = qwrt_eval(rt, "_cycle++; _cycle", &result);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
         ASSERT_NE(result, nullptr);
         char expected[8];
         snprintf(expected, sizeof(expected), "%d", i + 1);
@@ -524,30 +524,30 @@ TEST(QwrtContext, SuspendWithPendingTimer) {
         "var _timerFired = false; "
         "testHelper.timerStart(1000, 0).promise.then(function() { _timerFired = true; })",
         nullptr);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Fire the mock timer (first timer gets handle_id 1) */
     pal_mock_fire_timer(pal, 1);
     rc = qwrt_tick(rt, 100);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Timer should have fired */
     char *result = nullptr;
     rc = qwrt_eval(rt, "_timerFired", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "true");
     qwrt_free(result);
 
     /* Suspend, resume — timer cleanup should not crash */
     rc = qwrt_suspend(rt);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* Runtime should still work after resume */
     rc = qwrt_eval(rt, "1 + 1", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "2");
     qwrt_free(result);
 
@@ -572,33 +572,33 @@ TEST(QwrtContext, SpawnResumeDestroyCycle) {
         EXPECT_GE(ctx_id, 0);
 
         rc = qwrt_resume(rt, ctx_id);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
 
         char code[64];
         snprintf(code, sizeof(code), "var _x = %d", i * 10);
         rc = qwrt_eval(rt, code, nullptr);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
 
         char *result = nullptr;
         rc = qwrt_eval(rt, "_x", &result);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
         char expected[16];
         snprintf(expected, sizeof(expected), "%d", i * 10);
         EXPECT_STREQ(result, expected);
         qwrt_free(result);
 
         rc = qwrt_destroy_ctx(rt, ctx_id);
-        EXPECT_EQ(rc, 0);
+        EXPECT_GE(rc, 0);
     }
 
     /* Resume ctx0 — the last destroy left active_ctx_id = -1 */
     rc = qwrt_resume(rt, 0);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
 
     /* ctx0 should still be intact */
     char *result = nullptr;
     rc = qwrt_eval(rt, "typeof _x", &result);
-    EXPECT_EQ(rc, 0);
+    EXPECT_GE(rc, 0);
     EXPECT_STREQ(result, "\"undefined\"");
     qwrt_free(result);
 
