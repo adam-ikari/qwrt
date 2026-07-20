@@ -26,7 +26,7 @@ if (!rt) {
 3. 注册构建时扩展集（`QWRT_EXTENSIONS` 表 —
    内置扩展如 compress/crypto/textcodec/wamr，当其 `QWRT_WITH_*` 选项开启时生效，
    以及通过 `QWRT_EXTRA_SOURCES` 添加的任何用户扩展）
-4. 将 WinterCG 兼容的运行时注入到初始上下文中
+4. 将 WinterTC 兼容的运行时注入到初始上下文中
 
 PAL 必须比运行时存活更久。`qwrt_destroy` 不会释放 PAL — 调用者拥有 PAL 的所有权。
 

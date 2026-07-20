@@ -40,9 +40,9 @@ protected:
     /* Pump the event loop so CompressionStream/DecompressionStream promises resolve */
     void pump() {
         for (int i = 0; i < 10; i++) {
-            qwrt_tick(rt);
+            qwrt_tick(rt, 100);
             pal_mock_fire_all_timers(pal);
-            qwrt_tick(rt);
+            qwrt_tick(rt, 100);
         }
     }
 

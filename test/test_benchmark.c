@@ -5,7 +5,7 @@
  *   - Octane (Google V8 benchmark): crypto, deltablue, richards patterns
  *   - JetStream 2 (Webkit): array/object/string workloads
  *   - QuickJS test suite: startup and eval benchmarks
- *   - Areweweb yet (WinterCG): API compliance + perf
+ *   - Areweweb yet (WinterTC): API compliance + perf
  *
  * Benchmark categories:
  *   1. Startup     — Runtime creation + polyfill loading
@@ -14,7 +14,7 @@
  *   4. Object      — Property access, creation, prototype chain
  *   5. Array       — Map/reduce/sort, typed arrays
  *   6. Async       — Promise, microtask, timer throughput
- *   7. WinterCG    — URL, TextEncoder, btoa, crypto, fetch
+ *   7. WinterTC    — URL, TextEncoder, btoa, crypto, fetch
  *   8. GC          — Allocation pressure, garbage collection
  *
  * Results are printed in JSON for automated tracking.
@@ -373,11 +373,11 @@ static void bench_async(qwrt_t *rt) {
 }
 
 /* ================================================================
- * 7. WinterCG API Benchmarks
+ * 7. WinterTC API Benchmarks
  * ================================================================ */
 
 static void bench_wintercg(qwrt_t *rt) {
-    printf("\n=== 7. WinterCG APIs ===\n");
+    printf("\n=== 7. WinterTC APIs ===\n");
 
     /* URL parsing */
     bench_js_ops(rt, "wintercg.url_parse",

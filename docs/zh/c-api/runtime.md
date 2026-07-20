@@ -25,7 +25,7 @@ qwrt_t *qwrt_create(const qwrt_config_t *config);
 1. 如果提供了钩子，调用 `pal->init(pal)`
 2. 创建 `JSRuntime` 和初始上下文
 3. 注册编译期扩展集（`QWRT_EXTENSIONS` 表）
-4. 将 WinterCG 兼容运行时注入初始上下文
+4. 将 WinterTC 兼容运行时注入初始上下文
 
 **线程绑定：** 所有后续的 `qwrt_*` 调用必须来自创建线程。
 

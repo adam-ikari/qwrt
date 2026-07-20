@@ -1,18 +1,18 @@
 ---
 title: JS API 参考
-description: Qwrt.js 完整的 JavaScript API 参考 — WinterCG 兼容的 Web API，包括 fetch、crypto、streams、timers、URL 等。
+description: Qwrt.js 完整的 JavaScript API 参考 — WinterTC 兼容的 Web API，包括 fetch、crypto、streams、timers、URL 等。
 ---
 
 # JS API 参考
 
-qwrt 通过其 WinterCG 模块提供 WinterCG 兼容的 JavaScript API 接口。此处列出的所有全局对象在任何 `qwrt_eval()` 或 `qwrt_eval_bytecode()` 调用中均可用，无需 `require()` 或 `import`。
+qwrt 通过其 WinterTC 模块提供 WinterTC 兼容的 JavaScript API 接口。此处列出的所有全局对象在任何 `qwrt_eval()` 或 `qwrt_eval_bytecode()` 调用中均可用，无需 `require()` 或 `import`。
 
 ## 架构
 
 ```mermaid
 flowchart TB
     A["你的 JS 代码"] --> B
-    subgraph B["WinterCG 运行时 (IIFE，预编译为字节码)"]
+    subgraph B["WinterTC 运行时 (IIFE，预编译为字节码)"]
         direction LR
         C["fetch<br/>console<br/>URL<br/>qwrt.fs"]
         D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
@@ -26,7 +26,7 @@ flowchart TB
 
 ### 核心 API
 
-| API | 全局对象 | WinterCG |
+| API | 全局对象 | WinterTC |
 |-----|--------|----------|
 | [console](/zh/js-api/console) | `console` | ✅ 标准 |
 | [performance](/zh/js-api/performance) | `performance` | ✅ 标准 |
@@ -37,7 +37,7 @@ flowchart TB
 
 ### Web API
 
-| API | 全局对象 | WinterCG |
+| API | 全局对象 | WinterTC |
 |-----|--------|----------|
 | [fetch](/zh/js-api/fetch) | `fetch`、`Headers`、`Request`、`Response` | ✅ 标准 |
 | [crypto](/zh/js-api/crypto) | `crypto.getRandomValues()`、`crypto.subtle` | ✅ 标准 |
@@ -57,7 +57,7 @@ flowchart TB
 
 ## 标准合规性
 
-qwrt 目标是 [WinterCG](https://wintercg.org/) 兼容性 — 与 Cloudflare Workers、Deno 和其他服务端运行时使用的 Web API 子集相同。DOM 专用 API（`document`、`window`、`HTMLElement`）被有意排除。
+qwrt 目标是 [WinterTC](https://wintercg.org/) 兼容性 — 与 Cloudflare Workers、Deno 和其他服务端运行时使用的 Web API 子集相同。DOM 专用 API（`document`、`window`、`HTMLElement`）被有意排除。
 
 ### 不包含的内容
 

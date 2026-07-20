@@ -48,7 +48,7 @@ import { setupCryptoSubtle } from './crypto-subtle.js';
 import { setupStructuredClone } from './structured-clone.js';
 
 // ================================================================
-// Core APIs (WinterCG standard)
+// Core APIs (WinterTC standard)
 // ================================================================
 
 setupConsole(pal);
@@ -61,7 +61,7 @@ setupURL();
 setupEncoding(pal);
 
 // ================================================================
-// Web APIs (WinterCG standard)
+// Web APIs (WinterTC standard)
 // ================================================================
 
 setupFetch(pal);

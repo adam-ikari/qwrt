@@ -5,7 +5,7 @@ description: Qwrt.js 中的 Web Crypto API —— crypto.subtle 支持 SHA-256/3
 
 # crypto API
 
-WinterCG 定义的 Web Crypto API 子集。提供密码学强度的随机数生成和 SubtleCrypto 接口。
+WinterTC 定义的 Web Crypto API 子集。提供密码学强度的随机数生成和 SubtleCrypto 接口。
 
 ## 全局对象
 

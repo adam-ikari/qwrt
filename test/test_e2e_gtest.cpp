@@ -2,7 +2,7 @@
  * qwrt End-to-End Integration Tests (Google Test)
  *
  * Tests the full stack: C runtime + polyfill + PAL + JS execution.
- * Uses a comprehensive test polyfill that implements WinterCG APIs.
+ * Uses a comprehensive test polyfill that implements WinterTC APIs.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -16,7 +16,7 @@ extern "C" {
 }
 
 /* ================================================================
- * E2E Test Polyfill — comprehensive WinterCG API implementation
+ * E2E Test Polyfill — comprehensive WinterTC API implementation
  * ================================================================ */
 
 static const char e2e_polyfill[] =
@@ -200,7 +200,7 @@ TEST_F(QwrtE2E, Storage) {
         "var _r = null; qwrt.storage.set('test_key', 'test_value').then(function() { _r = 'ok'; })",
         NULL);
     EXPECT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Verify set worked */
     char *result = NULL;
@@ -214,7 +214,7 @@ TEST_F(QwrtE2E, Storage) {
         "var _v = null; qwrt.storage.get('test_key').then(function(v) { _v = v; })",
         NULL);
     EXPECT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_v", &result);
@@ -234,7 +234,7 @@ TEST_F(QwrtE2E, Fs) {
         "var _fw = null; qwrt.fs.writeFile('/test.txt', 'hello fs').then(function() { _fw = 'written'; })",
         NULL);
     EXPECT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_fw", &result);
@@ -247,7 +247,7 @@ TEST_F(QwrtE2E, Fs) {
         "var _fr = null; qwrt.fs.readFile('/test.txt').then(function(d) { _fr = d; })",
         NULL);
     EXPECT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_fr", &result);
@@ -268,7 +268,7 @@ TEST_F(QwrtE2E, Fetch) {
         "fetch('http://example.com/api').then(function(r) { return r.text(); }).then(function(t) { _fetch_result = t; })",
         NULL);
     EXPECT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_fetch_result", &result);
@@ -290,7 +290,7 @@ TEST_F(QwrtE2E, Timer) {
     EXPECT_EQ(rc, 0);
 
     /* Process the timer setup */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Timer hasn't fired yet */
     char *result = NULL;
@@ -301,7 +301,7 @@ TEST_F(QwrtE2E, Timer) {
 
     /* Fire all mock timers */
     pal_mock_fire_all_timers(pal);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Now it should have fired */
     rc = qwrt_eval(rt, "_timer_fired", &result);
@@ -393,7 +393,7 @@ TEST_F(QwrtE2E, FullAgent) {
     EXPECT_EQ(rc, 0);
 
     /* Process async operations */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Verify agent completed without error */
     char *result = NULL;
@@ -412,7 +412,7 @@ TEST_F(QwrtE2E, FullAgent) {
         "var _stored = null; qwrt.storage.get('last_result').then(function(v) { _stored = v; })",
         NULL);
     EXPECT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     result = NULL;
     rc = qwrt_eval(rt, "_stored", &result);

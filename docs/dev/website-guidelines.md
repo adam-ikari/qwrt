@@ -42,7 +42,7 @@ description: SEO description — one sentence summary for search engines.
 ### Writing Style
 
 - Code blocks must specify language: ` ```c `, ` ```js `, ` ```bash `
-- Keep technical identifiers unchanged across translations (C99, CMake, QuickJS-ng, WinterCG, PAL, WAMR)
+- Keep technical identifiers unchanged across translations (C99, CMake, QuickJS-ng, WinterTC, PAL, WAMR)
 - Link to other pages using root-relative paths: `/guide/quickstart`, `/zh/guide/quickstart`
 - Do not expose internal implementation details (PAL injection, bridge internals)
 - C API reference exists at `/c-api/` but is NOT in main navigation — it's for embedders
@@ -136,4 +136,4 @@ Output files (`docs/public/qwrt-playground.js` + `.wasm`) are committed to git a
 - [ ] Code blocks have language annotations
 - [ ] No internal implementation details exposed
 - [ ] Links use root-relative paths
-- [ ] No reference to "polyfill" in user-facing content (use "WinterCG runtime" instead)
+- [ ] No reference to "polyfill" in user-facing content (use "WinterTC runtime" instead)

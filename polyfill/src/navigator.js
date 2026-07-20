@@ -18,7 +18,7 @@ export function setupNavigatorReportError() {
    * Provides platform identification per TC55 spec.
    */
   var navigator = {
-    userAgent: 'qwrt/1.0 (WinterCG)',
+    userAgent: 'qwrt/1.0 (WinterTC)',
     language: 'en-US',
     platform: 'wintercg',
     hardwareConcurrency: 1,

@@ -219,7 +219,7 @@ TEST(QwrtError, DestroyCtxLastContext) {
 }
 
 TEST(QwrtError, TickNullRt) {
-    int rc = qwrt_tick(nullptr);
+    int rc = qwrt_tick(nullptr, 100);
     EXPECT_EQ(rc, -1);
 }
 
@@ -695,7 +695,7 @@ TEST(QwrtAsync, MultiplePromisesResolve) {
     EXPECT_EQ(rc, 0);
 
     /* Tick to resolve all promises */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     char *result = nullptr;
@@ -731,7 +731,7 @@ TEST(QwrtAsync, TimerPromiseResolves) {
 
     /* Fire the timer */
     pal_mock_fire_timer(pal, 1);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Now resolved */
@@ -761,7 +761,7 @@ TEST(QwrtAsync, RepeatTimerFires) {
     /* Fire the timer multiple times — repeat timer should not crash */
     for (int i = 0; i < 3; i++) {
         pal_mock_fire_timer(pal, 1);
-        rc = qwrt_tick(rt);
+        rc = qwrt_tick(rt, 100);
         EXPECT_EQ(rc, 0);
     }
 
@@ -794,7 +794,7 @@ TEST(QwrtAsync, TimerStop) {
 
     /* Fire the timer — should not resolve because we stopped it */
     pal_mock_fire_timer(pal, 1);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     char *result = nullptr;
@@ -823,8 +823,8 @@ TEST(QwrtAsync, PromiseChaining) {
     EXPECT_EQ(rc, 0);
 
     /* Tick twice — first resolves A, then chain resolves B */
-    qwrt_tick(rt);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
+    qwrt_tick(rt, 100);
 
     char *result = nullptr;
     rc = qwrt_eval(rt, "_chain", &result);
@@ -845,7 +845,7 @@ TEST(QwrtAsync, TickWithNothingPending) {
     ASSERT_NE(rt, nullptr);
 
     /* Tick with no pending promises — should be a no-op */
-    int rc = qwrt_tick(rt);
+    int rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Should still work after empty tick */

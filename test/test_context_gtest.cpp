@@ -256,7 +256,7 @@ TEST(QwrtContext, SpawnDifferentPal) {
         "  _ctx0http = v; "
         "})", nullptr);
     EXPECT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Spawn ctx1 with no-http PAL */
@@ -280,7 +280,7 @@ TEST(QwrtContext, SpawnDifferentPal) {
         "  function(e) { _ctx1http = 'err:' + e; }"
         ")", nullptr);
     EXPECT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_ctx1http", &result);
@@ -299,7 +299,7 @@ TEST(QwrtContext, SpawnDifferentPal) {
         "  _ctx0http2 = v; "
         "})", nullptr);
     EXPECT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_ctx0http2", &result);
@@ -528,7 +528,7 @@ TEST(QwrtContext, SuspendWithPendingTimer) {
 
     /* Fire the mock timer (first timer gets handle_id 1) */
     pal_mock_fire_timer(pal, 1);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Timer should have fired */

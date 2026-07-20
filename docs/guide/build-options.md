@@ -15,12 +15,12 @@ sensible for a full-featured Linux/macOS build.
 
 ## Feature Toggles (`QWRT_WITH_*`)
 
-These toggle optional native extensions on top of the WinterCG-compatible
+These toggle optional native extensions on top of the WinterTC-compatible
 runtime. They do **not** select a platform backend.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `QWRT_WITH_TLS` | ON | mbedTLS for HTTPS. Forces `QWRT_WITH_CRYPTO_EXT=ON` — a TLS client without `crypto.subtle` (no cert hashing, no WebCrypto key derivation) is not a complete WinterCG runtime. Disable to remove mbedTLS entirely. |
+| `QWRT_WITH_TLS` | ON | mbedTLS for HTTPS. Forces `QWRT_WITH_CRYPTO_EXT=ON` — a TLS client without `crypto.subtle` (no cert hashing, no WebCrypto key derivation) is not a complete WinterTC runtime. Disable to remove mbedTLS entirely. |
 | `QWRT_WITH_COMPRESS` | ON | miniz compression extension. Adds gzip/zlib/deflate to the JS API. |
 | `QWRT_WITH_CRYPTO_EXT` | ON | `crypto.subtle` extension: SHA-256/384/512, HMAC, PBKDF2, AES-GCM via mbedTLS. May be used without TLS (HTTP-only); required by `QWRT_WITH_TLS`. When OFF, `crypto.subtle` is `undefined` (no JS fallback). |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8 and Base64 TextEncoder/TextDecoder. |

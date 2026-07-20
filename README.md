@@ -4,7 +4,7 @@
 
 qwrt is a lightweight QuickJS-ng runtime wrapper with a Platform Abstraction
 Layer (PAL) for embedding JavaScript in C applications. It provides a
-WinterCG-compatible runtime of standard Web APIs (fetch, console, crypto, streams, timers)
+WinterTC-compatible runtime of standard Web APIs (fetch, console, crypto, streams, timers)
 and a clean C API for JS execution, multi-context management, and native
 extensions.
 
@@ -12,7 +12,7 @@ extensions.
 
 - **QuickJS-ng engine** — full ES2023 support, fast startup, low memory
 - **Platform Abstraction Layer** — libuv (Linux/macOS), FreeRTOS (ESP32-S3), mock (testing)
-- **WinterCG-compatible runtime** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more
+- **WinterTC-compatible runtime** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more
 - **Streaming HTTP + TLS** — mbedTLS for HTTPS, chunked transfer decoding, certificate verification
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec (UTF-8/Base64), WebAssembly (wasm3)
 - **Multi-context** — spawn/suspend/resume isolated JS contexts within one runtime
@@ -54,7 +54,7 @@ int main() {
     printf("result: %s\n", result);  /* "2" */
     qwrt_free(result);
 
-    /* Use WinterCG APIs (fetch, console, etc.) */
+    /* Use WinterTC APIs (fetch, console, etc.) */
     qwrt_eval(rt, "console.log('Hello from QuickJS!');", NULL);
 
     /* Drive the event loop (for async operations) */
@@ -98,7 +98,7 @@ flowchart TB
         PAL --> PalUV["pal_uv (libuv)"]
         PAL --> PalFR["pal_freertos (ESP-IDF)"]
         PAL --> PalMock["pal_mock (testing)"]
-        JS["WinterCG modules: fetch · console · crypto · streams · timers · …"]
+        JS["WinterTC modules: fetch · console · crypto · streams · timers · …"]
         ExtList["Extensions: compress · crypto · textcodec · wasm3"]
         Bridge -.injects.-> JS
         Ext -.registers.-> ExtList
@@ -209,7 +209,7 @@ with or without any given feature.
 | `pal_freertos` | ESP32-S3 | lwIP + mbedTLS | mbedTLS + cert bundle | LittleFS | NVS |
 | `pal_mock` | Testing | Mock responses | — | In-memory KV | In-memory KV |
 
-## WinterCG Modules
+## WinterTC Modules
 
 | Module | Globals | PAL Dependency |
 |--------|---------|----------------|
@@ -283,7 +283,7 @@ valgrind --leak-check=full ./build/test/test_qwrt
 
 Tests are labelled for selection (`ctest -L <label>`):
 - `offline` — local, deterministic (default; what CI runs; includes the
-  WinterCG compliance suite — WebAssembly subtests skip when no WASM engine
+  WinterTC compliance suite — WebAssembly subtests skip when no WASM engine
   is built)
 - `network` — outbound HTTP/HTTPS (e.g. `test_fetch_httpbin`, `test_tls`)
 - `benchmark` — performance, not pass/fail

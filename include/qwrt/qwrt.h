@@ -477,7 +477,7 @@ int qwrt_tick(qwrt_t *rt, int timeout_ms);
 
 /* Evaluate JS `code` on the active context. If `result` is non-NULL, receives
  * a malloc'd stringified result (free with qwrt_free). Returns 0 on success,
- * <0 on JS exception. The WinterCG polyfill (fetch, console, timers, …) is
+ * <0 on JS exception. The WinterTC polyfill (fetch, console, timers, …) is
  * auto-injected. */
 int qwrt_eval(qwrt_t *rt, const char *code, char **result);
 

@@ -452,7 +452,7 @@ endmenu
 
 - **qwrt core** — `qwrt.c`, `context.c`, `bridge.c`, `extension.c` are platform-agnostic
 - **PAL interface** — `qwrt_pal_t` unchanged; no new function pointers needed
-- **JS polyfill** — same bytecode, same WinterCG APIs
+- **JS polyfill** — same bytecode, same WinterTC APIs
 - **Extensions** — compress, crypto, textcodec are already platform-agnostic (use miniz, not zlib)
 
 ## 7. Testing Strategy

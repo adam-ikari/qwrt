@@ -28,7 +28,7 @@ let stream = new ReadableStream({
     },
     pull(controller) {
         // 当消费者需要更多数据时调用。
-        // 在 qwrt 的 WinterCG 模块中尚未实现。
+        // 在 qwrt 的 WinterTC 模块中尚未实现。
     },
     cancel(reason) {
         // 当消费者取消流时调用。

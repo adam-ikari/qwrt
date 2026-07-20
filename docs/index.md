@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Qwrt.js"
   text: "Embeddable QuickJS Runtime"
-  tagline: C99 · WinterCG Compatible · Platform Abstraction Layer · Zero System Dependencies
+  tagline: C99 · WinterTC Compatible · Platform Abstraction Layer · Zero System Dependencies
   actions:
     - theme: brand
       text: Get Started
@@ -21,8 +21,8 @@ features:
     title: Zero System Dependencies
     details: QuickJS-ng, mbedTLS, miniz, libuv, WAMR — all built from source via CMake. No system packages required.
   - icon: 🌐
-    title: WinterCG Compatible
-    details: A WinterCG-compatible JavaScript runtime — the standard Web APIs embedders expect, precompiled to bytecode.
+    title: WinterTC Compatible
+    details: A WinterTC-compatible JavaScript runtime — the standard Web APIs embedders expect, precompiled to bytecode.
   - icon: 🔌
     title: Platform Abstraction Layer
     details: Run the same JS across platforms through a thin PAL contract (~30 function pointers). Implement your own backend without touching the core.
@@ -85,7 +85,7 @@ flowchart TB
         PAL --> PalUV["pal_uv (libuv)"]
         PAL --> PalFR["pal_freertos (ESP-IDF)"]
         PAL --> PalMock["pal_mock (testing)"]
-        JS["WinterCG modules: fetch · console · crypto · streams · timers · …"]
+        JS["WinterTC modules: fetch · console · crypto · streams · timers · …"]
         ExtList["Extensions: compress · crypto · textcodec · wamr"]
         Bridge -.injects.-> JS
         Ext -.registers.-> ExtList

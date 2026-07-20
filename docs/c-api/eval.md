@@ -8,7 +8,7 @@ Qwrt.js provides three ways to execute JavaScript, plus a bytecode compilation A
 int qwrt_eval(qwrt_t *rt, const char *code, char **result);
 ```
 
-Evaluates JS source code on the active context. The WinterCG runtime (fetch, console, timers, etc.) is auto-injected into new contexts before first eval.
+Evaluates JS source code on the active context. The WinterTC runtime (fetch, console, timers, etc.) is auto-injected into new contexts before first eval.
 
 - `code` — null-terminated JavaScript source string
 - `result` — if non-NULL, receives a `malloc`'d stringified result (JSON). Free with `qwrt_free()`

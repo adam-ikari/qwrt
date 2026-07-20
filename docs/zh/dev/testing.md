@@ -7,7 +7,7 @@ Qwrt.js 拥有全面的多层测试套件。
 | 层次 | 运行器 | 覆盖范围 | 命令 |
 |------|--------|----------|------|
 | **离线** | gtest + ctest | 核心运行时、PAL、扩展、WASM | `ctest -L offline` |
-| **WPT** | wpt_runner | WinterCG Web API | `./build/test/wpt_runner test/wpt` |
+| **WPT** | wpt_runner | WinterTC Web API | `./build/test/wpt_runner test/wpt` |
 | **test262** | run-test262 | ECMAScript 语言合规性 | `ctest -L test262` |
 | **网络** | ctest | HTTP/HTTPS/TLS 集成 | `ctest -L network` |
 | **基准** | ctest | 性能回归 | `ctest -L benchmark` |
@@ -23,7 +23,7 @@ cmake --build build -j$(nproc)
 # 所有离线测试
 cd build && ctest -L offline --output-on-failure
 
-# WPT WinterCG 合规性
+# WPT WinterTC 合规性
 ./build/test/wpt_runner test/wpt
 
 # test262 ECMAScript 合规性
@@ -37,7 +37,7 @@ ctest -L test262
 | `offline` | 本地、确定性 — CI 默认 |
 | `network` | 出站 HTTP/HTTPS（非阻塞） |
 | `benchmark` | 性能测试 |
-| `wpt` | WinterCG Web 平台测试 |
+| `wpt` | WinterTC Web 平台测试 |
 | `test262` | ECMAScript 语言合规性 |
 | `dap` | 调试器协议测试 |
 
@@ -47,7 +47,7 @@ ctest -L test262
 |------|--------|------|------|------|--------|
 | 离线 | 15 | 15 | 0 | 0 | 100% |
 | WASM 合规 | 14 | 14 | 0 | 0 | 100% |
-| WPT WinterCG | 32 | 27 | 0 | 5 | 100%¹ |
+| WPT WinterTC | 32 | 27 | 0 | 5 | 100%¹ |
 | test262 | 42,407 | 42,339 | 68 | 10,004² | 99.8% |
 
 ¹ 5 个跳过均为非 UTF 编码标签（有意不支持）  

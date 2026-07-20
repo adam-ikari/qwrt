@@ -5,7 +5,7 @@ description: Isolated JS contexts in Qwrt.js — spawn, suspend, resume, and des
 
 # Multi-Context
 
-qwrt supports multiple isolated JS contexts within a single runtime. Each context has its own global object, PAL, WinterCG modules, and extension state — like lightweight sandboxes.
+qwrt supports multiple isolated JS contexts within a single runtime. Each context has its own global object, PAL, WinterTC modules, and extension state — like lightweight sandboxes.
 
 ## Why Multi-Context?
 

@@ -30,7 +30,7 @@ int main(void) {
 
     /* A recurring interval that prints and self-cancels after 3 ticks,
      * plus a one-shot timeout that fires after it. Timers are part of the
-     * WinterCG polyfill — no import needed. */
+     * WinterTC polyfill — no import needed. */
     const char *js =
         "globalThis.__done = false; "
         "var n = 0; "

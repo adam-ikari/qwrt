@@ -7,7 +7,7 @@ Qwrt.js has a comprehensive multi-layer test suite.
 | Layer | Runner | Coverage | Command |
 |-------|--------|----------|---------|
 | **Offline** | gtest + ctest | Core runtime, PAL, extensions, WASM | `ctest -L offline` |
-| **WPT** | wpt_runner | WinterCG Web APIs | `./build/test/wpt_runner test/wpt` |
+| **WPT** | wpt_runner | WinterTC Web APIs | `./build/test/wpt_runner test/wpt` |
 | **test262** | test262_runner | ECMAScript language conformance | `./build/test/test262_runner test/test262/test` |
 | **Network** | ctest | HTTP/HTTPS/TLS integration | `ctest -L network` |
 | **Benchmark** | ctest | Performance regression | `ctest -L benchmark` |
@@ -23,7 +23,7 @@ cmake --build build -j$(nproc)
 # All offline tests
 cd build && ctest -L offline --output-on-failure
 
-# WPT WinterCG compliance
+# WPT WinterTC compliance
 ./build/test/wpt_runner test/wpt
 
 # test262 ECMAScript conformance (first 2000 tests)
@@ -37,7 +37,7 @@ cd build && ctest -L offline --output-on-failure
 | `offline` | Local, deterministic — CI default |
 | `network` | Outbound HTTP/HTTPS (non-blocking) |
 | `benchmark` | Performance tests |
-| `wpt` | WinterCG Web Platform Tests |
+| `wpt` | WinterTC Web Platform Tests |
 | `test262` | ECMAScript language conformance |
 | `dap` | Debugger protocol tests |
 
@@ -47,7 +47,7 @@ cd build && ctest -L offline --output-on-failure
 |-------|-------|------|------|------|------|
 | Offline | 15 | 15 | 0 | 0 | 100% |
 | WASM compliance | 14 | 14 | 0 | 0 | 100% |
-| WPT WinterCG | 32 | 27 | 0 | 5 | 100%¹ |
+| WPT WinterTC | 32 | 27 | 0 | 5 | 100%¹ |
 | test262 (built-ins) | 2,000 | 1,118 | 494 | 388 | 69.4% |
 
 ¹ All 5 skipped tests are non-UTF encoding labels (intentionally unsupported).

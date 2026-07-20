@@ -13,13 +13,13 @@ description: Qwrt.js architecture design document — C99 runtime layering, comp
 
 ## 1. 概述
 
-qwrt 是一个轻量级 QuickJS-ng 运行时封装，提供平台抽象层（PAL）和 WinterCG 兼容的 JS polyfill，用于在 C 应用中嵌入 JavaScript 运行时。
+qwrt 是一个轻量级 QuickJS-ng 运行时封装，提供平台抽象层（PAL）和 WinterTC 兼容的 JS polyfill，用于在 C 应用中嵌入 JavaScript 运行时。
 
 ### 设计目标
 
 - **最小依赖**：核心只依赖 QuickJS-ng + C11；PAL 和扩展按需启用
 - **平台可移植**：通过 PAL 接口抽象 I/O，支持 libuv（Linux/macOS）、FreeRTOS（ESP32）、mock（测试）
-- **WinterCG 兼容**：JS polyfill 提供 fetch、console、crypto、streams、timers 等 Web API
+- **WinterTC 兼容**：JS polyfill 提供 fetch、console、crypto、streams、timers 等 Web API
 - **可扩展**：通过 qwrt_ext_t 钩子注册原生扩展（压缩、加密、WASM 等）
 - **单线程模型**：JSContext 绑定创建线程，事件循环通过 PAL `run_cycle` 驱动
 
@@ -54,7 +54,7 @@ qwrt 是一个轻量级 QuickJS-ng 运行时封装，提供平台抽象层（PAL
 │  └──────────┴───────────┴───────────┴──────────────┘│
 │                                                      │
 │  ┌──────────────────────────────────────────────┐   │
-│  │  JS Polyfill (WinterCG)                      │   │
+│  │  JS Polyfill (WinterTC)                      │   │
 │  │  fetch | console | crypto | streams | timers │   │
 │  │  fs | storage | url | encoding | ...         │   │
 │  └──────────────────────────────────────────────┘   │
@@ -239,7 +239,7 @@ typedef struct qwrt_ext_t {
 
 ## 6. JS Polyfill
 
-polyfill 提供 WinterCG 兼容的 Web API，编译为 QuickJS 字节码后嵌入二进制。
+polyfill 提供 WinterTC 兼容的 Web API，编译为 QuickJS 字节码后嵌入二进制。
 
 ### 6.1 模块列表
 

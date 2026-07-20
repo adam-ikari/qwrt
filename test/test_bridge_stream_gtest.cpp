@@ -72,7 +72,7 @@ TEST_F(BridgeStreamTest, HttpRequestStreamCallbacksFire) {
     EXPECT_EQ(rc, 0);
 
     /* Run tick — mock PAL completes synchronously, deferred callbacks fire */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_result", &result);

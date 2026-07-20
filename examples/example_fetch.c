@@ -1,7 +1,7 @@
 /*
  * qwrt fetch example.
  *
- * Demonstrates the async WinterCG fetch() polyfill over a real libuv event
+ * Demonstrates the async WinterTC fetch() polyfill over a real libuv event
  * loop. The host starts the fetch, then drives the loop (qwrt_tick to drain
  * deferred JS callbacks, uv_run for one I/O iteration) until the promise
  * resolves and a global flips.

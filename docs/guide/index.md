@@ -1,16 +1,16 @@
 ---
 title: Overview
-description: Qwrt.js is an embeddable QuickJS-ng runtime wrapper in strict C99 — WinterCG-compatible JS runtime with a Platform Abstraction Layer.
+description: Qwrt.js is an embeddable QuickJS-ng runtime wrapper in strict C99 — WinterTC-compatible JS runtime with a Platform Abstraction Layer.
 ---
 
 # Overview
 
-qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. It provides a small C API on top of the QuickJS-ng engine, a **WinterCG-compatible runtime**, and a **Platform Abstraction Layer (PAL)** so the same JavaScript code runs on Linux, macOS, and ESP32-S3.
+qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. It provides a small C API on top of the QuickJS-ng engine, a **WinterTC-compatible runtime**, and a **Platform Abstraction Layer (PAL)** so the same JavaScript code runs on Linux, macOS, and ESP32-S3.
 
 ## What qwrt Gives You
 
 - **ECMAScript engine (ES2020)** — QuickJS-ng under the hood, fast startup, low memory
-- **WinterCG-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, and more
+- **WinterTC-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, and more
 - **Platform Abstraction Layer** — ~30 function pointers; ship three backends, add your own
 - **Multi-context** — spawn/suspend/resume isolated JS contexts within one runtime
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec, WebAssembly (WAMR, wasm3 optional)
@@ -23,7 +23,7 @@ qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. 
 |----------|----------|
 | **IoT / MCU scripting** | C99, tiny footprint, FreeRTOS PAL for ESP32-S3 |
 | **Plugin systems** | Multi-context isolation, per-context PAL permissions |
-| **Edge compute** | WinterCG APIs feel familiar to JS developers |
+| **Edge compute** | WinterTC APIs feel familiar to JS developers |
 | **Testing & simulation** | `pal_mock` for deterministic tests, no network needed |
 | **CLI tools with JS config** | Embed a JS engine without pulling in Node.js |
 
@@ -45,7 +45,7 @@ qwrt/
 │   ├── mock/            #   pal_mock (testing)
 │   ├── freertos/        #   pal_freertos (ESP32-S3)
 │   └── pal_common.c     #   Shared PAL helpers
-├── polyfill/src/        # WinterCG module source
+├── polyfill/src/        # WinterTC module source
 ├── test/                # Test suite (C + gtest)
 ├── deps/                # Git submodules (quickjs-ng, libuv, mbedtls, ...)
 └── docs/                # This documentation
@@ -55,4 +55,4 @@ qwrt/
 
 - [Quick Start](/guide/quickstart) — clone, build, run your first script
 - [PAL Overview](/pal/) — understand the Platform Abstraction Layer
-- [JS API Reference](/js-api/) — what WinterCG APIs are available
+- [JS API Reference](/js-api/) — what WinterTC APIs are available

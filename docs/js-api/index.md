@@ -1,18 +1,18 @@
 ---
 title: JS API Reference
-description: Complete JavaScript API reference for Qwrt.js — WinterCG-compatible Web APIs including fetch, crypto, streams, timers, URL, and more.
+description: Complete JavaScript API reference for Qwrt.js — WinterTC-compatible Web APIs including fetch, crypto, streams, timers, URL, and more.
 ---
 
 # JS API Reference
 
-qwrt provides a WinterCG-compatible JavaScript API surface through its WinterCG modules. All globals listed here are available in any `qwrt_eval()` or `qwrt_eval_bytecode()` call without requiring `require()` or `import`.
+qwrt provides a WinterTC-compatible JavaScript API surface through its WinterTC modules. All globals listed here are available in any `qwrt_eval()` or `qwrt_eval_bytecode()` call without requiring `require()` or `import`.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
     A["Your JS code"] --> B
-    subgraph B["WinterCG runtime (IIFE, precompiled to bytecode)"]
+    subgraph B["WinterTC runtime (IIFE, precompiled to bytecode)"]
         direction LR
         C["fetch<br/>console<br/>URL<br/>qwrt.fs"]
         D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
@@ -26,7 +26,7 @@ flowchart TB
 
 ### Core APIs
 
-| API | Global | WinterCG |
+| API | Global | WinterTC |
 |-----|--------|----------|
 | [console](/js-api/console) | `console` | ✅ Standard |
 | [performance](/js-api/performance) | `performance` | ✅ Standard |
@@ -37,7 +37,7 @@ flowchart TB
 
 ### Web APIs
 
-| API | Global | WinterCG |
+| API | Global | WinterTC |
 |-----|--------|----------|
 | [fetch](/js-api/fetch) | `fetch`, `Headers`, `Request`, `Response` | ✅ Standard |
 | [crypto](/js-api/crypto) | `crypto.getRandomValues()`, `crypto.subtle` | ✅ Standard |
@@ -57,7 +57,7 @@ flowchart TB
 
 ## Standards Compliance
 
-qwrt targets [WinterCG](https://wintercg.org/) compatibility — the same subset of Web APIs used by Cloudflare Workers, Deno, and other server-side runtimes. DOM-specific APIs (`document`, `window`, `HTMLElement`) are intentionally excluded.
+qwrt targets [WinterTC](https://wintercg.org/) compatibility — the same subset of Web APIs used by Cloudflare Workers, Deno, and other server-side runtimes. DOM-specific APIs (`document`, `window`, `HTMLElement`) are intentionally excluded.
 
 ### Not Included
 

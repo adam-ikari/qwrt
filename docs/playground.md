@@ -8,7 +8,7 @@ import { ref, onMounted } from 'vue'
 const running = ref(false)
 const output = ref('')
 const examples = ref([
-  { name: 'Hello World', code: '"Hello from Qwrt.js! Runtime: " + (typeof fetch !== "undefined" ? "WinterCG ready" : "minimal")' },
+  { name: 'Hello World', code: '"Hello from Qwrt.js! Runtime: " + (typeof fetch !== "undefined" ? "WinterTC ready" : "minimal")' },
   { name: 'Crypto', code: 'const enc = new TextEncoder(); const data = enc.encode("Qwrt.js"); const hash = await crypto.subtle.digest("SHA-256", data); Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,"0")).join("")' },
   { name: 'Text Encoding', code: 'const enc = new TextEncoder(); const dec = new TextDecoder(); const bytes = enc.encode("Hello, 世界!"); bytes.length + " bytes decoded: " + dec.decode(bytes)' },
   { name: 'setTimeout', code: 'const t0 = Date.now(); await new Promise(r => setTimeout(r, 100)); "Slept " + (Date.now() - t0) + "ms"' },
@@ -145,6 +145,6 @@ The playground compiles Qwrt.js to WebAssembly using Emscripten. Your JavaScript
 
 - **QuickJS-ng** — ES2020 JavaScript engine (QuickJS-ng)
 - **Mock PAL** — no network, no filesystem, deterministic
-- **WinterCG polyfills** — fetch stubs, timers, crypto.subtle, URL, Blob, etc.
+- **WinterTC polyfills** — fetch stubs, timers, crypto.subtle, URL, Blob, etc.
 
 The playground has no simulated output — every result comes from the actual qwrt runtime.

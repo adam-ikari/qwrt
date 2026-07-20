@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Qwrt.js"
   text: "可嵌入 QuickJS 运行时"
-  tagline: C99 · WinterCG 兼容 · 平台抽象层 · 零系统依赖
+  tagline: C99 · WinterTC 兼容 · 平台抽象层 · 零系统依赖
   actions:
     - theme: brand
       text: 快速开始
@@ -21,8 +21,8 @@ features:
     title: 零系统依赖
     details: QuickJS-ng、mbedTLS、miniz、libuv、WAMR — 全部通过 CMake 从源码构建。无需系统包。
   - icon: 🌐
-    title: WinterCG 兼容
-    details: WinterCG 兼容的 JavaScript 运行时 — 嵌入者期望的标准 Web API，预编译为字节码。
+    title: WinterTC 兼容
+    details: WinterTC 兼容的 JavaScript 运行时 — 嵌入者期望的标准 Web API，预编译为字节码。
   - icon: 🔌
     title: 平台抽象层
     details: 通过精简的 PAL 合约（约 30 个函数指针）跨平台运行相同的 JS。无需修改核心即可实现自己的后端。
@@ -87,7 +87,7 @@ flowchart TB
         PAL --> PalUV["pal_uv (libuv)"]
         PAL --> PalFR["pal_freertos (ESP-IDF)"]
         PAL --> PalMock["pal_mock (测试)"]
-        JS["WinterCG 模块: fetch · console · crypto · streams · timers · …"]
+        JS["WinterTC 模块: fetch · console · crypto · streams · timers · …"]
         ExtList["扩展: compress · crypto · textcodec · wamr"]
         Bridge -.注入.-> JS
         Ext -.注册.-> ExtList

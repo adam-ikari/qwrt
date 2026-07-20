@@ -217,7 +217,7 @@ TEST_F(QwrtTestBase, CallNonexistentFunc) {
 
 TEST_F(QwrtTestBase, TickNoPending) {
     /* No pending jobs — tick should return 0 */
-    int rc = qwrt_tick(rt);
+    int rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 }
 
@@ -234,7 +234,7 @@ TEST_F(QwrtTestBase, TickWithPromise) {
     EXPECT_EQ(rc, 0);
 
     /* Tick to process the resolved promise */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Check that the .then callback ran */
@@ -291,7 +291,7 @@ TEST_F(QwrtTestBase, MockStorage) {
     EXPECT_EQ(rc, 0);
 
     /* Tick to process the resolved promise */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Verify set result */
@@ -311,7 +311,7 @@ TEST_F(QwrtTestBase, MockStorage) {
         NULL);
     EXPECT_EQ(rc, 0);
 
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_getResult", &result);
@@ -331,7 +331,7 @@ TEST_F(QwrtTestBase, MockFs) {
         NULL);
     EXPECT_EQ(rc, 0);
 
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     char *result = NULL;
@@ -350,7 +350,7 @@ TEST_F(QwrtTestBase, MockFs) {
         NULL);
     EXPECT_EQ(rc, 0);
 
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_readResult", &result);
@@ -374,7 +374,7 @@ TEST_F(QwrtTestBase, MockHttp) {
         NULL);
     EXPECT_EQ(rc, 0);
 
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     char *result = NULL;
@@ -400,7 +400,7 @@ TEST_F(QwrtTestBase, MockTimer) {
     EXPECT_EQ(rc, 0);
 
     /* Process the initial promise setup */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Timer should not have fired yet */
@@ -415,7 +415,7 @@ TEST_F(QwrtTestBase, MockTimer) {
     pal_mock_fire_timer(pal, 1);
 
     /* Tick to process the resolved promise */
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Now the callback should have run */
@@ -473,7 +473,7 @@ TEST_F(QwrtTestBase, ResetBasic) {
 TEST_F(QwrtTestBase, ResetClearsTimers) {
     int rc = qwrt_eval(rt, "var _resetTimerInfo = testHelper.timerStart(1000, 0)", NULL);
     EXPECT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     qwrt_config_t config;
@@ -513,7 +513,7 @@ TEST(QwrtReset, ResetDifferentPal) {
         "  _httpOk = v; "
         "})", NULL);
     EXPECT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     /* Reset with no-http PAL */
@@ -533,7 +533,7 @@ TEST(QwrtReset, ResetDifferentPal) {
         "  function(e) { _httpDenied = 'err:' + e; }"
         ")", NULL);
     EXPECT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_httpDenied", &result);
@@ -576,7 +576,7 @@ TEST(QwrtPermission, PalDeniedFsWrite) {
         "  function(e) { _writeErr = 'err:' + e; }"
         ")", NULL);
     EXPECT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_writeErr", &result);
@@ -609,7 +609,7 @@ TEST(QwrtPermission, PalDeniedHttp) {
         "  function(e) { _httpErr = 'err:' + e; }"
         ")", NULL);
     EXPECT_EQ(rc, 0);
-    rc = qwrt_tick(rt);
+    rc = qwrt_tick(rt, 100);
     EXPECT_EQ(rc, 0);
 
     rc = qwrt_eval(rt, "_httpErr", &result);

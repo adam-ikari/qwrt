@@ -26,7 +26,7 @@ if (!rt) {
 3. Registers the build-time extension set (the `QWRT_EXTENSIONS` table —
    built-ins like compress/crypto/textcodec/wamr when their `QWRT_WITH_*` is on,
    plus any user extensions added via `QWRT_EXTRA_SOURCES`)
-4. Injects the WinterCG-compatible runtime into the initial context
+4. Injects the WinterTC-compatible runtime into the initial context
 
 The PAL must outlive the runtime. `qwrt_destroy` does NOT free the PAL — the caller owns it.
 

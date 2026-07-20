@@ -28,7 +28,7 @@ let stream = new ReadableStream({
     },
     pull(controller) {
         // Called when the consumer wants more data.
-        // Not implemented in qwrt's WinterCG modules.
+        // Not implemented in qwrt's WinterTC modules.
     },
     cancel(reason) {
         // Called when the consumer cancels the stream.

@@ -74,6 +74,24 @@ qwrt = 单线程 JS 运行时
   - 每个实例在哪个线程/进程/browser Worker 中运行
   - 每个实例用哪个 WASM 引擎
   - 实例之间如何通信（MessagePort）
+
+**Worker 由 JS 创建，由 JS 控制。** `new Worker('script.js')` 是 JS 层的操作，PAL 提供底层 spawn 机制。Worker 线程内的 tick 由 PAL 驱动——宿主只需要管理主实例的 tick。
+
+```c
+// 宿主代码：只管理主实例
+qwrt_t *rt = qwrt_create(&config);
+while (running) {
+    qwrt_tick(rt, 100);  // 驱动主实例
+}
+// Worker 实例在主实例的 JS 中创建，tick 由 PAL 在 Worker 线程内驱动
+```
+
+```js
+// JS 代码：创建和控制 Worker
+const worker = new Worker('worker.js');
+worker.postMessage({ cmd: 'compute', data: [1,2,3] });
+worker.onmessage = (e) => console.log('result:', e.data);
+```
 ```
 
 ### 三个维度

@@ -131,7 +131,7 @@ function checkCompatibility() {
 
 | 类别 | 状态 | 示例 |
 |------|------|------|
-| **WinterCG API** | ✅ 可用 | fetch、crypto、URL、streams、timers、Blob |
+| **WinterTC API** | ✅ 可用 | fetch、crypto、URL、streams、timers、Blob |
 | **Node.js 内置模块** | ❌ 不可用 | fs、path、http、net、child_process |
 | **DOM API** | ❌ 不可用 | document、window、localStorage |
 | **WebAssembly** | ✅ 可用 | WAMR Fast JIT 引擎 |
@@ -141,7 +141,7 @@ function checkCompatibility() {
 
 **兼容的包：**
 - 纯计算库（数学、字符串工具、验证）
-- 兼容 WinterCG 的 HTTP 客户端（使用 `fetch` 而非 `http`）
+- 兼容 WinterTC 的 HTTP 客户端（使用 `fetch` 而非 `http`）
 - 数据序列化（JSON、msgpack 等）
 
 **不兼容的包：**

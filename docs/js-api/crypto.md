@@ -5,7 +5,7 @@ description: The Web Crypto API in Qwrt.js — crypto.subtle with SHA-256/384/51
 
 # crypto API
 
-The Web Crypto API subset as defined by WinterCG. Provides cryptographically strong random number generation and the SubtleCrypto interface.
+The Web Crypto API subset as defined by WinterTC. Provides cryptographically strong random number generation and the SubtleCrypto interface.
 
 ## Globals
 

@@ -29,7 +29,7 @@ if (ret == 0) {
 
 成功返回 0，JS 异常返回 <0。
 
-WinterCG 兼容运行时会在每个上下文的第一次 `qwrt_eval` 之前**自动注入** — 你无需手动设置 `fetch`、`console` 等。
+WinterTC 兼容运行时会在每个上下文的第一次 `qwrt_eval` 之前**自动注入** — 你无需手动设置 `fetch`、`console` 等。
 
 ## 求值字节码
 

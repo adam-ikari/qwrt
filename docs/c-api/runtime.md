@@ -25,7 +25,7 @@ Returns `NULL` on failure.
 1. Calls `pal->init(pal)` if the hook is provided
 2. Creates a `JSRuntime` and initial context
 3. Registers the build-time extension set (the `QWRT_EXTENSIONS` table)
-4. Injects the WinterCG-compatible runtime into the initial context
+4. Injects the WinterTC-compatible runtime into the initial context
 
 **Thread-bound:** all subsequent `qwrt_*` calls must come from the creating thread.
 

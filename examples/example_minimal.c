@@ -2,7 +2,7 @@
  * qwrt minimal example.
  *
  * Creates a libuv-backed PAL, spins up a qwrt runtime, evaluates some
- * JavaScript using the WinterCG polyfill (console, fetch, timers, ...),
+ * JavaScript using the WinterTC polyfill (console, fetch, timers, ...),
  * drains the event loop, and tears down.
  *
  * Build: cmake -B build -DQWRT_BUILD_EXAMPLES=ON
@@ -28,7 +28,7 @@ int main(void) {
         return 1;
     }
 
-    /* Synchronous eval — WinterCG globals (console, etc.) are available. */
+    /* Synchronous eval — WinterTC globals (console, etc.) are available. */
     char *result = NULL;
     if (qwrt_eval(rt, "1 + 1", &result) == 0 && result) {
         printf("1 + 1 = %s\n", result);

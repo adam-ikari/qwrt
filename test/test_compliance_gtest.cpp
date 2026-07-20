@@ -1,7 +1,7 @@
 /*
  * test_compliance_gtest.cpp — Google Test version of test_compliance.c
  *
- * Tests qwrt's polyfill against ES2023 and WinterCG (now WinterTC)
+ * Tests qwrt's polyfill against ES2023 and WinterTC (now WinterTC)
  * Minimum Common Web Platform API specifications.
  *
  * Gracefully skips WASM tests when no WASM engine is linked.
@@ -96,7 +96,7 @@ protected:
 };
 
 /* ================================================================
- * WinterCG: Console
+ * WinterTC: Console
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, ConsoleExists) {
@@ -138,7 +138,7 @@ TEST_F(ComplianceTestBase, ConsoleLogOutput) {
 }
 
 /* ================================================================
- * WinterCG: Timers
+ * WinterTC: Timers
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, TimerFunctionsExist) {
@@ -165,9 +165,9 @@ TEST_F(ComplianceTestBase, SetTimeoutCallbackFires) {
         ASSERT_NE(rt2, nullptr);
     }
     qwrt_eval(rt2, "var _fired = false; setTimeout(function() { _fired = true; }, 100)", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     pal_mock_fire_all_timers(pal2);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_fired", &r);
@@ -180,7 +180,7 @@ TEST_F(ComplianceTestBase, SetTimeoutCallbackFires) {
 }
 
 /* ================================================================
- * WinterCG: queueMicrotask
+ * WinterTC: queueMicrotask
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, QueueMicrotaskExists) {
@@ -200,7 +200,7 @@ TEST_F(ComplianceTestBase, QueueMicrotaskCallbackRuns) {
         ASSERT_NE(rt2, nullptr);
     }
     qwrt_eval(rt2, "var _mt = false; queueMicrotask(function() { _mt = true; })", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_mt", &r);
@@ -213,7 +213,7 @@ TEST_F(ComplianceTestBase, QueueMicrotaskCallbackRuns) {
 }
 
 /* ================================================================
- * WinterCG: URL / URLSearchParams
+ * WinterTC: URL / URLSearchParams
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, UrlConstructor) {
@@ -294,7 +294,7 @@ TEST_F(ComplianceTestBase, UrlSearchParamsKeysValues) {
 }
 
 /* ================================================================
- * WinterCG: TextEncoder / TextDecoder
+ * WinterTC: TextEncoder / TextDecoder
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, TextEncoderDecoderExist) {
@@ -330,7 +330,7 @@ TEST_F(ComplianceTestBase, TextDecoderEncoding) {
 }
 
 /* ================================================================
- * WinterCG: atob / btoa
+ * WinterTC: atob / btoa
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, AtobBtoaExist) {
@@ -350,7 +350,7 @@ TEST_F(ComplianceTestBase, AtobBtoaEmpty) {
 }
 
 /* ================================================================
- * WinterCG: Fetch API
+ * WinterTC: Fetch API
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, FetchApiExists) {
@@ -392,7 +392,7 @@ TEST_F(ComplianceTestBase, FetchWithMock) {
     qwrt_eval(rt2,
         "var _fres = null; fetch('http://test.com/').then(function(r) { return r.text(); })"
         ".then(function(t) { _fres = t; })", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_fres", &r);
@@ -405,7 +405,7 @@ TEST_F(ComplianceTestBase, FetchWithMock) {
 }
 
 /* ================================================================
- * WinterCG: AbortController / AbortSignal
+ * WinterTC: AbortController / AbortSignal
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, AbortControllerExists) {
@@ -451,9 +451,9 @@ TEST_F(ComplianceTestBase, AbortSignalTimeout) {
         "var _timeoutFired = false; "
         "var sig = AbortSignal.timeout(50); "
         "sig.addEventListener('abort', function() { _timeoutFired = sig.aborted; });", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     pal_mock_fire_all_timers(pal2);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_timeoutFired", &r);
@@ -483,9 +483,9 @@ TEST_F(ComplianceTestBase, AbortSignalAnyPropagates) {
         "var combined = AbortSignal.any([ac.signal]); "
         "combined.addEventListener('abort', function() { _anyAborted = combined.aborted; }); "
         "setTimeout(function() { ac.abort(); }, 50);", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     pal_mock_fire_all_timers(pal2);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_anyAborted", &r);
@@ -505,7 +505,7 @@ TEST_F(ComplianceTestBase, ThrowIfAborted) {
 }
 
 /* ================================================================
- * WinterCG: Event / EventTarget
+ * WinterTC: Event / EventTarget
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, EventTargetExists) {
@@ -642,7 +642,7 @@ TEST_F(ComplianceTestBase, EventBubblesCancelable) {
 }
 
 /* ================================================================
- * WinterCG: Crypto
+ * WinterTC: Crypto
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, CryptoExists) {
@@ -703,7 +703,7 @@ TEST_F(ComplianceTestBase, CryptoSubtleExists) {
 }
 
 /* ================================================================
- * WinterCG: Performance
+ * WinterTC: Performance
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, PerformanceExists) {
@@ -764,7 +764,7 @@ TEST_F(ComplianceTestBase, PerformanceTimeOrigin) {
 }
 
 /* ================================================================
- * WinterCG: Storage
+ * WinterTC: Storage
  * ================================================================ */
 
 TEST_F(ComplianceTestBase, StorageApiExists) {
@@ -793,7 +793,7 @@ TEST_F(ComplianceTestBase, StorageSetGet) {
         "} else if (typeof storage !== 'undefined' && typeof storage.set === 'function') { "
         "  storage.set('k','v').then(function(){ _storOk = true; }); "
         "}", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_storOk", &r);
@@ -906,7 +906,7 @@ TEST_F(ComplianceTestBase, PromiseResolveThen) {
     }
     qwrt_eval(rt2,
         "var _pval = null; Promise.resolve(42).then(function(v) { _pval = v; })", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_pval", &r);
@@ -1141,7 +1141,7 @@ TEST_F(ComplianceTestBase, MessageChannelPostMessage) {
         "var mc = new MessageChannel(); "
         "mc.port2.onmessage = function(e) { _msgData = e.data; }; "
         "mc.port1.postMessage('hello')", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_msgData", &r);
@@ -1231,7 +1231,7 @@ TEST_F(ComplianceTestBase, WritableStreamWriteClose) {
         "  await w.write('z');"
         "  await w.close();"
         "})();", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_wsResult", &r);
@@ -1274,7 +1274,7 @@ TEST_F(ComplianceTestBase, TransformStreamFlow) {
         "  }"
         "  _tsResult = chunks.join(',');"
         "})();", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_tsResult", &r);
@@ -1311,7 +1311,7 @@ TEST_F(ComplianceTestBase, ReadableStreamPipeTo) {
         "  });"
         "  await rs.pipeTo(ws);"
         "})();", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_pipeResult", &r);
@@ -1354,7 +1354,7 @@ TEST_F(ComplianceTestBase, ReadableStreamPipeThrough) {
         "  }"
         "  _ptResult = chunks.join(',');"
         "})();", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_ptResult", &r);
@@ -1427,7 +1427,7 @@ TEST_F(ComplianceTestBase, CompressionDecompressionRoundtrip) {
         "  dchunks.forEach(function(c){decompressed.set(c,doff);doff+=c.length;});"
         "  _gzipOk = new TextDecoder().decode(decompressed) === 'Hello, compression world!';"
         "})();", NULL);
-    for (int i = 0; i < 100; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 100; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_gzipOk", &r);
@@ -1513,7 +1513,7 @@ TEST_F(ComplianceTestBase, ReadableStreamForAwaitOf) {
         "  for await (var x of rs) chunks.push(x);"
         "  _iterResult = chunks.join(',');"
         "})();", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_iterResult", &r);
@@ -1636,7 +1636,7 @@ TEST_F(ComplianceTestBase, Sha256Digest) {
         "var _digestLen = null; "
         "crypto.subtle.digest('SHA-256', new TextEncoder().encode('hello')).then(function(buf) { "
         "_digestLen = buf.byteLength; })", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_digestLen", &r);
@@ -1664,7 +1664,7 @@ TEST_F(ComplianceTestBase, ImportKey) {
         "var _keyType = null; "
         "crypto.subtle.importKey('raw', new Uint8Array(16), {name:'HMAC',hash:'SHA-256'}, false, ['sign']).then(function(k) { "
         "_keyType = k.type; })", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_keyType", &r);
@@ -1694,7 +1694,7 @@ TEST_F(ComplianceTestBase, HmacGenerateKeyLengthBits) {
         "var _klen = null; "
         "crypto.subtle.generateKey({name:'HMAC',hash:'SHA-256',length:256}, true, ['sign']).then(function(k) { "
         "return crypto.subtle.exportKey('raw', k); }).then(function(buf) { _klen = buf.byteLength; })", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_klen", &r);
@@ -1726,7 +1726,7 @@ TEST_F(ComplianceTestBase, ExportKeySubarray) {
         "var view = big.subarray(8, 16); "  /* 8-byte view at offset 8 */
         "crypto.subtle.importKey('raw', view, {name:'HMAC',hash:'SHA-256'}, true, ['sign']).then(function(k) { "
         "return crypto.subtle.exportKey('raw', k); }).then(function(buf) { _elen = buf.byteLength; })", NULL);
-    qwrt_tick(rt2);
+    qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_elen", &r);
@@ -1759,7 +1759,7 @@ TEST_F(ComplianceTestBase, HmacSignVerify) {
         "    return crypto.subtle.verify('HMAC', k2, sig, new TextEncoder().encode('test data'));"
         "  });"
         "}).then(function(ok) { _hmacOk = ok; })", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_hmacOk", &r);
@@ -1792,7 +1792,7 @@ TEST_F(ComplianceTestBase, HmacRejectsTampered) {
         "    return crypto.subtle.verify('HMAC', k2, sig, new TextEncoder().encode('tampered'));"
         "  });"
         "}).then(function(ok) { _hmacReject = !ok; })", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_hmacReject", &r);
@@ -1833,7 +1833,7 @@ TEST_F(ComplianceTestBase, AesCbcEncryptDecrypt) {
         "  });"
         "})();", NULL);
     qwrt_eval(rt2, "null", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_aesResult", &r);
@@ -1874,7 +1874,7 @@ TEST_F(ComplianceTestBase, AesGcmEncryptDecrypt) {
         "    _gcmResult = new TextDecoder().decode(dec);"
         "  });"
         "})();", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_gcmResult", &r);
@@ -1903,7 +1903,7 @@ TEST_F(ComplianceTestBase, GenerateKeyAesCbc) {
         "crypto.subtle.generateKey({name:'AES-CBC', length:256}, true, ['encrypt']).then(function(k) {"
         "  _genKeyOk = k.type === 'secret' && k.algorithm.name === 'AES-CBC';"
         "})", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_genKeyOk", &r);
@@ -1934,7 +1934,7 @@ TEST_F(ComplianceTestBase, ExportKeyRaw) {
         "}).then(function(buf) {"
         "  _exportOk = new Uint8Array(buf).length === 4 && new Uint8Array(buf)[0] === 1;"
         "})", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_exportOk", &r);
@@ -1965,7 +1965,7 @@ TEST_F(ComplianceTestBase, Pbkdf2DeriveBits) {
         "}).then(function(bits) {"
         "  _pbkdfLen = bits.byteLength;"
         "})", NULL);
-    for (int i = 0; i < 50; i++) qwrt_tick(rt2);
+    for (int i = 0; i < 50; i++) qwrt_tick(rt2, 100);
     {
         char *r = NULL;
         qwrt_eval(rt2, "_pbkdfLen", &r);

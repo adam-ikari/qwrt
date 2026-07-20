@@ -11,7 +11,7 @@ const result = ref(null)
 const checking = ref(false)
 
 const QWRT_APIS = [
-  // WinterCG standard APIs available in qwrt
+  // WinterTC standard APIs available in qwrt
   'fetch', 'Request', 'Response', 'Headers', 'FormData',
   'console', 'console.log', 'console.error', 'console.warn', 'console.info',
   'crypto', 'crypto.subtle', 'crypto.getRandomValues', 'crypto.randomUUID',
@@ -302,7 +302,7 @@ This tool checks npm packages against qwrt's API surface:
 
 | Category | Status | Examples |
 |----------|--------|----------|
-| **WinterCG APIs** | ✅ Available | fetch, crypto, URL, streams, timers, Blob |
+| **WinterTC APIs** | ✅ Available | fetch, crypto, URL, streams, timers, Blob |
 | **Node.js built-ins** | ❌ Unavailable | fs, path, http, net, child_process |
 | **DOM APIs** | ❌ Unavailable | document, window, localStorage |
 | **WebAssembly** | ✅ Available | WAMR Fast JIT engine |
@@ -312,7 +312,7 @@ This tool checks npm packages against qwrt's API surface:
 
 **Compatible packages:**
 - Pure computation libraries (math, string utils, validation)
-- WinterCG-compatible HTTP clients (use `fetch` instead of `http`)
+- WinterTC-compatible HTTP clients (use `fetch` instead of `http`)
 - Data serialization (JSON, msgpack, etc.)
 
 **Incompatible packages:**

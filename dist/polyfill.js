@@ -3310,7 +3310,7 @@
   // src/navigator.js
   function setupNavigatorReportError() {
     var navigator = {
-      userAgent: "qwrt/1.0 (WinterCG)",
+      userAgent: "qwrt/1.0 (WinterTC)",
       language: "en-US",
       platform: "wintercg",
       hardwareConcurrency: 1,

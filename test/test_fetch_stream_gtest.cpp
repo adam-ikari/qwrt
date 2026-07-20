@@ -55,7 +55,7 @@ TEST_F(FetchStreamTest, ResponseHasReadableStreamBody) {
     int rc = qwrt_eval(rt, code, NULL);
     EXPECT_EQ(rc, 0);
 
-    for (int i = 0; i < 200; i++) qwrt_tick(rt);
+    for (int i = 0; i < 200; i++) qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_result", &result);
@@ -84,7 +84,7 @@ TEST_F(FetchStreamTest, TextReadsFullStreamingBody) {
     int rc = qwrt_eval(rt, code, NULL);
     EXPECT_EQ(rc, 0);
 
-    for (int i = 0; i < 200; i++) qwrt_tick(rt);
+    for (int i = 0; i < 200; i++) qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_text_result", &result);

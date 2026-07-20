@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What qwrt is
 
 qwrt is an embeddable **QuickJS-ng runtime wrapper** written in C99. It exposes a
-small C API on top of the QuickJS-ng engine, plus a WinterCG-compatible
+small C API on top of the QuickJS-ng engine, plus a WinterTC-compatible
 runtime of standard Web APIs (fetch, console, crypto, streams, timers, fs, …) and a Platform
 Abstraction Layer (PAL) so the same code runs on libuv (Linux/macOS),
 FreeRTOS (ESP32-S3), and a mock backend for tests. It is **standalone** — it
@@ -63,9 +63,9 @@ Tests link `qwrt` + `qwrt_mock` by default; network/TLS/stream tests additionall
 link `qwrt_uv` and are gated behind `LIBUV_FOUND`/`QWRT_WITH_TLS`. A few
 tests are GoogleTest `.cpp` (fetched via FetchContent).
 
-### Building the WinterCG modules
+### Building the WinterTC modules
 
-The WinterCG-compatible runtime is **precompiled to QuickJS bytecode and inlined as
+The WinterTC-compatible runtime is **precompiled to QuickJS bytecode and inlined as
 `src/polyfill_default.c`** (an auto-generated C array — do not hand-edit). To
 rebuild after editing anything under `polyfill/src/`:
 
@@ -81,7 +81,7 @@ Flow: `polyfill/src/index.js` → esbuild bundles into an IIFE →
 `src/polyfill_default.c` and `dist/polyfill.bytecode`. `build.js` looks for
 `qjsc` at `QJSC` env var or `../deps/quickjs-ng/build/qjsc`; the actual
 checkout lives at `deps/quickjs-ng/` (as a git submodule), so set `QJSC` if the default path is
-wrong. The WinterCG modules are injected into a context by `qwrt_inject_polyfill_ctx`
+wrong. The WinterTC modules are injected into a context by `qwrt_inject_polyfill_ctx`
 (bridge.c), which sets `__pal_inject__` to a `pal` JS object for the duration of
 the eval.
 
@@ -106,7 +106,7 @@ The runtime is layered. Read these together to understand it:
   extension table (no runtime registration; the table is fixed at compile time
   via the `QWRT_EXTENSIONS` macro in `include/qwrt/qwrt_ext_registry.h`).
 - **`src/bridge.c`** — the JS↔PAL bridge. Builds the per-context `pal` JS object
-  (`qwrt_create_pal_object_ctx`), injects the WinterCG modules, and manages the
+  (`qwrt_create_pal_object_ctx`), injects the WinterTC modules, and manages the
   deferred-callback queue.
 - **`src/ext_*.c`** — native extensions (compress/crypto/textcodec/wasm3),
   each implementing `qwrt_ext_t`.
@@ -131,7 +131,7 @@ The runtime is layered. Read these together to understand it:
 ### Bridge layer discipline (`src/bridge.c`)
 
 The `js_pal_*` wrappers in `bridge.c` are the only C between the PAL (C
-function pointers) and the WinterCG modules (JS, which closures over the `pal` JS
+function pointers) and the WinterTC modules (JS, which closures over the `pal` JS
 object). C is *required* here for three things nothing else can do:
 
 1. **JSValue ↔ C conversion** (`JS_ToCString`, `JS_GetUint8Array`,
@@ -145,7 +145,7 @@ object). C is *required* here for three things nothing else can do:
 **Everything else stays out of the bridge.** A `js_pal_*` wrapper should do
 *only* the three things above. In particular: input validation, default
 values, length caps, level mappings, and string formatting are **not** the
-bridge's job — they belong in the JS WinterCG modules (caller-facing semantics) or
+bridge's job — they belong in the JS WinterTC modules (caller-facing semantics) or
 the PAL implementation (platform policy), not in C. Keep the bridge thin.
 Example: the Web Crypto 65536-byte cap on `getRandomValues` lives in
 `polyfill/src/crypto.js`, not in `js_pal_random_bytes`.

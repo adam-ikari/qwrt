@@ -8,7 +8,7 @@ Qwrt.js 提供三种执行 JavaScript 的方式，外加一个字节码编译 AP
 int qwrt_eval(qwrt_t *rt, const char *code, char **result);
 ```
 
-在活动上下文上求值 JS 源代码。WinterCG 运行时（fetch、console、定时器等）在第一次求值前自动注入新上下文。
+在活动上下文上求值 JS 源代码。WinterTC 运行时（fetch、console、定时器等）在第一次求值前自动注入新上下文。
 
 - `code` — 以 null 结尾的 JavaScript 源字符串
 - `result` — 如果非 NULL，接收一个 `malloc` 分配的字符串化结果（JSON）。使用 `qwrt_free()` 释放

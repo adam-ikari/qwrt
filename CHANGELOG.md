@@ -35,7 +35,7 @@ All notable changes to Qwrt.js.
 
 - Core runtime: qwrt_create/destroy/tick/eval/call
 - Multi-context: spawn/suspend/resume/destroy_ctx
-- WinterCG runtime: fetch, console, crypto, streams, timers, URL, encoding, Blob, EventTarget, AbortController, structuredClone
+- WinterTC runtime: fetch, console, crypto, streams, timers, URL, encoding, Blob, EventTarget, AbortController, structuredClone
 - PAL: libuv (Linux/macOS), mock (testing), FreeRTOS (ESP32-S3)
 - Extensions: compress, crypto, textcodec, WAMR, wasm3
 - DAP debugger (VS Code)

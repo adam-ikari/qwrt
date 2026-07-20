@@ -148,7 +148,7 @@ console.log(cloned.stack);    // 堆栈跟踪被保留
 
 ## 注意事项
 
-- `structuredClone` 是 WinterCG 模块实现——不是浏览器的原生算法
+- `structuredClone` 是 WinterTC 模块实现——不是浏览器的原生算法
 - 所有类型化数组变体均受支持
 - `RegExp` 标志（`g`、`i`、`m`、`s`、`u`、`y`）被保留
 - `RegExp.lastIndex` 在克隆中被重置为 0

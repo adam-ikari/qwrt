@@ -1,6 +1,6 @@
 ---
 title: fetch
-description: Qwrt.js 中的 fetch API —— HTTP 和 HTTPS 请求、请求头、流式响应、AbortController 以及 WinterCG 兼容性。
+description: Qwrt.js 中的 fetch API —— HTTP 和 HTTPS 请求、请求头、流式响应、AbortController 以及 WinterTC 兼容性。
 ---
 
 # fetch API

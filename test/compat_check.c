@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* WinterCG APIs expected in qwrt */
+/* WinterTC APIs expected in qwrt */
 static const char *WINTERCG_APIS[] = {
     "fetch", "Request", "Response", "Headers",
     "console", "console.log", "console.error", "console.warn",
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
         printf("=== Qwrt.js API Surface ===\n\n");
         char *r = NULL;
 
-        printf("## WinterCG APIs\n");
+        printf("## WinterTC APIs\n");
         for (int i = 0; WINTERCG_APIS[i]; i++) {
             char code[256];
             snprintf(code, sizeof(code), "typeof %s !== 'undefined'", WINTERCG_APIS[i]);

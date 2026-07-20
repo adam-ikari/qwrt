@@ -66,9 +66,9 @@ void inject_polyfill(qwrt_t *rt) {
 }
 ```
 
-qwrt 自身的 WinterCG 模块使用此模式——它们在构建时预编译为 `src/polyfill_default.c`。
+qwrt 自身的 WinterTC 模块使用此模式——它们在构建时预编译为 `src/polyfill_default.c`。
 
-## 重新构建 WinterCG 模块
+## 重新构建 WinterTC 模块
 
 在编辑 JS 源文件后重新构建模块字节码：
 

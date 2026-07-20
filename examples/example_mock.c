@@ -28,7 +28,7 @@ int main(void) {
         return 1;
     }
 
-    /* console and crypto are WinterCG globals — no import needed. */
+    /* console and crypto are WinterTC globals — no import needed. */
     qwrt_eval(rt,
         "console.log('hello from the mock backend'); "
         "var bytes = crypto.getRandomValues(new Uint8Array(4)); "

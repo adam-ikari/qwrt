@@ -67,7 +67,7 @@ TEST_F(PolyfillTestBase, Timer) {
     EXPECT_EQ(rc, 0);
 
     /* Process timer setup */
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Timer hasn't fired yet */
     char *result = NULL;
@@ -78,7 +78,7 @@ TEST_F(PolyfillTestBase, Timer) {
 
     /* Fire mock timers */
     pal_mock_fire_all_timers(pal);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     /* Now callback should have run */
     rc = qwrt_eval(rt, "_timerFired", &result);
@@ -143,7 +143,7 @@ TEST_F(PolyfillTestBase, Url) {
  * ================================================================ */
 
 TEST_F(PolyfillTestBase, Storage) {
-    /* Use the polyfill's storage API — try common WinterCG patterns */
+    /* Use the polyfill's storage API — try common WinterTC patterns */
     int rc = qwrt_eval(rt,
         "var _setOk = null; "
         "if (typeof qwrt !== 'undefined' && qwrt.storage) { "
@@ -157,7 +157,7 @@ TEST_F(PolyfillTestBase, Storage) {
         "}",
         NULL);
     EXPECT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_setOk", &result);
@@ -185,7 +185,7 @@ TEST_F(PolyfillTestBase, Fetch) {
         "})",
         NULL);
     EXPECT_EQ(rc, 0);
-    qwrt_tick(rt);
+    qwrt_tick(rt, 100);
 
     char *result = NULL;
     rc = qwrt_eval(rt, "_fetchResult", &result);

@@ -1,6 +1,6 @@
 ---
 title: fetch
-description: The fetch API in Qwrt.js — HTTP and HTTPS requests, headers, streaming responses, AbortController, and WinterCG compatibility.
+description: The fetch API in Qwrt.js — HTTP and HTTPS requests, headers, streaming responses, AbortController, and WinterTC compatibility.
 ---
 
 # fetch API

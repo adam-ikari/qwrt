@@ -2,7 +2,7 @@
  * qwrt End-to-End Integration Tests
  *
  * Tests the full stack: C runtime + polyfill + PAL + JS execution.
- * Uses a comprehensive test polyfill that implements WinterCG APIs.
+ * Uses a comprehensive test polyfill that implements WinterTC APIs.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -12,7 +12,7 @@
 #include "pal_mock.h"
 
 /* ================================================================
- * E2E Test Polyfill — comprehensive WinterCG API implementation
+ * E2E Test Polyfill — comprehensive WinterTC API implementation
  * ================================================================ */
 
 static const char e2e_polyfill[] =

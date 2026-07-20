@@ -230,7 +230,7 @@ endif()
 
 # ============================================================================
 # WPT (Web Platform Tests) runner — runs vendored .any.js tests
-# Non-blocking: WPT is an upstream standard, qwrt's WinterCG subset may have
+# Non-blocking: WPT is an upstream standard, qwrt's WinterTC subset may have
 # known gaps. Acts as a regression detector, not a pass/fail gate.
 # ============================================================================
 add_executable(wpt_runner wpt_runner.c)
