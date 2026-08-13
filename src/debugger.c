@@ -283,6 +283,15 @@ void qwrt_debug_detach(qwrt_t *rt, qwrt_debug_t *dbg)
         JS_SetDebuggerHandler(jsrt, NULL);
     if (rt->dbg_session == dbg)
         rt->dbg_session = NULL;
+    /* Free any cached paused-frame snapshot. Requires a live ctx — detach must
+     * therefore run before context teardown (qwrt_thread_teardown ordering). */
+    if (dbg->frames) {
+        JSContext *ctx = qwrt_get_active_jsctx(rt);
+        if (ctx)
+            JS_FreeCallFrames(ctx, dbg->frames, dbg->frame_count);
+        dbg->frames = NULL;
+        dbg->frame_count = 0;
+    }
     if (dbg->bps) {
         int i;
         for (i = 0; i < dbg->bp_count; i++) {
@@ -290,10 +299,6 @@ void qwrt_debug_detach(qwrt_t *rt, qwrt_debug_t *dbg)
             free(dbg->bps[i].condition);
         }
         free(dbg->bps);
-    }
-    if (dbg->frames) {
-        /* No ctx here to free; frames are freed on next stop or detach via the
-         * engine. Leak is bounded (one snapshot). Acceptable for detach. */
     }
     free(dbg);
 }

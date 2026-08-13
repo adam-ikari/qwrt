@@ -192,20 +192,23 @@ void qwrt_thread_teardown(qwrt_t *rt)
         while ((ret = JS_ExecutePendingJob(rt->jsrt, &job_ctx)) > 0) {}
     }
 
-    /* 3) 销毁所有 contexts（内含扩展 destroy） */
-    for (int i = 0; i < QWRT_MAX_CONTEXTS; i++) {
-        if (rt->contexts[i]) qwrt_ctx_destroy(rt, rt->contexts[i]);
-    }
-
-    /* 4) 释放 JSRuntime（gc_obj_list 已空） */
-    if (rt->jsrt) JS_FreeRuntime(rt->jsrt);
-
+    /* 3) DAP detach 必须先于 contexts/JSRuntime 释放：qwrt_debug_detach 会调
+     * JS_SetDebuggerHandler(jsrt, NULL)（在已释放的 runtime 上写即 UAF），
+     * 并释放缓存的 paused-frame 快照（JS_FreeCallFrames 需要活的 ctx）。 */
 #ifdef QWRT_DEBUG_SUPPORT
     if (rt->dbg_session) {
         qwrt_dap_detach(rt);
         rt->dbg_session = NULL;
     }
 #endif
+
+    /* 4) 销毁所有 contexts（内含扩展 destroy） */
+    for (int i = 0; i < QWRT_MAX_CONTEXTS; i++) {
+        if (rt->contexts[i]) qwrt_ctx_destroy(rt, rt->contexts[i]);
+    }
+
+    /* 5) 释放 JSRuntime（gc_obj_list 已空） */
+    if (rt->jsrt) JS_FreeRuntime(rt->jsrt);
 
     /* 5) 释放 uv_io in-memory storage（key/value 均为堆分配） */
     for (int i = 0; i < rt->store_count; i++) {

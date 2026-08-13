@@ -126,8 +126,14 @@ int uv_run(uv_loop_t *l, int mode)
                 fired = 1;
             }
             /* done whether or not EOF went out (EOF is skipped when the body
-             * completed and closed tcp) — never revisit a claimed response. */
-            if (p->data_delivered) p->used = 1;
+             * completed and closed tcp) — never revisit a claimed response.
+             * p->bytes was consumed by the read_cb's alloc buffer above, so
+             * release it once the response is claimed. */
+            if (p->data_delivered) {
+                free(p->bytes);
+                p->bytes = NULL;
+                p->used = 1;
+            }
         }
 
         /* 3) run close callbacks (cb may be NULL, like libuv) */
@@ -181,6 +187,14 @@ void uv_stop(uv_loop_t *l)
 int uv_loop_close(uv_loop_t *l)
 {
     if (l->active_handle_count > 0) return -1;          /* EBUSY */
+    /* Free any response bytes never claimed by a stream (loop torn down
+     * before the pending response was delivered). */
+    for (int i = 0; i < l->pending_count; i++) {
+        if (l->pendings[i].bytes) {
+            free(l->pendings[i].bytes);
+            l->pendings[i].bytes = NULL;
+        }
+    }
     return 0;
 }
 
