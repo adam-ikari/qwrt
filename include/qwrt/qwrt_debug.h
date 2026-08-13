@@ -42,6 +42,11 @@ typedef struct qwrt_debug_cbs {
  * session handle or NULL on error. */
 qwrt_debug_t *qwrt_debug_attach(qwrt_t *rt, const qwrt_debug_cbs *cbs);
 
+/* Return the runtime a debug session is attached to. Lets callback
+ * implementations (e.g. the DAP layer) reach their per-runtime state
+ * without a process-wide global. */
+qwrt_t *qwrt_debug_get_runtime(qwrt_debug_t *dbg);
+
 /* Detach and free the session. JS resumes normally afterwards. */
 void qwrt_debug_detach(qwrt_t *rt, qwrt_debug_t *dbg);
 

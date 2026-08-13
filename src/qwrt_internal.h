@@ -212,6 +212,10 @@ struct qwrt_t {
      * keep this header free of qwrt_debug.h; src/debugger.c casts. Named
      * dbg_session to avoid clashing with the legacy `int debug` log flag. */
     void *dbg_session;
+    /* DAP protocol layer (NULL when no DAP attached). Opaque here; owned by
+     * src/debugger_dap.c. Per-runtime, so multiple runtimes (e.g. a worker)
+     * each get their own DAP state. */
+    void *dap;
 #endif
 };
 

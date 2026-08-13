@@ -210,7 +210,7 @@ void qwrt_thread_teardown(qwrt_t *rt)
     /* 5) 释放 JSRuntime（gc_obj_list 已空） */
     if (rt->jsrt) JS_FreeRuntime(rt->jsrt);
 
-    /* 5) 释放 uv_io in-memory storage（key/value 均为堆分配） */
+    /* 6) 释放 uv_io in-memory storage（key/value 均为堆分配） */
     for (int i = 0; i < rt->store_count; i++) {
         free(rt->store[i].key);
         free(rt->store[i].value);
@@ -219,7 +219,7 @@ void qwrt_thread_teardown(qwrt_t *rt)
     rt->store = NULL;
     rt->store_count = 0;
 
-    /* 6) 关闭 loop：close 全部 handle → 处理 close 回调 → loop_close
+    /* 7) 关闭 loop：close 全部 handle → 处理 close 回调 → loop_close
      *（libuv 里 stop 过但仍 open 的 handle 也会让 uv_loop_close EBUSY，
      * 所以必须 walk-close 而非只关 wake）。 */
     uv_walk(&rt->loop, qwrt_close_walk_cb, NULL);

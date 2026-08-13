@@ -362,10 +362,6 @@ static char *dap_read_message(qwrt_dap_t *d, int *out_seq, char **out_command,
  * on_stopped pump — the paused DAP request loop
  * ================================================================ */
 
-/* file-static active session (single-threaded, single-session is fine for MVP).
- * Defined below; on_stopped recovers the session from here. */
-static qwrt_dap_t *g_qwrt_dap_active = NULL;
-
 /* Poll stdin for a DAP message with a timeout. Returns:
  *   1 = message available (call dap_read_message to get it)
  *   0 = timeout (no message yet — caller can pump PAL)
@@ -394,8 +390,10 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
  * model change (TODO: pump uv_run from a poll timeout). */
 static void dap_on_stopped(qwrt_debug_t *dbg, const char *reason, int thread_id)
 {
-    (void)dbg; (void)thread_id;
-    qwrt_dap_t *d = g_qwrt_dap_active;
+    (void)thread_id;
+    /* Recover the per-runtime DAP layer from the debug session — no global. */
+    qwrt_t *rt = qwrt_debug_get_runtime(dbg);
+    qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
     if (!d) return;
 
     /* emit stopped event */
@@ -618,7 +616,7 @@ int qwrt_dap_attach(qwrt_t *rt, const qwrt_dap_config_t *cfg)
     if (cfg && cfg->stop_on_entry)
         qwrt_debug_stop_on_entry(d->dbg);
 
-    g_qwrt_dap_active = d;
+    rt->dap = d;
 
     /* Send initialized event so VS Code knows it can configure breakpoints. */
     dap_send_event(d, "initialized", NULL);
@@ -627,13 +625,12 @@ int qwrt_dap_attach(qwrt_t *rt, const qwrt_dap_config_t *cfg)
 
 void qwrt_dap_detach(qwrt_t *rt)
 {
-    (void)rt;
-    if (g_qwrt_dap_active) {
-        if (g_qwrt_dap_active->dbg)
-            qwrt_debug_detach(g_qwrt_dap_active->rt, g_qwrt_dap_active->dbg);
-        free(g_qwrt_dap_active);
-        g_qwrt_dap_active = NULL;
-    }
+    qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
+    if (!d) return;
+    rt->dap = NULL;
+    if (d->dbg)
+        qwrt_debug_detach(d->rt, d->dbg);
+    free(d);
 }
 
 /* Process DAP requests that arrive BEFORE the program starts running (the
@@ -642,8 +639,7 @@ void qwrt_dap_detach(qwrt_t *rt)
  * Returns when configurationDone is received. */
 int qwrt_dap_configure(qwrt_t *rt)
 {
-    (void)rt;
-    qwrt_dap_t *d = g_qwrt_dap_active;
+    qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
     if (!d) return -1;
     for (;;) {
         int req_seq = 0; char *cmd = NULL, *args = NULL;

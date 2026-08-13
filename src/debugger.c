@@ -275,6 +275,11 @@ qwrt_debug_t *qwrt_debug_attach(qwrt_t *rt, const qwrt_debug_cbs *cbs)
     return dbg;
 }
 
+qwrt_t *qwrt_debug_get_runtime(qwrt_debug_t *dbg)
+{
+    return dbg ? dbg->rt : NULL;
+}
+
 void qwrt_debug_detach(qwrt_t *rt, qwrt_debug_t *dbg)
 {
     if (!rt || !dbg) return;
