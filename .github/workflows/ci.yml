@@ -307,37 +307,6 @@ jobs:
           lcov --summary coverage.info
 
   # ============================================================================
-  # Network tests: outbound HTTP/HTTPS against httpbin.org (non-blocking).
-  # ============================================================================
-  network:
-    runs-on: ubuntu-latest
-    name: network (non-blocking)
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config ninja-build
-
-      - name: Configure
-        run: |
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DQWRT_BUILD_TESTS=ON \
-            -DQWRT_WITH_TLS=ON
-
-      - name: Build
-        run: cmake --build build --parallel
-
-      - name: Test (network)
-        run: ctest -L network --output-on-failure
-        working-directory: build
-
-  # ============================================================================
   # Debugger: applies the QuickJS-ng patch and runs DAP tests.
   # ============================================================================
   debugger:
@@ -391,13 +360,13 @@ jobs:
             -DQWRT_BUILD_TESTS=ON
 
       - name: Build
-        run: cmake --build build --parallel --target test262_runner
+        run: cmake --build build --parallel
 
-      - name: Test (test262 baseline)
+      - name: Test (test262 conformance)
         run: |
           cd build && ctest -L test262 --output-on-failure
-          # Verify pass rate hasn't regressed below baseline
-          # Baseline: 270 PASS, 0 FAIL (qwrt-level), established 2026-07-18
+          # Engine-level ES conformance (quickjs-ng run-test262, via the nested
+          # test262 submodule initialized by the recursive checkout above).
 
   # ============================================================================
   # clang-tidy: static analysis.

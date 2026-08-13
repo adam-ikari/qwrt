@@ -54,6 +54,16 @@ if(QWRT_WITH_COMPRESS)
     add_qwrt_gtest(test_compress_consistency_gtest)
 endif()
 
+if(QWRT_BUILD_DEBUGGER)
+    # DAP end-to-end (test_dap_gtest.cpp): forks a child embedding host and
+    # drives the DAP client over pipes (initialize/setBreakpoints/stopped/
+    # stackTrace/scopes/variables/evaluate/continue). Kept out of "offline" —
+    # runs only via `ctest -L dap` (the debugger CI job). 30s timeout so a
+    # hung child fails via ctest instead of hanging the job.
+    add_qwrt_gtest(test_dap_gtest)
+    set_tests_properties(test_dap_gtest PROPERTIES LABELS "dap" TIMEOUT 30)
+endif()
+
 # ============================================================================
 # ctest registration — non-gtest targets only (gtest targets register via
 # add_test inside add_qwrt_gtest above)
