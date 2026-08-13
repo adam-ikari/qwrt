@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(qwrt
     VERSION 0.1.0
-    DESCRIPTION "Embeddable QuickJS-ng runtime wrapper with Platform Abstraction Layer"
+    DESCRIPTION "Embeddable QuickJS-ng runtime wrapper (libuv-native)"
     HOMEPAGE_URL "https://github.com/adam-ikari/qwrt"
     LANGUAGES C CXX
 )
@@ -14,15 +14,7 @@ set(CMAKE_C_EXTENSIONS OFF)   # pure -std=c99, no GNU extensions (deps use their
 # Options
 # ============================================================================
 option(QWRT_BUILD_TESTS "Build tests" OFF)
-option(QWRT_BUILD_EXAMPLES "Build examples" OFF)
 option(QWRT_BUILD_DEBUGGER "Build the DAP step-debugger (applies the QuickJS-ng debugger patch; adds src/debugger.c + src/debugger_dap.c to libqwrt)" OFF)
-
-# PAL backends — each controls compilation of a platform/*/ PAL implementation.
-# pal_uv and pal_mock build under a normal host toolchain; pal_freertos needs
-# the ESP-IDF toolchain (its sources #include freertos/* and esp_*).
-option(QWRT_PAL_UV "Build the libuv PAL (pal_uv, host: Linux/macOS)" ON)
-option(QWRT_PAL_MOCK "Build the mock PAL (pal_mock, for tests)" ON)
-option(QWRT_PAL_FREERTOS "Build the FreeRTOS PAL (pal_freertos, ESP-IDF only)" OFF)
 
 option(QWRT_WITH_WAMR "Link WAMR WASM engine (default; enables real WebAssembly via WAMR with Fast Interp + AOT)" ON)
 option(QWRT_WITH_WASM3 "Link wasm3 WASM engine (alternative, more portable)" OFF)
@@ -364,7 +356,8 @@ endif()
 # Core library (qwrt.c + bridge.c)
 #
 # Source files that are always compiled (no feature toggle):
-#   qwrt.c, bridge.c, context.c, extension.c, polyfill_default.c
+#   qwrt.c, bridge.c, context.c, extension.c, polyfill_default.c,
+#   thread.c (执行模型 A 自持线程主循环), msgq.c (入站消息 FIFO)
 # Extension sources are guarded by QWRT_WITH_* feature toggles so they are
 # only compiled when the corresponding feature is enabled. This avoids wasting
 # compile time on dead code (e.g. ext_wasm3.c when WASM3=OFF).
@@ -375,6 +368,10 @@ set(_qwrt_core_sources
     src/context.c
     src/extension.c
     src/polyfill_default.c
+    src/thread.c
+    src/msgq.c
+    src/uv_io.c
+    src/worker.c
 )
 if(QWRT_WITH_WAMR)
     list(APPEND _qwrt_core_sources src/ext_wamr.c)
@@ -415,7 +412,17 @@ endif()
 target_include_directories(qwrt PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${QUICKJS_DIR}
+    ${LIBUV_INCLUDE_DIRS}
 )
+
+# Test builds compile the core against mock_libuv.h: qwrt_t embeds uv_loop_t
+# BY VALUE, so the struct layout must match the uv implementation the tests
+# link (mock_libuv, not the system libuv). Production builds omit this define
+# and use real libuv's uv.h.
+if(QWRT_BUILD_TESTS)
+    target_compile_definitions(qwrt PRIVATE QWRT_USE_MOCK_LIBUV)
+    target_include_directories(qwrt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+endif()
 
 # ext_compress.c includes the vendored miniz.h, whose static-inline helpers
 # (zError/crc32/inflate/…) trigger -Wunused-function under our -Werror. Relax
@@ -474,8 +481,9 @@ if(QWRT_WITH_CRYPTO_EXT)
 endif()
 
 # Core link libraries — qjs (QuickJS-ng) and libm are always needed.
-# pthread and dl are POSIX-specific; on ESP-IDF/FreeRTOS they don't apply
-# (qwrt_freertos links qwrt and would inherit them as PUBLIC deps).
+# pthread and dl are POSIX-specific; libuv (uv_a) is deliberately NOT linked
+# here — the qwrt static lib compiles against libuv headers only, and uv
+# symbols resolve at the final target (tests: mock_libuv; qwrt_full: uv_a).
 set(_qwrt_core_libs qjs m)
 if(UNIX AND NOT ESP_PLATFORM)
     list(APPEND _qwrt_core_libs pthread dl)
@@ -495,240 +503,109 @@ endif()
 if(QWRT_WITH_CRYPTO_EXT)
     target_link_libraries(qwrt PUBLIC ${MBEDCRYPTO_LIB})
 endif()
+if(QWRT_WITH_TLS)
+    # uv_io.c（编进 qwrt 核心）用 mbedTLS SSL API 做 HTTPS；链接全部三个
+    # mbedTLS 归档，消费方才能解析 mbedtls_ssl_*。
+    target_link_libraries(qwrt PUBLIC ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB})
+endif()
 
 # ============================================================================
-# PAL common helpers (platform/pal_common.c)
+# libuv — hard dependency (sole event-loop backend)
 #
-# Shared JSON-building and URL-parsing utilities used by all PAL backends.
-# Built as a separate static library so PALs can link it without pulling in
-# QuickJS or other qwrt-core dependencies.
+# Built from source (vendored as the libuv/ submodule) — never linked against
+# the system libuv. libuv is a hard dependency: qwrt embeds uv_loop_t BY VALUE
+# in qwrt_t and runs its own thread on uv_run, so without it nothing compiles.
+# The qwrt static lib compiles against libuv headers but does NOT link uv_a —
+# uv symbols resolve at the final target (tests resolve them via mock_libuv).
 # ============================================================================
-add_library(qwrt_pal_common STATIC
-    platform/pal_common.c
-)
-target_include_directories(qwrt_pal_common PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/platform
-)
-qwrt_enable_warnings(qwrt_pal_common)
+set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv")
+if(NOT EXISTS "${LIBUV_SRC_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR "libuv source not found. "
+        "Run: git submodule update --init deps/libuv")
+endif()
 
-# ============================================================================
-# libuv PAL (platform/uv/), gated by QWRT_PAL_UV
-#
-# libuv is one PAL backend, not a core feature toggle. It is built from source
-# (vendored as the libuv/ submodule) — never linked against the system libuv.
-# pal_uv is built when QWRT_PAL_UV=ON and the libuv source tree is present;
-# otherwise it is skipped (pal_mock / pal_freertos cover other platforms).
-# ============================================================================
-if(QWRT_PAL_UV)
-    set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv")
-
-    if(EXISTS "${LIBUV_SRC_DIR}/CMakeLists.txt")
-        # ── libuv C99 atomics patch ────────────────────────────────────────
-        # libuv uses C11 <stdatomic.h> (_Atomic). Apply a patch that maps the
-        # atomic_* ops + _Atomic qualifier to GCC/Clang __atomic_* builtins
-        # (in uv-common.h, which all libuv sources include), so it compiles
-        # under -std=c99. Working-tree-only; submodule stays clean.
-        set(QWRT_LIBUV_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv-c99-atomics.patch")
-        if(EXISTS "${QWRT_LIBUV_C99_PATCH}")
-            execute_process(
-                COMMAND patch -p1 --dry-run -f -i "${QWRT_LIBUV_C99_PATCH}"
-                WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
-                RESULT_VARIABLE _luv_dry OUTPUT_QUIET ERROR_QUIET)
-            if(_luv_dry EQUAL 0)
-                execute_process(
-                    COMMAND patch -p1 -f -i "${QWRT_LIBUV_C99_PATCH}"
-                    WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
-                    RESULT_VARIABLE _luv_apply ERROR_QUIET)
-                if(NOT _luv_apply EQUAL 0)
-                    message(FATAL_ERROR "Failed to apply libuv C99 atomics patch")
-                endif()
-                message(STATUS "Applied libuv C99 atomics patch (deps/libuv-c99-atomics.patch)")
-            else()
-                execute_process(
-                    COMMAND grep -c "qwrt: avoid C11 <stdatomic.h>"
-                            "${LIBUV_SRC_DIR}/src/uv-common.h"
-                    OUTPUT_QUIET ERROR_QUIET RESULT_VARIABLE _luv_grep_rc)
-                if(NOT _luv_grep_rc EQUAL 0)
-                    message(FATAL_ERROR
-                        "libuv C99 atomics patch does not apply cleanly and is not "
-                        "already applied. Regenerate deps/libuv-c99-atomics.patch.")
-                endif()
-            endif()
+# ── libuv C99 atomics patch ────────────────────────────────────────────────
+# libuv uses C11 <stdatomic.h> (_Atomic). Apply a patch that maps the
+# atomic_* ops + _Atomic qualifier to GCC/Clang __atomic_* builtins
+# (in uv-common.h, which all libuv sources include), so it compiles
+# under -std=c99. Working-tree-only; submodule stays clean.
+set(QWRT_LIBUV_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv-c99-atomics.patch")
+if(EXISTS "${QWRT_LIBUV_C99_PATCH}")
+    execute_process(
+        COMMAND patch -p1 --dry-run -f -i "${QWRT_LIBUV_C99_PATCH}"
+        WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
+        RESULT_VARIABLE _luv_dry OUTPUT_QUIET ERROR_QUIET)
+    if(_luv_dry EQUAL 0)
+        execute_process(
+            COMMAND patch -p1 -f -i "${QWRT_LIBUV_C99_PATCH}"
+            WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
+            RESULT_VARIABLE _luv_apply ERROR_QUIET)
+        if(NOT _luv_apply EQUAL 0)
+            message(FATAL_ERROR "Failed to apply libuv C99 atomics patch")
         endif()
-
-        # libuv via add_subdirectory. Its CMake mutates global CMAKE_C_STANDARD
-        # (→11) and CMAKE_EXPORT_COMPILE_COMMANDS; save+restore to keep qwrt C99.
-        set(_qwrt_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
-        set(_qwrt_saved_c_standard       ${CMAKE_C_STANDARD})
-        set(_qwrt_saved_export_cc        ${CMAKE_EXPORT_COMPILE_COMMANDS})
-
-        set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-        set(BUILD_SHARED_LIBS  OFF CACHE BOOL "" FORCE)
-        set(LIBUV_BUILD_TESTS  OFF CACHE BOOL "" FORCE)
-        set(LIBUV_BUILD_BENCH  OFF CACHE BOOL "" FORCE)
-
-        add_subdirectory(${LIBUV_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/libuv EXCLUDE_FROM_ALL)
-
-        set(CMAKE_C_EXTENSIONS           ${_qwrt_saved_c_extensions})
-        set(CMAKE_C_STANDARD             ${_qwrt_saved_c_standard})
-        set(CMAKE_EXPORT_COMPILE_COMMANDS ${_qwrt_saved_export_cc})
-
-        if(NOT TARGET uv_a)
-            message(FATAL_ERROR "libuv add_subdirectory did not define target 'uv_a'")
-        endif()
-
-        # Force uv_a to C99 (libuv's CMake sets CMAKE_C_STANDARD=11, but with
-        # the C99-atomics patch its sources need no C11).
-        set_target_properties(uv_a PROPERTIES C_STANDARD 99 C_EXTENSIONS OFF)
-
-        set(LIBUV_FOUND TRUE)
-        set(LIBUV_INCLUDE_DIRS "${LIBUV_SRC_DIR}/include")
-        set(LIBUV_LIBRARIES uv_a rt dl pthread)
-
-        add_library(qwrt_uv STATIC platform/uv/pal_uv.c)
-        target_include_directories(qwrt_uv PUBLIC
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/platform/uv
-            ${LIBUV_INCLUDE_DIRS}
-        )
-        target_link_libraries(qwrt_uv PUBLIC qwrt qwrt_pal_common ${LIBUV_LIBRARIES})
-        qwrt_enable_warnings(qwrt_uv)
+        message(STATUS "Applied libuv C99 atomics patch (deps/libuv-c99-atomics.patch)")
     else()
-        set(LIBUV_FOUND FALSE)
-        message(STATUS "QWRT_PAL_UV=ON but libuv source not found -- pal_uv skipped. "
-                       "Run: git submodule update --init deps/libuv")
-    endif()
-else()
-    set(LIBUV_FOUND FALSE)
-endif()
-
-if(QWRT_WITH_TLS AND TARGET qwrt_uv)
-    target_compile_definitions(qwrt_uv PUBLIC QWRT_WITH_TLS=1)
-    target_include_directories(qwrt_uv PRIVATE ${MBEDTLS_INCLUDE_DIR})
-    target_link_libraries(qwrt_uv PRIVATE ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB})
-endif()
-
-# ============================================================================
-# Mock PAL (platform/mock/), gated by QWRT_PAL_MOCK
-# Host-toolchain friendly — always buildable, used by the test suite.
-# ============================================================================
-if(QWRT_PAL_MOCK)
-    add_library(qwrt_mock STATIC platform/mock/pal_mock.c)
-    target_include_directories(qwrt_mock PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/platform/mock
-    )
-    target_link_libraries(qwrt_mock PUBLIC qwrt qwrt_pal_common)
-    qwrt_enable_warnings(qwrt_mock)
-endif()
-
-# ============================================================================
-# FreeRTOS PAL (platform/freertos/), gated by QWRT_PAL_FREERTOS
-#
-# Only buildable under the ESP-IDF toolchain (sources #include freertos/* and
-# esp_*); leave OFF for host builds. When ON, the ESP-IDF build environment is
-# expected to provide those headers/libraries via EXTRA_COMPONENT_DIRS.
-# ============================================================================
-if(QWRT_PAL_FREERTOS)
-    add_library(qwrt_freertos STATIC platform/freertos/pal_freertos.c)
-    target_include_directories(qwrt_freertos PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/platform/freertos
-    )
-    target_link_libraries(qwrt_freertos PUBLIC qwrt qwrt_pal_common)
-endif()
-
-# ============================================================================
-# Full library (qwrt + all enabled PALs compiled together)
-#
-# A single static archive bundling the qwrt core with every enabled PAL
-# backend (QWRT_PAL_UV / QWRT_PAL_MOCK / QWRT_PAL_FREERTOS). Built only when
-# at least one host PAL is available (pal_uv needs libuv). pal_freertos is
-# ESP-IDF-only and never part of a host-side qwrt_full.
-# ============================================================================
-if(LIBUV_FOUND OR QWRT_PAL_MOCK)
-    set(_qwrt_full_sources
-        ${_qwrt_core_sources}
-        platform/pal_common.c
-    )
-    set(_qwrt_full_includes
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${QUICKJS_DIR}
-    )
-    if(QWRT_PAL_UV AND LIBUV_FOUND)
-        list(APPEND _qwrt_full_sources platform/uv/pal_uv.c)
-        list(APPEND _qwrt_full_includes
-            ${CMAKE_CURRENT_SOURCE_DIR}/platform/uv
-            ${LIBUV_INCLUDE_DIRS})
-    endif()
-    if(QWRT_PAL_MOCK)
-        list(APPEND _qwrt_full_sources platform/mock/pal_mock.c)
-        list(APPEND _qwrt_full_includes
-            ${CMAKE_CURRENT_SOURCE_DIR}/platform/mock)
-    endif()
-
-    add_library(qwrt_full STATIC ${_qwrt_full_sources})
-    target_include_directories(qwrt_full PUBLIC ${_qwrt_full_includes})
-
-    set(_qwrt_full_libs qwrt_pal_common qjs m)
-    if(UNIX AND NOT ESP_PLATFORM)
-        list(APPEND _qwrt_full_libs pthread dl)
-    endif()
-    if(QWRT_PAL_UV AND LIBUV_FOUND)
-        list(APPEND _qwrt_full_libs ${LIBUV_LIBRARIES})
-    endif()
-    target_link_libraries(qwrt_full PUBLIC ${_qwrt_full_libs})
-    qwrt_enable_warnings(qwrt_full)
-    if(QWRT_BUILD_DEBUGGER)
-        target_compile_definitions(qwrt_full PUBLIC QWRT_DEBUG_SUPPORT)
-    endif()
-
-    # QWRT_WITH_* as 0/1 so qwrt_ext_registry.h's conditional macro resolves
-    # disabled built-ins to NULL slots (mirrors the qwrt target).
-    target_compile_definitions(qwrt_full PUBLIC
-        QWRT_WITH_WAMR=$<BOOL:${QWRT_WITH_WAMR}>
-        QWRT_WITH_WASM3=$<BOOL:${QWRT_WITH_WASM3}>
-        QWRT_WITH_COMPRESS=$<BOOL:${QWRT_WITH_COMPRESS}>
-        QWRT_WITH_CRYPTO_EXT=$<BOOL:${QWRT_WITH_CRYPTO_EXT}>
-        QWRT_WITH_TEXTCODEC=$<BOOL:${QWRT_WITH_TEXTCODEC}>
-        QWRT_WITH_TLS=$<BOOL:${QWRT_WITH_TLS}>
-    )
-
-    if(QWRT_WITH_WAMR)
-        target_include_directories(qwrt_full PUBLIC ${WAMR_DIR}/core/iwasm/include)
-        target_compile_definitions(qwrt_full PUBLIC QWRT_HAS_WAMR=1)
-        target_link_libraries(qwrt_full PUBLIC vmlib)
-    endif()
-
-    if(QWRT_WITH_COMPRESS)
-        target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_COMPRESS=1)
-        target_link_libraries(qwrt_full PUBLIC miniz)
-    endif()
-    if(QWRT_WITH_TLS)
-        # pal_uv.c (compiled into qwrt_full when QWRT_PAL_UV) uses the mbedTLS SSL
-        # API (mbedtls_ssl_*), which lives in libmbedtls.a / libmbedx509.a — not
-        # just libmbedcrypto.a. Link all three so consumers of qwrt_full (e.g. a
-        # shared lib linking qwrt_full statically) resolve the SSL symbols;
-        # otherwise the .so carries undefined mbedtls_ssl_* references.
-        target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_TLS=1)
-        target_include_directories(qwrt_full PUBLIC ${MBEDTLS_INCLUDE_DIR})
-        target_link_libraries(qwrt_full PUBLIC ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB})
-    endif()
-    if(QWRT_WITH_CRYPTO_EXT)
-        target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_CRYPTO_EXT=1)
-        if(NOT QWRT_WITH_TLS)
-            target_include_directories(qwrt_full PUBLIC ${MBEDCRYPTO_INCLUDE_DIR})
-            target_link_libraries(qwrt_full PUBLIC ${MBEDCRYPTO_LIB})
+        execute_process(
+            COMMAND grep -c "qwrt: avoid C11 <stdatomic.h>"
+                    "${LIBUV_SRC_DIR}/src/uv-common.h"
+            OUTPUT_QUIET ERROR_QUIET RESULT_VARIABLE _luv_grep_rc)
+        if(NOT _luv_grep_rc EQUAL 0)
+            message(FATAL_ERROR
+                "libuv C99 atomics patch does not apply cleanly and is not "
+                "already applied. Regenerate deps/libuv-c99-atomics.patch.")
         endif()
     endif()
-    if(QWRT_WITH_TEXTCODEC)
-        target_compile_definitions(qwrt_full PUBLIC QWRT_WITH_TEXTCODEC=1)
-    endif()
-    if(QWRT_WITH_WASM3)
-        target_compile_definitions(qwrt_full PUBLIC QWRT_HAS_WASM3=1)
-        target_link_libraries(qwrt_full PUBLIC m3)
-    endif()
+endif()
+
+# libuv via add_subdirectory. Its CMake mutates global CMAKE_C_STANDARD
+# (→11) and CMAKE_EXPORT_COMPILE_COMMANDS; save+restore to keep qwrt C99.
+set(_qwrt_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
+set(_qwrt_saved_c_standard       ${CMAKE_C_STANDARD})
+set(_qwrt_saved_export_cc        ${CMAKE_EXPORT_COMPILE_COMMANDS})
+
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS  OFF CACHE BOOL "" FORCE)
+set(LIBUV_BUILD_TESTS  OFF CACHE BOOL "" FORCE)
+set(LIBUV_BUILD_BENCH  OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(${LIBUV_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/libuv EXCLUDE_FROM_ALL)
+
+set(CMAKE_C_EXTENSIONS           ${_qwrt_saved_c_extensions})
+set(CMAKE_C_STANDARD             ${_qwrt_saved_c_standard})
+set(CMAKE_EXPORT_COMPILE_COMMANDS ${_qwrt_saved_export_cc})
+
+if(NOT TARGET uv_a)
+    message(FATAL_ERROR "libuv add_subdirectory did not define target 'uv_a'")
+endif()
+
+# Force uv_a to C99 (libuv's CMake sets CMAKE_STANDARD=11, but with the
+# C99-atomics patch its sources need no C11).
+set_target_properties(uv_a PROPERTIES C_STANDARD 99 C_EXTENSIONS OFF)
+
+set(LIBUV_FOUND TRUE)
+set(LIBUV_INCLUDE_DIRS "${LIBUV_SRC_DIR}/include")
+set(LIBUV_LIBRARIES uv_a rt dl pthread)
+
+# ============================================================================
+# Full library (qwrt + real libuv + extensions, bundled)
+#
+# A single static archive aggregating the qwrt core with real libuv (uv_a).
+# uv symbols are NOT resolved inside qwrt — the qwrt static lib compiles
+# against libuv headers only; qwrt_full supplies uv_a so a consumer linking
+# one archive resolves everything. qwrt's PUBLIC links already pull in
+# qjs/m/pthread/dl and the enabled extensions (vmlib/miniz/mbedcrypto/
+# mbedtls/…), which flow through transitively.
+# ============================================================================
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/qwrt_full_stub.c "")
+add_library(qwrt_full STATIC ${CMAKE_CURRENT_BINARY_DIR}/qwrt_full_stub.c)
+target_include_directories(qwrt_full PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${QUICKJS_DIR}
+    ${LIBUV_INCLUDE_DIRS}
+)
+target_link_libraries(qwrt_full PUBLIC qwrt ${LIBUV_LIBRARIES})
+if(QWRT_BUILD_DEBUGGER)
+    target_compile_definitions(qwrt_full PUBLIC QWRT_DEBUG_SUPPORT)
 endif()
 
 # ============================================================================
@@ -740,44 +617,17 @@ if(QWRT_BUILD_TESTS)
     add_subdirectory(test)
 endif()
 
-if(QWRT_BUILD_EXAMPLES)
-    add_subdirectory(examples)
-endif()
-
 # ============================================================================
 # Install
 # ============================================================================
-set(_qwrt_install_targets qwrt qwrt_pal_common)
-if(QWRT_PAL_MOCK)
-    list(APPEND _qwrt_install_targets qwrt_mock)
-endif()
-if(QWRT_PAL_FREERTOS)
-    list(APPEND _qwrt_install_targets qwrt_freertos)
-endif()
+set(_qwrt_install_targets qwrt qwrt_full)
 install(TARGETS ${_qwrt_install_targets}
     ARCHIVE DESTINATION lib
 )
 install(DIRECTORY include/qwrt
     DESTINATION include
 )
-if(QWRT_PAL_UV AND LIBUV_FOUND)
-    install(FILES platform/uv/pal_uv.h DESTINATION include/qwrt/pal)
-    install(TARGETS qwrt_uv
-        ARCHIVE DESTINATION lib
-    )
-endif()
-if(QWRT_PAL_MOCK)
-    install(FILES platform/mock/pal_mock.h DESTINATION include/qwrt/pal)
-endif()
-if(QWRT_PAL_FREERTOS)
-    install(FILES platform/freertos/pal_freertos.h DESTINATION include/qwrt/pal)
-endif()
 install(FILES include/qwrt/ext_wasm3.h DESTINATION include/qwrt)
-if(TARGET qwrt_full)
-    install(TARGETS qwrt_full
-        ARCHIVE DESTINATION lib
-    )
-endif()
 
 # ============================================================================
 # pkg-config & CMake config for find_package(qwrt) consumers
@@ -800,9 +650,9 @@ install(FILES
 
 # Generate a pkg-config .pc file for qwrt (libqwrt.pc)
 set(_qwrt_pc_dir "lib/pkgconfig")
-set(_qwrt_pc_libs "-lqwrt")
+set(_qwrt_pc_libs "-lqwrt -luv")
 if(UNIX AND NOT ESP_PLATFORM)
-    string(APPEND _qwrt_pc_libs " -lpthread -ldl")
+    string(APPEND _qwrt_pc_libs " -lpthread -ldl -lrt")
 endif()
 set(_qwrt_pc_requires "")
 set(_qwrt_pc_cflags "-I\${includedir}")

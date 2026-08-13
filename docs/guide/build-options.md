@@ -1,22 +1,21 @@
 ---
 title: Build Options
-description: Complete reference of Qwrt.js CMake options — QWRT_WITH_* feature toggles, QWRT_PAL_* platform backends, and QWRT_BUILD_* targets.
+description: Complete reference of Qwrt.js CMake options — QWRT_WITH_* feature toggles and QWRT_BUILD_* build targets.
 ---
 
 # Build Options
 
-qwrt's CMake options live on **two separate levels**: `QWRT_PAL_*` selects the
-**platform backend** (which `pal_*` implementation to compile), while
-`QWRT_WITH_*` toggles **optional features** (native extensions layered on top
-of the runtime). The two prefixes are independent — a PAL backend can be built
-with or without any given feature. `QWRT_BUILD_*` is a third, unrelated group
-that controls what gets built (tests, examples, debugger). Defaults are
-sensible for a full-featured Linux/macOS build.
+qwrt's CMake options live on **two separate levels**: `QWRT_WITH_*` toggles
+**optional features** (native extensions layered on top of the runtime), while
+`QWRT_BUILD_*` controls what gets built (tests, examples, debugger). libuv is a
+**hard dependency** — it is always built from the `deps/libuv` submodule and
+there is no option to disable it. Defaults are sensible for a full-featured
+Linux build.
 
 ## Feature Toggles (`QWRT_WITH_*`)
 
 These toggle optional native extensions on top of the WinterTC-compatible
-runtime. They do **not** select a platform backend.
+runtime.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -28,18 +27,6 @@ runtime. They do **not** select a platform backend.
 | `QWRT_WITH_WASM3` | OFF | wasm3 WebAssembly interpreter (alternative, more portable). |
 
 **Note:** `QWRT_WITH_WAMR` and `QWRT_WITH_WASM3` are mutually exclusive — both register the `WebAssembly` global.
-
-## PAL Backends (`QWRT_PAL_*`)
-
-These select the platform backend — **not on the same level** as the feature
-toggles above. Each controls compilation of one `platform/*/` PAL
-implementation.
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `QWRT_PAL_UV` | ON | libuv backend (Linux/macOS). Requires libuv submodule. |
-| `QWRT_PAL_MOCK` | ON | Mock backend for testing. Always build this for test support. |
-| `QWRT_PAL_FREERTOS` | OFF | FreeRTOS backend (ESP32-S3). Requires ESP-IDF. |
 
 ## Build Targets (`QWRT_BUILD_*`)
 
@@ -66,7 +53,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug \
 cmake -B build -DCMAKE_BUILD_TYPE=MinSizeRel \
       -DQWRT_WITH_TLS=OFF -DQWRT_WITH_COMPRESS=OFF \
       -DQWRT_WITH_CRYPTO_EXT=OFF -DQWRT_WITH_TEXTCODEC=OFF \
-      -DQWRT_WITH_WAMR=OFF -DQWRT_PAL_UV=OFF
+      -DQWRT_WITH_WAMR=OFF
 ```
 
 ### Release (production, all features)
@@ -98,8 +85,6 @@ static JSValue my_callback(JSContext *ctx, JSValue this_val,
 
 | File | Description |
 |------|-------------|
-| `build/lib/libqwrt.a` | Core runtime library |
-| `build/lib/libqwrt_uv.a` | libuv PAL backend |
-| `build/lib/libqwrt_mock.a` | Mock PAL backend |
-| `build/lib/libqwrt_freertos.a` | FreeRTOS PAL backend |
+| `build/lib/libqwrt.a` | Core runtime library (static, does not link libuv) |
+| `build/lib/libqwrt_full.a` | Aggregator: qwrt + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt |
 | `build/test/test_*` | Test binaries (when `QWRT_BUILD_TESTS=ON`) |

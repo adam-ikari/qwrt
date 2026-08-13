@@ -1,6 +1,6 @@
 ---
 title: Building
-description: CMake build options for Qwrt.js — feature toggles, PAL backends, C99 toolchain, and example configurations for development and production.
+description: CMake build options for Qwrt.js — feature toggles, C99 toolchain, and example configurations for development and production.
 ---
 
 # Building
@@ -30,14 +30,6 @@ Build types: `Release` (optimized), `Debug` (with symbols and assertions), `RelW
 | `QWRT_WITH_WASM3` | OFF | wasm3 WebAssembly engine (alternative, lighter weight) |
 
 **Note:** `QWRT_WITH_WAMR` and `QWRT_WITH_WASM3` are mutually exclusive — only one WASM engine can be enabled at a time.
-
-### PAL Backends (`QWRT_PAL_*`)
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `QWRT_PAL_UV` | ON | libuv PAL (Linux/macOS) |
-| `QWRT_PAL_MOCK` | ON | Mock PAL (testing) |
-| `QWRT_PAL_FREERTOS` | OFF | FreeRTOS PAL (ESP32-S3, ESP-IDF only) |
 
 ### Build Targets
 
@@ -82,20 +74,7 @@ qwrt and all its dependencies build under **strict C99** (`-std=c99`). quickjs-n
 
 | Artifact | Path |
 |----------|------|
-| `libqwrt.a` | `build/lib/` |
-| `libqwrt_uv.a` | `build/lib/` (when `QWRT_PAL_UV`) |
-| `libqwrt_mock.a` | `build/lib/` (when `QWRT_PAL_MOCK`) |
-| `libqwrt_freertos.a` | `build/lib/` (when `QWRT_PAL_FREERTOS`) |
+| `libqwrt.a` | `build/lib/` (static core — deliberately does not link libuv; uv symbols resolve at the final executable) |
+| `libqwrt_full.a` | `build/lib/` (aggregator: qwrt + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt) |
 | Test binaries | `build/test/` |
 
-## ESP32-S3 Build
-
-For ESP32-S3 with ESP-IDF:
-
-```bash
-# In your ESP-IDF project, add qwrt/esp-idf/ to EXTRA_COMPONENT_DIRS
-idf.py set-target esp32s3
-idf.py build
-```
-
-See the [pal_freertos documentation](/pal/pal-freertos) for details.

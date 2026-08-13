@@ -275,4 +275,13 @@ export function setupEventTarget() {
   globalThis.Event = Event;
   globalThis.CustomEvent = CustomEvent;
   globalThis.EventTarget = EventTarget;
+
+  // The global object itself is an EventTarget (WHATWG). Without this, host
+  // messaging (onmessage via self.addEventListener) and the error/rejection
+  // handler properties (onerror & co, which use this.addEventListener and
+  // globalThis.dispatchEvent in reportError) all throw "not a function".
+  var globalTarget = new EventTarget();
+  globalThis.addEventListener = globalTarget.addEventListener.bind(globalTarget);
+  globalThis.removeEventListener = globalTarget.removeEventListener.bind(globalTarget);
+  globalThis.dispatchEvent = globalTarget.dispatchEvent.bind(globalTarget);
 }

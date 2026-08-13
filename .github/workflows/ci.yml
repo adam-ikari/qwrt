@@ -7,7 +7,7 @@ on:
 
 jobs:
   # ============================================================================
-  # Minimal build: all optional features OFF, mock PAL only.
+  # Minimal build: all optional features OFF, mock_libuv tests only.
   # ============================================================================
   minimal:
     runs-on: ubuntu-latest
@@ -27,7 +27,6 @@ jobs:
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DQWRT_BUILD_TESTS=ON \
-            -DQWRT_PAL_UV=OFF \
             -DQWRT_WITH_WAMR=OFF \
             -DQWRT_WITH_TLS=OFF \
             -DQWRT_WITH_CRYPTO_EXT=OFF \
@@ -306,39 +305,6 @@ jobs:
             --exclude '*/deps/*' --exclude '*/test/*' \
             --ignore-errors unused
           lcov --summary coverage.info
-
-  # ============================================================================
-  # Examples: build all example programs and run the offline ones.
-  # ============================================================================
-  examples:
-    runs-on: ubuntu-latest
-    name: examples
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config ninja-build
-
-      - name: Configure
-        run: |
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DQWRT_BUILD_EXAMPLES=ON
-
-      - name: Build examples
-        run: cmake --build build --parallel
-
-      - name: Run offline examples
-        run: |
-          ./build/examples/example_mock
-          ./build/examples/example_bytecode
-          ./build/examples/example_minimal
-          ./build/examples/example_timers
-          ./build/examples/example_storage
 
   # ============================================================================
   # Network tests: outbound HTTP/HTTPS against httpbin.org (non-blocking).

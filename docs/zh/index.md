@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Qwrt.js"
   text: "可嵌入 QuickJS 运行时"
-  tagline: C99 · WinterTC 兼容 · 平台抽象层 · 零系统依赖
+  tagline: C99 · WinterTC 兼容 · 内部线程 + libuv 循环 · 零系统依赖
   actions:
     - theme: brand
       text: 快速开始
@@ -24,11 +24,11 @@ features:
     title: WinterTC 兼容
     details: WinterTC 兼容的 JavaScript 运行时 — 嵌入者期望的标准 Web API，预编译为字节码。
   - icon: 🔌
-    title: 平台抽象层
-    details: 通过精简的 PAL 合约（约 30 个函数指针）跨平台运行相同的 JS。无需修改核心即可实现自己的后端。
+    title: 基于消息的宿主边界
+    details: 宿主 ⇄ 运行时通过 qwrt_post_message / message_cb 说 JSON。入站线程安全，出站回调干净。
   - icon: 🧵
-    title: 多上下文隔离
-    details: 在一个运行时内创建、挂起和恢复隔离的 JS 上下文。每个上下文拥有独立的 PAL、权限和扩展状态。
+    title: 自有线程 + 事件循环
+    details: qwrt 运行自己的内部线程，内嵌 libuv 循环。宿主从不泵动事件循环。
   - icon: 🔒
     title: 无全局状态
     details: 零可变文件作用域状态。通过不透明的 qwrt_t 实现每运行时隔离 — 可安全地在同一进程中运行多个独立实例。
@@ -50,21 +50,20 @@ cmake --build build -j$(nproc)
 
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_uv.h>
+#include <stdio.h>
+
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
-
-    // 执行 JavaScript
-    char *result = NULL;
-    qwrt_eval(rt, "1 + 1", &result);
-    printf("1 + 1 = %s\n", result);  // "2"
-    qwrt_free(result);
-
-    // 驱动事件循环
-    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
-
+    qwrt_config_t cfg = {0};
+    cfg.initial_script = "postMessage({hello: 'world'});";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
+    if (!rt) return 1;
+    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
     qwrt_destroy(rt);
     return 0;
 }
@@ -77,19 +76,19 @@ flowchart TB
     subgraph QWRT["Qwrt.js"]
         direction TB
         Core["qwrt.c (核心 API)"]
-        Ctx["context.c (多上下文)"]
-        Ext["extension.c (扩展注册表)"]
-        Bridge["bridge.c — JS ↔ PAL 桥接"]
-        Core --> Bridge
-        Ctx --> Bridge
-        Ext --> Bridge
-        Bridge --> PAL["qwrt_pal_t (PAL 接口)"]
-        PAL --> PalUV["pal_uv (libuv)"]
-        PAL --> PalFR["pal_freertos (ESP-IDF)"]
-        PAL --> PalMock["pal_mock (测试)"]
+        Thread["thread.c — 内部线程 + libuv 循环"]
+        Msgq["msgq.c — 消息队列"]
+        Worker["worker.c — 分发 (onmessage/postMessage)"]
+        UvIO["uv_io.c — libuv I/O"]
+        Core --> Thread
+        Thread --> Msgq
+        Msgq --> Worker
+        Thread --> UvIO
         JS["WinterTC 模块: fetch · console · crypto · streams · timers · …"]
         ExtList["扩展: compress · crypto · textcodec · wamr"]
-        Bridge -.注入.-> JS
-        Ext -.注册.-> ExtList
+        Worker -.注入.-> JS
     end
+    HOST["宿主"] -->|"qwrt_post_message: JSON 入"| Msgq
+    Worker -->|"message_cb: JSON 出"| HOST
+    UvIO --> LIBUV["libuv"]
 ```

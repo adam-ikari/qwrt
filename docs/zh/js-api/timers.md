@@ -5,7 +5,7 @@ description: Qwrt.js 中的定时器 API —— setTimeout、clearTimeout、setI
 
 # 定时器 API
 
-标准的 `setTimeout` / `setInterval`，支持毫秒级精度。由 PAL 的 `timer_start` / `timer_stop` 支持。
+标准的 `setTimeout` / `setInterval`，支持毫秒级精度。由 qwrt 内部线程上的 libuv 定时器（`uv_timer_*`）支持（约 1ms 精度）。
 
 ## 全局对象
 
@@ -70,20 +70,20 @@ clearTimeout(id);  // 同样有效
 setTimeout(cb, 1000)
     │
     ▼
-pal.timerStart(1000, false) → 句柄 + Promise
+uv_timer_start(1s, 单次) 在 qwrt 的内部循环上
     │
-    ▼  （1000ms 后）
+    ▼  （1000ms 后，循环唤醒）
     │
-pal 回调触发 → JS Promise 解析 → cb() 被调用
+定时器回调在 qwrt 线程上触发 → cb() 被调用
 ```
 
-对于 `setInterval`，PAL 的 `repeat=true` 参数创建一个重复定时器。每次触发解析 JS promise，后者重新调度回调。
+对于 `setInterval`，uv 定时器会重复；每次触发都会重新运行回调，直到被清除。
 
 ## 上下文生命周期
 
-- 所有定时器是**每个上下文独立的**（一个 `qwrt_ctx_t` 拥有自己的定时器表）
-- 当上下文被**挂起**或**销毁**时，定时器会自动清除
-- 在 `qwrt_reset()` 之后，上一个会话中的任何定时器都不会保留
+- 定时器在 qwrt 的内部线程上按上下文管理
+- 运行时关闭时（`qwrt_destroy`）定时器会自动取消
+- 没有定时器能跨重启存活 — 请在 `initial_script` 中重新创建它们
 
 ## 最大定时器数量
 
@@ -91,7 +91,7 @@ pal 回调触发 → JS Promise 解析 → cb() 被调用
 
 ## 注意事项
 
-- 定时器精度取决于 PAL——`pal_mock` 同步触发，`pal_uv` 使用 libuv 定时器（~1ms 精度），`pal_freertos` 使用 FreeRTOS 软件定时器（基于 tick）
+- 定时器精度即 libuv 的精度（约 1ms）
 - 不需要 `queueMicrotask` 包装器——它作为 `globalThis.queueMicrotask` 可用
 - 嵌套深度超过 5 层的 `setTimeout` 调用被限制为最少 4ms 延迟
 - `setTimeout(cb, 0)` 在下一个事件循环 tick 时执行，而非立即执行

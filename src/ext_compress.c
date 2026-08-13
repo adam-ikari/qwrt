@@ -617,7 +617,7 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 
 static int compress_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);

@@ -2,21 +2,22 @@
 
 > 🌐 Website & API reference: **https://adam-ikari.github.io/qwrt/**
 
-qwrt is a lightweight QuickJS-ng runtime wrapper with a Platform Abstraction
-Layer (PAL) for embedding JavaScript in C applications. It provides a
-WinterTC-compatible runtime of standard Web APIs (fetch, console, crypto, streams, timers)
-and a clean C API for JS execution, multi-context management, and native
-extensions.
+qwrt is a lightweight, **libuv-native** QuickJS-ng runtime wrapper for embedding
+JavaScript in C applications. It provides a WinterTC-compatible runtime of
+standard Web APIs (fetch, console, crypto, streams, timers, fs, …) and a small,
+thread-safe C API for host ↔ runtime messaging and multi-context execution.
+qwrt owns its own internal thread running a libuv event loop — the host never
+touches JS directly.
 
 ## Features
 
 - **QuickJS-ng engine** — full ES2023 support, fast startup, low memory
-- **Platform Abstraction Layer** — libuv (Linux/macOS), FreeRTOS (ESP32-S3), mock (testing)
+- **libuv-native execution** — qwrt owns an internal thread + libuv loop; no host-side event-loop pumping
 - **WinterTC-compatible runtime** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more
 - **Streaming HTTP + TLS** — mbedTLS for HTTPS, chunked transfer decoding, certificate verification
-- **Native extensions** — compression (miniz), crypto (mbedTLS), text codec (UTF-8/Base64), WebAssembly (wasm3)
-- **Multi-context** — spawn/suspend/resume isolated JS contexts within one runtime
-- **Single-threaded** — JSContext is thread-bound; event loop driven by `pal->run_cycle`
+- **Native extensions** — compression (miniz), crypto (mbedTLS), text codec (UTF-8/Base64), WebAssembly (WAMR default, wasm3 alternative)
+- **Multi-context + Web Workers** — spawn isolated contexts (soft suspend/resume to disk); `new Worker(url)` runs real parallel threads
+- **Host ↔ runtime messaging** — JSON messages via `qwrt_post_message` / `message_cb`; `postMessage` / `onmessage` on the JS side
 
 ## Quick Start
 
@@ -27,51 +28,38 @@ git clone --recursive https://github.com/adam-ikari/qwrt.git
 cd qwrt
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
-
-# Build examples (in examples/):
-# cmake -B build -DQWRT_BUILD_EXAMPLES=ON && cmake --build build
 ```
 
 ### Minimal Example
 
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_uv.h>
-#include <uv.h>
 #include <stdio.h>
 
-int main() {
-    /* Create PAL (libuv, own event loop) */
-    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
 
-    /* Create runtime */
-    qwrt_config_t config = { .pal = pal, .debug = 0 };
-    qwrt_t *rt = qwrt_create(&config);
+int main(void) {
+    qwrt_config_t cfg = {0};
+    cfg.initial_script = "postMessage({hello: 'world'});";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
+    if (!rt) return 1;
 
-    /* Evaluate JavaScript */
-    char *result = NULL;
-    qwrt_eval(rt, "1 + 1", &result);
-    printf("result: %s\n", result);  /* "2" */
-    qwrt_free(result);
+    /* thread-safe inbound message; the runtime processes it on its own thread */
+    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 23);
 
-    /* Use WinterTC APIs (fetch, console, etc.) */
-    qwrt_eval(rt, "console.log('Hello from QuickJS!');", NULL);
-
-    /* Drive the event loop (for async operations) */
-    while (pal->run_cycle(pal, 100) > 0) {
-        qwrt_tick(rt);
-    }
-
-    /* Cleanup */
-    qwrt_destroy(rt);
-    pal_uv_destroy(pal);
+    qwrt_destroy(rt);  /* graceful shutdown: request stop → join → free */
     return 0;
 }
 ```
 
-> See [`examples/`](examples/) for complete, buildable programs covering
-> fetch, timers, key-value storage, ahead-of-time bytecode compilation, and
-> the mock backend. Build them with `-DQWRT_BUILD_EXAMPLES=ON`.
+`qwrt_create` blocks until the internal thread is ready and `initial_script`
+has been evaluated (a thrown exception makes `qwrt_create` return NULL).
+`message_cb` fires on the qwrt thread for every `postMessage` from JS and must
+be thread-safe.
 
 ### Build with Tests
 
@@ -85,145 +73,113 @@ cd build && ctest --output-on-failure
 
 ```mermaid
 flowchart TB
-    subgraph QWRT["qwrt"]
-        direction TB
-        Core["qwrt.c (core API)"]
-        Ctx["context.c (multi-context)"]
-        Ext["extension.c (ext registry)"]
-        Bridge["bridge.c — JS ↔ PAL bridge"]
-        Core --> Bridge
-        Ctx --> Bridge
-        Ext --> Bridge
-        Bridge --> PAL["qwrt_pal_t (PAL interface)"]
-        PAL --> PalUV["pal_uv (libuv)"]
-        PAL --> PalFR["pal_freertos (ESP-IDF)"]
-        PAL --> PalMock["pal_mock (testing)"]
-        JS["WinterTC modules: fetch · console · crypto · streams · timers · …"]
-        ExtList["Extensions: compress · crypto · textcodec · wasm3"]
-        Bridge -.injects.-> JS
-        Ext -.registers.-> ExtList
+    subgraph HOST["Host process"]
+        App["C application"]
     end
+    subgraph QWRT["qwrt_t (one qwrt = one JSRuntime)"]
+        Thread["internal thread (uv_thread_t)"]
+        Loop["libuv loop (uv_loop_t)"]
+        Ctx["JSContext + contexts"]
+        Msg["message FIFO (inbound)"]
+        IOBridge["bridge.c — JS ↔ libuv (uv_io.c)"]
+        Loop --> Ctx
+        Thread --> Loop
+        IOBridge --> Loop
+    end
+    App -- "qwrt_post_message (thread-safe, JSON)" --> Msg
+    Msg --> Thread
+    Ctx -- "postMessage" --> IOBridge
+    IOBridge -- "message_cb (on qwrt thread)" --> App
+    Ctx -. "new Worker(url) → new qwrt_t (own thread + loop)" .-> QWRT
 ```
+
+All JS runs on qwrt's single internal thread (Worker contexts on additional
+threads). The host drives work by posting JSON messages and receiving replies
+through `message_cb`.
 
 ## API Reference
 
-### Lifecycle
+### Core API
 
 | Function | Description |
 |----------|-------------|
-| `qwrt_create(config)` | Create runtime. Returns NULL on failure. |
-| `qwrt_destroy(rt)` | Destroy runtime and free all resources. |
-| `qwrt_reset(rt, config)` | Reset runtime (rebuild JS context, keep PAL). |
+| `qwrt_create(config)` | Create runtime; blocks until internal thread ready + `initial_script` eval'd. Returns NULL on failure. |
+| `qwrt_destroy(rt)` | Graceful shutdown: request thread exit → join → free. Host thread only, NULL-safe. |
+| `qwrt_post_message(rt, json, len)` | Thread-safe inbound JSON message (copied). Returns 0 / -1. |
+| `qwrt_get_runtime_data(rt)` / `qwrt_set_runtime_data(rt, data)` | Per-runtime opaque pointer accessors. |
+| `qwrt_free(ptr)` | Free malloc'd blocks. NULL-safe. |
 
-### JS Execution
+### Configuration (`qwrt_config_t`)
 
-| Function | Description |
-|----------|-------------|
-| `qwrt_eval(rt, code, &result)` | Evaluate JS code. Result freed via `qwrt_free`. |
-| `qwrt_eval_bytecode(rt, buf, len, &result)` | Evaluate precompiled QuickJS bytecode. |
-| `qwrt_call(rt, func, args_json, &result)` | Call a global JS function. |
-| `qwrt_tick(rt)` | Process pending JS microtasks (Promise callbacks). |
-| `qwrt_free(ptr)` | Free memory returned by qwrt_eval/qwrt_call. |
+| Field | Description |
+|-------|-------------|
+| `initial_script` | Eval'd on the qwrt thread at create; a throw → `qwrt_create` returns NULL. |
+| `message_cb` | Outbound message callback, fires on the qwrt thread (must be thread-safe). |
+| `debug` | DAP debugger bits (see Debugging). |
+| `host_data` | Per-runtime opaque pointer, read via `qwrt_get_runtime_data`. |
 
-### Bytecode
+### Multi-context
 
-| Function | Description |
-|----------|-------------|
-| `qwrt_compile(rt, src, len, &out_len)` | Compile JS source to QuickJS bytecode. |
-| `qwrt_compile_module(rt, src, len, &out_len)` | Compile ES module source to bytecode. |
-
-### Multi-Context
-
-| Function | Description |
-|----------|-------------|
-| `qwrt_spawn(rt, config)` | Spawn a new JS context. Returns context_id. |
-| `qwrt_suspend(rt)` | Suspend current context. |
-| `qwrt_resume(rt, context_id)` | Resume a specific context. |
-| `qwrt_destroy_ctx(rt, context_id)` | Destroy a context. |
-| `qwrt_get_active_ctx_id(rt)` | Get current context ID. |
-| `qwrt_get_jsctx(rt)` | Get the underlying `JSContext*` for native API access. |
+Multi-context (spawn/suspend/resume and `qwrtContext.*`) and Web Workers are
+JS-level APIs — see the [docs](https://adam-ikari.github.io/qwrt/) for
+`qwrtContext.spawn` / `suspend` / `resume` and `new Worker(url)`.
 
 ### Extensions
 
 Extensions are registered at build time via the `QWRT_EXTENSIONS` macro (see
 `include/qwrt/qwrt_ext_registry.h`); there is no runtime registration API.
-Built-in extensions (compress/crypto/textcodec/wasm3) are auto-registered when
+Built-in extensions (compress/crypto/textcodec/wamr) are auto-registered when
 their `QWRT_WITH_*` is on. A parent project adds its own extension to the table
 non-invasively via the CMake `QWRT_EXTENSIONS` / `QWRT_EXTRA_SOURCES` variables.
 
-### PAL Interface
-
-The PAL is a struct of function pointers (`qwrt_pal_t`). All async operations
-invoke callbacks on the event loop thread. See `include/qwrt/qwrt.h` for the
-full interface.
-
-| Category | Functions |
-|----------|-----------|
-| HTTP | `http_request`, `http_request_stream`, `http_abort` |
-| Filesystem | `fs_read`, `fs_write`, `fs_exists`, `fs_remove`, `fs_list` |
-| Storage | `storage_get`, `storage_set`, `storage_del` |
-| Timers | `timer_start`, `timer_stop` |
-| Time | `time_now` (ms), `hrtime` (ns) |
-| Utilities | `log`, `mem_alloc`, `mem_free`, `random_bytes` |
-| Event Loop | `run_cycle(timeout_ms)` — optional, drives I/O |
-
 ## CMake Options
 
-qwrt's CMake options live on **two separate levels**: `QWRT_PAL_*` selects the
-**platform backend** (which `pal_*` implementation to compile), while
-`QWRT_WITH_*` toggles **optional features** (native extensions layered on top
-of the runtime). The two prefixes are independent — a PAL backend can be built
-with or without any given feature.
+`QWRT_WITH_*` toggles optional native extensions layered on the runtime. libuv
+itself is a **hard dependency** (always built from `deps/libuv`) — there is no
+platform-backend option anymore.
 
 ### Feature Toggles (`QWRT_WITH_*`)
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `QWRT_WITH_WAMR` | ON | WAMR WebAssembly engine (Fast Interp + AOT) |
+| `QWRT_WITH_WASM3` | OFF | wasm3 WebAssembly engine (alternative; mutually exclusive with WAMR) |
 | `QWRT_WITH_TLS` | ON | mbedTLS HTTPS (forces `QWRT_WITH_CRYPTO_EXT=ON`) |
 | `QWRT_WITH_COMPRESS` | ON | miniz compression extension |
 | `QWRT_WITH_CRYPTO_EXT` | ON | crypto.subtle extension (undefined when OFF) |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8/Base64 extension |
-| `QWRT_WITH_WASM3` | ON | wasm3 WebAssembly engine |
-
-### PAL Backends (`QWRT_PAL_*`)
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `QWRT_PAL_UV` | ON | libuv backend (Linux/macOS) |
-| `QWRT_PAL_MOCK` | ON | Mock backend for testing |
-| `QWRT_PAL_FREERTOS` | OFF | FreeRTOS backend (ESP32-S3, ESP-IDF only) |
+| `QWRT_WITH_NONUTF_ENCODINGS` | OFF | non-UTF encoding labels (Latin-1, replacement) in TextDecoder |
 
 ### Build Targets (`QWRT_BUILD_*`)
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `QWRT_BUILD_TESTS` | OFF | Build test suite |
-| `QWRT_BUILD_EXAMPLES` | OFF | Build examples |
 | `QWRT_BUILD_DEBUGGER` | OFF | DAP step-debugger (patches QuickJS-ng; adds `src/debugger.c` + `src/debugger_dap.c`) |
 
-## PAL Implementations
+### Library Outputs
 
-| PAL | Platform | HTTP | TLS | FS | Storage |
-|-----|----------|------|-----|-----|---------|
-| `pal_uv` | Linux/macOS | libuv TCP + mbedTLS | mbedTLS | POSIX | In-memory |
-| `pal_freertos` | ESP32-S3 | lwIP + mbedTLS | mbedTLS + cert bundle | LittleFS | NVS |
-| `pal_mock` | Testing | Mock responses | — | In-memory KV | In-memory KV |
+| Target | Description |
+|--------|-------------|
+| `libqwrt.a` | Static core. Deliberately does **not** link libuv — uv symbols resolve at the final executable. |
+| `libqwrt_full.a` | Aggregator: qwrt + real libuv + mbedTLS + miniz + WAMR + pthread/dl/rt. |
+| `libqwrt.pc` | pkg-config (`-lqwrt -luv …`). |
 
 ## WinterTC Modules
 
-| Module | Globals | PAL Dependency |
-|--------|---------|----------------|
-| fetch | `fetch`, `Headers`, `Request`, `Response` | `http_request_stream` |
-| console | `console` | `log` |
-| crypto | `crypto`, `crypto.subtle` | `random_bytes` + ext_crypto |
+| Module | Globals | Backend |
+|--------|---------|---------|
+| fetch | `fetch`, `Headers`, `Request`, `Response` | libuv (uv_io.c) |
+| console | `console` | stdout |
+| crypto | `crypto`, `crypto.subtle` | ext_crypto (mbedTLS) |
 | streams | `ReadableStream`, `WritableStream` | — |
-| timers | `setTimeout`, `setInterval` | `timer_start/stop` |
-| fs | `fs.read`, `fs.write` | `fs_*` |
-| storage | `storage.get/set/delete` | `storage_*` |
+| timers | `setTimeout`, `setInterval` | libuv timers |
+| fs | `fs.read`, `fs.write` | libuv (uv_io.c) |
+| storage | `storage.get/set/delete` | libuv in-memory map |
 | encoding | `TextEncoder`, `TextDecoder` | ext_textcodec |
 | url | `URL`, `URLSearchParams` | — |
 | abort | `AbortController`, `AbortSignal` | — |
-| performance | `performance.now()` | `hrtime` |
+| performance | `performance.now()` | libuv hrtime |
 | event-target | `EventTarget`, `Event` | — |
 | blob | `Blob`, `File`, `FormData` | — |
 | message-channel | `MessageChannel`, `MessagePort` | — |
@@ -235,29 +191,28 @@ with or without any given feature.
 
 All dependencies are built from source via CMake `add_subdirectory` — qwrt
 never links system libraries, and each dep's objects live in the main build
-tree (subject to `-j` and incremental rebuild). Most are vendored directly in
-the repo; only `libuv/` is a git submodule (fetch it with
-`git submodule update --init libuv`). qwrt and all its dependencies build under
-**strict C99** — quickjs-ng and libuv ship C11 `<stdatomic.h>` code, but qwrt
-applies small patches (GCC/Clang `__atomic_*` builtins, no C11) so they
-compile under `-std=c99`.
+tree (subject to `-j` and incremental rebuild). All are git submodules with
+pinned versions. qwrt and all its dependencies build under **strict C99** —
+quickjs-ng and libuv ship C11 `<stdatomic.h>` code, but qwrt applies small
+patches (GCC/Clang `__atomic_*` builtins, no C11) so they compile under
+`-std=c99`.
 
 | Dependency | Source | Required | Purpose |
 |------------|--------|----------|---------|
-| QuickJS-ng | vendored source | Yes | JS engine (C99; atomics patched) |
-| mbedTLS | vendored source | No (QWRT_WITH_TLS) | TLS / crypto (C99) |
-| miniz | vendored source | No (QWRT_WITH_COMPRESS) | Compression (C90) |
-| libuv | git submodule | No (QWRT_PAL_UV) | Event loop, pal_uv (C99; atomics patched) |
-| wasm3 | vendored source | No (QWRT_WITH_WASM3) | WebAssembly (C99) |
+| QuickJS-ng | git submodule | Yes | JS engine (C99; atomics patched) |
+| libuv | git submodule | Yes | Event loop / I/O backend (C99; atomics patched) |
+| mbedTLS | git submodule | No (QWRT_WITH_TLS) | TLS / crypto (C99) |
+| miniz | git submodule | No (QWRT_WITH_COMPRESS) | Compression (C90) |
+| WAMR | git submodule | No (QWRT_WITH_WAMR) | WebAssembly engine (default) |
+| wasm3 | git submodule | No (QWRT_WITH_WASM3) | WebAssembly engine (alternative) |
 
 ## Thread Safety
 
-- **JSContext is thread-bound**: all `qwrt_*` calls must be from the thread
-  that called `qwrt_create`.
-- **`run_cycle`**: drives the PAL event loop on the same thread.
-- **Callbacks**: PAL callbacks fire on the event loop thread; use
-  `qwrt_defer_callback` to safely dispatch to the JS thread.
-- **No internal locking**: the caller is responsible for thread discipline.
+- **All JS runs on qwrt's internal thread** — the host never calls into JS directly.
+- `qwrt_create` / `qwrt_destroy` are host-thread calls; `qwrt_create` blocks until the internal thread is ready.
+- `qwrt_post_message` is **thread-safe** (any thread may call it; the JSON is copied).
+- `message_cb` fires on the qwrt thread — the host callback must be thread-safe.
+- Worker contexts each run on their own thread + loop (real parallelism).
 
 ## Debugging
 
@@ -271,6 +226,10 @@ the full setup, launch.json, and limitations.
 
 ## Testing
 
+Tests are GoogleTest `.cpp` suites in `test/`, linked against `qwrt` plus
+`mock_libuv` (a fake `uv_*` API for deterministic offline tests — see
+`test/mock_libuv.h` and the `HostCtx` harness in `test/test_host.h`).
+
 ```bash
 # Unit tests
 cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQWRT_BUILD_TESTS=ON
@@ -278,32 +237,18 @@ cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 
 # With valgrind
-valgrind --leak-check=full ./build/test/test_qwrt
+valgrind --leak-check=full ./build/test/test_qwrt_gtest
 ```
 
 Tests are labelled for selection (`ctest -L <label>`):
-- `offline` — local, deterministic (default; what CI runs; includes the
-  WinterTC compliance suite — WebAssembly subtests skip when no WASM engine
-  is built)
-- `network` — outbound HTTP/HTTPS (e.g. `test_fetch_httpbin`, `test_tls`)
+- `offline` — local, deterministic (default; what CI runs)
+- `network` — outbound HTTP/HTTPS
 - `benchmark` — performance, not pass/fail
+- `test262` — QuickJS-ng ECMAScript conformance
 
 ```bash
 ctest -L offline          # CI default — green
 ctest -L network          # only when network is available
-```
-
-
-## ESP32-S3
-
-qwrt builds for ESP32-S3 via ESP-IDF. See the platform documentation for
-setup instructions.
-
-```bash
-# In your ESP-IDF project:
-# Set EXTRA_COMPONENT_DIRS to point at qwrt/esp-idf/
-idf.py set-target esp32s3
-idf.py build
 ```
 
 ## License

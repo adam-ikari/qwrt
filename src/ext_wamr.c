@@ -860,7 +860,7 @@ static JSValue wamr_global_constructor(JSContext *ctx, JSValueConst new_target,
 
 static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     /* Initialize WAMR runtime (once) */
@@ -993,7 +993,7 @@ static JSValue wamr_stub_constructor(JSContext *ctx, JSValueConst new_target,
 
 static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);

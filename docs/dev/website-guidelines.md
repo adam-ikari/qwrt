@@ -42,9 +42,9 @@ description: SEO description — one sentence summary for search engines.
 ### Writing Style
 
 - Code blocks must specify language: ` ```c `, ` ```js `, ` ```bash `
-- Keep technical identifiers unchanged across translations (C99, CMake, QuickJS-ng, WinterTC, PAL, WAMR)
+- Keep technical identifiers unchanged across translations (C99, CMake, QuickJS-ng, WinterTC, WAMR)
 - Link to other pages using root-relative paths: `/guide/quickstart`, `/zh/guide/quickstart`
-- Do not expose internal implementation details (PAL injection, bridge internals)
+- Do not expose internal implementation details (bridge internals)
 - C API reference exists at `/c-api/` but is NOT in main navigation — it's for embedders
 
 ### SEO
@@ -62,12 +62,10 @@ Sidebar structure defined in `docs/.vitepress/config.mjs`:
 ```js
 const sidebar = {
   guide: [...],   // Getting Started, Core Concepts, Advanced
-  pal: [...],     // PAL Documentation, Implementing, Built-in Backends
   jsApi: [...],   // Web APIs, Platform APIs, Data & Events
 }
 const nav = [
   { text: 'Guide', link: '/guide/' },
-  { text: 'PAL', link: '/pal/' },
   { text: 'JS API', link: '/js-api/' },
   { text: 'Playground', link: '/playground' },
   { text: 'Compat Check', link: '/compat-checker' },
@@ -111,14 +109,14 @@ The playground compiles qwrt to WebAssembly:
 cmake -B build-wasm -S . \
   -DCMAKE_TOOLCHAIN_FILE=/tmp/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
   -DCMAKE_BUILD_TYPE=Release -DQWRT_BUILD_TESTS=OFF \
-  -DQWRT_PAL_UV=OFF -DQWRT_WITH_WAMR=OFF -DQWRT_WITH_TLS=OFF \
+  -DQWRT_WITH_WAMR=OFF -DQWRT_WITH_TLS=OFF \
   -DQWRT_WITH_COMPRESS=OFF -DQWRT_WITH_CRYPTO_EXT=OFF
 cmake --build build-wasm
 
 # Compile playground:
-emcc -O2 -Iinclude -Iplatform/mock -Ideps/quickjs-ng \
+emcc -O2 -Iinclude -Ideps/quickjs-ng \
   /tmp/qwrt_playground.c \
-  -Lbuild-wasm -lqwrt -lqwrt_mock -Lbuild-wasm/deps/quickjs-ng -lqjs \
+  -Lbuild-wasm -lqwrt -Lbuild-wasm/deps/quickjs-ng -lqjs \
   -s EXPORTED_FUNCTIONS='["_qwrt_playground_init","_qwrt_playground_eval",...]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString",...]' \
   -s NO_EXIT_RUNTIME=1 -s INITIAL_MEMORY=64MB -s ALLOW_MEMORY_GROWTH=1 \

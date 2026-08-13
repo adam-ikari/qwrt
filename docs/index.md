@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Qwrt.js"
   text: "Embeddable QuickJS Runtime"
-  tagline: C99 · WinterTC Compatible · Platform Abstraction Layer · Zero System Dependencies
+  tagline: C99 · WinterTC Compatible · Internal Thread + libuv Loop · Zero System Dependencies
   actions:
     - theme: brand
       text: Get Started
@@ -24,11 +24,11 @@ features:
     title: WinterTC Compatible
     details: A WinterTC-compatible JavaScript runtime — the standard Web APIs embedders expect, precompiled to bytecode.
   - icon: 🔌
-    title: Platform Abstraction Layer
-    details: Run the same JS across platforms through a thin PAL contract (~30 function pointers). Implement your own backend without touching the core.
+    title: Message-Based Host Boundary
+    details: Host ⇄ runtime speak JSON over qwrt_post_message / message_cb. Thread-safe inbound, clean outbound callback.
   - icon: 🧵
-    title: Multi-Context Isolation
-    details: Spawn, suspend, and resume isolated JS contexts within one runtime. Each context has its own PAL, permissions, and extension state.
+    title: Own Thread + Event Loop
+    details: qwrt runs its own internal thread with an embedded libuv loop. The host never pumps an event loop.
   - icon: 🔒
     title: No Global State
     details: Zero mutable file-scope state. Per-runtime isolation via opaque qwrt_t — safe to run multiple independent instances in one process.
@@ -48,21 +48,20 @@ cmake --build build -j$(nproc)
 
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_uv.h>
+#include <stdio.h>
+
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
-
-    // Evaluate JavaScript
-    char *result = NULL;
-    qwrt_eval(rt, "1 + 1", &result);
-    printf("1 + 1 = %s\n", result);  // "2"
-    qwrt_free(result);
-
-    // Drive the event loop
-    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
-
+    qwrt_config_t cfg = {0};
+    cfg.initial_script = "postMessage({hello: 'world'});";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
+    if (!rt) return 1;
+    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
     qwrt_destroy(rt);
     return 0;
 }
@@ -75,19 +74,19 @@ flowchart TB
     subgraph QWRT["Qwrt.js"]
         direction TB
         Core["qwrt.c (core API)"]
-        Ctx["context.c (multi-context)"]
-        Ext["extension.c (extension registry)"]
-        Bridge["bridge.c — JS ↔ PAL bridge"]
-        Core --> Bridge
-        Ctx --> Bridge
-        Ext --> Bridge
-        Bridge --> PAL["qwrt_pal_t (PAL interface)"]
-        PAL --> PalUV["pal_uv (libuv)"]
-        PAL --> PalFR["pal_freertos (ESP-IDF)"]
-        PAL --> PalMock["pal_mock (testing)"]
+        Thread["thread.c — internal thread + libuv loop"]
+        Msgq["msgq.c — message queue"]
+        Worker["worker.c — dispatch (onmessage/postMessage)"]
+        UvIO["uv_io.c — libuv I/O"]
+        Core --> Thread
+        Thread --> Msgq
+        Msgq --> Worker
+        Thread --> UvIO
         JS["WinterTC modules: fetch · console · crypto · streams · timers · …"]
         ExtList["Extensions: compress · crypto · textcodec · wamr"]
-        Bridge -.injects.-> JS
-        Ext -.registers.-> ExtList
+        Worker -.injects.-> JS
     end
+    HOST["Host"] -->|"qwrt_post_message: JSON in"| Msgq
+    Worker -->|"message_cb: JSON out"| HOST
+    UvIO --> LIBUV["libuv"]
 ```

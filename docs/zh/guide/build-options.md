@@ -1,15 +1,15 @@
 ---
 title: 构建选项
-description: Qwrt.js CMake 选项完整参考 — QWRT_WITH_* 功能开关、QWRT_PAL_* 平台后端以及 QWRT_BUILD_* 构建目标。
+description: Qwrt.js CMake 选项完整参考 — QWRT_WITH_* 功能开关和 QWRT_BUILD_* 构建目标。
 ---
 
 # 构建选项
 
-qwrt 的 CMake 选项分为**两个独立的层级**：`QWRT_PAL_*` 选择**平台后端**（编译哪个 `pal_*` 实现），而 `QWRT_WITH_*` 控制**可选功能**（构建在运行时之上的原生扩展）。这两个前缀相互独立——一个 PAL 后端可以在有或没有特定功能的情况下构建。`QWRT_BUILD_*` 是第三个不相关的组，控制构建目标（测试、示例、调试器）。默认值适用于功能完整的 Linux/macOS 构建。
+qwrt 的 CMake 选项分为**两个独立的层级**：`QWRT_WITH_*` 控制**可选功能**（构建在运行时之上的原生扩展），而 `QWRT_BUILD_*` 控制构建目标（测试、示例、调试器）。libuv 是**硬依赖** — 它承载 qwrt 的内部事件循环，始终从源码构建，没有可关闭它的选项。默认值适用于功能完整的 Linux/macOS 构建。
 
 ## 功能开关（`QWRT_WITH_*`）
 
-这些开关控制 WinterTC 兼容运行时之上的可选原生扩展。它们**不**选择平台后端。
+这些开关控制 WinterTC 兼容运行时之上的可选原生扩展。
 
 | 选项 | 默认值 | 描述 |
 |--------|---------|-------------|
@@ -21,16 +21,6 @@ qwrt 的 CMake 选项分为**两个独立的层级**：`QWRT_PAL_*` 选择**平�
 | `QWRT_WITH_WASM3` | OFF | wasm3 WebAssembly 解释器（备选，更便携）。 |
 
 **注意：** `QWRT_WITH_WAMR` 和 `QWRT_WITH_WASM3` 互斥——两者都注册 `WebAssembly` 全局对象。
-
-## PAL 后端（`QWRT_PAL_*`）
-
-这些选项选择平台后端——与上面的功能开关**不在同一层级**。每个选项控制一个 `platform/*/` PAL 实现的编译。
-
-| 选项 | 默认值 | 描述 |
-|--------|---------|-------------|
-| `QWRT_PAL_UV` | ON | libuv 后端（Linux/macOS）。需要 libuv 子模块。 |
-| `QWRT_PAL_MOCK` | ON | Mock 后端，用于测试。始终构建以支持测试。 |
-| `QWRT_PAL_FREERTOS` | OFF | FreeRTOS 后端（ESP32-S3）。需要 ESP-IDF。 |
 
 ## 构建目标（`QWRT_BUILD_*`）
 
@@ -57,7 +47,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug \
 cmake -B build -DCMAKE_BUILD_TYPE=MinSizeRel \
       -DQWRT_WITH_TLS=OFF -DQWRT_WITH_COMPRESS=OFF \
       -DQWRT_WITH_CRYPTO_EXT=OFF -DQWRT_WITH_TEXTCODEC=OFF \
-      -DQWRT_WITH_WAMR=OFF -DQWRT_PAL_UV=OFF
+      -DQWRT_WITH_WAMR=OFF
 ```
 
 ### 发布构建（生产环境，全部功能）
@@ -89,8 +79,6 @@ static JSValue my_callback(JSContext *ctx, JSValue this_val,
 
 | 文件 | 描述 |
 |------|-------------|
-| `build/lib/libqwrt.a` | 核心运行时库 |
-| `build/lib/libqwrt_uv.a` | libuv PAL 后端 |
-| `build/lib/libqwrt_mock.a` | Mock PAL 后端 |
-| `build/lib/libqwrt_freertos.a` | FreeRTOS PAL 后端 |
+| `build/lib/libqwrt.a` | 核心运行时库（静态核心 — 刻意不链接 libuv） |
+| `build/lib/libqwrt_full.a` | 聚合库（qwrt + libuv + mbedTLS + miniz + WAMR） |
 | `build/test/test_*` | 测试二进制文件（当 `QWRT_BUILD_TESTS=ON` 时） |

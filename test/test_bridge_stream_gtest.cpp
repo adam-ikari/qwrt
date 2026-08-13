@@ -1,97 +1,47 @@
-/*
- * test_bridge_stream_gtest.cpp — Google Test version of test_bridge_stream.c
- *
- * Tests JS bridge streaming — calls pal.httpRequestStream() from JS
- * and verifies JS callbacks fire correctly. Uses mock PAL so no network needed.
- */
-
-#include <gtest/gtest.h>
-
-extern "C" {
-#include "qwrt/qwrt.h"
-#include "pal_mock.h"
-#include <string.h>
-#include <stdlib.h>
-}
+// test_bridge_stream_gtest.cpp — 流式桥接回调（执行模型 A / mock_libuv）
+// 直接调 __pal__.httpRequestStream（绕过 fetch），验证 onHeaders / onData /
+// onEnd 三个回调全部按序触发。
+#include "test_host.h"
+#include <cstring>
 
 class BridgeStreamTest : public ::testing::Test {
 protected:
-    qwrt_t *rt;
-    qwrt_pal_t *pal;
+    HostCtx *h = nullptr;
 
     void SetUp() override {
-        pal = pal_mock_create();
-        ASSERT_NE(pal, nullptr);
-
-        /* Configure mock PAL with a streaming response */
-        pal_mock_set_http_response(pal,
-            "{\"status\":200,\"headers\":{\"Content-Type\":\"application/json\"},"
-            "\"body\":\"{\\\"data\\\":\\\"test_value\\\"}\"}");
-
-        qwrt_config_t cfg;
-        memset(&cfg, 0, sizeof(cfg));
-        cfg.pal = pal;
-        rt = qwrt_create(&cfg);
-        ASSERT_NE(rt, nullptr);
+        h = host_create();
+        ASSERT_NE(nullptr, h);
     }
-
-    void TearDown() override {
-        qwrt_destroy(rt);
-        pal_mock_destroy(pal);
-    }
+    void TearDown() override { host_destroy(h); }
 };
 
 TEST_F(BridgeStreamTest, HttpRequestStreamCallbacksFire) {
-    /* JS code that calls __pal__.httpRequestStream directly (bypassing fetch) */
-    const char *code =
-        "var _done = false; var _result = null;\n"
-        "var _headerStatus = -1;\n"
-        "var _dataChunks = 0;\n"
-        "console.log('Starting stream test...');\n"
+    /* body "body stream payload" = 19 字节；mock 在一次 read 中交付全部字节
+     * 再交付 EOF，所以 onHeaders 一次、onData 一次（19 字节）、onEnd(0)。 */
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: 19\r\n"
+        "\r\n"
+        "body stream payload";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _result = null; var _headerStatus = -1; var _headerJson = '';\n"
+        "var _dataChunks = 0; var _dataBytes = 0;\n"
         "__pal__.httpRequestStream(\n"
-        "  'http://api.example.com/data',\n"
-        "  'GET',\n"
-        "  '{}',\n"
-        "  null,\n"
-        "  function(status, headersJson) {\n"
-        "    console.log('onHeaders:', status);\n"
-        "    _headerStatus = status;\n"
-        "  },\n"
-        "  function(chunk) {\n"
-        "    _dataChunks++;\n"
-        "  },\n"
-        "  function(errorStatus) {\n"
-        "    console.log('onEnd:', errorStatus);\n"
-        "    _result = errorStatus === 0 ? 'ok' : 'error:' + errorStatus;\n"
-        "    _done = true;\n"
-        "  }\n"
+        "  'http://api.example.com/data', 'GET', '{}', null,\n"
+        "  function(status, hdrs){ _headerStatus = status; _headerJson = hdrs; },\n"
+        "  function(chunk){ _dataChunks++; _dataBytes += (chunk instanceof ArrayBuffer) ? chunk.byteLength : chunk.length; },\n"
+        "  function(errStatus){ _result = (errStatus === 0) ? 'ok' : 'err:' + errStatus; }\n"
         ");\n"
-        "console.log('Stream request sent');\n";
+        "0", &out));
 
-    int rc = qwrt_eval(rt, code, NULL);
-    EXPECT_EQ(rc, 0);
-
-    /* Run tick — mock PAL completes synchronously, deferred callbacks fire */
-    qwrt_tick(rt, 100);
-
-    char *result = NULL;
-    rc = qwrt_eval(rt, "_result", &result);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(result, nullptr);
-    EXPECT_STREQ(result, "\"ok\"");
-    qwrt_free(result);
-
-    char *header_status = NULL;
-    rc = qwrt_eval(rt, "_headerStatus", &header_status);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(header_status, nullptr);
-    EXPECT_STREQ(header_status, "200");
-    qwrt_free(header_status);
-
-    char *data_chunks = NULL;
-    rc = qwrt_eval(rt, "_dataChunks", &data_chunks);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(data_chunks, nullptr);
-    EXPECT_GT(data_chunks[0], '0');
-    qwrt_free(data_chunks);
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_result", "ok", &v));              /* onEnd(0) */
+    ASSERT_TRUE(host_poll_until_value(h, "_headerStatus", "200", &v));       /* onHeaders */
+    ASSERT_TRUE(host_poll_until_value(h, "_headerJson", "Content-Type", &v));/* headers json */
+    ASSERT_TRUE(host_poll_until_value(h, "_dataChunks", "1", &v));           /* 单次 data */
+    ASSERT_TRUE(host_poll_until_value(h, "_dataBytes", "19", &v));           /* body 全长 */
 }

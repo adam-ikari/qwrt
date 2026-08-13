@@ -6,7 +6,7 @@ Qwrt.js 拥有全面的多层测试套件。
 
 | 层次 | 运行器 | 覆盖范围 | 命令 |
 |------|--------|----------|------|
-| **离线** | gtest + ctest | 核心运行时、PAL、扩展、WASM | `ctest -L offline` |
+| **离线** | gtest + ctest | 核心运行时、扩展、WASM | `ctest -L offline` |
 | **WPT** | wpt_runner | WinterTC Web API | `./build/test/wpt_runner test/wpt` |
 | **test262** | run-test262 | ECMAScript 语言合规性 | `ctest -L test262` |
 | **网络** | ctest | HTTP/HTTPS/TLS 集成 | `ctest -L network` |
@@ -59,33 +59,34 @@ ctest -L test262
 
 ## 编写测试
 
-测试使用 GoogleTest（C++），链接 `qwrt` + `qwrt_mock`，实现确定性行为，无网络或系统调用。
+测试使用 GoogleTest（C++），链接 `qwrt` + `mock_libuv` —— 一个确定性的进程内 libuv API 假实现（见 `test/mock_libuv.{c,h}`）——并使用 `-DQWRT_USE_MOCK_LIBUV` 构建。测试通过 `test/test_host.h` 中的 `HostCtx` 测试桩驱动运行时：`host_create` 启动一个 qwrt 运行时并安装引导 `onmessage` 命令通道（`{cmd:'eval'}`、`{cmd:'echo'}`）；`host_eval`/`host_value` 求值 JS 并返回结果；`host_poll_until_value` 轮询直到异步条件（定时器、promise、存储）满足。
 
 ```cpp
 #include <qwrt/qwrt.h>
-#include <pal_mock.h>
+#include "test_host.h"   // HostCtx 测试桩 + mock_libuv
 #include <gtest/gtest.h>
 
 class MyTest : public ::testing::Test {
 protected:
-    qwrt_t *rt = nullptr;
-    qwrt_pal_t *pal = nullptr;
+    HostCtx *h = nullptr;
 
     void SetUp() override {
-        pal = pal_mock_create();
-        rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
+        h = host_create();       // 启动运行时 + 测试引导
+        ASSERT_NE(nullptr, h);
     }
 
-    void TearDown() override {
-        if (rt) qwrt_destroy(rt);
-        if (pal) pal_mock_destroy(pal);
-    }
+    void TearDown() override { host_destroy(h); }
 };
 
 TEST_F(MyTest, EvalExpression) {
-    char *result = nullptr;
-    ASSERT_EQ(qwrt_eval(rt, "1 + 1", &result), 0);
-    EXPECT_STREQ(result, "2");
-    qwrt_free(result);
+    std::string out;
+    ASSERT_TRUE(host_value(h, "1 + 1", &out));
+    EXPECT_EQ(out, "2");
+}
+
+TEST_F(MyTest, AsyncTimer) {
+    host_eval(h, "setTimeout(() => { globalThis.flag = 'fired'; }, 100);");
+    std::string out;
+    EXPECT_TRUE(host_poll_until_value(h, "globalThis.flag", "fired", &out));
 }
 ```

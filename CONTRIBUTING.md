@@ -23,20 +23,12 @@ cd build && ctest --output-on-failure
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-feat(qwrt): add new PAL backend for Windows IOCP
-fix(pal_uv): fix timer handle leak on HTTP abort
-docs: update PAL interface documentation
+feat(qwrt): add timer handle leak protection on HTTP abort
+fix(uv_io): fix chunked response decode boundary case
+docs: update libuv-native execution model documentation
 test: add escape_for_js property-based tests
 refactor: unify WASM engine initialization
 ```
-
-## Adding a New PAL Backend
-
-1. Create `platform/<name>/pal_<name>.c` and `pal_<name>.h`
-2. Implement all required `qwrt_pal_t` function pointers
-3. Optional pointers (`http_abort`, `run_cycle`) can be NULL
-4. Add CMake option `QWRT_WITH_<NAME>` and build target
-5. Add tests using `pal_mock` patterns as reference
 
 ## Adding a New Extension
 
@@ -52,7 +44,7 @@ refactor: unify WASM engine initialization
 2. Export globals via `globalThis.<name> = ...`
 3. Add to `polyfill/src/index.js` imports
 4. Run `cd polyfill && npm run build` to bundle (esbuild) → compile to bytecode (qjsc) → regenerate `src/polyfill_default.c`
-5. Test with `qwrt_eval(rt, "typeof <global> !== 'undefined'", &result)`
+5. Test via the host harness: `host_value(h, "typeof <global> !== 'undefined'", &out)` (see `test/test_host.h`)
 
 ## Pull Request Checklist
 

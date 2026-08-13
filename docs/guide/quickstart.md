@@ -25,7 +25,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-The build produces `libqwrt.a` and all PAL backends in `build/lib/`.
+The build produces `libqwrt.a` (static core) and `libqwrt_full.a` (aggregator that links libuv, mbedTLS, and friends) in `build/lib/`.
 
 ## Your First Program
 
@@ -33,43 +33,38 @@ Create `hello.c`:
 
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_uv.h>
 #include <stdio.h>
 
-int main(void) {
-    // Create the Platform Abstraction Layer (libuv)
-    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
 
-    // Create the runtime
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
+int main(void) {
+    // Create the runtime — qwrt starts its own internal thread and loop
+    qwrt_config_t cfg = {0};
+    cfg.initial_script = "console.log('Hello from QuickJS!'); postMessage(1 + 1);";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
     if (!rt) {
         fprintf(stderr, "Failed to create runtime\n");
         return 1;
     }
 
-    // Evaluate some JavaScript
-    char *result = NULL;
-    if (qwrt_eval(rt, "console.log('Hello from QuickJS!'); 1 + 1", &result) == 0) {
-        printf("Result: %s\n", result);  // "2"
-        qwrt_free(result);
-    }
+    // Drive the runtime by posting JSON messages
+    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
 
-    // Drive the event loop (needed even for synchronous eval to drain microtasks)
-    while (pal->run_cycle(pal, 100) > 0) {
-        qwrt_tick(rt, 100);
-    }
-
-    // Clean up
+    // Clean up — graceful shutdown
     qwrt_destroy(rt);
     return 0;
 }
 ```
 
-Compile and link:
+Compile and link against `libqwrt_full` (aggregates qwrt + libuv + deps):
 
 ```bash
 cc -std=c99 -I include -o hello hello.c \
-   -L build/lib -lqwrt -lqwrt_uv -lm
+   -L build/lib -lqwrt_full -lm
 ```
 
 ## Build with Tests
@@ -91,5 +86,5 @@ ctest -L benchmark   # performance benchmarks (not pass/fail)
 ## Next Steps
 
 - [Building](/guide/building) — all CMake options explained
-- [Runtime Lifecycle](/guide/lifecycle) — create, reset, destroy
-- [PAL Overview](/pal/) — understand the Platform Abstraction Layer
+- [Runtime Lifecycle](/guide/lifecycle) — create, use, destroy
+- [Embedding](/guide/embedding) — message-based host patterns

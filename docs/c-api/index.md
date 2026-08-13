@@ -6,35 +6,33 @@ Qwrt.js exposes a small, focused C API surface. Every function operates on an op
 
 | Group | Description |
 |-------|-------------|
-| [Runtime Lifecycle](/c-api/runtime) | `qwrt_create`, `qwrt_destroy`, `qwrt_tick` |
-| [JS Evaluation](/c-api/eval) | `qwrt_eval`, `qwrt_eval_bytecode`, `qwrt_call`, `qwrt_compile` |
-| [Multi-Context](/guide/multi-context) | `qwrt_spawn`, `qwrt_suspend`, `qwrt_resume`, `qwrt_destroy_ctx` |
-| [PAL Interface](/c-api/pal) | `qwrt_pal_t`, callback types, streaming |
+| [Runtime Lifecycle](/c-api/runtime) | `qwrt_create`, `qwrt_destroy`, `qwrt_post_message` |
+| [JS Evaluation](/c-api/eval) | Evaluating JavaScript in the runtime |
+| [Multi-Context](/guide/multi-context) | Isolated JS contexts within one runtime |
 | [Extensions](/c-api/extensions) | `qwrt_ext_t`, lifecycle hooks |
-| [Error Codes](/c-api/errors) | `qwrt_pal_err_t`, standardized error returns |
 | [Host Data](/c-api/runtime#host-data) | `qwrt_get_runtime_data`, `qwrt_set_runtime_data` |
 
 ## Quick Example
 
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_mock.h>
 #include <stdio.h>
 
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
+
 int main(void) {
-    qwrt_pal_t *pal = pal_mock_create();
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
+    qwrt_config_t cfg = {0};
+    cfg.initial_script = "postMessage(1 + 1);";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
     if (!rt) { fprintf(stderr, "create failed\n"); return 1; }
 
-    char *result = NULL;
-    if (qwrt_eval(rt, "1 + 1", &result) == 0) {
-        printf("1+1 = %s\n", result);
-        qwrt_free(result);
-    }
+    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
 
-    qwrt_tick(rt, 100);  // drain microtasks
     qwrt_destroy(rt);
-    pal_mock_destroy(pal);
     return 0;
 }
 ```
@@ -48,4 +46,9 @@ target_link_libraries(your_app PRIVATE qwrt::qwrt)
 
 ## Thread Model
 
-Qwrt.js is **single-threaded** by design. The `JSContext` is bound to the thread that called `qwrt_create`. All subsequent `qwrt_*` calls must come from the same thread. PAL callbacks (from libuv, etc.) fire on the event-loop thread and are deferred via `qwrt_tick` to replay in the valid context.
+Qwrt.js is **single-threaded** by design. All JS runs on qwrt's own internal
+thread (which also runs the embedded libuv loop) — the host thread never calls
+into JS. There is no `qwrt_eval` and no `qwrt_tick`. The host communicates over
+JSON messages: `qwrt_post_message` is thread-safe (inbound), and `message_cb`
+fires on the qwrt thread (your callback must be thread-safe). `qwrt_destroy` is
+host-thread-only.

@@ -61,32 +61,18 @@ console.debug('请求头:', JSON.stringify(headers));
 
 ## 日志级别
 
-每个方法映射到一个 PAL 日志级别：
+每个方法映射到一个包含在输出前缀中的数字日志级别：
 
-| 方法 | PAL 级别 | 值 | 典型行为 |
-|--------|-----------|-------|-----------------|
-| `console.debug()` | DEBUG | 0 | 在生产环境中隐藏 |
-| `console.log()` / `.info()` | INFO | 1 | 默认输出 |
-| `console.warn()` | WARN | 2 | 高亮输出 |
-| `console.error()` | ERROR | 3 | 错误流 |
+| 方法 | 级别 | 值 |
+|--------|-------|-------|
+| `console.debug()` | DEBUG | 0 |
+| `console.log()` / `.info()` | INFO | 1 |
+| `console.warn()` | WARN | 2 |
+| `console.error()` | ERROR | 3 |
 
 ## 实现
 
-`console.*` 函数在底层调用 `pal.log(level, message)`：
-
-```c
-// 在 PAL 实现中
-static void mypal_log(qwrt_pal_t *pal, int level, const char *msg) {
-    switch (level) {
-    case 0: /* debug — 在生产环境中抑制 */ break;
-    case 1: printf("[INFO] %s\n", msg); break;
-    case 2: fprintf(stderr, "[WARN] %s\n", msg); break;
-    case 3: fprintf(stderr, "[ERROR] %s\n", msg); break;
-    }
-}
-```
-
-如果 PAL 将 `log` 设置为 `NULL`，则 console 输出会被静默丢弃。
+`console.*` 在 qwrt 的内部线程上运行，并写入宿主进程的标准错误，格式为 `[qwrt:<level>] <message>`。console 没有宿主回调 — 输出直接进入 stderr。
 
 ## 格式化
 
@@ -97,4 +83,4 @@ static void mypal_log(qwrt_pal_t *pal, int level, const char *msg) {
 - **不支持** `console.table()`、`console.group()`、`console.time()`、`console.trace()`
 - **不支持** `console.assert()` —— 请使用 `if` 守卫配合 `console.error`
 - `console.error` 的堆栈跟踪不会自动包含——请显式传递 `err.stack`
-- 日志级别由 PAL 决定，无法从 JS 配置
+- 日志级别前缀由运行时固定，无法从 JS 配置

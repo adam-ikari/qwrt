@@ -544,6 +544,10 @@
     globalThis.Event = Event2;
     globalThis.CustomEvent = CustomEvent;
     globalThis.EventTarget = EventTarget2;
+    var globalTarget = new EventTarget2();
+    globalThis.addEventListener = globalTarget.addEventListener.bind(globalTarget);
+    globalThis.removeEventListener = globalTarget.removeEventListener.bind(globalTarget);
+    globalThis.dispatchEvent = globalTarget.dispatchEvent.bind(globalTarget);
   }
 
   // src/abort.js
@@ -2085,7 +2089,7 @@
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("MessagePort requires EventTarget to be loaded first");
     }
-    class MessageEvent extends Event {
+    class MessageEvent2 extends Event {
       constructor(type, options) {
         super(type, options);
         this._data = options?.data ?? null;
@@ -2150,11 +2154,11 @@
         try {
           data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
         } catch (e) {
-          var errorEvent = new MessageEvent("messageerror", { data: e });
+          var errorEvent = new MessageEvent2("messageerror", { data: e });
           this._entangledPort.dispatchEvent(errorEvent);
           return;
         }
-        var event = new MessageEvent("message", { data, ports: [] });
+        var event = new MessageEvent2("message", { data, ports: [] });
         if (this._entangledPort._started) {
           this._entangledPort.dispatchEvent(event);
         } else {
@@ -2194,7 +2198,36 @@
     }
     globalThis.MessageChannel = MessageChannel;
     globalThis.MessagePort = MessagePort;
-    globalThis.MessageEvent = MessageEvent;
+    globalThis.MessageEvent = MessageEvent2;
+  }
+
+  // src/host-messaging.js
+  function setupHostMessaging(pal2) {
+    var self = globalThis;
+    globalThis.postMessage = function(data) {
+      pal2.postMessage(data);
+    };
+    globalThis.__qwrt_dispatch__ = function(data, source) {
+      self.dispatchEvent(new MessageEvent("message", { data }));
+    };
+    var __onmsg = null;
+    Object.defineProperty(self, "onmessage", {
+      get: function() {
+        return __onmsg;
+      },
+      set: function(fn) {
+        if (__onmsg) self.removeEventListener("message", __onmsg);
+        __onmsg = function(e) {
+          try {
+            fn.call(self, e);
+          } catch (err) {
+            reportError(err);
+          }
+        };
+        if (fn) self.addEventListener("message", __onmsg);
+      },
+      configurable: true
+    });
   }
 
   // src/streams.js
@@ -3319,7 +3352,7 @@
     };
     globalThis.navigator = navigator;
     globalThis.self = globalThis;
-    globalThis.reportError = function reportError(error) {
+    globalThis.reportError = function reportError2(error) {
       if (error === void 0 || error === null) return;
       var event;
       if (typeof globalThis.ErrorEvent === "function") {
@@ -3840,6 +3873,512 @@
       seen.set(value, result);
       return result;
     }
+    var TA_CTORS = [
+      Int8Array,
+      Uint8Array,
+      Uint8ClampedArray,
+      Int16Array,
+      Uint16Array,
+      Int32Array,
+      Uint32Array,
+      Float32Array,
+      Float64Array
+    ];
+    if (typeof BigInt64Array !== "undefined") TA_CTORS.push(BigInt64Array, BigUint64Array);
+    function utf8Encode(s) {
+      var out = [];
+      for (var i = 0; i < s.length; i++) {
+        var c = s.charCodeAt(i);
+        if (c < 128) {
+          out.push(c);
+        } else if (c < 2048) {
+          out.push(192 | c >> 6, 128 | c & 63);
+        } else if (c < 55296 || c >= 57344) {
+          out.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+        } else {
+          var c2 = s.charCodeAt(++i);
+          var cp = 65536 + ((c & 1023) << 10) + (c2 & 1023);
+          out.push(
+            240 | cp >> 18,
+            128 | cp >> 12 & 63,
+            128 | cp >> 6 & 63,
+            128 | cp & 63
+          );
+        }
+      }
+      return out;
+    }
+    function utf8Decode(u8, start, len) {
+      var out = "";
+      var i = start, end = start + len;
+      while (i < end) {
+        var b = u8[i];
+        if (b < 128) {
+          out += String.fromCharCode(b);
+          i += 1;
+        } else if (b < 224) {
+          out += String.fromCharCode((b & 31) << 6 | u8[i + 1] & 63);
+          i += 2;
+        } else if (b < 240) {
+          out += String.fromCharCode((b & 15) << 12 | (u8[i + 1] & 63) << 6 | u8[i + 2] & 63);
+          i += 3;
+        } else {
+          var cp = (b & 7) << 18 | (u8[i + 1] & 63) << 12 | (u8[i + 2] & 63) << 6 | u8[i + 3] & 63;
+          var u = cp - 65536;
+          out += String.fromCharCode(55296 + (u >> 10)) + String.fromCharCode(56320 + (u & 1023));
+          i += 4;
+        }
+      }
+      return out;
+    }
+    function ByteWriter() {
+      var bytes = [];
+      return {
+        u8: function(b) {
+          bytes.push(b & 255);
+        },
+        u32: function(v) {
+          bytes.push(v & 255, v >>> 8 & 255, v >>> 16 & 255, v >>> 24 & 255);
+        },
+        f64: function(v) {
+          var ab = new ArrayBuffer(8), f = new Float64Array(ab), u = new Uint8Array(ab);
+          f[0] = v;
+          for (var i = 0; i < 8; i++) bytes.push(u[i]);
+        },
+        raw: function(u8) {
+          for (var i = 0; i < u8.length; i++) bytes.push(u8[i]);
+        },
+        done: function() {
+          return new Uint8Array(bytes).buffer;
+        }
+      };
+    }
+    function encodeString(bytes, s) {
+      var u = utf8Encode(String(s));
+      bytes.u32(u.length);
+      for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
+    }
+    function serializeToBytes(value) {
+      var refs = /* @__PURE__ */ new Map();
+      var next = 0;
+      var bytes = ByteWriter();
+      function w(v) {
+        if (v === null) {
+          bytes.u8(1);
+          return;
+        }
+        if (v === void 0) {
+          bytes.u8(2);
+          return;
+        }
+        var t = typeof v;
+        if (t === "boolean") {
+          bytes.u8(v ? 3 : 4);
+          return;
+        }
+        if (t === "number") {
+          if (Number.isInteger(v) && !Object.is(v, -0) && v >= -2147483648 && v <= 2147483647) {
+            bytes.u8(5);
+            bytes.u32(v >>> 0);
+          } else {
+            bytes.u8(6);
+            bytes.f64(v);
+          }
+          return;
+        }
+        if (t === "string") {
+          bytes.u8(7);
+          encodeString(bytes, v);
+          return;
+        }
+        if (t === "bigint") {
+          bytes.u8(31);
+          encodeString(bytes, v.toString());
+          return;
+        }
+        if (t === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
+        if (t === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
+        if (refs.has(v)) {
+          bytes.u8(30);
+          bytes.u32(refs.get(v));
+          return;
+        }
+        if (v instanceof Date) {
+          refs.set(v, next++);
+          bytes.u8(8);
+          bytes.f64(v.getTime());
+          return;
+        }
+        if (v instanceof RegExp) {
+          refs.set(v, next++);
+          bytes.u8(9);
+          encodeString(bytes, v.source);
+          encodeString(bytes, v.flags);
+          return;
+        }
+        if (v instanceof Error) {
+          refs.set(v, next++);
+          bytes.u8(10);
+          encodeString(bytes, v.name || "Error");
+          encodeString(bytes, v.message || "");
+          return;
+        }
+        if (typeof File !== "undefined" && v instanceof File) {
+          refs.set(v, next++);
+          bytes.u8(27);
+          encodeString(bytes, v.name);
+          encodeString(bytes, v.type || "");
+          bytes.f64(v.lastModified);
+          var fbytes = typeof v._getBytes === "function" ? v._getBytes() : null;
+          if (!fbytes) throw new DOMException("File cannot be cloned", "DataCloneError");
+          bytes.u32(fbytes.length);
+          bytes.raw(fbytes);
+          return;
+        }
+        if (typeof Blob !== "undefined" && v instanceof Blob) {
+          refs.set(v, next++);
+          bytes.u8(26);
+          encodeString(bytes, v.type || "");
+          var bbytes = typeof v._getBytes === "function" ? v._getBytes() : null;
+          if (!bbytes) throw new DOMException("Blob cannot be cloned", "DataCloneError");
+          bytes.u32(bbytes.length);
+          bytes.raw(bbytes);
+          return;
+        }
+        if (v instanceof Map) {
+          refs.set(v, next++);
+          bytes.u8(11);
+          bytes.u32(v.size);
+          v.forEach(function(val, key) {
+            w(key);
+            w(val);
+          });
+          return;
+        }
+        if (v instanceof Set) {
+          refs.set(v, next++);
+          bytes.u8(12);
+          bytes.u32(v.size);
+          v.forEach(function(val) {
+            w(val);
+          });
+          return;
+        }
+        if (v instanceof ArrayBuffer) {
+          refs.set(v, next++);
+          bytes.u8(13);
+          var au8 = new Uint8Array(v);
+          bytes.u32(au8.length);
+          bytes.raw(au8);
+          return;
+        }
+        if (v instanceof DataView) {
+          refs.set(v, next++);
+          bytes.u8(14);
+          w(v.buffer);
+          bytes.u32(v.byteOffset);
+          bytes.u32(v.byteLength);
+          return;
+        }
+        for (var i = 0; i < TA_CTORS.length; i++) {
+          if (v instanceof TA_CTORS[i]) {
+            refs.set(v, next++);
+            bytes.u8(15 + i);
+            var tu8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+            bytes.u32(tu8.length);
+            bytes.raw(tu8);
+            return;
+          }
+        }
+        if (Array.isArray(v)) {
+          refs.set(v, next++);
+          bytes.u8(28);
+          bytes.u32(v.length);
+          for (var i = 0; i < v.length; i++) w(v[i]);
+          return;
+        }
+        refs.set(v, next++);
+        bytes.u8(29);
+        var keys;
+        try {
+          keys = Object.keys(v);
+        } catch (e) {
+          keys = [];
+        }
+        bytes.u32(keys.length);
+        for (var i = 0; i < keys.length; i++) {
+          encodeString(bytes, keys[i]);
+          w(v[keys[i]]);
+        }
+      }
+      w(value);
+      return bytes.done();
+    }
+    function ByteReader(u8) {
+      var i = 0;
+      return {
+        u8: function() {
+          return u8[i++];
+        },
+        u32: function() {
+          var v = u8[i] | u8[i + 1] << 8 | u8[i + 2] << 16 | u8[i + 3] << 24;
+          i += 4;
+          return v >>> 0;
+        },
+        f64: function() {
+          var ab = new ArrayBuffer(8), f = new Float64Array(ab), u = new Uint8Array(ab);
+          for (var j = 0; j < 8; j++) u[j] = u8[i + j];
+          i += 8;
+          return f[0];
+        },
+        str: function() {
+          var n = this.u32();
+          var s = utf8Decode(u8, i, n);
+          i += n;
+          return s;
+        },
+        bytes: function(n) {
+          var out = new Uint8Array(n);
+          for (var j = 0; j < n; j++) out[j] = u8[i + j];
+          i += n;
+          return out.buffer;
+        }
+      };
+    }
+    function deserializeFromBytes(buf) {
+      var r = ByteReader(new Uint8Array(buf));
+      var refs = [];
+      function rd() {
+        var tag = r.u8();
+        switch (tag) {
+          case 1:
+            return null;
+          case 2:
+            return void 0;
+          case 3:
+            return true;
+          case 4:
+            return false;
+          case 5:
+            return r.u32() | 0;
+          case 6:
+            return r.f64();
+          case 7:
+            return r.str();
+          case 8:
+            return new Date(r.f64());
+          case 9:
+            return new RegExp(r.str(), r.str());
+          case 10: {
+            var nm = r.str(), ms = r.str();
+            var e = new Error(ms);
+            e.name = nm;
+            refs.push(e);
+            return e;
+          }
+          case 11: {
+            var n = r.u32();
+            var m = /* @__PURE__ */ new Map();
+            refs.push(m);
+            for (var i = 0; i < n; i++) m.set(rd(), rd());
+            return m;
+          }
+          case 12: {
+            var n = r.u32();
+            var s = /* @__PURE__ */ new Set();
+            refs.push(s);
+            for (var i = 0; i < n; i++) s.add(rd());
+            return s;
+          }
+          case 13: {
+            var n = r.u32();
+            var ab = r.bytes(n);
+            refs.push(ab);
+            return ab;
+          }
+          case 14: {
+            var idx = refs.length;
+            refs.push(null);
+            var b = rd();
+            var off = r.u32(), len = r.u32();
+            var dv = new DataView(b, off, len);
+            refs[idx] = dv;
+            return dv;
+          }
+          default: {
+            if (tag >= 15 && tag <= 25) {
+              var Ctor = TA_CTORS[tag - 15];
+              var n = r.u32();
+              var ta = new Ctor(r.bytes(n));
+              refs.push(ta);
+              return ta;
+            }
+            if (tag === 26) {
+              var type = r.str(), n = r.u32();
+              var bl = new Blob([r.bytes(n)], { type });
+              refs.push(bl);
+              return bl;
+            }
+            if (tag === 27) {
+              var nm = r.str(), type = r.str(), lm = r.f64(), n = r.u32();
+              var fl = new File([r.bytes(n)], nm, { type, lastModified: lm });
+              refs.push(fl);
+              return fl;
+            }
+            if (tag === 28) {
+              var n = r.u32();
+              var a = [];
+              refs.push(a);
+              for (var i = 0; i < n; i++) a[i] = rd();
+              return a;
+            }
+            if (tag === 29) {
+              var n = r.u32();
+              var o = {};
+              refs.push(o);
+              for (var i = 0; i < n; i++) {
+                var k = r.str();
+                o[k] = rd();
+              }
+              return o;
+            }
+            if (tag === 30) return refs[r.u32()];
+            if (tag === 31) return BigInt(r.str());
+            throw new DOMException("Bad serialized data", "DataCloneError");
+          }
+        }
+      }
+      return rd();
+    }
+    globalThis.__qwrt_serialize__ = serializeToBytes;
+    globalThis.__qwrt_deserialize__ = deserializeFromBytes;
+  }
+
+  // src/worker.js
+  function setupWorker(pal2) {
+    var self = globalThis;
+    var workers = /* @__PURE__ */ new Map();
+    function loadScript(url) {
+      if (typeof url !== "string" || url.indexOf("file://") !== 0) {
+        throw new Error("Worker: only file:// URLs are supported in v1");
+      }
+      return pal2.fsReadSync(url.slice("file://".length));
+    }
+    function Worker(url) {
+      var code = loadScript(url);
+      var id = pal2.spawnWorker(code);
+      this._id = id;
+      this._onmsg = null;
+      workers.set(id, this);
+      var w = this;
+      Object.defineProperty(this, "onmessage", {
+        get: function() {
+          return w._onmsg;
+        },
+        set: function(fn) {
+          w._onmsg = fn;
+        },
+        configurable: true
+      });
+    }
+    Worker.prototype.postMessage = function(value) {
+      var bytes = __qwrt_serialize__(value);
+      pal2.workerPost(this._id, bytes);
+    };
+    Worker.prototype.terminate = function() {
+      pal2.workerTerminate(this._id);
+      workers.delete(this._id);
+    };
+    globalThis.Worker = Worker;
+    var hostDispatch = self.__qwrt_dispatch__;
+    globalThis.__qwrt_dispatch__ = function(data, source) {
+      if (source === 0) {
+        hostDispatch(data, source);
+        return;
+      }
+      var w = workers.get(source);
+      if (w && w._onmsg) {
+        var e;
+        try {
+          e = new MessageEvent("message", { data: __qwrt_deserialize__(data) });
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        try {
+          w._onmsg.call(self, e);
+        } catch (err) {
+          reportError(err);
+        }
+      }
+    };
+  }
+
+  // src/context.js
+  function setupContext(pal2) {
+    var _pristine = /* @__PURE__ */ Object.create(null);
+    var names = Object.keys(globalThis);
+    for (var i = 0; i < names.length; i++) _pristine[names[i]] = 1;
+    var _infra = {
+      __qwrt_ctx_capture__: 1,
+      __qwrt_ctx_restore__: 1,
+      qwrtContext: 1
+    };
+    globalThis.__qwrt_ctx_capture__ = function() {
+      var props = {};
+      var skipped = [];
+      var keys = Object.keys(globalThis);
+      for (var i2 = 0; i2 < keys.length; i2++) {
+        var n = keys[i2];
+        if (_pristine[n] || _infra[n]) continue;
+        var v;
+        try {
+          v = globalThis[n];
+        } catch (e) {
+          continue;
+        }
+        try {
+          props[n] = __qwrt_serialize__(v);
+        } catch (e) {
+          skipped.push(n);
+        }
+      }
+      return __qwrt_serialize__({ props, skipped });
+    };
+    globalThis.__qwrt_ctx_restore__ = function(bytes) {
+      var rec = __qwrt_deserialize__(bytes);
+      var p = rec && rec.props || {};
+      var keys = Object.keys(p);
+      for (var i2 = 0; i2 < keys.length; i2++) {
+        var n = keys[i2];
+        if (_infra[n]) continue;
+        var v;
+        try {
+          v = __qwrt_deserialize__(p[n]);
+        } catch (e) {
+          continue;
+        }
+        try {
+          globalThis[n] = v;
+        } catch (e) {
+        }
+      }
+      return rec && rec.skipped || [];
+    };
+    globalThis.qwrtContext = {
+      spawn: function(s) {
+        return pal2.contextSpawn(String(s));
+      },
+      suspend: function(id, p) {
+        return pal2.contextSuspend(Number(id), String(p));
+      },
+      resume: function(id, s, p) {
+        return pal2.contextResume(Number(id), String(s), String(p));
+      },
+      destroy: function(id) {
+        return pal2.contextDestroy(Number(id));
+      }
+    };
   }
 
   // src/index.js
@@ -3853,6 +4392,7 @@
   setupEncoding(pal);
   setupFetch(pal);
   setupMessageChannel();
+  setupHostMessaging(pal);
   setupStreams(pal);
   setupBlobFileFormData();
   setupURLPattern();
@@ -3863,6 +4403,8 @@
   setupCrypto(pal);
   setupCryptoSubtle(pal);
   setupStructuredClone();
+  setupWorker(pal);
+  setupContext(pal);
   if (typeof globalThis.queueMicrotask !== "function") {
     globalThis.queueMicrotask = function(callback) {
       if (typeof callback !== "function") {

@@ -1,6 +1,6 @@
 ---
 title: fs（文件系统）
-description: Qwrt.js 中的文件系统 API —— readFile、writeFile、stat、目录操作以及 PAL 支持的文件 I/O。
+description: Qwrt.js 中的文件系统 API —— readFile、writeFile、stat、目录操作以及 libuv 支持的文件 I/O。
 ---
 
 # fs — 文件系统 API
@@ -45,7 +45,7 @@ await qwrt.fs.write('/app/state.json', JSON.stringify({ step: 5, done: false }))
 错误：
 - `QWRT_ERR_PERMISSION` 如果写入访问被拒绝
 - `QWRT_ERR_IO` 写入失败时
-- `QWRT_ERR_NO_MEMORY` 如果 PAL 无法分配缓冲区
+- `QWRT_ERR_NO_MEMORY` 如果运行时无法分配缓冲区
 
 ### `qwrt.fs.exists(path)`
 
@@ -119,13 +119,13 @@ await updateConfig('theme', 'dark');
 
 - 路径以 `/` 开头（绝对路径）
 - 使用正斜杠（`/`）作为分隔符
-- `.` 和 `..` 由 PAL 解析
+- `.` 和 `..` 由运行时解析
 - 没有驱动器字母（不兼容 Windows）
-- 最大路径长度：256 字节（PAL 实现限制）
+- 最大路径长度：256 字节（实现限制）
 
-## PAL 依赖
+## 平台依赖
 
-文件系统 API 调用 `pal.fsRead`、`pal.fsWrite`、`pal.fsExists`、`pal.fsRemove` 和 `pal.fsList`。如果 PAL 未实现这些方法（返回 `QWRT_ERR_NOT_SUPPORTED`），JS 方法将以 `NotSupportedError` 拒绝。
+文件系统操作在 qwrt 的内部线程上运行，由 libuv 的异步文件 I/O（`uv_fs_*`）支持。失败时 JS 方法以映射后的错误拒绝（例如 `NotFoundError`、`NotSupportedError`）。
 
 ## 注意事项
 
@@ -134,4 +134,4 @@ await updateConfig('theme', 'dark');
 - 不支持文件锁定或并发控制
 - 不支持流式读写——整个文件内容被加载到内存中
 - 二进制数据以字符串形式返回（使用 `TextEncoder`/`TextDecoder` 进行字节操作）
-- 在 `pal_mock` 上，文件系统是内存中的，通过 `pal_mock_set_fs()` 预填充
+- 在测试中，`mock_libuv` 后端将 `uv_fs_*` 调用透传到真实宿主文件系统（详见[测试](/zh/dev/testing)）

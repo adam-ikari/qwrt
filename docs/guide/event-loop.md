@@ -1,127 +1,64 @@
 # Event Loop
 
-qwrt is single-threaded. All async operations are driven by a cooperative event loop controlled by the host.
+qwrt owns its own event loop on an internal thread. There is no `qwrt_tick`
+and no host-driven loop — the host does not pump anything.
 
-## The Golden Rule
+## Who Runs the Loop
 
-**qwrt_tick processes one batch and returns.** It does NOT loop internally. The host decides the timing:
-
-```c
-while (running) {
-    pal->run_cycle(pal, 100);   // collect I/O events, fire timers
-    qwrt_tick(rt, 100);               // process one batch of JS work
-    my_other_work();             // YOUR code — never starved
-}
-```
-
-This is the key design decision: qwrt never blocks the host. Your code runs every loop iteration, no matter how many callbacks are queued.
-
-## How It Works
+`qwrt_create` starts a dedicated internal thread (`uv_thread_t`) that runs a
+libuv loop (`uv_loop_t` embedded in the runtime). That loop drives all async
+work — HTTP, file I/O, timers — and all JS runs on the same thread, so Promise
+microtasks are flushed naturally between loop iterations. The host thread never
+touches the loop.
 
 ```mermaid
 flowchart TB
-    HOST["Host: run_cycle() + tick() + my_work()"] --> PAL["PAL: collects I/O events"]
-    PAL --> DEFER["Enqueues callbacks via qwrt_defer_callback()"]
-    DEFER --> TICK["qwrt_tick(): drains queue + microtasks"]
-    TICK --> HOST
+    HOST["Host thread"] -->|"qwrt_post_message: JSON in"| QWRT["qwrt internal thread"]
+    QWRT -->|"libuv loop (uv_run) + microtask flush"| QWRT
+    QWRT -->|"message_cb: JSON out"| HOST
+    QWRT --> LIBUV["libuv: timers · I/O · fs"]
 ```
 
-## qwrt_tick Semantics
+## How the Host Drives Work
 
-```c
-int ret = qwrt_tick(rt, 100);
-// ret == 1:  work was processed (callbacks fired, promises resolved)
-// ret == 0:  nothing to do (idle)
-// ret == -1: error
-```
-
-One call to `qwrt_tick` does exactly:
-1. Process all deferred PAL callbacks queued since last tick
-2. Execute all pending JS microtasks (Promise resolutions)
-
-Then returns. No loops, no blocking, no starvation.
-
-## Deferred Callbacks
-
-PAL implementations NEVER call JS directly from their callbacks. They enqueue via:
-
-```c
-void qwrt_defer_callback(qwrt_t *rt, qwrt_deferred_fn fn, void *data);
-```
-
-`qwrt_tick` drains this queue in a valid JS context.
-
-## run_cycle Semantics
-
-Optional. If provided, the PAL collects I/O events and fires timers:
-
-| timeout_ms | Behavior |
-|------------|----------|
-| `< 0` | Block until an event arrives |
-| `0` | Non-blocking — process ready work only |
-| `> 0` | Block up to timeout_ms milliseconds |
-
-Returns events processed, or `< 0` to request loop stop.
-
-## Why Not One Big Loop Inside qwrt_tick?
-
-If `qwrt_tick` looped until all work was done:
-- A burst of HTTP responses could delay your sensor reading by seconds
-- Timer-heavy JS code could starve your UI thread
-- You can't interleave qwrt with your own event sources
-
-By returning after each batch, YOU control the scheduling.
-
-## Complete Example
+The host cannot eval and does not tick. It drives the runtime by posting JSON
+messages and receiving replies:
 
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_uv.h>
+#include <stdio.h>
+
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
+    qwrt_config_t cfg = {0};
+    cfg.initial_script =
+        "globalThis.onmessage = function (e) { postMessage('pong'); };";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
+    if (!rt) return 1;
 
-    // Start an async operation
-    qwrt_eval(rt,
-        "fetch('https://httpbin.org/json')"
-        "  .then(r => r.json())"
-        "  .then(d => console.log('got:', JSON.stringify(d)))",
-        NULL);
-
-    // Drive the event loop — your code runs every iteration
-    int running = 1;
-    while (running) {
-        int events = pal->run_cycle(pal, 100);
-        if (events < 0) break;
-        qwrt_tick(rt, 100);
-
-        // Your code here — never delayed by qwrt
-        check_sensors();
-        update_display();
-        if (should_exit()) running = 0;
-    }
+    qwrt_post_message(rt, "{\"cmd\":\"ping\"}", 14);
+    // on_message fires on the qwrt thread when the reply is ready.
+    // The host is free to do its own work meanwhile — never blocked by qwrt.
 
     qwrt_destroy(rt);
     return 0;
 }
 ```
 
-## Without an Event Loop
+`qwrt_post_message` is thread-safe (the JSON is copied), so it may be called
+from any thread. `message_cb` fires on the qwrt thread — your callback must be
+thread-safe.
 
-If your PAL has no `run_cycle`:
+## Why This Design
 
-```c
-qwrt_eval(rt, "console.log('Hello!');", NULL);
-qwrt_tick(rt, 100);  // drain microtasks
-qwrt_destroy(rt);
-```
-
-## Synchronous Code Still Needs Tick
-
-Even synchronous JS can accumulate Promise microtasks that need draining:
-
-```c
-qwrt_eval(rt, "Promise.resolve(42).then(v => console.log(v));", NULL);
-qwrt_tick(rt, 100);  // required — otherwise console.log never fires
-```
+- The host is **never** responsible for pumping an event loop — qwrt runs
+  itself, and the host thread stays free for its own work.
+- All async events and JS callbacks are serialized on qwrt's single internal
+  thread — no locks, no races inside the runtime.
+- No `qwrt_tick` to forget: microtasks are flushed automatically between loop
+  iterations.

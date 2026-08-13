@@ -91,16 +91,11 @@ async function getUser() {
 | 值大小 | 小型（通常 < 4KB） | 最大到可用内存 |
 | 原子性 | 单键操作 | 读取-修改-写入 |
 | 使用场景 | 令牌、设置、缓存 | 脚本、文档、配置文件 |
-| PAL 方法 | `storage_get/set/del` | `fs_read/write/remove` |
+| 后端调用 | `storage_get/set/del` | `fs_read/write/remove` |
 
-## PAL 依赖
+## 存储后端
 
-存储 API 调用 `pal.storageGet`、`pal.storageSet` 和 `pal.storageDel`。如果 PAL 未实现这些方法（返回 `QWRT_ERR_NOT_SUPPORTED`），JS 方法将以 `NotSupportedError` 拒绝。
-
-PAL 实现：
-- `pal_uv`：内存哈希映射（重启后丢失）
-- `pal_mock`：内存映射（通过 `pal_mock_set_storage` 预填充）
-- `pal_freertos`：未实现（请使用 fs 代替）
+`qwrt.storage.*` 解析到运行时自有的内存键值映射（在 `uv_io.c` 中实现，首次使用时惰性分配，默认容量 128 条）。只有一种实现且无持久化 — 存储仅在运行时存活期间存在，重启后丢失。你依赖的键应在启动时（重新）初始化（例如在 `initial_script` 中）。
 
 ## 注意事项
 

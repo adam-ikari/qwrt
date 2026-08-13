@@ -91,16 +91,15 @@ Use **storage** for small, frequently accessed key-value pairs (config, tokens, 
 | Value size | Small (< 4KB typical) | Up to available memory |
 | Atomicity | Single-key operations | Read-modify-write |
 | Use case | Tokens, settings, cache | Scripts, documents, config files |
-| PAL method | `storage_get/set/del` | `fs_read/write/remove` |
+| Backend call | `storage_get/set/del` | `fs_read/write/remove` |
 
-## PAL Dependency
+## Storage Backend
 
-The storage API calls `pal.storageGet`, `pal.storageSet`, and `pal.storageDel`. If a PAL doesn't implement these (returns `QWRT_ERR_NOT_SUPPORTED`), the JS methods reject with `NotSupportedError`.
-
-PAL implementations:
-- `pal_uv`: In-memory hash map (lost on restart)
-- `pal_mock`: In-memory map (pre-seeded via `pal_mock_set_storage`)
-- `pal_freertos`: Not implemented (use fs instead)
+`qwrt.storage.*` resolves against the runtime's per-runtime in-memory key-value
+map (implemented in `uv_io.c`, lazily allocated on first use, default capacity
+128 entries). There is a single implementation and no persistence — the store
+lives only as long as the runtime and is lost on restart. Keys you depend on
+should be (re)initialized during startup (e.g. in `initial_script`).
 
 ## Notes
 

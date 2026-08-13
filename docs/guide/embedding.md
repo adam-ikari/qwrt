@@ -1,6 +1,6 @@
 ---
 title: Embedding Patterns
-description: Patterns for embedding Qwrt.js in C applications — host data, custom extensions, PAL integration, and multi-instance setups.
+description: Patterns for embedding Qwrt.js in C applications — host data, custom extensions, message-based communication, and multi-instance setups.
 ---
 
 # Embedding Patterns
@@ -9,27 +9,38 @@ Common patterns for embedding qwrt in C applications.
 
 ## Basic Embedding
 
+qwrt owns its own internal thread and libuv event loop. All JS runs on that
+thread; the host communicates with the runtime over JSON messages.
+
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_uv.h>
+#include <stdio.h>
+
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
+    qwrt_config_t cfg = {0};
+    cfg.initial_script = "postMessage({hello: 'world'});";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
+    if (!rt) return 1;
 
-    // Your application logic
-    char *result = NULL;
-    qwrt_eval(rt, "your_js_code_here", &result);
-    qwrt_free(result);
-
-    // Event loop
-    pal->run_cycle(pal, 100); qwrt_tick(rt, 100);
+    // Your application logic: drive the runtime by posting JSON messages
+    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
 
     qwrt_destroy(rt);
-    pal_uv_destroy(pal);
     return 0;
 }
 ```
+
+`qwrt_create` blocks until qwrt's internal thread is ready and
+`initial_script` has been eval'd. There is no `qwrt_eval` and no `qwrt_tick` —
+the host sends messages via `qwrt_post_message` (thread-safe) and receives
+replies through `message_cb`, which fires on the qwrt thread (so your callback
+must be thread-safe). `qwrt_destroy` performs a graceful shutdown.
 
 ## Calling C Functions from JS
 
@@ -51,7 +62,7 @@ static JSValue greet(JSContext *ctx, JSValue this_val,
 // Register in a custom extension's init hook:
 static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
     QWRT_UNUSED(ext);
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "greet",
         JS_NewCFunction(ctx, greet, "greet", 1));
@@ -60,121 +71,122 @@ static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
 }
 ```
 
+The `init` hook runs on qwrt's internal thread during `qwrt_create`, before
+the host receives the runtime — so registering globals here is safe.
+`qwrt_get_active_jsctx` is an internal helper (declared in
+`src/qwrt_internal.h`), for use from extension hooks.
+
 ## Calling JS from C with Structured Data
 
-```c
-// Define a JS function
-qwrt_eval(rt,
-    "function process(data) {"
-    "  return { doubled: data.value * 2, ok: true };"
-    "}"
-, NULL);
+Calling JS from C means posting a JSON message and letting the JS side reply
+via `postMessage`. Install a handler in `initial_script`:
 
-// Call it with JSON arguments
-char *result = NULL;
-qwrt_call(rt, "process", "[{\"value\": 21}]", &result);
-// result = "{\"doubled\":42,\"ok\":true}"
-printf("JS returned: %s\n", result);
-qwrt_free(result);
+```c
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("JS returned: %.*s\n", (int)len, json);
+}
+
+// Bootstrap an onmessage handler that processes structured data
+qwrt_config_t cfg = {0};
+cfg.initial_script =
+    "globalThis.onmessage = function (e) {"
+    "  var d = e.data;"
+    "  if (d.cmd === 'process')"
+    "    postMessage({ doubled: d.value * 2, ok: true });"
+    "};";
+cfg.message_cb = on_message;
+qwrt_t *rt = qwrt_create(&cfg);
+
+// Post the input as a JSON message; the reply arrives via message_cb
+qwrt_post_message(rt, "{\"cmd\":\"process\",\"value\":21}", 28);
+// on_message prints: JS returned: {"doubled":42,"ok":true}
 ```
+
+The JSON is copied by `qwrt_post_message` (thread-safe, callable from any
+thread). There is no synchronous `qwrt_call` — results always flow back as
+messages.
 
 ## Per-Request Context Isolation
 
-Create a fresh context for each incoming request, destroy it when done:
+Contexts are managed **inside** the runtime (`src/context.c`); the host does
+not manipulate them through the public C API. The host sees one runtime and
+communicates over JSON messages (`qwrt_post_message` / `message_cb`). For
+request-level isolation, either create a fresh `qwrt_t` per request (each is
+fully independent — own thread, loop, and JS state) or route requests into a
+running runtime by message, tagging them so the JS side can keep per-request
+state.
 
-```c
-void handle_request(qwrt_t *rt, const char *js_code) {
-    qwrt_config_t cfg = { .pal = request_pal, .debug = 0 };
-    int ctx_id = qwrt_spawn(rt, &cfg);
+## Testing with mock_libuv
 
-    qwrt_suspend(rt);
-    qwrt_resume(rt, ctx_id);
+For deterministic offline tests, replace libuv with `mock_libuv`
+(`test/mock_libuv.{c,h}`) — a fake `uv_*` API with no network or system calls.
+Gtest suites link `qwrt + mock_libuv` (with `-DQWRT_USE_MOCK_LIBUV`) and drive
+the runtime through the `HostCtx` harness in `test/test_host.h`:
 
-    char *result = NULL;
-    int ret = qwrt_eval(rt, js_code, &result);
-    qwrt_free(result);
+- `host_create(script)` / `host_destroy(h)` — start/stop a runtime with a
+  bootstrap that installs `globalThis.onmessage` handling `{cmd:'eval', code}`
+  and `{cmd:'echo'}`
+- `host_eval(h, code, &out)` / `host_value(h, code, &out)` — evaluate JS via
+  the command channel
+- `host_poll_until_value(h, expr, sub, &out)` — poll until a condition holds
+  (used for async results: promises, timers, storage)
 
-    qwrt_suspend(rt);
-    qwrt_resume(rt, 0);  // back to main context
-    qwrt_destroy_ctx(rt, ctx_id);
-}
-```
-
-## Using the Mock PAL for Testing
-
-```c
-#include <pal_mock.h>
-
-void test_my_js(void) {
-    pal_mock_t *mock = pal_mock_create();
-
-    // Pre-seed responses for fetch
-    pal_mock_add_response(mock, "https://api.example.com/data",
-        "{\"status\":200,\"headers\":{},\"body\":\"{\\\"ok\\\":true}\"}");
-
-    qwrt_pal_t *pal = pal_mock_get_pal(mock);
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
-
-    char *result = NULL;
-    qwrt_eval(rt,
-        "fetch('https://api.example.com/data')"
-        "  .then(r => r.json())"
-        "  .then(d => console.log(d.ok))",
-        &result);
-    qwrt_free(result);
-
-    qwrt_destroy(rt);
-    pal_mock_destroy(mock);
-}
-```
+See [Testing](/dev/testing) for details.
 
 ## Multiple Independent Runtimes
 
-Since qwrt has zero global state, you can run multiple `qwrt_t` instances:
+Since qwrt has zero global state, you can run multiple `qwrt_t` instances —
+each owns its own internal thread, libuv loop, and JS state:
 
 ```c
-qwrt_t *rt1 = qwrt_create(&(qwrt_config_t){ .pal = pal1 });
-qwrt_t *rt2 = qwrt_create(&(qwrt_config_t){ .pal = pal2 });
-
-// Each is completely independent
-qwrt_eval(rt1, "var x = 1;", NULL);
-qwrt_eval(rt2, "var x = 2;", NULL);
-
-// Drive both event loops
-while (running) {
-    pal1->run_cycle(pal1, 10);
-    pal2->run_cycle(pal2, 10);
-    qwrt_tick(rt1);
-    qwrt_tick(rt2);
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt;
+    printf("%s: %.*s\n", (const char *)data, (int)len, json);
 }
+
+qwrt_config_t cfg1 = { .initial_script = "postMessage('rt1');",
+                       .message_cb = on_message, .host_data = "rt1" };
+qwrt_config_t cfg2 = { .initial_script = "postMessage('rt2');",
+                       .message_cb = on_message, .host_data = "rt2" };
+
+qwrt_t *rt1 = qwrt_create(&cfg1);
+qwrt_t *rt2 = qwrt_create(&cfg2);
+
+// Post to each independently; replies arrive on each runtime's message_cb
+qwrt_post_message(rt1, "{\"cmd\":\"echo\",\"data\":\"a\"}", 26);
+qwrt_post_message(rt2, "{\"cmd\":\"echo\",\"data\":\"b\"}", 26);
 
 qwrt_destroy(rt1);
 qwrt_destroy(rt2);
 ```
 
+No host loop to drive — each runtime runs itself.
+
 ## Error Handling Patterns
 
-```c
-char *result = NULL;
-int ret = qwrt_eval(rt, code, &result);
+There is no synchronous eval, so errors surface as messages rather than return
+codes:
 
-if (ret < 0) {
-    // JS exception — result contains the error message
-    fprintf(stderr, "JS error: %s\n", result ? result : "unknown");
-    qwrt_free(result);
-} else if (result) {
-    // Success with a return value
-    printf("OK: %s\n", result);
-    qwrt_free(result);
+- If `initial_script` throws, `qwrt_create` returns `NULL`.
+- At runtime, JS can report failures explicitly — e.g. an `onmessage` handler
+  replies `postMessage({ ok: false, e: String(err) })`, which the host reads in
+  `message_cb`:
+
+```c
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("%.*s\n", (int)len, json);  // e.g. {"ok":false,"e":"TypeError: ..."}
 }
-// else: success with no return value (e.g., console.log)
 ```
+
+An uncaught exception inside a message handler does not take down the
+runtime.
 
 ## Memory Management
 
-- Results from `qwrt_eval`/`qwrt_call`/`qwrt_compile` must be freed with `qwrt_free`
-- `qwrt_free(NULL)` is safe
-- The PAL is owned by the caller — free it after `qwrt_destroy`
+- `qwrt_free` still exists for malloc'd blocks returned by qwrt (`qwrt_free(NULL)` is safe) — there is no longer any `qwrt_eval`/`qwrt_call` result to free
+- The runtime owns all its internal resources (thread, libuv loop, contexts) — `qwrt_destroy` frees everything on graceful shutdown
 - Per-runtime host data: set `config.host_data` before `qwrt_create`; an
   extension's `init` hook reads it via `qwrt_get_runtime_data(rt)` during
   create (the rt is valid inside init, before the host receives it). Note:

@@ -1,103 +1,58 @@
 ---
 title: 事件循环
-description: Qwrt.js 事件循环 — qwrt_tick、延迟回调、PAL run_cycle 集成、微任务排空以及异步操作模式。
+description: Qwrt.js 事件循环 — 内部线程、嵌入式 libuv 循环、微任务排空，以及宿主如何通过消息驱动运行时。
 ---
 
 # 事件循环
 
-qwrt 是单线程的。所有异步操作（HTTP 请求、文件 I/O、定时器）都由协作式事件循环驱动。
+qwrt 在自己的内部线程上拥有一个事件循环。没有 `qwrt_tick`，也没有宿主驱动的循环 — 宿主不泵动任何东西。
 
-## 循环
+## 谁在运行循环
 
-宿主通过交替调用两个函数来驱动事件循环：
-
-```c
-while (running) {
-    // 1. 驱动 PAL 事件循环 — 处理 I/O、触发定时器
-    int events = pal->run_cycle(pal, 100);  // 100ms 超时
-
-    // 2. 排空 JS 微任务 — 解决 Promise、分发回调
-    qwrt_tick(rt, 100);
-
-    // 3. 检查退出条件
-    if (events < 0) break;  // PAL 请求停止
-}
-```
-
-## 异步操作的工作原理
+`qwrt_create` 启动一个专用内部线程（`uv_thread_t`），该线程运行一个 libuv 循环（嵌入式在运行时中的 `uv_loop_t`）。该循环驱动所有异步工作 — HTTP、文件 I/O、定时器 — 且所有 JS 都在同一线程上运行，因此 Promise 微任务在循环迭代之间自然排空。宿主线程从不触碰循环。
 
 ```mermaid
 flowchart TB
-    A["JS 代码：fetch('https://example.com')"] --> B["bridge.c：调用 pal->http_request(...)"]
-    B --> C["PAL：启动异步 HTTP（libuv TCP + mbedTLS）"]
-    C --> D["PAL 回调在事件循环线程上触发"]
-    D --> E["禁止直接调用 JS"]
-    D --> F["通过 qwrt_defer_callback(rt, fn, data) 入队"]
-    F --> G["qwrt_tick(rt, 100)：排空延迟回调队列"]
-    G --> H["fn(rt, data) 在有效的 JS 上下文中运行 → 解决 Promise"]
+    HOST["宿主线程"] -->|"qwrt_post_message: JSON 入"| QWRT["qwrt 内部线程"]
+    QWRT -->|"libuv 循环 (uv_run) + 微任务排空"| QWRT
+    QWRT -->|"message_cb: JSON 出"| HOST
+    QWRT --> LIBUV["libuv: 定时器 · I/O · fs"]
 ```
 
-## 延迟回调
+## 宿主如何驱动工作
 
-PAL 实现禁止在其回调（libuv 回调、定时器触发等）中直接调用 JavaScript。相反，它们通过以下方式将工作入队：
-
-```c
-void qwrt_defer_callback(qwrt_t *rt, qwrt_deferred_fn fn, void *data);
-```
-
-`qwrt_tick` 排空此队列，在有效的 JS 上下文中依次调用每个 `fn(rt, data)`。
-
-## `run_cycle` 语义
-
-| timeout_ms | 行为 |
-|------------|----------|
-| `< 0` | 阻塞直到有事件到达 |
-| `0` | 非阻塞 — 仅处理就绪的工作 |
-| `> 0` | 阻塞最多 timeout_ms 毫秒 |
-
-返回：已处理的事件数量，超时则返回 0，如果循环应停止则返回 `< 0`。
-
-`run_cycle` 是**可选的** — 如果为 NULL，宿主按自己的调度直接调用 `qwrt_tick`。
-
-## 完整事件循环示例
+宿主不能求值，也不 tick。它通过发送 JSON 消息并接收回复来驱动运行时：
 
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_uv.h>
+#include <stdio.h>
+
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
 
 int main(void) {
-    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
+    qwrt_config_t cfg = {0};
+    cfg.initial_script =
+        "globalThis.onmessage = function (e) { postMessage('pong'); };";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
+    if (!rt) return 1;
 
-    // 启动异步操作
-    qwrt_eval(rt,
-        "fetch('https://httpbin.org/json')"
-        "  .then(r => r.json())"
-        "  .then(d => console.log('got:', JSON.stringify(d)))",
-        NULL);
-
-    // 驱动事件循环
-    int running = 1;
-    while (running) {
-        int events = pal->run_cycle(pal, 100);
-        if (events < 0) break;
-        qwrt_tick(rt, 100);
-        // 检查是否还有更多工作要做...
-    }
+    qwrt_post_message(rt, "{\"cmd\":\"ping\"}", 14);
+    // on_message 在回复就绪时于 qwrt 线程上触发。
+    // 宿主同时可以自由做自己的工作 — 从不被 qwrt 阻塞。
 
     qwrt_destroy(rt);
     return 0;
 }
 ```
 
-## 不使用事件循环
+`qwrt_post_message` 是线程安全的（JSON 会被拷贝），因此可以从任何线程调用。`message_cb` 在 qwrt 线程上触发 — 你的回调必须线程安全。
 
-如果你的 PAL 没有 `run_cycle` 且所有操作都是同步的，你可以跳过循环：
+## 为什么这样设计
 
-```c
-qwrt_eval(rt, "console.log('Hello!');", NULL);
-qwrt_tick(rt, 100);  // 排空微任务
-qwrt_destroy(rt);
-```
-
-仍然需要 `qwrt_tick` — 它会排空即使在同步代码中也会累积的 Promise 微任务。
+- 宿主**从不**负责泵动事件循环 — qwrt 自驱运行，宿主线程保持自由去做自己的工作。
+- 所有异步事件和 JS 回调在 qwrt 单一内部线程上串行化 — 运行时内部无锁、无竞争。
+- 无需 `qwrt_tick`：微任务在循环迭代之间自动排空。

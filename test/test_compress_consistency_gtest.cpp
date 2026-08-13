@@ -1,66 +1,41 @@
-/*
- * test_compress_consistency_gtest.cpp — Google Test version of test_compress_consistency.c
- *
- * Verifies:
- * 1. Determinism: same input → same compressed output (byte-identical)
- * 2. Gzip header/trailer structure (magic, CM, FLG, OS, CRC32, ISIZE)
- * 3. Zlib header/trailer structure (CMF, FLG, Adler-32, header check)
- * 4. Roundtrip: compress → decompress → exact match with original
- * 5. Error handling: corrupt/truncated/invalid data throws
- */
-
-#include <gtest/gtest.h>
-
-extern "C" {
-#include "qwrt/qwrt.h"
-#include "pal_mock.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-}
+// test_compress_consistency_gtest.cpp — Task 5: 迁 host 契约（host_eval 驱动）
+//
+// 验证：
+// 1. 确定性：相同输入 → 相同压缩输出（逐字节一致）
+// 2. Gzip 头/尾结构（魔数、CM、FLG、OS、CRC32、ISIZE）
+// 3. Zlib 头/尾结构（CMF、FLG、Adler-32、头校验）
+// 4. Roundtrip：压缩 → 解压 → 与原文精确一致
+// 5. 错误处理：损坏/截断/非法数据抛错或产生空输出
+//
+// 压缩同步（nativeCompress 在 writable.close() 内完成），promise 链为纯微任务；
+// 每轮 host_eval 后 qwrt 线程冲刷全部微任务，阶段间无需额外等待，最终用
+// host_poll_until_value 轮询标志位。
+#include "test_host.h"
+#include <string>
+#include <cstdio>
 
 class CompressConsistencyTest : public ::testing::Test {
 protected:
-    qwrt_t *rt;
-    qwrt_pal_t *pal;
+    HostCtx *h = nullptr;
 
     void SetUp() override {
-        pal = pal_mock_create();
-        ASSERT_NE(pal, nullptr);
-
-        qwrt_config_t cfg;
-        memset(&cfg, 0, sizeof(cfg));
-        cfg.pal = pal;
-        rt = qwrt_create(&cfg);
-        ASSERT_NE(rt, nullptr);
+        h = host_create();
+        ASSERT_NE(nullptr, h);
     }
 
     void TearDown() override {
-        qwrt_destroy(rt);
-        pal_mock_destroy(pal);
-    }
-
-    void pump() {
-        for (int i = 0; i < 10; i++) {
-            qwrt_tick(rt, 100);
-            pal_mock_fire_all_timers(pal);
-            qwrt_tick(rt, 100);
-        }
+        host_destroy(h);
     }
 
     bool js_bool(const char *expr) {
-        char *r = NULL;
-        bool ok = false;
-        if (qwrt_eval(rt, expr, &r) == 0 && r) {
-            ok = (strcmp(r, "true") == 0);
-            qwrt_free(r);
-        }
-        return ok;
+        std::string out;
+        return host_value(h, expr, &out) && out == "true";
     }
 
     /* Roundtrip test: compress with format, decompress, verify exact match */
     void test_roundtrip(const char *format, const char *data_expr) {
         char code[1024];
+        std::string out;
 
         snprintf(code, sizeof(code),
             "var _rok=false;var _rdata=%s;"
@@ -69,15 +44,14 @@ protected:
             "var _rd=_cs.readable.getReader();"
             "var _chunks=[];var _total=0;",
             data_expr, format);
-        qwrt_eval(rt, code, NULL);
+        ASSERT_TRUE(host_eval(h, code, &out));
 
-        qwrt_eval(rt,
+        ASSERT_TRUE(host_eval(h,
             "_w.write(_rdata).then(function(){return _w.close();}).then(function(){"
             "  function p(){_rd.read().then(function(r){"
             "    if(r.done){return;}"
             "    _chunks.push(r.value);_total+=r.value.length;p();});}"
-            "  p();});", NULL);
-        pump();
+            "  p();});", &out));
 
         snprintf(code, sizeof(code),
             "var _comp=new Uint8Array(_total);var _off=0;"
@@ -87,9 +61,9 @@ protected:
             "var _drd=_ds.readable.getReader();"
             "var _out=[];var _osize=0;",
             format);
-        qwrt_eval(rt, code, NULL);
+        ASSERT_TRUE(host_eval(h, code, &out));
 
-        qwrt_eval(rt,
+        ASSERT_TRUE(host_eval(h,
             "_dw.write(_comp).then(function(){return _dw.close();}).then(function(){"
             "  function q(){_drd.read().then(function(r){"
             "    if(r.done){"
@@ -100,15 +74,16 @@ protected:
             "      return;"
             "    }"
             "    _out.push(r.value);_osize+=r.value.length;q();});}"
-            "  q();});", NULL);
-        pump();
+            "  q();});", &out));
 
+        ASSERT_TRUE(host_poll_until_value(h, "_rok", "true", &out));
         EXPECT_TRUE(js_bool("_rok"));
     }
 
     /* Determinism test: compress same input twice, compare byte-by-byte */
     void test_determinism(const char *format, const char *data_expr) {
         char code[2048];
+        std::string out;
 
         /* First compression */
         snprintf(code, sizeof(code),
@@ -116,31 +91,31 @@ protected:
             "var _cs1=new CompressionStream('%s');"
             "var _w1=_cs1.writable.getWriter();"
             "var _rd1=_cs1.readable.getReader();"
-            "var _ch1=[];var _sz1=0;",
+            "var _ch1=[];var _sz1=0;var _det1done=false;",
             data_expr, format);
-        qwrt_eval(rt, code, NULL);
-        qwrt_eval(rt,
+        ASSERT_TRUE(host_eval(h, code, &out));
+        ASSERT_TRUE(host_eval(h,
             "_w1.write(_d1).then(function(){return _w1.close();}).then(function(){"
             "  function p(){_rd1.read().then(function(r){"
-            "    if(r.done){return;}"
+            "    if(r.done){_det1done=true;return;}"
             "    _ch1.push(r.value);_sz1+=r.value.length;p();});}"
-            "  p();});", NULL);
-        pump();
+            "  p();});", &out));
+        ASSERT_TRUE(host_poll_until_value(h, "_det1done", "true", &out));
 
-        /* Second compression — use same format */
+        /* Second compression — same input, same format */
         snprintf(code, sizeof(code),
             "var _cs2=new CompressionStream('%s');"
             "var _w2=_cs2.writable.getWriter();"
             "var _rd2=_cs2.readable.getReader();"
-            "var _ch2=[];var _sz2=0;", format);
-        qwrt_eval(rt, code, NULL);
-        qwrt_eval(rt,
+            "var _ch2=[];var _sz2=0;var _det2done=false;", format);
+        ASSERT_TRUE(host_eval(h, code, &out));
+        ASSERT_TRUE(host_eval(h,
             "_w2.write(_d1).then(function(){return _w2.close();}).then(function(){"
             "  function p(){_rd2.read().then(function(r){"
-            "    if(r.done){return;}"
+            "    if(r.done){_det2done=true;return;}"
             "    _ch2.push(r.value);_sz2+=r.value.length;p();});}"
-            "  p();});", NULL);
-        pump();
+            "  p();});", &out));
+        ASSERT_TRUE(host_poll_until_value(h, "_det2done", "true", &out));
 
         /* Compare as byte arrays */
         snprintf(code, sizeof(code),
@@ -150,7 +125,7 @@ protected:
             "for(var i=0;i<_ch2.length;i++){_c2.set(_ch2[i],_o2);_o2+=_ch2[i].length;}"
             "var _det=(_c1.length===_c2.length);"
             "if(_det){for(var i=0;i<_c1.length;i++){if(_c1[i]!==_c2[i]){_det=false;break;}}}");
-        qwrt_eval(rt, code, NULL);
+        ASSERT_TRUE(host_eval(h, code, &out));
 
         EXPECT_TRUE(js_bool("_det"));
     }
@@ -183,26 +158,27 @@ class CompressConsistencyGzipHeader : public CompressConsistencyTest {
 protected:
     void SetUp() override {
         CompressConsistencyTest::SetUp();
+        std::string out;
 
         /* Compress a known input and collect the bytes */
-        qwrt_eval(rt,
+        ASSERT_TRUE(host_eval(h,
             "var _gd=new TextEncoder().encode('Hello World! '.repeat(100));"
             "var _gcs=new CompressionStream('gzip');"
             "var _gw=_gcs.writable.getWriter();"
             "var _grd=_gcs.readable.getReader();"
-            "var _gch=[];var _gsz=0;", NULL);
-        qwrt_eval(rt,
+            "var _gch=[];var _gsz=0;var _gDone=false;", &out));
+        ASSERT_TRUE(host_eval(h,
             "_gw.write(_gd).then(function(){return _gw.close();}).then(function(){"
             "  function p(){_grd.read().then(function(r){"
-            "    if(r.done){return;}"
+            "    if(r.done){_gDone=true;return;}"
             "    _gch.push(r.value);_gsz+=r.value.length;p();});}"
-            "  p();});", NULL);
-        pump();
+            "  p();});", &out));
+        ASSERT_TRUE(host_poll_until_value(h, "_gDone", "true", &out));
 
         /* Concatenate into one Uint8Array */
-        qwrt_eval(rt,
+        ASSERT_TRUE(host_eval(h,
             "var _gb=new Uint8Array(_gsz);var _go=0;"
-            "for(var i=0;i<_gch.length;i++){_gb.set(_gch[i],_go);_go+=_gch[i].length;}", NULL);
+            "for(var i=0;i<_gch.length;i++){_gb.set(_gch[i],_go);_go+=_gch[i].length;}", &out));
     }
 };
 
@@ -243,24 +219,25 @@ class CompressConsistencyZlibHeader : public CompressConsistencyTest {
 protected:
     void SetUp() override {
         CompressConsistencyTest::SetUp();
+        std::string out;
 
-        qwrt_eval(rt,
+        ASSERT_TRUE(host_eval(h,
             "var _zd=new TextEncoder().encode('Hello World! '.repeat(100));"
             "var _zcs=new CompressionStream('deflate');"
             "var _zw=_zcs.writable.getWriter();"
             "var _zrd=_zcs.readable.getReader();"
-            "var _zch=[];var _zsz=0;", NULL);
-        qwrt_eval(rt,
+            "var _zch=[];var _zsz=0;var _zDone=false;", &out));
+        ASSERT_TRUE(host_eval(h,
             "_zw.write(_zd).then(function(){return _zw.close();}).then(function(){"
             "  function p(){_zrd.read().then(function(r){"
-            "    if(r.done){return;}"
+            "    if(r.done){_zDone=true;return;}"
             "    _zch.push(r.value);_zsz+=r.value.length;p();});}"
-            "  p();});", NULL);
-        pump();
+            "  p();});", &out));
+        ASSERT_TRUE(host_poll_until_value(h, "_zDone", "true", &out));
 
-        qwrt_eval(rt,
+        ASSERT_TRUE(host_eval(h,
             "var _zb=new Uint8Array(_zsz);var _zo=0;"
-            "for(var i=0;i<_zch.length;i++){_zb.set(_zch[i],_zo);_zo+=_zch[i].length;}", NULL);
+            "for(var i=0;i<_zch.length;i++){_zb.set(_zch[i],_zo);_zo+=_zch[i].length;}", &out));
     }
 };
 
@@ -321,7 +298,8 @@ TEST_F(CompressConsistencyTest, RoundtripGzipBinary64KB) {
 
 TEST_F(CompressConsistencyTest, CorruptGzipData) {
     /* Corrupt gzip data: valid header but garbage DEFLATE */
-    qwrt_eval(rt,
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
         "var _err1=new Uint8Array([0x1F,0x8B,0x08,0x00,0,0,0,0,0,0xFF,"
         "0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF]);"
         "var _err1ok=false;"
@@ -333,15 +311,16 @@ TEST_F(CompressConsistencyTest, CorruptGzipData) {
         "    if(r.done){_err1ok=false;return;}"
         "    _out1.push(r.value);_osz1+=r.value.length;p();});}"
         "  p();});"
-        "}catch(e){_err1ok=true;}", NULL);
-    pump();
-    /* The error may be thrown asynchronously via the readable stream error */
+        "}catch(e){_err1ok=true;}", &out));
+    /* 错误可能同步抛（try/catch 捕获）或异步经 readable 错误——两者都应为空输出 */
+    ASSERT_TRUE(host_poll_until_value(h, "!_err1ok||_osz1===0", "true", &out));
     EXPECT_TRUE(js_bool("!_err1ok||_osz1===0"));
 }
 
 TEST_F(CompressConsistencyTest, TruncatedZlibData) {
     /* Truncated zlib data (<6 bytes) */
-    qwrt_eval(rt,
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
         "var _err2=new Uint8Array([0x78,0x01,0x03]);"
         "var _err2ok=false;"
         "try{var _ds2=new DecompressionStream('deflate');"
@@ -352,14 +331,15 @@ TEST_F(CompressConsistencyTest, TruncatedZlibData) {
         "    if(r.done){_err2ok=false;return;}"
         "    _out2.push(r.value);_osz2+=r.value.length;p();});}"
         "  p();});"
-        "}catch(e){_err2ok=true;}", NULL);
-    pump();
+        "}catch(e){_err2ok=true;}", &out));
+    ASSERT_TRUE(host_poll_until_value(h, "!_err2ok||_osz2===0", "true", &out));
     EXPECT_TRUE(js_bool("!_err2ok||_osz2===0"));
 }
 
 TEST_F(CompressConsistencyTest, InvalidGzipMagic) {
     /* Invalid gzip magic bytes */
-    qwrt_eval(rt,
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
         "var _err3=new Uint8Array([0x00,0x00,0x08,0x00,0,0,0,0,0,0xFF,"
         "0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]);"
         "var _err3ok=false;"
@@ -371,14 +351,15 @@ TEST_F(CompressConsistencyTest, InvalidGzipMagic) {
         "    if(r.done){_err3ok=false;return;}"
         "    _out3.push(r.value);_osz3+=r.value.length;p();});}"
         "  p();});"
-        "}catch(e){_err3ok=true;}", NULL);
-    pump();
+        "}catch(e){_err3ok=true;}", &out));
+    ASSERT_TRUE(host_poll_until_value(h, "!_err3ok||_osz3===0", "true", &out));
     EXPECT_TRUE(js_bool("!_err3ok||_osz3===0"));
 }
 
 TEST_F(CompressConsistencyTest, InvalidZlibHeader) {
     /* Invalid zlib header (CM != 8) */
-    qwrt_eval(rt,
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
         "var _err4=new Uint8Array([0x09,0x10,0x00,0x00,0x00,0x00]);"
         "var _err4ok=false;"
         "try{var _ds4=new DecompressionStream('deflate');"
@@ -389,27 +370,29 @@ TEST_F(CompressConsistencyTest, InvalidZlibHeader) {
         "    if(r.done){_err4ok=false;return;}"
         "    _out4.push(r.value);_osz4+=r.value.length;p();});}"
         "  p();});"
-        "}catch(e){_err4ok=true;}", NULL);
-    pump();
+        "}catch(e){_err4ok=true;}", &out));
+    ASSERT_TRUE(host_poll_until_value(h, "!_err4ok||_osz4===0", "true", &out));
     EXPECT_TRUE(js_bool("!_err4ok||_osz4===0"));
 }
 
 TEST_F(CompressConsistencyTest, GzipCrc32Mismatch) {
     /* Gzip with corrupted CRC32 trailer (checksum mismatch) */
-    qwrt_eval(rt,
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
         "var _err5data=new TextEncoder().encode('Hello World! '.repeat(10));"
         "var _err5cs=new CompressionStream('gzip');"
         "var _err5w=_err5cs.writable.getWriter();"
         "var _err5rd=_err5cs.readable.getReader();"
-        "var _err5ch=[];var _err5sz=0;"
+        "var _err5ch=[];var _err5sz=0;var _err5cdone=false;"
         "_err5w.write(_err5data).then(function(){return _err5w.close();}).then(function(){"
         "  function p(){_err5rd.read().then(function(r){"
-        "    if(r.done){return;}"
+        "    if(r.done){_err5cdone=true;return;}"
         "    _err5ch.push(r.value);_err5sz+=r.value.length;p();});}"
-        "  p();});", NULL);
-    pump();
+        "  p();});", &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_err5cdone", "true", &out));
+
     /* Corrupt the CRC32 (byte at offset -8) and try to decompress */
-    qwrt_eval(rt,
+    ASSERT_TRUE(host_eval(h,
         "var _err5comp=new Uint8Array(_err5sz);var _e5o=0;"
         "for(var i=0;i<_err5ch.length;i++){_err5comp.set(_err5ch[i],_e5o);_e5o+=_err5ch[i].length;}"
         "_err5comp[_err5sz-8]^=0xFF;"
@@ -422,7 +405,7 @@ TEST_F(CompressConsistencyTest, GzipCrc32Mismatch) {
         "    if(r.done){_err5ok=false;return;}"
         "    _out5.push(r.value);_osz5+=r.value.length;p();});}"
         "  p();});"
-        "}catch(e){_err5ok=true;}", NULL);
-    pump();
+        "}catch(e){_err5ok=true;}", &out));
+    ASSERT_TRUE(host_poll_until_value(h, "!_err5ok||_osz5===0", "true", &out));
     EXPECT_TRUE(js_bool("!_err5ok||_osz5===0"));
 }

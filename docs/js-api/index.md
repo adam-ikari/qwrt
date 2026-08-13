@@ -5,7 +5,7 @@ description: Complete JavaScript API reference for Qwrt.js — WinterTC-compatib
 
 # JS API Reference
 
-qwrt provides a WinterTC-compatible JavaScript API surface through its WinterTC modules. All globals listed here are available in any `qwrt_eval()` or `qwrt_eval_bytecode()` call without requiring `require()` or `import`.
+qwrt provides a WinterTC-compatible JavaScript API surface through its WinterTC modules. The modules are precompiled to bytecode and injected into the runtime at creation; all globals listed here are available in any JS that runs in the runtime (the `initial_script`, message handlers, and code invoked via `qwrt_post_message`) without requiring `require()` or `import`.
 
 ## Architecture
 
@@ -18,8 +18,8 @@ flowchart TB
         D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
         E["streams<br/>TextEncoder<br/>EventTarget<br/>navigator"]
     end
-    B --> F["qwrt_pal_t (C struct of function pointers)"]
-    B -.->|pal.* injected via __pal_inject__| F
+    B --> G["Bridge — js_pal_* wrappers in C"]
+    G --> H["libuv loop on qwrt's internal thread"]
 ```
 
 ## API Categories

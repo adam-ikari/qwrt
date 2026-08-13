@@ -1,6 +1,6 @@
 ---
 title: 构建
-description: Qwrt.js 的 CMake 构建选项 — 功能开关、PAL 后端、C99 工具链，以及开发和生产环境的示例配置。
+description: Qwrt.js 的 CMake 构建选项 — 功能开关、C99 工具链，以及开发和生产环境的示例配置。
 ---
 
 # 构建
@@ -29,15 +29,7 @@ cmake --build build -j$(nproc)
 | `QWRT_WITH_WAMR` | ON | WAMR WebAssembly 引擎（Fast Interp + AOT，默认） |
 | `QWRT_WITH_WASM3` | OFF | wasm3 WebAssembly 引擎（替代方案，更轻量） |
 
-**注意：** `QWRT_WITH_WAMR` 和 `QWRT_WITH_WASM3` 互斥 — 一次只能启用一个 WASM 引擎。
-
-### PAL 后端（`QWRT_PAL_*`）
-
-| 选项 | 默认值 | 描述 |
-|--------|---------|-------------|
-| `QWRT_PAL_UV` | ON | libuv PAL（Linux/macOS） |
-| `QWRT_PAL_MOCK` | ON | Mock PAL（测试） |
-| `QWRT_PAL_FREERTOS` | OFF | FreeRTOS PAL（ESP32-S3，仅 ESP-IDF） |
+**注意：** `QWRT_WITH_WAMR` 和 `QWRT_WITH_WASM3` 互斥 — 一次只能启用一个 WASM 引擎。libuv 是硬依赖，始终从源码构建。
 
 ### 构建目标
 
@@ -82,20 +74,6 @@ qwrt 及其所有依赖均在**严格 C99**（`-std=c99`）下构建。quickjs-n
 
 | 产物 | 路径 |
 |----------|------|
-| `libqwrt.a` | `build/lib/` |
-| `libqwrt_uv.a` | `build/lib/`（当 `QWRT_PAL_UV` 开启时） |
-| `libqwrt_mock.a` | `build/lib/`（当 `QWRT_PAL_MOCK` 开启时） |
-| `libqwrt_freertos.a` | `build/lib/`（当 `QWRT_PAL_FREERTOS` 开启时） |
+| `libqwrt.a` | `build/lib/`（静态核心 — 刻意不链接 libuv） |
+| `libqwrt_full.a` | `build/lib/`（聚合库：qwrt + libuv + mbedTLS + miniz + WAMR） |
 | 测试二进制文件 | `build/test/` |
-
-## ESP32-S3 构建
-
-对于带 ESP-IDF 的 ESP32-S3：
-
-```bash
-# 在你的 ESP-IDF 项目中，将 qwrt/esp-idf/ 添加到 EXTRA_COMPONENT_DIRS
-idf.py set-target esp32s3
-idf.py build
-```
-
-详见 [pal_freertos 文档](/zh/pal/pal-freertos)。

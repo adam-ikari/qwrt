@@ -6,7 +6,7 @@ Qwrt.js has a comprehensive multi-layer test suite.
 
 | Layer | Runner | Coverage | Command |
 |-------|--------|----------|---------|
-| **Offline** | gtest + ctest | Core runtime, PAL, extensions, WASM | `ctest -L offline` |
+| **Offline** | gtest + ctest | Core runtime, extensions, WASM | `ctest -L offline` |
 | **WPT** | wpt_runner | WinterTC Web APIs | `./build/test/wpt_runner test/wpt` |
 | **test262** | test262_runner | ECMAScript language conformance | `./build/test/test262_runner test/test262/test` |
 | **Network** | ctest | HTTP/HTTPS/TLS integration | `ctest -L network` |
@@ -60,34 +60,41 @@ Valgrind confirms zero bytes definitely lost.
 
 ## Writing Tests
 
-Tests use GoogleTest (C++), linked against `qwrt` + `qwrt_mock` for
-deterministic behavior with no network or system calls.
+Tests use GoogleTest (C++), linked against `qwrt` + `mock_libuv` — a
+deterministic in-process fake of the libuv API (see `test/mock_libuv.{c,h}`) —
+and are built with `-DQWRT_USE_MOCK_LIBUV`. Tests drive the runtime through
+the `HostCtx` harness in `test/test_host.h`: `host_create` starts a qwrt
+runtime and installs a bootstrap `onmessage` command channel
+(`{cmd:'eval'}`, `{cmd:'echo'}`); `host_eval`/`host_value` evaluate JS and
+return the result; `host_poll_until_value` polls until an async condition
+(timer, promise, storage) is met.
 
 ```cpp
 #include <qwrt/qwrt.h>
-#include <pal_mock.h>
+#include "test_host.h"   // HostCtx harness + mock_libuv
 #include <gtest/gtest.h>
 
 class MyTest : public ::testing::Test {
 protected:
-    qwrt_t *rt = nullptr;
-    qwrt_pal_t *pal = nullptr;
+    HostCtx *h = nullptr;
 
     void SetUp() override {
-        pal = pal_mock_create();
-        rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
+        h = host_create();       // starts a runtime + test bootstrap
+        ASSERT_NE(nullptr, h);
     }
 
-    void TearDown() override {
-        if (rt) qwrt_destroy(rt);
-        if (pal) pal_mock_destroy(pal);
-    }
+    void TearDown() override { host_destroy(h); }
 };
 
 TEST_F(MyTest, EvalExpression) {
-    char *result = nullptr;
-    ASSERT_EQ(qwrt_eval(rt, "1 + 1", &result), 0);
-    EXPECT_STREQ(result, "2");
-    qwrt_free(result);
+    std::string out;
+    ASSERT_TRUE(host_value(h, "1 + 1", &out));
+    EXPECT_EQ(out, "2");
+}
+
+TEST_F(MyTest, AsyncTimer) {
+    host_eval(h, "setTimeout(() => { globalThis.flag = 'fired'; }, 100);");
+    std::string out;
+    EXPECT_TRUE(host_poll_until_value(h, "globalThis.flag", "fired", &out));
 }
 ```

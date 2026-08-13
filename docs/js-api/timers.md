@@ -5,7 +5,7 @@ description: Timer APIs in Qwrt.js — setTimeout, clearTimeout, setInterval, cl
 
 # Timers API
 
-Standard `setTimeout` / `setInterval` with millisecond resolution. Backed by PAL `timer_start` / `timer_stop`.
+Standard `setTimeout` / `setInterval` with millisecond resolution. Backed by libuv timers (`uv_timer_*`) on qwrt's internal thread (~1ms precision).
 
 ## Globals
 
@@ -70,20 +70,20 @@ Passing an invalid handle (already cleared, garbage value) is silently ignored.
 setTimeout(cb, 1000)
     │
     ▼
-pal.timerStart(1000, false) → handle + Promise
+uv_timer_start(1s, one-shot) on qwrt's internal loop
     │
-    ▼  (1000ms passes)
+    ▼  (1000ms passes, loop wakes)
     │
-pal callback fires → JS Promise resolves → cb() called
+timer callback fires on the qwrt thread → cb() called
 ```
 
-For `setInterval`, the PAL's `repeat=true` parameter creates a recurring timer. Each fire resolves the JS promise, which re-schedules the callback.
+For `setInterval`, the uv timer repeats; each fire re-runs the callback until it is cleared.
 
 ## Context Lifecycle
 
-- All timers are **per-context** (one `qwrt_ctx_t` owns its timer table)
-- Timers are automatically cleared when a context is **suspended** or **destroyed**
-- After `qwrt_reset()`, no timers from the previous session survive
+- Timers are managed per context on qwrt's internal thread
+- Timers are automatically cancelled when the runtime shuts down (`qwrt_destroy`)
+- No timers survive a restart — create them fresh in `initial_script`
 
 ## Max Timers
 
@@ -91,7 +91,7 @@ Each context supports up to `QWRT_MAX_HANDLES` (256) total handles across all ha
 
 ## Notes
 
-- Timer precision depends on the PAL — `pal_mock` fires synchronously, `pal_uv` uses libuv timers (~1ms precision), `pal_freertos` uses FreeRTOS software timers (tick-based)
+- Timer precision is libuv's (~1ms)
 - There is no `queueMicrotask` wrapper needed — it's available as `globalThis.queueMicrotask`
 - Nested `setTimeout` calls deeper than 5 levels are clamped to 4ms minimum delay
 - `setTimeout(cb, 0)` executes on the next event loop tick, not immediately

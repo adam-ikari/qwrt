@@ -25,7 +25,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-构建产物 `libqwrt.a` 和所有 PAL 后端位于 `build/lib/` 目录中。
+构建产物 `libqwrt.a`（静态核心）和 `libqwrt_full.a`（聚合库，链接 libuv、mbedTLS 等）位于 `build/lib/` 目录中。
 
 ## 你的第一个程序
 
@@ -33,43 +33,38 @@ cmake --build build -j$(nproc)
 
 ```c
 #include <qwrt/qwrt.h>
-#include <pal_uv.h>
 #include <stdio.h>
 
-int main(void) {
-    // 创建平台抽象层（libuv）
-    qwrt_pal_t *pal = pal_uv_create(uv_default_loop());
+static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("received: %.*s\n", (int)len, json);
+}
 
-    // 创建运行时
-    qwrt_t *rt = qwrt_create(&(qwrt_config_t){ .pal = pal });
+int main(void) {
+    // 创建运行时 — qwrt 启动自己的内部线程和循环
+    qwrt_config_t cfg = {0};
+    cfg.initial_script = "console.log('Hello from QuickJS!'); postMessage(1 + 1);";
+    cfg.message_cb = on_message;
+    qwrt_t *rt = qwrt_create(&cfg);
     if (!rt) {
         fprintf(stderr, "Failed to create runtime\n");
         return 1;
     }
 
-    // 执行 JavaScript
-    char *result = NULL;
-    if (qwrt_eval(rt, "console.log('Hello from QuickJS!'); 1 + 1", &result) == 0) {
-        printf("Result: %s\n", result);  // "2"
-        qwrt_free(result);
-    }
+    // 通过发送 JSON 消息驱动运行时
+    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
 
-    // 驱动事件循环（即使是同步 eval 也需要，用于排空微任务）
-    while (pal->run_cycle(pal, 100) > 0) {
-        qwrt_tick(rt, 100);
-    }
-
-    // 清理
+    // 清理 — 优雅关闭
     qwrt_destroy(rt);
     return 0;
 }
 ```
 
-编译并链接：
+编译并链接 `libqwrt_full`（聚合了 qwrt + libuv + 依赖）：
 
 ```bash
 cc -std=c99 -I include -o hello hello.c \
-   -L build/lib -lqwrt -lqwrt_uv -lm
+   -L build/lib -lqwrt_full -lm
 ```
 
 ## 带测试构建
@@ -91,5 +86,5 @@ ctest -L benchmark   # 性能基准测试（非通过/失败）
 ## 下一步
 
 - [构建](/zh/guide/building) — 所有 CMake 选项详解
-- [运行时生命周期](/zh/guide/lifecycle) — 创建、重置、销毁
-- [PAL 概述](/zh/pal/) — 了解平台抽象层
+- [运行时生命周期](/zh/guide/lifecycle) — 创建、使用、销毁
+- [嵌入模式](/zh/guide/embedding) — 基于消息的宿主模式

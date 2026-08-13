@@ -5,7 +5,7 @@ description: Qwrt.js 完整的 JavaScript API 参考 — WinterTC 兼容的 Web 
 
 # JS API 参考
 
-qwrt 通过其 WinterTC 模块提供 WinterTC 兼容的 JavaScript API 接口。此处列出的所有全局对象在任何 `qwrt_eval()` 或 `qwrt_eval_bytecode()` 调用中均可用，无需 `require()` 或 `import`。
+qwrt 通过其 WinterTC 模块提供 WinterTC 兼容的 JavaScript API 接口。这些模块被预编译为字节码并在创建时注入运行时；此处列出的所有全局对象在运行时内运行的任何 JS 中均可用（`initial_script`、消息处理器，以及通过 `qwrt_post_message` 调用的代码），无需 `require()` 或 `import`。
 
 ## 架构
 
@@ -18,8 +18,8 @@ flowchart TB
         D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
         E["streams<br/>TextEncoder<br/>EventTarget<br/>navigator"]
     end
-    B --> F["qwrt_pal_t (C 函数指针结构体)"]
-    B -.->|pal.* 通过 __pal_inject__ 注入| F
+    B --> G["桥接 — C 中的 js_pal_* 包装器"]
+    G --> H["qwrt 内部线程上的 libuv 循环"]
 ```
 
 ## API 分类

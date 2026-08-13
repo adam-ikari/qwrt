@@ -1,6 +1,6 @@
 ---
 title: fs (Filesystem)
-description: The filesystem API in Qwrt.js — readFile, writeFile, stat, directory operations, and PAL-backed file I/O.
+description: The filesystem API in Qwrt.js — readFile, writeFile, stat, directory operations, and libuv-backed file I/O.
 ---
 
 # fs — Filesystem API
@@ -45,7 +45,7 @@ Returns: `Promise<void>`.
 Errors:
 - `QWRT_ERR_PERMISSION` if write access denied
 - `QWRT_ERR_IO` on write failure
-- `QWRT_ERR_NO_MEMORY` if PAL can't allocate buffer
+- `QWRT_ERR_NO_MEMORY` if the runtime can't allocate a buffer
 
 ### `qwrt.fs.exists(path)`
 
@@ -119,13 +119,15 @@ await updateConfig('theme', 'dark');
 
 - Paths start with `/` (absolute)
 - Forward slashes (`/`) as separators
-- `.` and `..` are resolved by the PAL
+- `.` and `..` are resolved by the runtime
 - No drive letters (not Windows-compatible)
-- Maximum path length: 256 bytes (PAL implementation limit)
+- Maximum path length: 256 bytes (implementation limit)
 
-## PAL Dependency
+## Platform Dependency
 
-The filesystem API calls `pal.fsRead`, `pal.fsWrite`, `pal.fsExists`, `pal.fsRemove`, and `pal.fsList`. If a PAL doesn't implement these (returns `QWRT_ERR_NOT_SUPPORTED`), the JS methods reject with `NotSupportedError`.
+Filesystem operations run on qwrt's internal thread, backed by libuv's
+asynchronous file I/O (`uv_fs_*`). On failure the JS methods reject with the
+mapped error (e.g. `NotFoundError`, `NotSupportedError`).
 
 ## Notes
 
@@ -134,4 +136,4 @@ The filesystem API calls `pal.fsRead`, `pal.fsWrite`, `pal.fsExists`, `pal.fsRem
 - No file locking or concurrency control
 - No streaming read/write — entire file contents are loaded into memory
 - Binary data is returned as strings (use `TextEncoder`/`TextDecoder` for byte manipulation)
-- On `pal_mock`, the filesystem is in-memory and pre-seeded via `pal_mock_set_fs()`
+- In tests, the `mock_libuv` backend passes `uv_fs_*` calls through to the real host filesystem (see [Testing](/dev/testing))

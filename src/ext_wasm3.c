@@ -1746,7 +1746,7 @@ static JSValue wasm3_throw_link_error(JSContext *ctx, const char *fmt, ...)
 static int wasm3_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 {
     (void)ext;
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     /* Initialize wasm3 environment (per-runtime, once) */
@@ -1910,7 +1910,7 @@ static JSValue wasm3_stub_constructor(JSContext *ctx, JSValueConst new_target,
 
 static int wasm3_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);

@@ -38,10 +38,10 @@ const SCHEMA_LD = JSON.stringify({
   '@type': 'SoftwareApplication',
   name: 'Qwrt.js',
   applicationCategory: 'DeveloperApplication',
-  description: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, with a Platform Abstraction Layer',
+  description: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native',
   url: SITE_URL,
   license: 'https://opensource.org/licenses/MIT',
-  operatingSystem: 'Linux, macOS, ESP32-S3',
+  operatingSystem: 'Linux, macOS',
   programmingLanguage: 'C99, JavaScript (ES2023)',
   author: { '@type': 'Organization', name: 'Qwrt.js' },
 })
@@ -55,7 +55,6 @@ const sidebar = {
         { text: 'Overview', link: '/guide/' },
         { text: 'Quick Start', link: '/guide/quickstart' },
         { text: 'Building', link: '/guide/building' },
-        { text: 'Examples', link: '/guide/examples' },
         { text: 'Compatible Packages', link: '/guide/compatible-packages' },
       ],
     },
@@ -88,37 +87,7 @@ const sidebar = {
         { text: 'Overview', link: '/c-api/' },
         { text: 'Runtime Lifecycle', link: '/c-api/runtime' },
         { text: 'JS Evaluation', link: '/c-api/eval' },
-        { text: 'PAL Interface', link: '/c-api/pal' },
         { text: 'Extensions', link: '/c-api/extensions' },
-        { text: 'Error Codes', link: '/c-api/errors' },
-      ],
-    },
-  ],
-  pal: [
-    {
-      text: 'PAL Documentation',
-      items: [
-        { text: 'Overview', link: '/pal/' },
-        { text: 'Interface Reference', link: '/pal/interface' },
-        { text: 'Error Codes', link: '/pal/errors' },
-        { text: 'Callback Types', link: '/pal/callbacks' },
-      ],
-    },
-    {
-      text: 'Implementing a PAL',
-      items: [
-        { text: 'Step-by-Step Guide', link: '/pal/implementing' },
-        { text: 'Async Operations', link: '/pal/async' },
-        { text: 'Streaming HTTP', link: '/pal/streaming' },
-        { text: 'Shared Helpers', link: '/pal/common-helpers' },
-      ],
-    },
-    {
-      text: 'Built-in Backends',
-      items: [
-        { text: 'pal_uv (libuv)', link: '/pal/pal-uv' },
-        { text: 'pal_mock (Testing)', link: '/pal/pal-mock' },
-        { text: 'pal_freertos (ESP32)', link: '/pal/pal-freertos' },
       ],
     },
   ],
@@ -169,7 +138,6 @@ const sidebar = {
 
 const nav = [
   { text: 'Guide', link: '/guide/' },
-  { text: 'PAL', link: '/pal/' },
   { text: 'JS API', link: '/js-api/' },
   { text: 'Playground', link: '/playground' },
   { text: 'Compat Check', link: '/compat-checker' },
@@ -214,37 +182,7 @@ const zhSidebar = {
         { text: '概览', link: '/zh/c-api/' },
         { text: '运行时生命周期', link: '/zh/c-api/runtime' },
         { text: 'JS 求值', link: '/zh/c-api/eval' },
-        { text: 'PAL 接口', link: '/zh/c-api/pal' },
         { text: '扩展', link: '/zh/c-api/extensions' },
-        { text: '错误码', link: '/zh/c-api/errors' },
-      ],
-    },
-  ],
-  pal: [
-    {
-      text: 'PAL 文档',
-      items: [
-        { text: '概览', link: '/zh/pal/' },
-        { text: '接口参考', link: '/zh/pal/interface' },
-        { text: '错误码', link: '/zh/pal/errors' },
-        { text: '回调类型', link: '/zh/pal/callbacks' },
-      ],
-    },
-    {
-      text: '实现 PAL',
-      items: [
-        { text: '分步指南', link: '/zh/pal/implementing' },
-        { text: '异步操作', link: '/zh/pal/async' },
-        { text: '流式 HTTP', link: '/zh/pal/streaming' },
-        { text: '共享辅助函数', link: '/zh/pal/common-helpers' },
-      ],
-    },
-    {
-      text: '内置后端',
-      items: [
-        { text: 'pal_uv (libuv)', link: '/zh/pal/pal-uv' },
-        { text: 'pal_mock (测试)', link: '/zh/pal/pal-mock' },
-        { text: 'pal_freertos (ESP32)', link: '/zh/pal/pal-freertos' },
       ],
     },
   ],
@@ -253,7 +191,6 @@ const zhSidebar = {
       text: 'JS API 参考',
       items: [
         { text: '概览', link: '/zh/js-api/' },
-        { text: 'PAL 注入', link: '/zh/js-api/pal-injection' },
       ],
     },
     {
@@ -292,7 +229,6 @@ const zhSidebar = {
 
 const zhNav = [
   { text: '指南', link: '/zh/guide/' },
-  { text: 'PAL', link: '/zh/pal/' },
   { text: 'JS API', link: '/zh/js-api/' },
   { text: '演练场', link: '/zh/playground' },
   { text: '兼容检查', link: '/zh/compat-checker' },
@@ -302,7 +238,7 @@ const zhNav = [
 export default withMermaid(
 defineConfig({
   title: 'Qwrt.js',
-  description: 'Embeddable QuickJS-ng Runtime — C99, WinterCG-compatible, Platform Abstraction Layer',
+  description: 'Embeddable QuickJS-ng Runtime — C99, WinterCG-compatible, libuv-native',
   base: '/qwrt/',
   lastUpdated: true,
   cleanUrls: true,
@@ -313,14 +249,14 @@ defineConfig({
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Qwrt.js — Embeddable QuickJS Runtime' }],
-    ['meta', { property: 'og:description', content: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, with a Platform Abstraction Layer. Build once, run anywhere.' }],
+    ['meta', { property: 'og:description', content: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native' }],
     ['meta', { property: 'og:url', content: SITE_URL }],
     ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:locale:alternate', content: 'zh_CN' }],
     // Twitter Card
     ['meta', { name: 'twitter:card', content: 'summary' }],
     ['meta', { name: 'twitter:title', content: 'Qwrt.js — Embeddable QuickJS Runtime' }],
-    ['meta', { name: 'twitter:description', content: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, with a Platform Abstraction Layer' }],
+    ['meta', { name: 'twitter:description', content: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native' }],
   ],
 
   // Collect URLs for sitemap during build
@@ -343,7 +279,6 @@ defineConfig({
         sidebar: {
           '/guide/': sidebar.guide,
           '/c-api/': sidebar.cApi,
-          '/pal/': sidebar.pal,
           '/js-api/': sidebar.jsApi,
         },
         outline: { level: [2, 3], label: 'On this page' },
@@ -365,7 +300,6 @@ defineConfig({
         sidebar: {
           '/zh/guide/': zhSidebar.guide,
           '/zh/c-api/': zhSidebar.cApi,
-          '/zh/pal/': zhSidebar.pal,
           '/zh/js-api/': zhSidebar.jsApi,
         },
         outline: { level: [2, 3], label: '本页目录' },

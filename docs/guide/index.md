@@ -1,30 +1,30 @@
 ---
 title: Overview
-description: Qwrt.js is an embeddable QuickJS-ng runtime wrapper in strict C99 — WinterTC-compatible JS runtime with a Platform Abstraction Layer.
+description: Qwrt.js is an embeddable QuickJS-ng runtime wrapper in strict C99 — a WinterTC-compatible JS runtime with its own internal thread and libuv event loop.
 ---
 
 # Overview
 
-qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. It provides a small C API on top of the QuickJS-ng engine, a **WinterTC-compatible runtime**, and a **Platform Abstraction Layer (PAL)** so the same JavaScript code runs on Linux, macOS, and ESP32-S3.
+qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. It provides a small C API on top of the QuickJS-ng engine and a **WinterTC-compatible runtime**. qwrt owns its own internal thread and libuv event loop, and communicates with the host over JSON messages.
 
 ## What qwrt Gives You
 
 - **ECMAScript engine (ES2020)** — QuickJS-ng under the hood, fast startup, low memory
 - **WinterTC-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, and more
-- **Platform Abstraction Layer** — ~30 function pointers; ship three backends, add your own
-- **Multi-context** — spawn/suspend/resume isolated JS contexts within one runtime
+- **Own thread + event loop** — qwrt starts an internal thread running a libuv loop; the host never pumps it
+- **Message-based host boundary** — `qwrt_post_message` (in) / `message_cb` (out), JSON in both directions
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec, WebAssembly (WAMR, wasm3 optional)
-- **Zero system dependencies** — all deps built from source via CMake
-- **Single-threaded** — no locks, no atomics; JSContext is thread-bound
+- **Zero system dependencies** — all deps built from source via CMake; libuv is built from the deps submodule
+- **Single-threaded runtime** — no locks, no atomics; all JS runs on qwrt's internal thread
 
 ## When to Use qwrt
 
 | Use Case | Why qwrt |
 |----------|----------|
-| **IoT / MCU scripting** | C99, tiny footprint, FreeRTOS PAL for ESP32-S3 |
-| **Plugin systems** | Multi-context isolation, per-context PAL permissions |
+| **Embedded / edge scripting** | C99, tiny footprint, libuv event loop built in |
+| **Plugin systems** | Per-runtime isolation, multi-context handled inside the runtime |
 | **Edge compute** | WinterTC APIs feel familiar to JS developers |
-| **Testing & simulation** | `pal_mock` for deterministic tests, no network needed |
+| **Testing & simulation** | `mock_libuv` for deterministic tests, no network needed |
 | **CLI tools with JS config** | Embed a JS engine without pulling in Node.js |
 
 ## When NOT to Use qwrt
@@ -39,14 +39,16 @@ qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. 
 ```
 qwrt/
 ├── include/qwrt/       # Public headers (qwrt.h)
-├── src/                 # Core runtime (qwrt.c, bridge.c, context.c, ...)
-├── platform/            # PAL implementations
-│   ├── uv/              #   pal_uv (libuv, Linux/macOS)
-│   ├── mock/            #   pal_mock (testing)
-│   ├── freertos/        #   pal_freertos (ESP32-S3)
-│   └── pal_common.c     #   Shared PAL helpers
+├── src/                 # Core runtime
+│   ├── qwrt.c           #   Core API (create/destroy/post_message)
+│   ├── thread.c         #   Internal thread + libuv loop
+│   ├── uv_io.c          #   libuv I/O (network, fs, timers)
+│   ├── msgq.c           #   Message queue (host ⇄ runtime)
+│   ├── worker.c         #   Message dispatch (onmessage/postMessage)
+│   ├── bridge.c         #   JS ↔ runtime bridge
+│   └── context.c        #   Multi-context
 ├── polyfill/src/        # WinterTC module source
-├── test/                # Test suite (C + gtest)
+├── test/                # Test suite (C + gtest + mock_libuv)
 ├── deps/                # Git submodules (quickjs-ng, libuv, mbedtls, ...)
 └── docs/                # This documentation
 ```
@@ -54,5 +56,5 @@ qwrt/
 ## Next Steps
 
 - [Quick Start](/guide/quickstart) — clone, build, run your first script
-- [PAL Overview](/pal/) — understand the Platform Abstraction Layer
+- [Event Loop](/guide/event-loop) — how the internal thread and libuv loop work
 - [JS API Reference](/js-api/) — what WinterTC APIs are available

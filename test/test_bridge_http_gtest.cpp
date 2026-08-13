@@ -1,111 +1,68 @@
-/*
- * test_bridge_http_gtest.cpp — Google Test version of test_bridge_http.c
- *
- * Tests JS bridge non-streaming and streaming HTTP — calls __pal__.httpRequest()
- * and __pal__.httpRequestStream() from JS and verifies promises resolve.
- * Uses mock PAL so no network needed.
- */
-
-#include <gtest/gtest.h>
-
-extern "C" {
-#include "qwrt/qwrt.h"
-#include "pal_mock.h"
-#include <string.h>
-#include <stdlib.h>
-}
+// test_bridge_http_gtest.cpp — JS 桥接 HTTP（执行模型 A / mock_libuv）
+// 用 host_eval 契约（test_host.h）+ mock_tcp_respond 预注册 canned HTTP
+// 响应。非流式 __pal__.httpRequest 走 Content-Length 完成路径；流式
+// httpRequestStream 在 EOF 触发 on_end。
+#include "test_host.h"
+#include <cstring>
 
 class BridgeHttpTest : public ::testing::Test {
 protected:
-    qwrt_t *rt;
-    qwrt_pal_t *pal;
+    HostCtx *h = nullptr;
 
     void SetUp() override {
-        pal = pal_mock_create();
-        ASSERT_NE(pal, nullptr);
-
-        pal_mock_set_http_response(pal,
-            "{\"status\":0,\"headers\":{\"Content-Type\":\"application/json\"},"
-            "\"body\":\"{\\\"data\\\":\\\"test_value\\\"}\"}");
-
-        qwrt_config_t cfg;
-        memset(&cfg, 0, sizeof(cfg));
-        cfg.pal = pal;
-        rt = qwrt_create(&cfg);
-        ASSERT_NE(rt, nullptr);
+        h = host_create();
+        ASSERT_NE(nullptr, h);
     }
-
-    void TearDown() override {
-        qwrt_destroy(rt);
-        pal_mock_destroy(pal);
-    }
+    void TearDown() override { host_destroy(h); }
 };
 
 TEST_F(BridgeHttpTest, NonStreamingHttpRequest) {
-    /* Test 1 from original: non-streaming httpRequest via JS bridge */
-    const char *code =
-        "var _done = false; var _result = null;\n"
-        "console.log('Test 1: non-streaming httpRequest...');\n"
+    /* 响应：Content-Length 必须与 body 字节数精确匹配（10）。 */
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: 10\r\n"
+        "\r\n"
+        "test_value";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _result = null;\n"
         "__pal__.httpRequest('http://api.example.com/data', 'GET', '{}', null)\n"
-        ".then(function(data) {\n"
-        "  console.log('Got response, length:', data.length);\n"
-        "  _result = 'ok';\n"
-        "  _done = true;\n"
-        "}).catch(function(e) {\n"
-        "  console.log('Error:', e);\n"
-        "  _result = 'error';\n"
-        "  _done = true;\n"
-        "});\n";
+        "  .then(function(d){ _result = d; })\n"
+        "  .catch(function(e){ _result = 'error:' + e; });\n"
+        "0", &out));
 
-    int rc = qwrt_eval(rt, code, NULL);
-    EXPECT_EQ(rc, 0);
-
-    /* Run tick — mock PAL completes synchronously, deferred callbacks fire */
-    qwrt_tick(rt, 100);
-
-    char *result = NULL;
-    rc = qwrt_eval(rt, "_result", &result);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(result, nullptr);
-    EXPECT_STREQ(result, "\"ok\"");
-    qwrt_free(result);
+    /* resolve 载荷是 raw string：{"status":200,"headers":{...},"body":"..."} */
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_result", "\"status\":200", &v));
+    EXPECT_NE(std::string::npos, v.find("\"body\":\"test_value\""));
+    EXPECT_NE(std::string::npos, v.find("Content-Type"));
 }
 
 TEST_F(BridgeHttpTest, StreamingHttpRequestStream) {
-    /* Test 2 from original: streaming httpRequestStream via JS bridge */
-    const char *code2 =
-        "var _done2 = false; var _result2 = null;\n"
-        "var _hdrStatus = -1; var _chunks = 0;\n"
-        "console.log('Test 2: streaming httpRequestStream...');\n"
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: 16\r\n"
+        "\r\n"
+        "stream chunk one";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _result = null; var _headerStatus = -1; var _dataBytes = 0;\n"
         "__pal__.httpRequestStream(\n"
-        "  'http://api.example.com/data',\n"
-        "  'GET',\n"
-        "  '{}',\n"
-        "  null,\n"
-        "  function(status, hdrs) {\n"
-        "    console.log('onHeaders:', status);\n"
-        "    _hdrStatus = status;\n"
-        "  },\n"
-        "  function(chunk) {\n"
-        "    _chunks++;\n"
-        "  },\n"
-        "  function(errStatus) {\n"
-        "    console.log('onEnd:', errStatus, 'chunks:', _chunks);\n"
-        "    _result2 = errStatus === 0 ? 'ok' : 'error:' + errStatus;\n"
-        "    _done2 = true;\n"
-        "  }\n"
+        "  'http://api.example.com/data', 'GET', '{}', null,\n"
+        "  function(status, hdrs){ _headerStatus = status; },\n"
+        "  function(chunk){ _dataBytes += (chunk instanceof ArrayBuffer) ? chunk.byteLength : chunk.length; },\n"
+        "  function(errStatus){ _result = (errStatus === 0) ? 'ok' : 'err:' + errStatus; }\n"
         ");\n"
-        "console.log('Stream request sent');\n";
+        "0", &out));
 
-    int rc = qwrt_eval(rt, code2, NULL);
-    EXPECT_EQ(rc, 0);
-
-    qwrt_tick(rt, 100);
-
-    char *result = NULL;
-    rc = qwrt_eval(rt, "_result2", &result);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(result, nullptr);
-    EXPECT_STREQ(result, "\"ok\"");
-    qwrt_free(result);
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_result", "ok", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_headerStatus", "200", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_dataBytes", "16", &v));
 }

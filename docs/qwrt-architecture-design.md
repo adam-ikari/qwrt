@@ -5,11 +5,18 @@ description: Qwrt.js architecture design document — C99 runtime layering, comp
 
 # qwrt 架构设计文档 (Architecture Design — 中文)
 
-> **Note**: This document is in Chinese. For English documentation, see the [Guide](/guide/) and [PAL](/pal/) sections.
+> **Note**: This document is in Chinese. For English documentation, see the [Guide](/guide/) section.
 >
-> **状态**：正式设计（2026-07-04）
-> **仓库**：独立 git 仓库
-> **版本**：0.1.0
+> **状态**：已废弃（2026-08-12 libuv-native 迁移后）
+>
+> **本文件描述的是 2026-08-12 迁移前的 PAL 架构（0.1.0），已过时。** 迁移后 qwrt
+> 放弃 PAL，仅基于 libuv（Linux/macOS）：qwrt 自建内部线程运行 libuv 事件循环，
+> 公开 API 精简为 6 个函数（`qwrt_create`/`qwrt_destroy`/`qwrt_post_message`/
+> `qwrt_get_runtime_data`/`qwrt_set_runtime_data`/`qwrt_free`），宿主与运行时通过
+> JSON 消息通信；`platform/` 树、`qwrt_pal.h`、`QWRT_PAL_*` 选项与
+> `qwrt_eval`/`qwrt_tick` 等旧 API 全部删除。当前设计见
+> `docs/superpowers/specs/2026-08-12-qwrt-libuv-native-design.md`，测试用 mock_libuv。
+> 下文 §3、§4、§7、§8、§9、§12 均为旧架构内容，仅作历史参考。
 
 ## 1. 概述
 

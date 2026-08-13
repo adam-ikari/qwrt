@@ -28,7 +28,7 @@
 
 static int web_wasm_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     /*
@@ -106,7 +106,7 @@ static JSValue web_wasm_throw_not_available(JSContext *ctx, JSValueConst this_va
 
 static int web_wasm_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);

@@ -366,26 +366,6 @@ static char *dap_read_message(qwrt_dap_t *d, int *out_seq, char **out_command,
  * Defined below; on_stopped recovers the session from here. */
 static qwrt_dap_t *g_qwrt_dap_active = NULL;
 
-/* Drive one non-blocking iteration of the PAL event loop so async JS
- * (fetch/setTimeout) can advance while the debugger is paused. Single-threaded:
- * runs on the JS thread (we're inside on_stopped, inside JS_Eval). The PAL's
- * run_cycle pumps I/O and enqueues deferred JS callbacks; qwrt_tick drains them.
- *
- * Re-entrancy: PAL-driven JS may hit a breakpoint → on_dispatch. The debug core
- * checks dbg->stopped and skips nested stops while already paused (debugger.c),
- * so this won't recursively enter on_stopped. */
-static void dap_pump_pal(qwrt_dap_t *d)
-{
-    if (!d || !d->rt) return;
-    qwrt_ctx_t *ctx = qwrt_get_active_ctx(d->rt);
-    if (!ctx || !ctx->pal) return;
-    const qwrt_pal_t *pal = ctx->pal;
-    if (pal->run_cycle) {
-        pal->run_cycle((qwrt_pal_t *)pal, 0);  /* non-blocking */
-    }
-    qwrt_tick(d->rt, 100);
-}
-
 /* Poll stdin for a DAP message with a timeout. Returns:
  *   1 = message available (call dap_read_message to get it)
  *   0 = timeout (no message yet — caller can pump PAL)
@@ -409,8 +389,9 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
                               const char *args, int req_seq);
 
 /* The DAP callback for on_stopped. Pumps DAP requests until a flow command.
- * Between DAP polls, drives the PAL event loop so async JS advances while
- * paused (single-threaded — no separate loop thread). */
+ * Note: async JS cannot advance while paused — the loop is driven by the qwrt
+ * thread, which is inside JS_Eval here. Async-while-paused needs a later
+ * model change (TODO: pump uv_run from a poll timeout). */
 static void dap_on_stopped(qwrt_debug_t *dbg, const char *reason, int thread_id)
 {
     (void)dbg; (void)thread_id;
@@ -428,8 +409,7 @@ static void dap_on_stopped(qwrt_debug_t *dbg, const char *reason, int thread_id)
         int pr = dap_poll_message(d, 50);  /* 50ms poll */
         if (pr < 0) break;                 /* EOF */
         if (pr == 0) {
-            /* no DAP message yet — advance async JS while we wait */
-            dap_pump_pal(d);
+            /* no DAP message yet — keep waiting */
             continue;
         }
         int req_seq = 0; char *cmd = NULL, *args = NULL;

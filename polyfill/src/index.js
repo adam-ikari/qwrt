@@ -40,12 +40,15 @@ import { setupTextEncoding } from './text-encoding.js';
 import { setupCrypto } from './crypto.js';
 import { setupErrorEvents } from './error-events.js';
 import { setupMessageChannel } from './message-channel.js';
+import { setupHostMessaging } from './host-messaging.js';
 import { setupStreams } from './streams.js';
 import { setupBlobFileFormData } from './blob-file-formdata.js';
 import { setupURLPattern } from './url-pattern.js';
 import { setupNavigatorReportError } from './navigator.js';
 import { setupCryptoSubtle } from './crypto-subtle.js';
 import { setupStructuredClone } from './structured-clone.js';
+import { setupWorker } from './worker.js';
+import { setupContext } from './context.js';
 
 // ================================================================
 // Core APIs (WinterTC standard)
@@ -66,6 +69,7 @@ setupEncoding(pal);
 
 setupFetch(pal);
 setupMessageChannel();
+setupHostMessaging(pal);
 setupStreams(pal);
 setupBlobFileFormData();
 setupURLPattern();
@@ -86,6 +90,19 @@ setupCryptoSubtle(pal);
 // ================================================================
 
 setupStructuredClone();
+
+// ================================================================
+// Web Worker (real-thread workers, needs __qwrt_serialize__/__qwrt_deserialize__)
+// ================================================================
+
+setupWorker(pal);
+
+// ================================================================
+// Multi-context + soft suspend/resume (must run AFTER all other setups —
+// 它拍下"当前枚举全局键"作 _pristine 快照，挂起只捕获快照之后新增的键)
+// ================================================================
+
+setupContext(pal);
 
 // ================================================================
 // Global utility: queueMicrotask

@@ -1,97 +1,66 @@
-/*
- * test_fetch_stream_gtest.cpp — Google Test version of test_fetch_stream.c
- *
- * Integration test for streaming fetch via qwrt runtime.
- * Tests fetch() with streaming ReadableStream using the real polyfill.
- * Uses mock PAL which simulates streaming responses.
- */
-
-#include <gtest/gtest.h>
-
-extern "C" {
-#include "qwrt/qwrt.h"
-#include "pal_mock.h"
-#include <string.h>
-#include <stdlib.h>
-}
+// test_fetch_stream_gtest.cpp — fetch 流式路径（执行模型 A / mock_libuv）
+// fetch 内部走 pal.httpRequestStream：onHeaders resolve fetch promise（Response
+// 带 ReadableStream body），onData enqueue，onEnd(0) 关流 → resp.text() 完成。
+#include "test_host.h"
+#include <cstring>
 
 class FetchStreamTest : public ::testing::Test {
 protected:
-    qwrt_t *rt;
-    qwrt_pal_t *pal;
+    HostCtx *h = nullptr;
 
     void SetUp() override {
-        pal = pal_mock_create();
-        ASSERT_NE(pal, nullptr);
-
-        qwrt_config_t cfg;
-        memset(&cfg, 0, sizeof(cfg));
-        cfg.pal = pal;
-        rt = qwrt_create(&cfg);
-        ASSERT_NE(rt, nullptr);
+        h = host_create();
+        ASSERT_NE(nullptr, h);
     }
-
-    void TearDown() override {
-        qwrt_destroy(rt);
-        pal_mock_destroy(pal);
-    }
+    void TearDown() override { host_destroy(h); }
 };
 
 TEST_F(FetchStreamTest, ResponseHasReadableStreamBody) {
-    /* Test: fetch() returns Response with ReadableStream body */
-    const char *code =
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: 11\r\n"
+        "\r\n"
+        "{\"ok\":true}";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
         "var _result = null;\n"
-        "(async function() {\n"
-        "  try {\n"
-        "    var resp = await fetch('http://test.local/data');\n"
-        "    var hasBody = resp.body !== null;\n"
-        "    var hasReader = typeof resp.body.getReader === 'function';\n"
-        "    _result = JSON.stringify({status: resp.status, hasBody: hasBody, hasReader: hasReader});\n"
-        "  } catch(e) {\n"
-        "    _result = 'error:' + e.message;\n"
-        "  }\n"
-        "})();\n";
+        "fetch('http://test.local/data').then(function(resp){\n"
+        "  _result = JSON.stringify({\n"
+        "    status: resp.status,\n"
+        "    hasBody: resp.body !== null,\n"
+        "    hasReader: (resp.body && typeof resp.body.getReader === 'function')\n"
+        "  });\n"
+        "}).catch(function(e){ _result = 'error:' + e.message; });\n"
+        "0", &out));
 
-    int rc = qwrt_eval(rt, code, NULL);
-    EXPECT_EQ(rc, 0);
-
-    for (int i = 0; i < 200; i++) qwrt_tick(rt, 100);
-
-    char *result = NULL;
-    rc = qwrt_eval(rt, "_result", &result);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(result, nullptr);
-
-    /* Check that we got status and body info */
-    EXPECT_NE(strstr(result, "status"), nullptr);
-    qwrt_free(result);
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_result", "\"hasReader\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"status\":200"));
+    EXPECT_NE(std::string::npos, v.find("\"hasBody\":true"));
 }
 
 TEST_F(FetchStreamTest, TextReadsFullStreamingBody) {
-    /* Test: response.text() works with streaming */
-    const char *code =
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 20\r\n"
+        "\r\n"
+        "polyfill fetch works";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
         "var _text_result = null;\n"
-        "(async function() {\n"
-        "  try {\n"
-        "    var resp = await fetch('http://test.local/hello');\n"
-        "    var text = await resp.text();\n"
-        "    _text_result = text;\n"
-        "  } catch(e) {\n"
-        "    _text_result = 'error:' + e.message;\n"
-        "  }\n"
-        "})();\n";
+        "fetch('http://test.local/hello').then(function(resp){\n"
+        "  return resp.text();\n"
+        "}).then(function(t){\n"
+        "  _text_result = t;\n"
+        "}).catch(function(e){ _text_result = 'error:' + e.message; });\n"
+        "0", &out));
 
-    int rc = qwrt_eval(rt, code, NULL);
-    EXPECT_EQ(rc, 0);
-
-    for (int i = 0; i < 200; i++) qwrt_tick(rt, 100);
-
-    char *result = NULL;
-    rc = qwrt_eval(rt, "_text_result", &result);
-    EXPECT_EQ(rc, 0);
-    ASSERT_NE(result, nullptr);
-
-    /* Mock PAL returns something — verify text() did not fail with "error:" */
-    EXPECT_EQ(strstr(result, "error:"), nullptr);
-    qwrt_free(result);
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_text_result", "polyfill fetch works", &v));
 }
