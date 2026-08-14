@@ -14,7 +14,8 @@
  *               __qwrt_dispatch__(bytes,0) → 垫片反序列化 → MessageEvent。
  *
  * 生命周期：qwrt_worker_create 阻塞到 worker ready 握手才返回 id；脚本顶层
- * 异常 → 通过 worker 的 postMessage 发 {type:'error'} 给父，worker 继续存活。
+ * 异常 → 先在本 runtime 内 dispatch ErrorEvent（触发 self.onerror），再经
+ * postMessage 发 {type:'error'} 给父（触发 w.onerror），worker 继续存活。
  * terminate 异步（置 shutting_down + wake，不 join——不能 join 自己）；join
  * 在父 teardown（qwrt_thread_teardown 第一步）完成，随后 free 结构。
  */
@@ -73,20 +74,59 @@ static void qwrt_worker_wake_cb(uv_async_t *a)
     }
 }
 
-/* 脚本顶层异常 → 走 worker 的 postMessage（已被垫片替换为序列化→父），以
- * {type:'error', error:<msg>} 通知父；worker 继续存活。 */
+/* 脚本顶层异常 → 先在 worker 自己的 JSRuntime 内 dispatch 'error' 事件
+ * （构造 ErrorEvent，触发 self.onerror / addEventListener('error')），再经
+ * postMessage（已被垫片替换为序列化→父）以 {type:'error', error:<msg>} 通知
+ * 父；worker 继续存活。ErrorEvent 构造失败（如 polyfill 未加载）时跳过本地
+ * 派发，回退到仅父通知。 */
 static void qwrt_worker_notify_error(qwrt_t *rt, const char *msg)
 {
     qwrt_ctx_t *cctx = rt->contexts[0];
     if (!cctx || !cctx->jsctx) return;
     JSContext *ctx = cctx->jsctx;
+    const char *text = msg ? msg : "";
     JSValue g = JS_GetGlobalObject(ctx);
+
+    /* 1) worker 侧本地派发：new ErrorEvent('error', {message, filename,
+     * lineno, colno, error, cancelable}) → globalThis.dispatchEvent(ev)。 */
+    JSValue err_cls = JS_GetPropertyStr(ctx, g, "ErrorEvent");
+    if (JS_IsFunction(ctx, err_cls)) {
+        JSValue opts = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, opts, "message", JS_NewString(ctx, text));
+        JS_SetPropertyStr(ctx, opts, "filename", JS_NewString(ctx, ""));
+        JS_SetPropertyStr(ctx, opts, "lineno", JS_NewInt32(ctx, 0));
+        JS_SetPropertyStr(ctx, opts, "colno", JS_NewInt32(ctx, 0));
+        JSValue exc = JS_NewError(ctx);
+        JS_SetPropertyStr(ctx, exc, "message", JS_NewString(ctx, text));
+        JS_SetPropertyStr(ctx, opts, "error", exc);
+        JS_SetPropertyStr(ctx, opts, "cancelable", JS_NewBool(ctx, 1));
+        JSValue args[2] = { JS_NewString(ctx, "error"), opts };
+        JSValue ev = JS_CallConstructor(ctx, err_cls, 2, args);
+        JS_FreeValue(ctx, args[0]);
+        JS_FreeValue(ctx, opts);
+        if (JS_IsException(ev)) {
+            JS_GetException(ctx);   /* 清 pending，防污染后续调用 */
+            JS_FreeValue(ctx, ev);
+        } else {
+            JSValue dsp = JS_GetPropertyStr(ctx, g, "dispatchEvent");
+            if (JS_IsFunction(ctx, dsp)) {
+                JSValue r = JS_Call(ctx, dsp, g, 1, &ev);
+                if (JS_IsException(r)) JS_GetException(ctx);
+                JS_FreeValue(ctx, r);
+            }
+            JS_FreeValue(ctx, dsp);
+            JS_FreeValue(ctx, ev);
+        }
+    }
+    JS_FreeValue(ctx, err_cls);
+
+    /* 2) 向父通知（父侧 worker.js 路由到 w.onerror） */
     JSValue pm = JS_GetPropertyStr(ctx, g, "postMessage");
     JS_FreeValue(ctx, g);
     if (JS_IsFunction(ctx, pm)) {
         JSValue obj = JS_NewObject(ctx);
         JS_SetPropertyStr(ctx, obj, "type", JS_NewString(ctx, "error"));
-        JS_SetPropertyStr(ctx, obj, "error", JS_NewString(ctx, msg ? msg : ""));
+        JS_SetPropertyStr(ctx, obj, "error", JS_NewString(ctx, text));
         JSValue args[1] = { obj };
         JSValue r = JS_Call(ctx, pm, JS_UNDEFINED, 1, args);
         JS_FreeValue(ctx, r);

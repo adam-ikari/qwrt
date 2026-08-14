@@ -37,3 +37,49 @@ TEST(worker_, terminate) {
     EXPECT_NE(std::string::npos, out.find("5")) << "got: " << out;
     host_destroy(h);
 }
+
+// Task 1: 脚本顶层异常 → 父侧 w.onerror 收到 {type:'error', error:<msg>}
+// （事件 data），且 worker 继续存活（之后父→worker 往返仍通）。
+TEST(worker_, error_notifies_parent) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_throw.js');\n"
+        "w.onmessage = function(e){ postMessage({v: e.data}); };\n"
+        "w.onerror = function(e){ postMessage({err: e.data}); };\n"
+        "'started'", &out));
+
+    ASSERT_TRUE(host_wait_msg(h, &out));   /* w.onerror → {err: e.data} */
+    /* 断言 "err" 键：若路由损坏、错误消息落到 w.onmessage，载荷为 {v: {...}}
+     * （键 "v" 而非 "err"），仅断言 "error"/"boom" 无法区分两条路径。 */
+    EXPECT_NE(std::string::npos, out.find("\"err\"")) << "got: " << out;
+    EXPECT_EQ(std::string::npos, out.find("\"v\"")) << "got: " << out;
+    EXPECT_NE(std::string::npos, out.find("boom")) << "got: " << out;
+
+    /* worker 存活：父 → worker 往返仍通 */
+    ASSERT_TRUE(host_eval(h, "w.postMessage('ping'); 'ok'", &out));
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("ping")) << "got: " << out;
+    host_destroy(h);
+}
+
+// Task 1: 脚本顶层异常 → worker 侧 self.onerror 收到 ErrorEvent（其 message
+// 含异常文本），并可通过 postMessage 回报父。
+TEST(worker_, error_fires_self_onerror) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_self_error.js');\n"
+        "w.onmessage = function(e){ postMessage({v: e.data}); };\n"
+        "'started'", &out));
+
+    /* worker 的 self.onerror → postMessage({workerErr: e.message}) → 父 onmessage */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("workerErr")) << "got: " << out;
+    EXPECT_NE(std::string::npos, out.find("boom")) << "got: " << out;
+    host_destroy(h);
+}

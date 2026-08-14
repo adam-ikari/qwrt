@@ -13,6 +13,9 @@
  *                                 parent teardown).
  *   - w.onmessage               — fires with MessageEvent whose data is
  *                                 deserialized from the worker's bytes.
+ *   - w.onerror                 — fires when the worker script throws at the
+ *                                 top level; the event's data is
+ *                                 {type:'error', error:<message>}.
  *
  * Inbound routing: __qwrt_dispatch__(data, source). source 0 = host (delegates
  * to host-messaging's handler verbatim); source > 0 = worker id (bytes).
@@ -39,11 +42,17 @@ export function setupWorker(pal) {
     var id = pal.spawnWorker(code);   /* 同步阻塞直到 worker ready；失败抛 Error */
     this._id = id;
     this._onmsg = null;
+    this._onerror = null;
     workers.set(id, this);
     var w = this;
     Object.defineProperty(this, 'onmessage', {
       get: function () { return w._onmsg; },
       set: function (fn) { w._onmsg = fn; },
+      configurable: true,
+    });
+    Object.defineProperty(this, 'onerror', {
+      get: function () { return w._onerror; },
+      set: function (fn) { w._onerror = fn; },
       configurable: true,
     });
   }
@@ -68,19 +77,20 @@ export function setupWorker(pal) {
       return;
     }
     var w = workers.get(source);
-    if (w && w._onmsg) {
-      var e;
-      try {
-        e = new MessageEvent('message', { data: __qwrt_deserialize__(data) });
-      } catch (err) {
-        reportError(err);
-        return;
-      }
-      try {
-        w._onmsg.call(self, e);
-      } catch (err) {
-        reportError(err);
-      }
+    if (!w) return;
+    var d;
+    try { d = __qwrt_deserialize__(data); }
+    catch (err) { reportError(err); return; }
+    var handler = (d && d.type === 'error') ? w._onerror : w._onmsg;
+    if (!handler) return;
+    var e;
+    try {
+      e = new MessageEvent('message', { data: d });
+    } catch (err) {
+      reportError(err);
+      return;
     }
+    try { handler.call(self, e); }
+    catch (err) { reportError(err); }
   };
 }
