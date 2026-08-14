@@ -141,7 +141,7 @@ typedef struct uv_io_http_op_t {
 
     /* Streaming mode */
     int streaming;              /* 1 = streaming response via stream_ops */
-    qwrt_pal_stream_ops_t stream_ops;
+    qwrt_io_stream_ops_t stream_ops;
 
     /* Streaming header parsing state */
     int headers_parsed;         /* 1 = headers already delivered via on_headers */
@@ -2896,7 +2896,7 @@ void uv_io_http_request_stream(qwrt_t *rt,
                                         const char *url, const char *method,
                                         const char *headers, const char *body,
                                         size_t body_len,
-                                        qwrt_pal_stream_ops_t *ops)
+                                        qwrt_io_stream_ops_t *ops)
 {
 
     if (!url || !ops) {

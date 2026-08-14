@@ -679,7 +679,7 @@ static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val,
     bs->on_data = JS_DupValue(ctx, argv[5]);
     bs->on_end = JS_DupValue(ctx, argv[6]);
 
-    qwrt_pal_stream_ops_t ops;
+    qwrt_io_stream_ops_t ops;
     memset(&ops, 0, sizeof ops);
     ops.on_headers = bridge_stream_on_headers;
     ops.on_data = bridge_stream_on_data;

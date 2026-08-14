@@ -59,12 +59,12 @@ typedef void (*qwrt_io_done_t)(void *opaque, int status,
                                const char *result, size_t len);
 
 /* Streaming HTTP response callbacks (uv_io_http_request_stream). */
-typedef struct qwrt_pal_stream_ops_s {
+typedef struct qwrt_io_stream_ops_s {
     void (*on_headers)(void *user_data, int status, const char *headers_json);
     void (*on_data)(void *user_data, const char *data, size_t len);
     void (*on_end)(void *user_data, int error_status);
     void *user_data;
-} qwrt_pal_stream_ops_t;
+} qwrt_io_stream_ops_t;
 
 /* Forward declarations */
 struct qwrt_ext_t;
@@ -326,7 +326,7 @@ void uv_io_http_request(qwrt_t *rt, const char *url, const char *method,
                         qwrt_io_done_t cb, void *cb_data);
 void uv_io_http_request_stream(qwrt_t *rt, const char *url, const char *method,
                                const char *headers, const char *body,
-                               size_t body_len, qwrt_pal_stream_ops_t *ops);
+                               size_t body_len, qwrt_io_stream_ops_t *ops);
 
 /* uv_io.c — synchronous helpers the bridge inlines (time_now uses uv_now on
  * rt->loop; hrtime/log/random_bytes are standalone). */
