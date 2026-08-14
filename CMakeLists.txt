@@ -23,6 +23,7 @@ option(QWRT_WITH_COMPRESS "Enable native compression via miniz" ON)
 option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
 option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
+option(QWRT_BUILD_EXAMPLES "Build example programs" OFF)
 
 # WAMR and wasm3 are mutually exclusive (both register the WebAssembly global)
 if(QWRT_WITH_WAMR AND QWRT_WITH_WASM3)
@@ -615,6 +616,9 @@ endif()
 if(QWRT_BUILD_TESTS)
     enable_testing()
     add_subdirectory(test)
+endif()
+if(QWRT_BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif()
 
 # ============================================================================

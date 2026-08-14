@@ -5,6 +5,7 @@ All notable changes to Qwrt.js.
 ## [Unreleased]
 
 ### Added
+- `examples/` tree with runnable samples: `hello` (host↔JS messaging) and `worker` (real-thread Web Worker); built via `QWRT_BUILD_EXAMPLES=ON`
 - qwrt_tick encapsulates run_cycle — single unified call with timeout_ms
 - qwrt_tick non-blocking design (returns 1/0/-1, no internal loop)
 - pal_uv_create requires explicit loop injection (no NULL)

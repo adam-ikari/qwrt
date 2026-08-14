@@ -61,6 +61,17 @@ has been evaluated (a thrown exception makes `qwrt_create` return NULL).
 `message_cb` fires on the qwrt thread for every `postMessage` from JS and must
 be thread-safe.
 
+### Examples
+
+Runnable samples live in [`examples/`](examples/), built with `QWRT_BUILD_EXAMPLES=ON`:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DQWRT_BUILD_EXAMPLES=ON
+cmake --build build -j$(nproc)
+./build/examples/hello/qwrt_hello   # host ↔ JS messaging
+./build/examples/worker/qwrt_worker # real-thread Web Worker round-trip
+```
+
 ### Build with Tests
 
 ```bash
