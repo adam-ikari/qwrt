@@ -126,9 +126,8 @@ typedef struct qwrt_cb_data_s {
     JSValue resolve;
     JSValue reject;
     qwrt_t *rt;
-    int is_timer;        /* 1 if this is a timer callback */
     int repeat;          /* 1 if this is a repeating timer */
-    int handle_idx;      /* timer handle index if is_timer */
+    int handle_idx;      /* timer handle index */
 } qwrt_cb_data_t;
 
 /* uv_io.c in-memory storage entry (per-runtime key-value store). */
@@ -284,7 +283,7 @@ int qwrt_ext_resume_all(qwrt_t *rt, qwrt_ctx_t *ctx);
 /* bridge.c — creates the internal pal JS object (per-context version) */
 JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx);
 
-/* bridge.c — inject polyfill via __pal_inject__ temp global (per-context version) */
+/* bridge.c — inject polyfill via __native_inject__ temp global (per-context version) */
 int qwrt_inject_polyfill_ctx(qwrt_t *rt, qwrt_ctx_t *ctx, const uint8_t *code, size_t code_len);
 
 /* bridge.c — dispatch an inbound message to the main context's

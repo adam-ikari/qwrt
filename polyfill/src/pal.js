@@ -10,5 +10,5 @@
  * to the `pal` IIFE parameter.
  */
 
-// pal is provided by the IIFE wrapper at runtime via __pal_inject__
-export var pal = globalThis.__pal_inject__;
+// pal is provided by the IIFE wrapper at runtime via __native_inject__
+export var pal = globalThis.__native_inject__;

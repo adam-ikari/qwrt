@@ -4413,4 +4413,4 @@
       Promise.resolve().then(callback);
     };
   }
-})(__pal_inject__);
+})(__native_inject__);

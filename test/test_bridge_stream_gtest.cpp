@@ -1,5 +1,5 @@
 // test_bridge_stream_gtest.cpp — 流式桥接回调（执行模型 A / mock_libuv）
-// 直接调 __pal__.httpRequestStream（绕过 fetch），验证 onHeaders / onData /
+// 直接调 __native__.httpRequestStream（绕过 fetch），验证 onHeaders / onData /
 // onEnd 三个回调全部按序触发。
 #include "test_host.h"
 #include <cstring>
@@ -30,7 +30,7 @@ TEST_F(BridgeStreamTest, HttpRequestStreamCallbacksFire) {
     ASSERT_TRUE(host_eval(h,
         "var _result = null; var _headerStatus = -1; var _headerJson = '';\n"
         "var _dataChunks = 0; var _dataBytes = 0;\n"
-        "__pal__.httpRequestStream(\n"
+        "__native__.httpRequestStream(\n"
         "  'http://api.example.com/data', 'GET', '{}', null,\n"
         "  function(status, hdrs){ _headerStatus = status; _headerJson = hdrs; },\n"
         "  function(chunk){ _dataChunks++; _dataBytes += (chunk instanceof ArrayBuffer) ? chunk.byteLength : chunk.length; },\n"

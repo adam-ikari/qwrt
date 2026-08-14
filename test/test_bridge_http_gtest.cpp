@@ -1,6 +1,6 @@
 // test_bridge_http_gtest.cpp — JS 桥接 HTTP（执行模型 A / mock_libuv）
 // 用 host_eval 契约（test_host.h）+ mock_tcp_respond 预注册 canned HTTP
-// 响应。非流式 __pal__.httpRequest 走 Content-Length 完成路径；流式
+// 响应。非流式 __native__.httpRequest 走 Content-Length 完成路径；流式
 // httpRequestStream 在 EOF 触发 on_end。
 #include "test_host.h"
 #include <cstring>
@@ -29,7 +29,7 @@ TEST_F(BridgeHttpTest, NonStreamingHttpRequest) {
     std::string out;
     ASSERT_TRUE(host_eval(h,
         "var _result = null;\n"
-        "__pal__.httpRequest('http://api.example.com/data', 'GET', '{}', null)\n"
+        "__native__.httpRequest('http://api.example.com/data', 'GET', '{}', null)\n"
         "  .then(function(d){ _result = d; })\n"
         "  .catch(function(e){ _result = 'error:' + e; });\n"
         "0", &out));
@@ -53,7 +53,7 @@ TEST_F(BridgeHttpTest, StreamingHttpRequestStream) {
     std::string out;
     ASSERT_TRUE(host_eval(h,
         "var _result = null; var _headerStatus = -1; var _dataBytes = 0;\n"
-        "__pal__.httpRequestStream(\n"
+        "__native__.httpRequestStream(\n"
         "  'http://api.example.com/data', 'GET', '{}', null,\n"
         "  function(status, hdrs){ _headerStatus = status; },\n"
         "  function(chunk){ _dataBytes += (chunk instanceof ArrayBuffer) ? chunk.byteLength : chunk.length; },\n"

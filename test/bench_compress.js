@@ -102,7 +102,7 @@ function decompressStream(data, format) {
 }
 
 /* Check if native sync API is available (qwrt only) */
-var hasNative = (typeof globalThis !== 'undefined' && typeof globalThis.__pal__ !== 'undefined' && typeof globalThis.__pal__.nativeCompress === 'function');
+var hasNative = (typeof globalThis !== 'undefined' && typeof globalThis.__native__ !== 'undefined' && typeof globalThis.__native__.nativeCompress === 'function');
 
 var runtime = 'unknown';
 if (typeof process !== 'undefined') {
@@ -134,7 +134,7 @@ async function main() {
   /* --- Section 1: Sync native throughput (qwrt only) --- */
   if (hasNative) {
     console.log('=== 1. Native Sync Throughput (pal.nativeCompress/nativeDecompress) ===');
-    var pal = globalThis.__pal__;
+    var pal = globalThis.__native__;
     for (var fi = 0; fi < formats.length; fi++) {
       var fmt = formats[fi];
       console.log('\n  [' + fmt + ' compress]');
@@ -226,7 +226,7 @@ async function main() {
       var pat = patterns[pi];
       var data = pat.gen(1024 * 1024);
       if (hasNative) {
-        var compressed = globalThis.__pal__.nativeCompress(data, fmt);
+        var compressed = globalThis.__native__.nativeCompress(data, fmt);
         var ratio = (compressed.length / data.length * 100).toFixed(1);
         console.log('  ratio.' + pat.name + '.1MB.' + fmt + ' = ' + ratio + '%');
       } else {

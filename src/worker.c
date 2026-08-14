@@ -26,7 +26,7 @@
 /* 父线程调用的 worker API 契约见 qwrt_internal.h（qwrt_worker_* 声明；
  * qwrt_worker_s 定义也在那，bridge.c / qwrt.c 需解引用其字段）。 */
 
-/* worker 启动垫片：读 __pal__，覆盖 postMessage / __qwrt_dispatch__ / close。
+/* worker 启动垫片：读 __native__，覆盖 postMessage / __qwrt_dispatch__ / close。
  * 之后 worker 脚本里的 postMessage()/onmessage/close() 即按 worker 语义工作。 */
 #define QWRT_WORKER_BOOT_JS                                                  \
     "(function(pal){                                                         \
@@ -38,7 +38,7 @@
          globalThis.dispatchEvent(new MessageEvent('message', {data: v}));   \
        };                                                                    \
        globalThis.close = function(){ pal.workerClose(); };                  \
-     })(globalThis.__pal__);"
+     })(globalThis.__native__);"
 
 /* worker 入站派发：父发的字节 → __qwrt_dispatch__(bytes, 0)（垫片反序列化） */
 static void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m)

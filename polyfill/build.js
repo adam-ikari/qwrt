@@ -3,16 +3,16 @@
  *
  * Bundles all polyfill modules into a single IIFE using esbuild,
  * then post-processes the output so `pal` is received as a closure
- * parameter from `__pal_inject__`.
+ * parameter from `__native_inject__`.
  *
  * Strategy:
  *   1. Source code imports `pal` from `pal.js` which defines it as
- *      `var pal = globalThis.__pal_inject__`. This tells esbuild that
+ *      `var pal = globalThis.__native_inject__`. This tells esbuild that
  *      `pal` is a defined module variable (not an undefined global),
  *      preventing it from being treated as an external.
  *   2. esbuild bundles with format:'iife' + globalName, producing:
  *      var qwrt_polyfill = (() => {
- *        var pal = globalThis.__pal_inject__;
+ *        var pal = globalThis.__native_inject__;
  *        function setupConsole(pal2) { ... }  // renamed to avoid shadowing
  *        setupConsole(pal);
  *        ...
@@ -20,8 +20,8 @@
  *   3. Post-process:
  *      - Strip "var qwrt_polyfill = " prefix
  *      - Replace arrow IIFE with named function: (() => { ... })()
- *        becomes (function(pal) { ... })(__pal_inject__);
- *      - Remove "var pal = globalThis.__pal_inject__;" since pal
+ *        becomes (function(pal) { ... })(__native_inject__);
+ *      - Remove "var pal = globalThis.__native_inject__;" since pal
  *        now comes from the IIFE parameter
  *
  * Outputs:
@@ -66,14 +66,14 @@ const esbuildOptions = {
  *
  * Input (esbuild raw):
  *   var qwrt_polyfill = (() => {
- *     var pal = globalThis.__pal_inject__;
+ *     var pal = globalThis.__native_inject__;
  *     ...
  *   })();
  *
  * Output (our wrapper):
  *   (function(pal) {
  *     ...
- *   })(__pal_inject__);
+ *   })(__native_inject__);
  */
 function postProcess(js) {
   // 1. Strip "var qwrt_polyfill = " prefix
@@ -85,13 +85,13 @@ function postProcess(js) {
   //    Note: the outer ( is the IIFE invocation paren, () is the arrow params
   js = js.replace(/^\(\(\)\s*=>\s*\{/, '(function(pal) {');
 
-  // 3. Replace the IIFE invocation: })();   =>   })(__pal_inject__);
-  js = js.replace(/\}\)\(\)\s*;\s*$/, '})(__pal_inject__);\n');
+  // 3. Replace the IIFE invocation: })();   =>   })(__native_inject__);
+  js = js.replace(/\}\)\(\)\s*;\s*$/, '})(__native_inject__);\n');
 
-  // 4. Remove the "var pal = globalThis.__pal_inject__;" line since
+  // 4. Remove the "var pal = globalThis.__native_inject__;" line since
   //    pal is now provided by the IIFE parameter
   //    esbuild may output it with or without semicolons, various whitespace
-  js = js.replace(/\s*var pal\s*=\s*globalThis\.__pal_inject__\s*;?\s*\n?/, '\n');
+  js = js.replace(/\s*var pal\s*=\s*globalThis\.__native_inject__\s*;?\s*\n?/, '\n');
 
   return js;
 }

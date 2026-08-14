@@ -156,7 +156,7 @@ static qwrt_ctx_t *qwrt_ctx_create_at(qwrt_t *rt, int slot)
             return NULL;
         }
         JSValue global = JS_GetGlobalObject(ctx->jsctx);
-        JS_SetPropertyStr(ctx->jsctx, global, "__pal_inject__", pal_obj);
+        JS_SetPropertyStr(ctx->jsctx, global, "__native_inject__", pal_obj);
         JS_FreeValue(ctx->jsctx, global);
 
         /* Load and evaluate bytecode */
@@ -174,17 +174,17 @@ static qwrt_ctx_t *qwrt_ctx_create_at(qwrt_t *rt, int slot)
             }
         }
 
-        /* Remove __pal_inject__ from globalThis but keep the pal object
-         * accessible as __pal__ for extension init hooks to register
+        /* Remove __native_inject__ from globalThis but keep the native object
+         * accessible as __native__ for extension init hooks to register
          * functions on it. The polyfill's closures reference the same
          * object, so extensions adding properties here are visible. */
         global = JS_GetGlobalObject(ctx->jsctx);
-        JSAtom inject_atom = JS_NewAtom(ctx->jsctx, "__pal_inject__");
+        JSAtom inject_atom = JS_NewAtom(ctx->jsctx, "__native_inject__");
         JSValue pal_ref = JS_GetProperty(ctx->jsctx, global, inject_atom);
         JS_DeleteProperty(ctx->jsctx, global, inject_atom, 0);
         JS_FreeAtom(ctx->jsctx, inject_atom);
         if (!JS_IsUndefined(pal_ref) && !JS_IsException(pal_ref)) {
-            JS_SetPropertyStr(ctx->jsctx, global, "__pal__", pal_ref);
+            JS_SetPropertyStr(ctx->jsctx, global, "__native__", pal_ref);
         } else {
             JS_FreeValue(ctx->jsctx, pal_ref);
         }

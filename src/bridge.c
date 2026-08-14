@@ -112,7 +112,6 @@ static qwrt_cb_data_t *alloc_cb_data(qwrt_ctx_t *cctx, JSValue resolve, JSValue 
     cbd->resolve = resolve;  /* takes ownership */
     cbd->reject = reject;    /* takes ownership */
     cbd->rt = rt;
-    cbd->is_timer = 0;
     cbd->repeat = 0;
     cbd->handle_idx = -1;
     return cbd;
@@ -332,7 +331,6 @@ static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int arg
         JS_FreeValue(ctx, resolving_funcs[1]);
         return JS_ThrowOutOfMemory(ctx);
     }
-    cbd->is_timer = 1;
     cbd->repeat = repeat;
 
     /* Allocate + arm the uv timer on the qwrt thread's loop */
@@ -432,11 +430,6 @@ static bool bridge_validate_path(const char *path)
             if (next == '\0' || next == '/' || next == '\\') {
                 return false;
             }
-        }
-        /* Also catch "..." (three dots) as it can sometimes bypass naive checks */
-        if (p[0] == '.' && p[1] == '.' && p[2] == '.' &&
-            (p[3] == '\0' || p[3] == '/' || p[3] == '\\')) {
-            return false;
         }
         p++;
     }
@@ -1170,6 +1163,12 @@ static JSValue js_pal_fs_read_sync(JSContext *ctx, JSValueConst this_val,
     if (argc < 1) return JS_EXCEPTION;
     const char *path = JS_ToCString(ctx, argv[0]);
     if (!path) return JS_EXCEPTION;
+    /* Same ".." traversal guard as the async fs ops — sync reads (worker
+     * script loader) must not bypass it. */
+    if (!bridge_validate_path(path)) {
+        JS_FreeCString(ctx, path);
+        return JS_ThrowTypeError(ctx, "Path traversal detected");
+    }
 
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -1467,7 +1466,7 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
 }
 
 /* ================================================================
- * Inject polyfill via __pal_inject__ temp global (per-context version)
+ * Inject polyfill via __native_inject__ temp global (per-context version)
  * ================================================================ */
 
 int qwrt_inject_polyfill_ctx(qwrt_t *rt, qwrt_ctx_t *ctx, const uint8_t *code, size_t code_len)
@@ -1482,13 +1481,13 @@ int qwrt_inject_polyfill_ctx(qwrt_t *rt, qwrt_ctx_t *ctx, const uint8_t *code, s
         return -1;
     }
 
-    /* Set __pal_inject__ as a global temp var */
-    JS_SetPropertyStr(jsctx, global, "__pal_inject__", pal);
+    /* Set __native_inject__ as a global temp var */
+    JS_SetPropertyStr(jsctx, global, "__native_inject__", pal);
 
     JS_FreeValue(jsctx, global);
 
     /* Evaluate the polyfill code.
-     * Expected format: (function(pal){ ... })(__pal_inject__);
+     * Expected format: (function(pal){ ... })(__native_inject__);
      */
     JSValue result = JS_Eval(jsctx, (const char *)code, code_len, "<polyfill>", JS_EVAL_TYPE_GLOBAL);
     if (JS_IsException(result)) {
@@ -1530,16 +1529,16 @@ int qwrt_inject_polyfill_ctx(qwrt_t *rt, qwrt_ctx_t *ctx, const uint8_t *code, s
         JS_FreeValue(jsctx, rs_ctor);
     }
 
-    /* After polyfill runs, move __pal_inject__ to __pal__ so extension init
+    /* After polyfill runs, move __native_inject__ to __native__ so extension init
      * hooks can register functions on the same pal object that the polyfill's
      * closures reference. */
     global = JS_GetGlobalObject(jsctx);
-    JSAtom inject_atom = JS_NewAtom(jsctx, "__pal_inject__");
+    JSAtom inject_atom = JS_NewAtom(jsctx, "__native_inject__");
     JSValue pal_ref = JS_GetProperty(jsctx, global, inject_atom);
     JS_DeleteProperty(jsctx, global, inject_atom, 0);
     JS_FreeAtom(jsctx, inject_atom);
     if (!JS_IsUndefined(pal_ref) && !JS_IsException(pal_ref)) {
-        JS_SetPropertyStr(jsctx, global, "__pal__", pal_ref);
+        JS_SetPropertyStr(jsctx, global, "__native__", pal_ref);
     } else {
         JS_FreeValue(jsctx, pal_ref);
     }

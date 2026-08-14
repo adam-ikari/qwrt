@@ -433,7 +433,7 @@ static int crypto_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
     JSValue pal = JS_GetPropertyStr(ctx, global, "pal");
     if (JS_IsUndefined(pal) || JS_IsException(pal)) {
         JS_FreeValue(ctx, pal);
-        pal = JS_GetPropertyStr(ctx, global, "__pal__");
+        pal = JS_GetPropertyStr(ctx, global, "__native__");
     }
 
     if (JS_IsUndefined(pal) || JS_IsException(pal)) {

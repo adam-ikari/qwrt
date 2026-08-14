@@ -10,9 +10,9 @@
 
 function now_ns() {
   /* Use pal.hrtime() for nanosecond precision when available */
-  if (typeof globalThis !== 'undefined' && typeof globalThis.__pal__ !== 'undefined' &&
-      typeof globalThis.__pal__.hrtime === 'function') {
-    return globalThis.__pal__.hrtime();
+  if (typeof globalThis !== 'undefined' && typeof globalThis.__native__ !== 'undefined' &&
+      typeof globalThis.__native__.hrtime === 'function') {
+    return globalThis.__native__.hrtime();
   }
   /* Use performance.now() if it returns real sub-ms values */
   if (typeof performance !== 'undefined') {
@@ -46,7 +46,7 @@ function makeSparse(size) {
   return arr;
 }
 
-var hasNative = (typeof globalThis !== 'undefined' && typeof globalThis.__pal__ !== 'undefined' && typeof globalThis.__pal__.nativeCompress === 'function');
+var hasNative = (typeof globalThis !== 'undefined' && typeof globalThis.__native__ !== 'undefined' && typeof globalThis.__native__.nativeCompress === 'function');
 var isNode = (typeof process !== 'undefined' && typeof process.versions !== 'undefined' && typeof process.versions.node !== 'undefined');
 
 /* Node.js fallback: use zlib module */
@@ -68,13 +68,13 @@ if (isNode && !hasNative) {
 }
 
 function nativeCompress(data, format) {
-  if (hasNative) return globalThis.__pal__.nativeCompress(data, format);
+  if (hasNative) return globalThis.__native__.nativeCompress(data, format);
   if (zlibSync) return zlibSync.compress(data, format);
   throw new Error('No native compression available');
 }
 
 function nativeDecompress(data, format) {
-  if (hasNative) return globalThis.__pal__.nativeDecompress(data, format);
+  if (hasNative) return globalThis.__native__.nativeDecompress(data, format);
   if (zlibSync) return zlibSync.decompress(data, format);
   throw new Error('No native decompression available');
 }

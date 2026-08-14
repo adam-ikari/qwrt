@@ -83,3 +83,22 @@ TEST(host_, message_thread_safety) {
     ASSERT_EQ(N * PER, (int)got.size());              // 1600 条全到，无重复
     for (int i = 0; i < N * PER; i++) ASSERT_TRUE(got.count(i)) << "missing echo " << i;
 }
+
+TEST(pal_fs, read_sync_rejects_traversal) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string out;
+
+    /* ".." 组件必须在 fopen 前被拒绝（同步读与异步 fs op 走同一守卫） */
+    ASSERT_TRUE(host_value(h,
+        "(() => { try { __native__.fsReadSync('../etc/passwd'); return 'NO_THROW'; }"
+        " catch (e) { return e.message; } })()", &out));
+    ASSERT_EQ("Path traversal detected", out);
+
+    /* 普通相对路径不触发守卫（文件不存在时是 open 错误，不是 traversal） */
+    ASSERT_TRUE(host_value(h,
+        "(() => { try { __native__.fsReadSync('no_such_file_xyz'); return 'NO_THROW'; }"
+        " catch (e) { return e.message; } })()", &out));
+    ASSERT_NE("Path traversal detected", out);
+    host_destroy(h);
+}

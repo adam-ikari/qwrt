@@ -622,7 +622,7 @@ static int compress_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 
     JSValue global = JS_GetGlobalObject(ctx);
 
-    JSValue pal = JS_GetPropertyStr(ctx, global, "__pal__");
+    JSValue pal = JS_GetPropertyStr(ctx, global, "__native__");
     if (JS_IsUndefined(pal) || JS_IsException(pal)) {
         JS_FreeValue(ctx, pal);
         pal = JS_GetPropertyStr(ctx, global, "pal");

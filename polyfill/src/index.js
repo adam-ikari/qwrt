@@ -4,10 +4,10 @@
  * This is the entry point for the esbuild bundler.
  * All modules are imported and their setup functions called with the `pal`
  * parameter, which is the IIFE closure parameter injected by the C bridge
- * layer via `__pal_inject__`.
+ * layer via `__native_inject__`.
  *
  * The build script wraps the bundled output in:
- *   (function(pal){ ... })(__pal_inject__);
+ *   (function(pal){ ... })(__native_inject__);
  *
  * PAL Primitives Available:
  *   pal.timeNow() -> number (ms timestamp)
