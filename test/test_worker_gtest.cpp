@@ -83,3 +83,20 @@ TEST(worker_, error_fires_self_onerror) {
     EXPECT_NE(std::string::npos, out.find("boom")) << "got: " << out;
     host_destroy(h);
 }
+
+// Task 2: importScripts 同步加载 file:// 附加脚本（worker 侧通过 onmessage
+// 接收路径，同步调用 importScripts，再回传 EXTRA 全局）。
+TEST(worker_, import_scripts) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_import.js');\n"
+        "w.onmessage = function(e){ postMessage({v: e.data}); };\n"
+        "w.postMessage('file://" TEST_DIR "/worker_extra.js');\n"
+        "'started'", &out));
+    ASSERT_TRUE(host_wait_msg(h, &out));   /* worker 回传 EXTRA */
+    EXPECT_NE(std::string::npos, out.find("42")) << "got: " << out;
+    host_destroy(h);
+}

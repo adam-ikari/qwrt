@@ -39,6 +39,15 @@
          globalThis.dispatchEvent(new MessageEvent('message', {data: v}));   \
        };                                                                    \
        globalThis.close = function(){ pal.workerClose(); };                  \
+       globalThis.importScripts = function(){                                \
+         for (var i = 0; i < arguments.length; i++) {                        \
+           var url = String(arguments[i]);                                   \
+           if (url.indexOf('file://') !== 0)                                 \
+             throw new Error('importScripts: only file:// URLs');            \
+           var code = pal.fsReadSync(url.slice(7));                          \
+           (0, eval)(code);                                                  \
+         }                                                                   \
+       };                                                                    \
      })(globalThis.__native__);"
 
 /* worker 入站派发：父发的字节 → __qwrt_dispatch__(bytes, 0)（垫片反序列化） */
