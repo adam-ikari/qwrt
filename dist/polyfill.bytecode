@@ -1,4 +1,4 @@
-Ω ˛palsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
+—†ñÅˇpalsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
 debugTrace: objoptions
 depth
 labeltimeNow
@@ -62,7 +62,7 @@ regexnavigatorreportError2lineNumbercolumnNumberlistener_onerrorHand
 en-USlanguagewintercgplatform&hardwareConcurrencyonLinemaxTouchPointsonerror(onunhandledrejection$onrejectionhandled.__installCryptoSubtle__toUint8ArraytoArrayBufferB64_CHARSbase64UrlEncodebase64UrlDecodeCryptoKeySubtleCryptoDExpected ArrayBuffer or TypedArrayu8b0b2_
 charsc0c1c2c3algorithmextractableusages_algorithm_extractable_usagesnativeDigest<Crypto extension not availablekeyDatakeyUsagesalgoNameInvalid keyDatajwk(Invalid JWK key data0Unsupported key format: secrethashAlgoHMACSHA-256nativeHmac.Unsupported algorithm: signaturecomputedsigcompdiffsignplaintextivaadtagLencounter nativeAesEncryptAES-CBCAES-GCMadditionalDatatagLengthAES-CTRciphertext nativeAesDecryptlengthBitslengthByteskeyBytesceil
 SHA-1SHA-512,Invalid AES key lengthOperationError,Key is not extractableoctktyHSSHA-algextkey_ops6Unsupported export format: saltiterations
-dkLenPBKDF2nativePbkdf2derivedKeyTypebitsLengthbitsderiveBitsdigestimportKeyverifyencryptdecryptgenerateKeyexportKeyderiveKeycloneTypedArrayTA_CTORSutf8Encodeutf8DecodeByteWriterencodeString serializeToBytesByteReader(deserializeFromBytesseenCtor0Symbols cannot be cloned4Functions cannot be clonedgetTimeoutcpufu32f64refswtfbytesbbytesau8tu8valisIntegeris*File cannot be cloned*Blob cannot be clonednrrdtagnmmoffdvtabllmflo&Bad serialized data$__qwrt_serialize__(__qwrt_deserialize__workersloadScriptWorkerhostDispatchfile://ZWorker: only file:// URLs are supported in v1fsReadSyncid_onmsgspawnWorker_idworkerPostworkerTerminate_pristine_infra
+dkLenPBKDF2nativePbkdf2derivedKeyTypebitsLengthbitsderiveBitsdigestimportKeyverifyencryptdecryptgenerateKeyexportKeyderiveKeycloneTypedArrayTA_CTORSutf8Encodeutf8DecodeByteWriterencodeString serializeToBytesByteReader(deserializeFromBytesseenCtor0Symbols cannot be cloned4Functions cannot be clonedgetTimeoutcpufu32f64refswtfbytesbbytesau8tu8valisIntegeris*File cannot be cloned*Blob cannot be clonednrrdtagnmmoffdvtabllmflo&Bad serialized data$__qwrt_serialize__(__qwrt_deserialize__workersloadScriptWorkerhostDispatchfile://ZWorker: only file:// URLs are supported in v1fsReadSyncid_onmsg_onerrorspawnWorker_idworkerPostworkerTerminate_pristine_infra
 propsskippedreccontextSpawncontextSuspendcontextResumecontextDestroycreate(__qwrt_ctx_capture__(__qwrt_ctx_restore__qwrtContext
 spawnsuspendresumedestroyVqueueMicrotask requires a function argumentqueueMicrotask"__native_inject__ 
  ®    
@@ -11132,18 +11132,26 @@ $ Â‰◊@:   Ò†   ˆÂ‰◊@4   Ò∆ˆ)7˝  ˙iõ   ◊8˝  ©hè   ÊAF   ◊] ê^ $ ‰
       }
       return pal2.fsReadSync(url.slice("file://".length));
     }C
- ¢`ñ  û   ¨  Ë @   † ñ û C
-        Ë „@◊  (®≥! 1function() {
+ ¢öñ  û   ¨  Ë @   † ñ û C
+        Ë „@◊  (®¥! 1function() {
           return w._onmsg;
         }C
-     Ã  Ë „◊B◊  )®∂!1function(fn) {
+     Ã  Ë „◊B◊  )®∑!1function(fn) {
           w._onmsg = fn;
-        }“„◊ıœ‰Aÿ  À$ –ŒÃBŸ  ŒB◊  ÂAF   ÃŒ$ Œ—8û   Am   Œo  ≈ LE   KE   ≈LF   KF   
-KA   $ )®´!003& &  ,4,õfunction Worker(url) {
+        }C
+        Ë „@ÿ  (®Ω! 3function() {
+          return w._onerror;
+        }C
+     Ã  Ë „◊Bÿ  )®¿!3function(fn) {
+          w._onerror = fn;
+        }“„◊ıœ‰AŸ  À$ –ŒÃB⁄  ŒB◊  ŒBÿ  ÂAF   ÃŒ$ Œ—8û   Am   Œo  ≈ LE   KE   ≈LF   KF   
+KA   $ 8û   Am   Œ@  ≈LE   KE   ≈LF   KF   
+KA   $ )®´!003& & &  ,4, )+4,èfunction Worker(url) {
       var code = loadScript(url);
       var id = pal2.spawnWorker(code);
       this._id = id;
       this._onmsg = null;
+      this._onerror = null;
       workers.set(id, this);
       var w = this;
       Object.defineProperty(this, "onmessage", {
@@ -11155,39 +11163,56 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
         },
         configurable: true
       });
+      Object.defineProperty(this, "onerror", {
+        get: function() {
+          return w._onerror;
+        },
+        set: function(fn) {
+          w._onerror = fn;
+        },
+        configurable: true
+      });
     }C
-    à  Æ     ñ –8Õ  ◊ıœ„A⁄  Ã@Ÿ  À$ )®º!$&=  lfunction(value) {
+    à  Æ     ñ –8Õ  ◊ıœ„A€  Ã@⁄  À$ )®∆!$&=  lfunction(value) {
       var bytes = __qwrt_serialize__(value);
       pal2.workerPost(this._id, bytes);
     }C
-      "  ñ û œ„A€  À@Ÿ  $ ‰A	   À@Ÿ  $ )®¿!"5 *5) Xfunction() {
+      "  ñ û œ„A‹  À@⁄  $ ‰A	   À@⁄  $ )® !"5 *5) Xfunction() {
       pal2.workerTerminate(this._id);
       workers.delete(this._id);
     }C
-    ‹  Ë  Ë   §  Œ Œ § û ö
-  ÿ∫≠„◊ÿˆ)‰AE   ÿ$ ”hÀ@◊  `k#   8t  4   8Œ  ◊ıK.  ! –Ú—k   8v  Õın(0k   À@◊  A©  ÂÃ$ )“k   8v  Œı)0)®∆!$7
- Wjhy 9JÊfunction(data, source) {
+    π	‹  Ë  Ë   ö	  Œ Ê  §  Œ Œ § û ö
+  ÿ∫≠„◊ÿˆ)‰AE   ÿ$ ”ï)k   8Œ  ◊ı–Ú—k   8v  Õın(0ÃÃ@Y  7   ≠	À@ÿ  ÚÀ@◊  ÷ï)k   8t  4   ÃK.  ! »Ú»k   8v  «ın(0k   ŒA©  Â«$ )»k   8v  «ı)0®–!$&7
+ #2@1U   '©  Tëfunction(data, source) {
       if (source === 0) {
         hostDispatch(data, source);
         return;
       }
       var w = workers.get(source);
-      if (w && w._onmsg) {
-        var e;
-        try {
-          e = new MessageEvent("message", { data: __qwrt_deserialize__(data) });
-        } catch (err) {
-          reportError(err);
-          return;
-        }
-        try {
-          w._onmsg.call(self, e);
-        } catch (err) {
-          reportError(err);
-        }
+      if (!w) return;
+      var d;
+      try {
+        d = __qwrt_deserialize__(data);
+      } catch (err) {
+        reportError(err);
+        return;
+      }
+      var handler = d && d.type === "error" ? w._onerror : w._onmsg;
+      if (!handler) return;
+      var e;
+      try {
+        e = new MessageEvent("message", { data: d });
+      } catch (err) {
+        reportError(err);
+        return;
+      }
+      try {
+        handler.call(self, e);
+      } catch (err) {
+        reportError(err);
       }
     }≈ —≈“8ï   œ8ø   !  –Œ@?   ≈Bq  Œ@?   ≈B¡  8ï   ŒB—  À@w  »8ï   ≈Bw  )®¢!@H 
-0C    c Âfunction setupWorker(pal2) {
+DC    c Ñfunction setupWorker(pal2) {
     var self = globalThis;
     var workers = /* @__PURE__ */ new Map();
     function loadScript(url) {
@@ -11201,6 +11226,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
       var id = pal2.spawnWorker(code);
       this._id = id;
       this._onmsg = null;
+      this._onerror = null;
       workers.set(id, this);
       var w = this;
       Object.defineProperty(this, "onmessage", {
@@ -11209,6 +11235,15 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
         },
         set: function(fn) {
           w._onmsg = fn;
+        },
+        configurable: true
+      });
+      Object.defineProperty(this, "onerror", {
+        get: function() {
+          return w._onerror;
+        },
+        set: function(fn) {
+          w._onerror = fn;
         },
         configurable: true
       });
@@ -11229,25 +11264,33 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
         return;
       }
       var w = workers.get(source);
-      if (w && w._onmsg) {
-        var e;
-        try {
-          e = new MessageEvent("message", { data: __qwrt_deserialize__(data) });
-        } catch (err) {
-          reportError(err);
-          return;
-        }
-        try {
-          w._onmsg.call(self, e);
-        } catch (err) {
-          reportError(err);
-        }
+      if (!w) return;
+      var d;
+      try {
+        d = __qwrt_deserialize__(data);
+      } catch (err) {
+        reportError(err);
+        return;
+      }
+      var handler = d && d.type === "error" ? w._onerror : w._onmsg;
+      if (!handler) return;
+      var e;
+      try {
+        e = new MessageEvent("message", { data: d });
+      } catch (err) {
+        reportError(err);
+        return;
+      }
+      try {
+        handler.call(self, e);
+      } catch (err) {
+        reportError(err);
       }
     };
   }C
- î ßñ @∏  @ ¥  ¢  ∫ @C
-      °º   æ  b  à	  ˛  ‰  § §
- ∏  ∫ œ&  –8û   A1   8ï   $ —∫“ŒÕÔ•lÕŒF»„«FÒ‰«FÒUk   8ï   «F»Ú»k   Ú90k   À«ØÒq8Õ  «ıqHÚ»k   ÃAO  «$ Ú0íÚê8Õ  ÀKﬁ  ÃKﬂ  # ®Á!'U? 
+ î ßñ @∫  @ ¥  ¢  º @C
+      °æ   ¿  b  à	  ˛  ‰  § §
+ ∫  º œ&  –8û   A1   8ï   $ —∫“ŒÕÔ•lÕŒF»„«FÒ‰«FÒUk   8ï   «F»Ú»k   Ú90k   À«ØÒq8Õ  «ıqHÚ»k   ÃAO  «$ Ú0íÚê8Õ  ÀKﬂ  ÃK‡  # ®˘!'U? 
 # 
  W<Y; dÜfunction() {
       var props = {};
@@ -11270,8 +11313,8 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
       }
       return __qwrt_serialize__({ props, skipped });
     }C
-    ô	Æ  ¿   Ü  b  à	  ˛  ‰  § §
- ∫ 8Œ  ◊ı”À@ﬁ  Ò–8û   A1   Ã$ —∫“ŒÕÔ•XÕŒF»„«FÒIk   8Œ  Ã«Fı»Ú»k   Ú+0k   8ï   «ØÒq«qHÚ»k   Ú0íÚ§ÀÀ@ﬂ  Ò&  (®¸!'ï+ 
+    ô	Æ  ¬   Ü  b  à	  ˛  ‰  § §
+ º 8Œ  ◊ı”À@ﬂ  Ò–8û   A1   Ã$ —∫“ŒÕÔ•XÕŒF»„«FÒIk   8Œ  Ã«Fı»Ú»k   Ú+0k   8ï   «ØÒq«qHÚ»k   Ú0íÚ§ÀÀ@‡  Ò&  (®é"'ï+ 
 #2 
 1Ïfunction(bytes) {
       var rec = __qwrt_deserialize__(bytes);
@@ -11293,18 +11336,18 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
       }
       return rec && rec.skipped || [];
     }C
-     Ù  ñ „A·  8¢   ◊ı% ®ë"!(Bfunction(s) {
+     Ù  ñ „A‚  8¢   ◊ı% ®£"!(Bfunction(s) {
         return pal2.contextSpawn(String(s));
       }C
-     ¨  Ü  ñ „A‚  8°   ◊ı8¢   ÿı% ®î"!(%Tfunction(id, p) {
+     ¨  Ü  ñ „A„  8°   ◊ı8¢   ÿı% ®¶"!(%Tfunction(id, p) {
         return pal2.contextSuspend(Number(id), String(p));
       }C
-     ¨  Ù  Ü  ñ „A„  8°   ◊ı8¢   ÿı8¢   Ÿı% ®ó"!(%%afunction(id, s, p) {
+     ¨  Ù  Ü  ñ „A‰  8°   ◊ı8¢   ÿı8¢   Ÿı% ®©"!(%%afunction(id, s, p) {
         return pal2.contextResume(Number(id), String(s), String(p));
       }C
-     ¨  ñ „A‰  8°   ◊ı% ®ö"!(Ffunction(id) {
+     ¨  ñ „AÂ  8°   ◊ı% ®¨"!(Ffunction(id) {
         return pal2.contextDestroy(Number(id));
-      }8û   AÂ  $ œ8û   A1   8ï   $ –∫—ÕÃÔ• ÕFØÒqªqHíÚÊªKÊ  ªKÁ  ªKË  “8ï   ≈ BÊ  8ï   ≈BÁ  8ï   ≈LÈ  KÈ  ≈LÍ  KÍ  ≈LÎ  KÎ  ≈LÏ  KÏ  BË  )®ﬁ!5`N+?& )M *  ( ôfunction setupContext(pal2) {
+      }8û   AÊ  $ œ8û   A1   8ï   $ –∫—ÕÃÔ• ÕFØÒqªqHíÚÊªKÁ  ªKË  ªKÈ  “8ï   ≈ BÁ  8ï   ≈BË  8ï   ≈LÍ  KÍ  ≈LÎ  KÎ  ≈LÏ  KÏ  ≈LÌ  KÌ  BÈ  )®!5`N+?& )M *  ( ôfunction setupContext(pal2) {
     var _pristine = /* @__PURE__ */ Object.create(null);
     var names = Object.keys(globalThis);
     for (var i = 0; i < names.length; i++) _pristine[names[i]] = 1;
@@ -11369,7 +11412,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
       }
     };
   }C
-      *»  ◊˚Ò8⁄   Ì  ! 08Œ   Aä   $  Aâ   ◊$ )®π"!
+      *»  ◊˚Ò8⁄   Ó  ! 08Œ   Aä   $  Aâ   ◊$ )®À"!
 O4*¬function(callback) {
       if (typeof callback !== "function") {
         throw new TypeError("queueMicrotask requires a function argument");
@@ -11378,9 +11421,9 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     }≈ œ≈–≈—≈“≈»≈»≈»≈»≈»≈	»	≈
 »
 ≈»≈»≈»≈»≈»≈»≈»≈»≈»≈»≈»≈»≈»À◊ıÃ◊ıÕ◊ıŒÙ«Ù«Ù«Ù«◊ı«◊ı«Ù«◊ı«◊ı«Ù«Ù«Ù«◊ı«	◊ı«
-◊ı«◊ı«◊ı«Ù«◊ı«◊ı8ï   @Ó  ˚Ò8ï   ≈BÓ  )®Q \¿D"!     &%   $#$# D8MÏ€function(pal) {
-  // src/pal.js
-// src/console.js
+◊ı«◊ı«◊ı«Ù«◊ı«◊ı8ï   @Ô  ˚Ò8ï   ≈BÔ  )®Q \‰D"!     &%   $#$# D8MÏ‡function(pal) {
+  // polyfill/src/pal.js
+// polyfill/src/console.js
   function setupConsole(pal2) {
     const timers = /* @__PURE__ */ new Map();
     const LEVELS = {
@@ -11481,7 +11524,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.console = console2;
   }
 
-  // src/performance.js
+  // polyfill/src/performance.js
   function setupPerformance(pal2) {
     const marks = /* @__PURE__ */ new Map();
     const measures = [];
@@ -11614,7 +11657,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.performance = performance;
   }
 
-  // src/timers.js
+  // polyfill/src/timers.js
   function setupTimers(pal2) {
     const timerEntries = /* @__PURE__ */ new Map();
     let nextIntervalHandle = -1;
@@ -11703,7 +11746,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     };
   }
 
-  // src/event-target.js
+  // polyfill/src/event-target.js
   function setupEventTarget() {
     class Event2 {
       constructor(type, options) {
@@ -11930,7 +11973,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.dispatchEvent = globalTarget.dispatchEvent.bind(globalTarget);
   }
 
-  // src/abort.js
+  // polyfill/src/abort.js
   function setupAbort() {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("AbortController requires EventTarget to be loaded first");
@@ -12080,7 +12123,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.AbortSignal = AbortSignal;
   }
 
-  // src/url.js
+  // polyfill/src/url.js
   function setupURL() {
     class URLSearchParams {
       constructor(init) {
@@ -12446,7 +12489,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.URLSearchParams = URLSearchParams;
   }
 
-  // src/encoding.js
+  // polyfill/src/encoding.js
   function setupEncoding(pal2) {
     var useNativeBtoa = typeof pal2.nativeBtoa === "function";
     var useNativeAtob = typeof pal2.nativeAtob === "function";
@@ -12530,7 +12573,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     };
   }
 
-  // src/fetch.js
+  // polyfill/src/fetch.js
   function setupFetch(pal2) {
     "use strict";
     var STATUS_TEXTS = {
@@ -13156,7 +13199,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.fetch = fetch;
   }
 
-  // src/fs.js
+  // polyfill/src/fs.js
   function setupFS(pal2) {
     if (!globalThis.qwrt) globalThis.qwrt = {};
     var fs = {
@@ -13189,7 +13232,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.qwrt.fs = fs;
   }
 
-  // src/storage.js
+  // polyfill/src/storage.js
   function setupStorage(pal2) {
     if (!globalThis.qwrt) globalThis.qwrt = {};
     var storage = {
@@ -13207,7 +13250,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.qwrt.storage = storage;
   }
 
-  // src/text-encoding.js
+  // polyfill/src/text-encoding.js
   function setupTextEncoding(pal2) {
     var useNativeEncode = typeof pal2.nativeEncodeUtf8 === "function";
     var useNativeDecode = typeof pal2.nativeDecodeUtf8 === "function";
@@ -13384,7 +13427,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.TextDecoder = TextDecoder2;
   }
 
-  // src/crypto.js
+  // polyfill/src/crypto.js
   function setupCrypto(pal2) {
     var crypto2 = {
       getRandomValues: function getRandomValues(typedArray) {
@@ -13417,7 +13460,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.crypto = crypto2;
   }
 
-  // src/error-events.js
+  // polyfill/src/error-events.js
   function setupErrorEvents() {
     if (typeof globalThis.Event !== "function") {
       throw new Error("ErrorEvent requires Event to be loaded first");
@@ -13464,7 +13507,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.PromiseRejectionEvent = PromiseRejectionEvent;
   }
 
-  // src/message-channel.js
+  // polyfill/src/message-channel.js
   function setupMessageChannel() {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("MessagePort requires EventTarget to be loaded first");
@@ -13581,7 +13624,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.MessageEvent = MessageEvent2;
   }
 
-  // src/host-messaging.js
+  // polyfill/src/host-messaging.js
   function setupHostMessaging(pal2) {
     var self = globalThis;
     globalThis.postMessage = function(data) {
@@ -13610,7 +13653,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     });
   }
 
-  // src/streams.js
+  // polyfill/src/streams.js
   function setupStreams(pal2) {
     function ReadableStreamUnderlyingSourceDefaultCancel() {
     }
@@ -14289,7 +14332,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.TextDecoderStream = TextDecoderStream;
   }
 
-  // src/blob-file-formdata.js
+  // polyfill/src/blob-file-formdata.js
   function setupBlobFileFormData() {
     class Blob2 {
       constructor(blobParts, options) {
@@ -14512,7 +14555,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.FormData = FormData;
   }
 
-  // src/url-pattern.js
+  // polyfill/src/url-pattern.js
   function setupURLPattern() {
     class URLPattern {
       constructor(input, baseURL) {
@@ -14720,7 +14763,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.URLPattern = URLPattern;
   }
 
-  // src/navigator.js
+  // polyfill/src/navigator.js
   function setupNavigatorReportError() {
     var navigator = {
       userAgent: "qwrt/1.0 (WinterTC)",
@@ -14808,7 +14851,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     });
   }
 
-  // src/crypto-subtle.js
+  // polyfill/src/crypto-subtle.js
   function setupCryptoSubtle(pal2) {
     pal2.__installCryptoSubtle__ = function() {
       installCryptoSubtle(pal2);
@@ -15132,7 +15175,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.CryptoKey = CryptoKey;
   }
 
-  // src/structured-clone.js
+  // polyfill/src/structured-clone.js
   function setupStructuredClone() {
     globalThis.structuredClone = function structuredClone(value, options) {
       var seen = /* @__PURE__ */ new Map();
@@ -15634,7 +15677,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     globalThis.__qwrt_deserialize__ = deserializeFromBytes;
   }
 
-  // src/worker.js
+  // polyfill/src/worker.js
   function setupWorker(pal2) {
     var self = globalThis;
     var workers = /* @__PURE__ */ new Map();
@@ -15649,6 +15692,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
       var id = pal2.spawnWorker(code);
       this._id = id;
       this._onmsg = null;
+      this._onerror = null;
       workers.set(id, this);
       var w = this;
       Object.defineProperty(this, "onmessage", {
@@ -15657,6 +15701,15 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
         },
         set: function(fn) {
           w._onmsg = fn;
+        },
+        configurable: true
+      });
+      Object.defineProperty(this, "onerror", {
+        get: function() {
+          return w._onerror;
+        },
+        set: function(fn) {
+          w._onerror = fn;
         },
         configurable: true
       });
@@ -15677,24 +15730,32 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
         return;
       }
       var w = workers.get(source);
-      if (w && w._onmsg) {
-        var e;
-        try {
-          e = new MessageEvent("message", { data: __qwrt_deserialize__(data) });
-        } catch (err) {
-          reportError(err);
-          return;
-        }
-        try {
-          w._onmsg.call(self, e);
-        } catch (err) {
-          reportError(err);
-        }
+      if (!w) return;
+      var d;
+      try {
+        d = __qwrt_deserialize__(data);
+      } catch (err) {
+        reportError(err);
+        return;
+      }
+      var handler = d && d.type === "error" ? w._onerror : w._onmsg;
+      if (!handler) return;
+      var e;
+      try {
+        e = new MessageEvent("message", { data: d });
+      } catch (err) {
+        reportError(err);
+        return;
+      }
+      try {
+        handler.call(self, e);
+      } catch (err) {
+        reportError(err);
       }
     };
   }
 
-  // src/context.js
+  // polyfill/src/context.js
   function setupContext(pal2) {
     var _pristine = /* @__PURE__ */ Object.create(null);
     var names = Object.keys(globalThis);
@@ -15761,7 +15822,7 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
     };
   }
 
-  // src/index.js
+  // polyfill/src/index.js
   setupConsole(pal);
   setupPerformance(pal);
   setupTimers(pal);
@@ -15793,4 +15854,4 @@ KA   $ )®´!003& &  ,4,õfunction Worker(url) {
       Promise.resolve().then(callback);
     };
   }
-}≈ 8Ô  ı”(® ˛D 
+}≈ 8  ı”(® ¢E 
