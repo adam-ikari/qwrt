@@ -1,6 +1,8 @@
-# CLAUDE.md
+# Claude Code Guidance
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> **Note**: This content was migrated from `CLAUDE.md` (2025-06) into the `brain/docs/` directory to consolidate project documentation.
 
 ## What qwrt is
 

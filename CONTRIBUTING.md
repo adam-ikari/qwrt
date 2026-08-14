@@ -1,5 +1,14 @@
 # Contributing to qwrt
 
+## AI Assistant Guidance
+
+For Claude Code (claude.ai/code) or other AI assistants working with this codebase, see **[brain/docs/claude-guidance.md](brain/docs/claude-guidance.md)** for detailed guidance on:
+
+- Project architecture and libuv-native execution model
+- Build & test workflows
+- Code conventions and patterns
+- Extension development and polyfill integration
+
 ## Development Setup
 
 ```bash
