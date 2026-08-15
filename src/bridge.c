@@ -241,7 +241,10 @@ static JSValue js_pal_log(JSContext *ctx, JSValueConst this_val, int argc, JSVal
         msg_needs_free = 1;
     }
 
-    fprintf(stderr, "[qwrt:%d] %s\n", level, msg);
+    /* Web 运行时 console 行为：log/info/debug → stdout；warn/error → stderr。
+     * 去掉 [qwrt:N] 前缀，对齐 node/deno 的 console 输出形态。 */
+    FILE *out = (level >= 2) ? stderr : stdout;
+    fprintf(out, "%s\n", msg);
 
     if (msg_needs_free) {
         JS_FreeCString(ctx, msg);
