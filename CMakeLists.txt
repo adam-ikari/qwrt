@@ -610,6 +610,16 @@ if(QWRT_BUILD_DEBUGGER)
 endif()
 
 # ============================================================================
+# CLI — standalone WinterTC runtime (dogfoods the qwrt C API)
+# ============================================================================
+option(QWRT_BUILD_CLI "Build the qwrt CLI" ON)
+if(QWRT_BUILD_CLI)
+    add_executable(qwrt_cli src/cli.c)
+    set_target_properties(qwrt_cli PROPERTIES OUTPUT_NAME qwrt)
+    target_link_libraries(qwrt_cli PRIVATE qwrt_full)
+endif()
+
+# ============================================================================
 # Subdirectories
 # ============================================================================
 
