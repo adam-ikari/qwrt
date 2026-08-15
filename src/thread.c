@@ -26,9 +26,9 @@ int qwrt_flush_microtasks(qwrt_t *rt)
     return total;
 }
 
-/* ── idle 检测（qwrt_wait_idle 支持）── */
+/* ── idle detection (qwrt_wait_idle support) ── */
 
-/* uv_walk 回调：除内部 wake async 外存在活跃 handle → busy */
+/* uv_walk callback: any active handle other than the internal wake async → busy */
 typedef struct {
     qwrt_t *rt;
     int busy;
@@ -37,34 +37,30 @@ typedef struct {
 static void qwrt_idle_walk_cb(uv_handle_t *h, void *arg)
 {
     qwrt_idle_state_t *st = (qwrt_idle_state_t *)arg;
-    if (h == (uv_handle_t *)&st->rt->wake) return;   /* 排除内部 wake async */
+    if (h == (uv_handle_t *)&st->rt->wake) return;   /* exclude the internal wake async */
     if (!uv_is_closing(h) && uv_is_active(h)) st->busy = 1;
 }
 
-/* 除 wake async 外无活跃 handle 且消息队列空 → idle */
+/* no active handle besides wake async and an empty message queue → idle */
 static int qwrt_loop_idle(qwrt_t *rt)
 {
-    int msgs;
+    if (qwrt_msg_has_pending(rt)) return 0;   /* inbound queue non-empty */
     qwrt_idle_state_t st;
-    uv_mutex_lock(&rt->msg_mutex);
-    msgs = rt->msg_head != NULL;   /* 入站队列非空 */
-    uv_mutex_unlock(&rt->msg_mutex);
-    if (msgs) return 0;
     st.rt = rt;
     st.busy = 0;
     uv_walk(&rt->loop, qwrt_idle_walk_cb, &st);
     return !st.busy;
 }
 
-/* uv_async 回调：跑在 qwrt 线程，排空入站队列并派发 onmessage */
+/* uv_async callback: runs on the qwrt thread; drains the inbound queue and dispatches onmessage */
 static void qwrt_wake_cb(uv_async_t *a)
 {
     qwrt_t *rt = (qwrt_t *)a->data;
-    if (rt->shutting_down) return;
+    if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return;
     qwrt_msg_t *m;
     while ((m = qwrt_msg_pop(rt)) != NULL) {
         qwrt_dispatch_message(rt, m);   /* bridge.c 实现；JSRuntime 已就绪 */
-        qwrt_msg_free(m);
+        /* 节点不 free：pop 内部已释放旧 head；m 成为下次 pop 的 head */
     }
 }
 
@@ -94,11 +90,10 @@ void qwrt_thread_main(void *arg)
         }
     }
 
-    /* ready 握手：宿主 qwrt_create 在此解锁返回 */
-    uv_mutex_lock(&rt->ready_mutex);
-    rt->thread_ready = 1;
-    uv_cond_signal(&rt->ready_cond);
-    uv_mutex_unlock(&rt->ready_mutex);
+    /* ready handshake: atomic store (host qwrt_create spins until it reads 1).
+     * No mutex/cond: on PVE 6.17 kernels pthread_cond wakeups fail after an
+     * fd is created. */
+    __atomic_store_n(&rt->thread_ready, 1, __ATOMIC_RELEASE);
 
     if (rt->ready_err) {
         /* init 失败：清理后线程自己退出 */
@@ -107,12 +102,12 @@ void qwrt_thread_main(void *arg)
     }
 
     /* ==== 主循环 ==== */
-    while (!rt->shutting_down) {
+    while (!__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) {
         uv_run(&rt->loop, UV_RUN_ONCE);  /* 阻塞等事件；wake_cb 期间派发消息 */
-        if (rt->shutting_down) break;
+        if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) break;
         qwrt_flush_microtasks(rt);
-        if (rt->wait_idle && qwrt_loop_idle(rt)) {
-            rt->shutting_down = 1;
+        if (__atomic_load_n(&rt->wait_idle, __ATOMIC_ACQUIRE) && qwrt_loop_idle(rt)) {
+            __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
             break;
         }
     }

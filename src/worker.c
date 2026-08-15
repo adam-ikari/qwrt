@@ -21,6 +21,7 @@
  */
 
 #include "qwrt_internal.h"
+#include <sched.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -75,11 +76,11 @@ static void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m)
 static void qwrt_worker_wake_cb(uv_async_t *a)
 {
     qwrt_t *rt = (qwrt_t *)a->data;
-    if (rt->shutting_down) return;
+    if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return;
     qwrt_msg_t *m;
     while ((m = qwrt_msg_pop(rt)) != NULL) {
         qwrt_worker_dispatch(rt, m);
-        qwrt_msg_free(m);
+        /* node is not freed here: pop already frees the old head; m becomes the next pop's head */
     }
 }
 
@@ -171,11 +172,8 @@ static void qwrt_worker_thread_main(void *arg)
         }
     }
 
-    /* ready 握手：父侧 qwrt_worker_create 在此解锁返回 */
-    uv_mutex_lock(&rt->ready_mutex);
-    rt->thread_ready = 1;
-    uv_cond_signal(&rt->ready_cond);
-    uv_mutex_unlock(&rt->ready_mutex);
+    /* ready handshake: atomic store (parent spins until it reads 1) */
+    __atomic_store_n(&rt->thread_ready, 1, __ATOMIC_RELEASE);
 
     if (rt->ready_err) {
         if (loop_inited) qwrt_thread_teardown(rt);
@@ -183,9 +181,11 @@ static void qwrt_worker_thread_main(void *arg)
     }
 
     /* ==== 主循环 ==== */
-    while (!rt->shutting_down && !w->shutting_down) {
+    while (!__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE) &&
+           !__atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE)) {
         uv_run(&rt->loop, UV_RUN_ONCE);  /* 阻塞等事件；wake_cb 派发消息 */
-        if (rt->shutting_down || w->shutting_down) break;
+        if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE) ||
+            __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE)) break;
         qwrt_flush_microtasks(rt);
     }
     qwrt_thread_teardown(rt);
@@ -225,18 +225,13 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
     w->id = slot + 1;              /* id = 槽位+1；0 保留给宿主 source（不冲突） */
     w->self = self;
     w->script = strdup(script);
-
-    uv_mutex_init(&self->msg_mutex);
-    uv_cond_init(&self->ready_cond);
-    uv_mutex_init(&self->ready_mutex);
-
+    /* lock-free MPSC: self's inbound queue head == tail == sentinel (calloc zeroed) */
+    self->msg_head = &self->msg_stub;
+    self->msg_tail = &self->msg_stub;
     parent->workers[slot] = w;
 
     if (uv_thread_create(&w->thread, qwrt_worker_thread_main, w) != 0) {
         parent->workers[slot] = NULL;
-        uv_mutex_destroy(&self->msg_mutex);
-        uv_cond_destroy(&self->ready_cond);
-        uv_mutex_destroy(&self->ready_mutex);
         free(w->script);
         free(self);
         free(w);
@@ -244,10 +239,9 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
         return NULL;
     }
 
-    /* 阻塞到 worker 线程 ready（握手在 thread_main 末尾） */
-    uv_mutex_lock(&self->ready_mutex);
-    while (!self->thread_ready) uv_cond_wait(&self->ready_cond, &self->ready_mutex);
-    uv_mutex_unlock(&self->ready_mutex);
+    /* block until the worker thread is ready (spin + yield, no cond wakeup) */
+    while (!__atomic_load_n(&self->thread_ready, __ATOMIC_ACQUIRE))
+        sched_yield();
 
     if (self->ready_err) {
         uv_thread_join(&w->thread);
@@ -262,7 +256,7 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
 void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w, const uint8_t *bytes, size_t len)
 {
     QWRT_UNUSED(parent);
-    if (!w || !w->self || w->shutting_down) return;
+    if (!w || !w->self || __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE)) return;
     qwrt_msg_push(w->self, (const char *)bytes, len, QWRT_MSG_SRC_HOST);
 }
 
@@ -271,11 +265,9 @@ void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w)
     QWRT_UNUSED(parent);
     if (!w || !w->self) return;
     qwrt_t *self = w->self;
-    uv_mutex_lock(&self->msg_mutex);
-    self->shutting_down = 1;
-    w->shutting_down = 1;
-    uv_mutex_unlock(&self->msg_mutex);
-    uv_async_send(&self->wake);          /* 唤醒可能阻塞的 worker uv_run */
+    __atomic_store_n(&self->shutting_down, 1, __ATOMIC_RELEASE);
+    __atomic_store_n(&w->shutting_down, 1, __ATOMIC_RELEASE);
+    uv_async_send(&self->wake);          /* wake a blocked worker uv_run */
 }
 
 qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id)
@@ -292,9 +284,6 @@ void qwrt_worker_free(qwrt_worker_t *w)
 {
     if (!w) return;
     if (w->self) {
-        uv_mutex_destroy(&w->self->msg_mutex);
-        uv_cond_destroy(&w->self->ready_cond);
-        uv_mutex_destroy(&w->self->ready_mutex);
         free(w->self);
     }
     free(w->script);

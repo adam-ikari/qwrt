@@ -12,6 +12,7 @@
  */
 
 #include "qwrt_internal.h"
+#include <sched.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,6 +26,10 @@
 
 qwrt_t *qwrt_create(const qwrt_config_t *config)
 {
+    /* 禁用 libuv 的 io_uring：部分内核（如 PVE 6.17）在 io_uring_setup 后
+     * 会破坏 futex/pthread_cond 唤醒，导致宿主线程的 cond_wait 永不返回。
+     * 不覆盖宿主显式设置的 UV_USE_IO_URING。 */
+    setenv("UV_USE_IO_URING", "0", 0);
     if (!config) return NULL;
     qwrt_t *rt = (qwrt_t *)calloc(1, sizeof *rt);
     if (!rt) return NULL;
@@ -32,23 +37,21 @@ qwrt_t *qwrt_create(const qwrt_config_t *config)
     rt->config = *config;
     if (config->initial_script)
         rt->config.initial_script = strdup(config->initial_script);
-    uv_mutex_init(&rt->msg_mutex);
-    uv_cond_init(&rt->ready_cond);
-    uv_mutex_init(&rt->ready_mutex);
+    /* lock-free MPSC queue: head == tail == sentinel (calloc zeroed stub's q.next) */
+    rt->msg_head = &rt->msg_stub;
+    rt->msg_tail = &rt->msg_stub;
 
     if (uv_thread_create(&rt->thread, qwrt_thread_main, rt) != 0) {
-        uv_cond_destroy(&rt->ready_cond);
-        uv_mutex_destroy(&rt->ready_mutex);
-        uv_mutex_destroy(&rt->msg_mutex);
         free((void *)rt->config.initial_script);
         free(rt);
         return NULL;
     }
 
-    /* 阻塞到内部线程 ready（握手在 thread_main 末尾） */
-    uv_mutex_lock(&rt->ready_mutex);
-    while (!rt->thread_ready) uv_cond_wait(&rt->ready_cond, &rt->ready_mutex);
-    uv_mutex_unlock(&rt->ready_mutex);
+    /* Block until the internal thread is ready (atomically set at the end of
+     * thread_main; spin + yield here, no futex/pthread_cond wakeup — on some
+     * kernels (PVE 6.17) cond wakeups break after an fd is created). */
+    while (!__atomic_load_n(&rt->thread_ready, __ATOMIC_ACQUIRE))
+        sched_yield();
     if (rt->ready_err) {
         qwrt_destroy(rt);
         return NULL;
@@ -65,24 +68,21 @@ int qwrt_post_message(qwrt_t *rt, const char *json, size_t len)
 void qwrt_wait_idle(qwrt_t *rt)
 {
     if (!rt || rt->magic != QWRT_MAGIC) return;
-    uv_mutex_lock(&rt->msg_mutex);
-    rt->wait_idle = 1;
-    uv_mutex_unlock(&rt->msg_mutex);
-    uv_async_send(&rt->wake);          /* 唤醒可能阻塞的 uv_run 供 idle 检测 */
+    __atomic_store_n(&rt->wait_idle, 1, __ATOMIC_RELEASE);
+    uv_async_send(&rt->wake);          /* wake a blocked uv_run for idle detection */
+    /* Block until the thread auto-exits on idle (loop empty of work).
+     * qwrt_destroy must not be called before this returns — it would force
+     * shutdown and cancel pending async work (e.g. a live timer). */
+    uv_thread_join(&rt->thread);
 }
 
 void qwrt_destroy(qwrt_t *rt)
 {
     if (!rt) return;
     if (rt->magic != QWRT_MAGIC) return;
-    uv_mutex_lock(&rt->msg_mutex);
-    rt->shutting_down = 1;
-    uv_mutex_unlock(&rt->msg_mutex);
-    uv_async_send(&rt->wake);          /* 唤醒可能阻塞的 uv_run */
+    __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
+    uv_async_send(&rt->wake);          /* wake a blocked uv_run */
     uv_thread_join(&rt->thread);       /* 等线程 teardown 完成 */
-    uv_mutex_destroy(&rt->msg_mutex);
-    uv_cond_destroy(&rt->ready_cond);
-    uv_mutex_destroy(&rt->ready_mutex);
     free((void *)rt->config.initial_script);
     free(rt);
 }
@@ -169,7 +169,11 @@ int qwrt_eval_internal(qwrt_t *rt, const char *script, char **err)
 static void qwrt_close_walk_cb(uv_handle_t *h, void *arg)
 {
     QWRT_UNUSED(arg);
-    uv_close(h, NULL);
+    /* ctx/ext teardown (step 4) may already have closed some handles without
+     * their close callbacks running
+     * (the loop is not run again); walk still sees those handles in the queue,
+     * so skip the ones already closing. */
+    if (!uv_is_closing(h)) uv_close(h, NULL);
 }
 
 void qwrt_thread_teardown(qwrt_t *rt)
@@ -188,9 +192,12 @@ void qwrt_thread_teardown(qwrt_t *rt)
         }
     }
 
-    /* 1) 排空剩余入站队列（shutting_down 后 wake 回调不再派发） */
+    /* 1) drain any remaining inbound queue (pop already frees passed nodes;
+     *    the final node stays on head) */
     qwrt_msg_t *m;
-    while ((m = qwrt_msg_pop(rt)) != NULL) qwrt_msg_free(m);
+    while ((m = qwrt_msg_pop(rt)) != NULL) {}
+    if (rt->msg_head != &rt->msg_stub) qwrt_msg_free(rt->msg_head);
+    rt->msg_head = &rt->msg_stub;
 
     /* 2) 排空 pending JS jobs BEFORE freeing contexts/runtime，否则
      * JS_FreeRuntime 会在非空 gc_obj_list 上断言（Promise 反应引用着

@@ -15,6 +15,10 @@
 #include <uv.h>
 #endif
 
+/* libuv's intrusive queue primitives (uv__queue). Used by msgq.c as the
+ * lock-free MPSC container; also needed for the qwrt_msg_t layout above. */
+#include "queue.h"
+
 /* Maximum concurrent timer/PAL-async handles. 256 slots balances memory
  * (qwrt_t grows by ~8 KB per 128 slots) against the rare case of
  * hundreds of overlapping timers or I/O operations.  When the table is
@@ -89,13 +93,14 @@ extern const size_t qwrt_default_polyfill_len;
 /* Inbound message source: 0 = host; >0 = worker id (Task 4). */
 typedef enum { QWRT_MSG_SRC_HOST = 0 } qwrt_msg_src_t;
 
-/* Inbound message FIFO node. data points into the same allocation (char array
- * after the struct header); freed with qwrt_msg_free. */
+/* Inbound message FIFO node. The queue is lock-free MPSC built on libuv's
+ * uv__queue (single-linked via q.next; see msgq.c). data points into the
+ * same allocation (char array after the struct header). */
 typedef struct qwrt_msg_s {
+    struct uv__queue q;   /* libuv intrusive queue node (q.next = lock-free link) */
     char *data;
     size_t len;
     int source;
-    struct qwrt_msg_s *next;
 } qwrt_msg_t;
 
 /* Per-context state — holds JSContext*, handle tables, timer data,
@@ -146,23 +151,24 @@ struct qwrt_t {
     uint32_t magic;      /* QWRT_MAGIC — set in qwrt_create, validates opaque ptr */
     JSRuntime *jsrt;
 
-    /* 线程 + loop（执行模型 A：qwrt 自持线程跑 libuv loop） */
+    /* thread + loop (execution model A: qwrt owns a thread running the libuv loop) */
     uv_loop_t loop;
     uv_thread_t thread;
-    uv_async_t wake;         /* 宿主 post_message 唤醒；data = rt */
-    uv_mutex_t msg_mutex;    /* 保护入站 FIFO */
-    uv_cond_t  ready_cond;   /* ready 握手 */
-    uv_mutex_t ready_mutex;
+    uv_async_t wake;         /* host post_message wakeup; data = rt */
 
-    /* 入站 FIFO（qwrt_post_message / worker 入站） */
+    /* inbound FIFO (lock-free MPSC: many producers push, the qwrt thread
+     * exclusively consumes). msg_tail is the atomic tail (producers exchange),
+     * msg_head is consumer-only. msg_stub is the resident sentinel: after
+     * init, msg_head == msg_tail == &msg_stub. */
     qwrt_msg_t *msg_head;
     qwrt_msg_t *msg_tail;
-    int shutting_down;   /* destroy 置位 → 线程退出主循环 */
-    int wait_idle;       /* qwrt_wait_idle 已请求：loop 空则自动退出 */
-    int thread_ready;    /* ready 握手：线程初始化完成 */
-    int ready_err;       /* init 失败码（0 成功；非 0 → qwrt_create 返回 NULL） */
+    qwrt_msg_t msg_stub;
+    int shutting_down;   /* atomic: set by destroy -> thread leaves main loop */
+    int wait_idle;       /* atomic: qwrt_wait_idle requested: auto-exit when idle */
+    int thread_ready;    /* atomic: ready handshake: thread init complete */
+    int ready_err;       /* init failure code (0 ok; non-zero -> qwrt_create returns NULL) */
 
-    /* 配置副本（initial_script 由 qwrt_create strdup，destroy 释放） */
+    /* config copy (initial_script strdup'd by qwrt_create, freed by destroy) */
     qwrt_config_t config;
     void *host_data;     /* per-runtime opaque ptr；qwrt_get_runtime_data 读取 */
     int debug;
@@ -226,6 +232,7 @@ struct qwrt_t {
 /* msgq.c — thread-safe inbound FIFO */
 int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source);
 qwrt_msg_t *qwrt_msg_pop(qwrt_t *rt);
+int qwrt_msg_has_pending(qwrt_t *rt);   /* 消费者线程内检查队列非空（无锁读） */
 void qwrt_msg_free(qwrt_msg_t *m);
 
 /* thread.c — the qwrt thread: uv loop + wake dispatch + microtask flush */

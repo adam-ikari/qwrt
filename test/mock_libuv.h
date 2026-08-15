@@ -63,6 +63,12 @@ struct uv_fs_s;
 typedef struct uv_loop_s uv_loop_t;
 typedef struct uv_buf_s { char *base; size_t len; } uv_buf_t;
 
+/* libuv-compatible intrusive queue node (matches uv.h); qwrt_msg_t embeds it. */
+struct uv__queue {
+    struct uv__queue *next;
+    struct uv__queue *prev;
+};
+
 typedef void (*uv_timer_cb)(struct uv_timer_s *handle);
 typedef void (*uv_async_cb)(struct uv_async_s *handle);
 typedef void (*uv_close_cb)(struct uv_handle_s *handle);

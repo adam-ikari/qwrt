@@ -413,7 +413,8 @@ endif()
 target_include_directories(qwrt PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${QUICKJS_DIR}
-    ${LIBUV_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/src
 )
 
 # Test builds compile the core against mock_libuv.h: qwrt_t embeds uv_loop_t

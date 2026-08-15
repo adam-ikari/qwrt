@@ -1388,7 +1388,7 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
              * JS_ParseJSON（quickjs-ng 无 JS_JSONParse）。 */
             data = JS_ParseJSON(ctx, m->data, m->len, "<qwrt-msg>");
             if (JS_IsException(data)) {
-                /* spec §5: 坏 JSON → 错误信封 */
+                /* spec §5: bad JSON → error envelope */
                 JS_FreeValue(ctx, data);
                 JS_FreeValue(ctx, fn);
                 if (rt->config.message_cb) {
