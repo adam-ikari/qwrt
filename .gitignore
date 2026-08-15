@@ -48,3 +48,6 @@ Testing/
 
 # Doxygen output
 docs/api/
+
+# Local pi agent config
+.pi/

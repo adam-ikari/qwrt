@@ -49,6 +49,10 @@ add_qwrt_gtest(test_bridge_stream_gtest)
 add_qwrt_gtest(test_fetch_stream_gtest)
 add_qwrt_gtest(test_polyfill_gtest)
 
+if(QWRT_WITH_CRYPTO_EXT)
+    add_qwrt_gtest(test_crypto_subtle_gtest)
+endif()
+
 if(QWRT_WITH_WAMR)
     add_qwrt_gtest(test_wasm_streaming_gtest)
 endif()
@@ -81,10 +85,16 @@ endif()
 # ============================================================================
 
 # test262 — uses QuickJS-ng's own run-test262 runner and test262.conf
-# to run ECMAScript conformance tests directly against the engine
+# to run ECMAScript conformance tests directly against the engine.
+#
+# Paths are relative to WORKING_DIRECTORY (deps/quickjs-ng), matching the
+# runner's convention: test262.conf carries errorfile=test262_errors.txt and
+# testdir=test262/test, and both are composed against the config file's
+# directory. Absolute paths here would break find_error()'s relative-path
+# matching against the error file.
 add_test(NAME test262_quickjs
   COMMAND ${CMAKE_BINARY_DIR}/deps/quickjs-ng/run-test262
-    -c ${CMAKE_SOURCE_DIR}/deps/quickjs-ng/test262.conf
-    ${CMAKE_SOURCE_DIR}/deps/quickjs-ng/test262/test
+    -c test262.conf
+    test262/test
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/deps/quickjs-ng)
 set_tests_properties(test262_quickjs PROPERTIES LABELS "test262")
