@@ -158,6 +158,7 @@ struct qwrt_t {
     qwrt_msg_t *msg_head;
     qwrt_msg_t *msg_tail;
     int shutting_down;   /* destroy 置位 → 线程退出主循环 */
+    int wait_idle;       /* qwrt_wait_idle 已请求：loop 空则自动退出 */
     int thread_ready;    /* ready 握手：线程初始化完成 */
     int ready_err;       /* init 失败码（0 成功；非 0 → qwrt_create 返回 NULL） */
 

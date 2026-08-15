@@ -62,6 +62,15 @@ int qwrt_post_message(qwrt_t *rt, const char *json, size_t len)
     return qwrt_msg_push(rt, json, len, QWRT_MSG_SRC_HOST);
 }
 
+void qwrt_wait_idle(qwrt_t *rt)
+{
+    if (!rt || rt->magic != QWRT_MAGIC) return;
+    uv_mutex_lock(&rt->msg_mutex);
+    rt->wait_idle = 1;
+    uv_mutex_unlock(&rt->msg_mutex);
+    uv_async_send(&rt->wake);          /* 唤醒可能阻塞的 uv_run 供 idle 检测 */
+}
+
 void qwrt_destroy(qwrt_t *rt)
 {
     if (!rt) return;

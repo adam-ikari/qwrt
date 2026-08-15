@@ -237,6 +237,11 @@ int uv_is_closing(uv_handle_t *handle)
     return handle->closed;
 }
 
+int uv_is_active(uv_handle_t *handle)
+{
+    return handle->active;
+}
+
 /* ---- timer ---- */
 
 int uv_timer_init(uv_loop_t *l, uv_timer_t *t)

@@ -26,6 +26,36 @@ int qwrt_flush_microtasks(qwrt_t *rt)
     return total;
 }
 
+/* ── idle 检测（qwrt_wait_idle 支持）── */
+
+/* uv_walk 回调：除内部 wake async 外存在活跃 handle → busy */
+typedef struct {
+    qwrt_t *rt;
+    int busy;
+} qwrt_idle_state_t;
+
+static void qwrt_idle_walk_cb(uv_handle_t *h, void *arg)
+{
+    qwrt_idle_state_t *st = (qwrt_idle_state_t *)arg;
+    if (h == (uv_handle_t *)&st->rt->wake) return;   /* 排除内部 wake async */
+    if (!uv_is_closing(h) && uv_is_active(h)) st->busy = 1;
+}
+
+/* 除 wake async 外无活跃 handle 且消息队列空 → idle */
+static int qwrt_loop_idle(qwrt_t *rt)
+{
+    int msgs;
+    qwrt_idle_state_t st;
+    uv_mutex_lock(&rt->msg_mutex);
+    msgs = rt->msg_head != NULL;   /* 入站队列非空 */
+    uv_mutex_unlock(&rt->msg_mutex);
+    if (msgs) return 0;
+    st.rt = rt;
+    st.busy = 0;
+    uv_walk(&rt->loop, qwrt_idle_walk_cb, &st);
+    return !st.busy;
+}
+
 /* uv_async 回调：跑在 qwrt 线程，排空入站队列并派发 onmessage */
 static void qwrt_wake_cb(uv_async_t *a)
 {
@@ -81,6 +111,10 @@ void qwrt_thread_main(void *arg)
         uv_run(&rt->loop, UV_RUN_ONCE);  /* 阻塞等事件；wake_cb 期间派发消息 */
         if (rt->shutting_down) break;
         qwrt_flush_microtasks(rt);
+        if (rt->wait_idle && qwrt_loop_idle(rt)) {
+            rt->shutting_down = 1;
+            break;
+        }
     }
     qwrt_thread_teardown(rt);
 }

@@ -185,6 +185,7 @@ int uv_loop_close(uv_loop_t *loop);
 void uv_walk(uv_loop_t *loop, uv_walk_cb cb, void *arg);
 void uv_close(struct uv_handle_s *handle, uv_close_cb cb);
 int uv_is_closing(struct uv_handle_s *handle);
+int uv_is_active(struct uv_handle_s *handle);
 uint64_t uv_now(const uv_loop_t *loop);
 uint64_t uv_hrtime(void);
 

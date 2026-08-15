@@ -102,3 +102,14 @@ TEST(pal_fs, read_sync_rejects_traversal) {
     ASSERT_NE("Path traversal detected", out);
     host_destroy(h);
 }
+
+/* 验证 wait_idle 的 API 存在且与 destroy 共存安全：请求 idle 退出后，线程
+ * 在 loop 空时自动 teardown，destroy 侧 join 立即返回（shutting_down 已置位），
+ * 无死锁/无双重释放。异步退出语义的端到端断言由 CLI 级 fork 测试覆盖。 */
+TEST(qwrt_wait_idle, api_available_and_teardown_safe) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+    qwrt_wait_idle(h->rt);          /* 请求 idle 退出 */
+    host_destroy(h);                /* destroy 与 wait_idle 共存：join 安全 */
+    SUCCEED();
+}

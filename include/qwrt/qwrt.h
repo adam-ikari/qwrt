@@ -39,6 +39,12 @@ void qwrt_destroy(qwrt_t *rt);
 /* 线程安全入站消息（任何线程可调）。json 会被拷贝。返回 0 成功，-1 失败。 */
 int qwrt_post_message(qwrt_t *rt, const char *json, size_t len);
 
+/* 请求运行时在“无 pending 异步工作”时自动退出（CLI 用）。
+ * 线程安全；与 qwrt_destroy 互斥使用（二选一）。设置后 qwrt 线程在
+ * 排空消息 + flush 微任务后，若 loop 无活跃 handle（除内部 wake async），
+ * 自动走 teardown 并退出线程。调用后不得再 post_message。 */
+void qwrt_wait_idle(qwrt_t *rt);
+
 void *qwrt_get_runtime_data(qwrt_t *rt);
 void  qwrt_set_runtime_data(qwrt_t *rt, void *data);
 
