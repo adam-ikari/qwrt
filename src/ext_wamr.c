@@ -395,6 +395,48 @@ static JSValue wamr_wasm_instantiate(JSContext *ctx, JSValueConst this_val,
     return promise;
 }
 
+/* WebAssembly.compileStreaming / instantiateStreaming
+ *
+ * v1 语义等价实现：接受 Promise<Response> 或含 arrayBuffer() 方法的对象，
+ * 取完整字节后交给 compile / instantiate（不要求真·逐块流式编译）。
+ * magic: 0 = compileStreaming, 1 = instantiateStreaming。
+ */
+static JSValue wamr_wasm_streaming(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv, int magic)
+{
+    (void)this_val;
+    if (argc < 1) {
+        return JS_ThrowTypeError(ctx,
+            "WebAssembly.*Streaming requires at least 1 argument");
+    }
+    /* async IIFE：resolve source → arrayBuffer() → compile / instantiate */
+    const char *compile_prog =
+        "(async function(src) {                                           "
+        "  var r = (src && typeof src.then === 'function') ? await src : src;"
+        "  if (!r || typeof r.arrayBuffer !== 'function')                 "
+        "    throw new TypeError('streaming source must provide arrayBuffer()');"
+        "  var buf = await r.arrayBuffer();                               "
+        "  return WebAssembly.compile(buf);                               "
+        "})";
+    const char *instantiate_prog =
+        "(async function(src, imports) {                                  "
+        "  var r = (src && typeof src.then === 'function') ? await src : src;"
+        "  if (!r || typeof r.arrayBuffer !== 'function')                 "
+        "    throw new TypeError('streaming source must provide arrayBuffer()');"
+        "  var buf = await r.arrayBuffer();                               "
+        "  return WebAssembly.instantiate(buf, imports);                  "
+        "})";
+    const char *prog = magic ? instantiate_prog : compile_prog;
+    JSValue fn = JS_Eval(ctx, prog, strlen(prog), "<wasm-streaming>",
+                         JS_EVAL_TYPE_GLOBAL);
+    if (JS_IsException(fn)) return fn;
+    JSValue imports = (argc >= 2) ? argv[1] : JS_UNDEFINED;
+    JSValue args[2] = { argv[0], imports };
+    JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 2, args);
+    JS_FreeValue(ctx, fn);
+    return result;
+}
+
 /* ================================================================
  * WebAssembly.Module constructor
  * ================================================================ */
@@ -871,6 +913,16 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
         g_wamr_state.initialized = 1;
     }
 
+    /* Per-thread signal env: 每个 qwrt 实例跑在自己的 worker 线程上，而
+     * WAMR 的 thread signal env（thread_signal_inited）是线程局部状态，
+     * 仅在首次 runtime init 的线程里被设置。不初始化的话，第二个及以后
+     * 的实例（新线程）调用 wasm 函数会报
+     * "thread signal env not inited"。该调用幂等（thread_signal_inited
+     * 已置位时直接返回成功）。 */
+    if (!wasm_runtime_init_thread_env()) {
+        return -1;
+    }
+
     /* Register JS classes for Module/Instance */
     wamr_register_classes(rt, ctx);
 
@@ -900,6 +952,10 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
         JS_NewCFunction(ctx, wamr_wasm_compile, "compile", 1));
     JS_SetPropertyStr(ctx, wasm_obj, "instantiate",
         JS_NewCFunction(ctx, wamr_wasm_instantiate, "instantiate", 2));
+    JS_SetPropertyStr(ctx, wasm_obj, "compileStreaming",
+        JS_NewCFunctionMagic(ctx, wamr_wasm_streaming, "compileStreaming", 1, JS_CFUNC_generic_magic, 0));
+    JS_SetPropertyStr(ctx, wasm_obj, "instantiateStreaming",
+        JS_NewCFunctionMagic(ctx, wamr_wasm_streaming, "instantiateStreaming", 2, JS_CFUNC_generic_magic, 1));
 
     /* Create constructors */
     JSValue module_ctor = JS_NewCFunction2(ctx, wamr_module_constructor,
@@ -941,6 +997,13 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 static void wamr_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
 {
     (void)ext;
+    /* 卸载本线程安装的 WAMR signal 环境（SIGSEGV/SIGBUS handler、栈 guard
+     * pages、sigaltstack）。WAMR 的 guard pages 与 signal handler 都是进程
+     * 级副作用：不清理的话，下一个实例（新 worker 线程）在 os_thread_signal_init
+     * 里 touch_pages 会撞上遗留的 PROT_NONE 页而 SIGSEGV。销毁发生在 worker
+     * 线程内（qwrt_thread_teardown → qwrt_ctx_destroy），与本线程的
+     * wasm_runtime_init_thread_env 对称。 */
+    wasm_runtime_destroy_thread_env();
     /* Reset class IDs so JS_NewClassID allocates fresh ones for the next runtime */
     rt->wamr_module_class_id = 0;
     rt->wamr_instance_class_id = 0;

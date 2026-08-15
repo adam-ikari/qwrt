@@ -47,10 +47,12 @@ cd build && ctest -L offline --output-on-failure
 |-------|-------|------|------|------|------|
 | Offline | 15 | 15 | 0 | 0 | 100% |
 | WASM compliance | 14 | 14 | 0 | 0 | 100% |
+| WASM streaming | 3 | 3 | 0 | 0 | 100% |
 | WPT WinterTC | 32 | 27 | 0 | 5 | 100%¹ |
 | test262 (built-ins) | 2,000 | 1,118 | 494 | 388 | 69.4% |
 
 ¹ All 5 skipped tests are non-UTF encoding labels (intentionally unsupported).
+² WASM streaming 3 用例来自 `test/test_wasm_streaming_gtest.cpp`：compileStreaming/instantiateStreaming 语义等价实现 + 非法 source 拒绝。
 
 ## Memory Safety
 

@@ -49,6 +49,10 @@ add_qwrt_gtest(test_bridge_stream_gtest)
 add_qwrt_gtest(test_fetch_stream_gtest)
 add_qwrt_gtest(test_polyfill_gtest)
 
+if(QWRT_WITH_WAMR)
+    add_qwrt_gtest(test_wasm_streaming_gtest)
+endif()
+
 if(QWRT_WITH_COMPRESS)
     add_qwrt_gtest(test_compress_gtest)
     add_qwrt_gtest(test_compress_consistency_gtest)
