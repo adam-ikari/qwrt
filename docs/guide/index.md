@@ -56,5 +56,6 @@ qwrt/
 ## Next Steps
 
 - [Quick Start](/guide/quickstart) — clone, build, run your first script
+- [Standalone CLI](/guide/cli) — run scripts / one-liners / REPL without embedding
 - [Event Loop](/guide/event-loop) — how the internal thread and libuv loop work
 - [JS API Reference](/js-api/) — what WinterTC APIs are available
