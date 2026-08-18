@@ -35,17 +35,99 @@ static void usage(FILE *out) {
 typedef struct {
     int done;           /* atomic: eval finished (incl. error) — qwrt thread writes, main spins */
     int exit_code;      /* script error → 1 (qwrt thread writes, main reads after done) */
+    char result[8192];  /* eval result: the "v" value (ok) or "e" message (error), decoded */
 } cli_host_t;
 
+/* Extract the JSON string literal at *s (which starts with a double quote)
+ * into out, decoding escapes (\", \\, \n, \r, \t, \uXXXX). Returns the
+ * decoded length, or -1 on malformed input. Used to pull the v/e fields out
+ * of the {"ok":...,"v":...,"e":...} eval envelope for the REPL. */
+static int json_unescape(const char *s, char *out, size_t out_cap) {
+    if (!s || *s != '"') {
+        return -1;
+    }
+    s++;
+    size_t n = 0;
+    while (*s && *s != '"' && n + 1 < out_cap) {
+        if (*s != '\\') {
+            out[n++] = *s++;
+            continue;
+        }
+        s++; /* backslash */
+        switch (*s) {
+        case '"': out[n++] = '"'; s++; break;
+        case '\\': out[n++] = '\\'; s++; break;
+        case '/':  out[n++] = '/';  s++; break;
+        case 'n':  out[n++] = '\n'; s++; break;
+        case 'r':  out[n++] = '\r'; s++; break;
+        case 't':  out[n++] = '\t'; s++; break;
+        case 'u': {
+            unsigned code = 0;
+            for (int i = 0; i < 4; i++) {
+                char c = s[1 + i];
+                unsigned d;
+                if (c >= '0' && c <= '9') d = (unsigned)(c - '0');
+                else if (c >= 'a' && c <= 'f') d = (unsigned)(c - 'a' + 10);
+                else if (c >= 'A' && c <= 'F') d = (unsigned)(c - 'A' + 10);
+                else return -1;
+                code = (code << 4) | d;
+            }
+            /* UTF-16 code unit → UTF-8 (only BMP, matching JSON.stringify
+             * default for non-surrogate code points) */
+            if (code < 0x80) {
+                out[n++] = (char)code;
+            } else if (code < 0x800) {
+                out[n++] = (char)(0xC0 | (code >> 6));
+                out[n++] = (char)(0x80 | (code & 0x3F));
+            } else {
+                out[n++] = (char)(0xE0 | (code >> 12));
+                out[n++] = (char)(0x80 | ((code >> 6) & 0x3F));
+                out[n++] = (char)(0x80 | (code & 0x3F));
+            }
+            s += 5;
+            break;
+        }
+        default:
+            return -1;
+        }
+    }
+    if (*s != '"') {
+        return -1;
+    }
+    out[n] = '\0';
+    return (int)n;
+}
+
 /* message_cb: runs on the qwrt thread; CLI receives eval results.
- * json: {"ok":true,"v":"..."} or {"ok":false,"e":"..."} */
+ * json: {"ok":true,"v":"..."} or {"ok":false,"e":"..."}.
+ * Decodes the v/e payload into host->result for printing by the caller
+ * (script mode prints errors to stderr; the REPL prints every result). */
 static void cli_message_cb(qwrt_t *rt, const char *json, size_t len, void *data) {
     (void)data;
     cli_host_t *h = (cli_host_t *)qwrt_get_runtime_data(rt);
     if (!h) return;
-    if (strstr(json, "\"ok\":false")) {
-        fprintf(stderr, "%.*s\n", (int)len, json);   /* error envelope already holds the message */
+    int is_error = strstr(json, "\"ok\":false") != NULL;
+    /* The envelope is {"ok":true,"v":"..."} or {"ok":false,"e":"..."}.
+     * v/e hold JSON strings (the bootstrap wraps eval's value in
+     * JSON.stringify). The key with its quotes and colon is 4 chars
+     * (`"v":`), so the value string literal starts at field + 4.
+     * When eval returns undefined, JSON.stringify(undefined) is undefined
+     * and the v field is absent — that is a SUCCESS, not an error. */
+    const char *field = is_error ? strstr(json, "\"e\":")
+                                : strstr(json, "\"v\":");
+    if (field && json_unescape(field + 4, h->result, sizeof(h->result)) >= 0) {
+        h->exit_code = is_error ? 1 : 0;
+    } else if (is_error) {
+        /* e field missing or malformed — surface the raw envelope */
+        size_t cap = sizeof(h->result) - 1;
+        if (len > cap) len = cap;
+        memcpy(h->result, json, len);
+        h->result[len] = '\0';
         h->exit_code = 1;
+    } else {
+        /* ok, but no v field (eval returned undefined) — print nothing */
+        h->result[0] = '\0';
+        h->exit_code = 0;
     }
     __atomic_store_n(&h->done, 1, __ATOMIC_RELEASE);
 }
@@ -55,10 +137,11 @@ static void cli_message_cb(qwrt_t *rt, const char *json, size_t len, void *data)
  *   WinterCG proposal-cli-api direction; excludes the executable and path)
  * - globalThis.env: environment key-values (minimal form)
  * - onmessage eval command channel: host posts {"cmd":"eval","code":...}
- *   → JS eval → postMessage({ok, v|e}) */
+ *   → JS eval → postMessage({ok, v|e})
+ * ARGS_JSON / ENV_JSON are substituted at runtime by build_bootstrap(). */
 static const char *kCliBootstrap =
-    "globalThis.arguments = [];\n"      /* Task 7: inject SCRIPT_ARGS_JSON */
-    "globalThis.env = {};\n"            /* Task 7: inject ENV_JSON */
+    "globalThis.arguments = %s;\n"
+    "globalThis.env = %s;\n"
     "globalThis.onmessage = function (e) {\n"
     "  var d = e.data;\n"
     "  if (d && d.cmd === 'eval') {\n"
@@ -91,10 +174,67 @@ static char *json_escape(const char *s) {
     return out;
 }
 
-/* build the bootstrap, injecting arguments/env (Task 7 completes the injection; minimal placeholder now) */
+/* build the bootstrap, injecting arguments/env (Task 7: per the WinterCG
+ * proposal-cli-api direction, globalThis.arguments holds the script args —
+ * excluding the executable and script path — and globalThis.env the process
+ * environment as a plain object). */
 static char *build_bootstrap(const char *const *args, int nargs) {
-    (void)args; (void)nargs;
-    return strdup(kCliBootstrap);
+    /* arguments → JSON array literal [ "a", "b" ] */
+    size_t args_cap = 8;
+    for (int i = 0; i < nargs; i++) {
+        args_cap += strlen(args[i]) * 6 + 3;
+    }
+    char *args_json = malloc(args_cap + 1);
+    char *p = args_json;
+    *p++ = '[';
+    for (int i = 0; i < nargs; i++) {
+        if (i) *p++ = ',';
+        char *q = json_escape(args[i]);
+        size_t ql = strlen(q);
+        memcpy(p, q, ql);
+        p += ql;
+        free(q);
+    }
+    *p++ = ']';
+    *p = '\0';
+
+    /* env → JSON object literal { "KEY": "VAL", ... } (minimal form) */
+    extern char **environ;
+    size_t env_cap = 64;
+    for (char **e = environ; e && *e; e++) {
+        env_cap += strlen(*e) * 6 + 8;
+    }
+    char *env_json = malloc(env_cap + 1);
+    p = env_json;
+    *p++ = '{';
+    int first = 1;
+    for (char **e = environ; e && *e; e++) {
+        const char *eq = strchr(*e, '=');
+        if (!eq) continue;
+        size_t klen = (size_t)(eq - *e);
+        char *k = malloc(klen + 1);
+        memcpy(k, *e, klen);
+        k[klen] = '\0';
+        if (!first) *p++ = ',';
+        first = 0;
+        char *qk = json_escape(k);
+        char *qv = json_escape(eq + 1);
+        size_t qkl = strlen(qk), qvl = strlen(qv);
+        memcpy(p, qk, qkl); p += qkl;
+        *p++ = ':'; *p++ = ' ';
+        memcpy(p, qv, qvl); p += qvl;
+        free(k); free(qk); free(qv);
+    }
+    *p++ = '}';
+    *p = '\0';
+
+    size_t total = strlen(kCliBootstrap) + strlen(args_json) +
+                   strlen(env_json) + 32;
+    char *bootstrap = malloc(total);
+    snprintf(bootstrap, total, kCliBootstrap, args_json, env_json);
+    free(args_json);
+    free(env_json);
+    return bootstrap;
 }
 
 /* shared execution path: create runtime → eval code → wait for result →
@@ -126,12 +266,69 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     while (!__atomic_load_n(&host.done, __ATOMIC_ACQUIRE))
         sched_yield();
     int exit_code = host.exit_code;
+    if (exit_code) {
+        /* script error — cli_message_cb decoded the "e" payload into result */
+        fprintf(stderr, "%s\n", host.result);
+    }
 
     /* wait for pending async work (fetch/timer) to complete; the runtime
      * auto-exits when the loop is empty and the thread is joined here. Do not
      * call qwrt_destroy after this (would double-join); free the struct only. */
     qwrt_wait_idle(rt);
     qwrt_free(rt);
+    return exit_code;
+}
+
+/* ── Task 6: interactive REPL (no script / no -e) ──
+ * Banner → read a line → eval over the onmessage channel → print the result
+ * (the decoded "v" or "e") → repeat; Ctrl-D/EOF exits. The runtime stays
+ * alive for the whole session (no wait_idle); qwrt_destroy on exit. */
+static int repl_loop(void) {
+    cli_host_t host = {0};
+
+    char *bootstrap = build_bootstrap(NULL, 0);
+    qwrt_config_t cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.message_cb = cli_message_cb;
+    cfg.initial_script = bootstrap;
+    qwrt_t *rt = qwrt_create(&cfg);
+    free(bootstrap);
+    if (!rt) {
+        fprintf(stderr, "qwrt: runtime init failed\n");
+        return 1;
+    }
+    qwrt_set_runtime_data(rt, &host);
+
+    printf("%s (WinterTC runtime) — type JS, Ctrl-D to exit\n",
+           QWRT_CLI_VERSION);
+    fflush(stdout);
+
+    char line[8192];
+    int exit_code = 0;
+    while (fgets(line, sizeof line, stdin)) {
+        line[strcspn(line, "\n")] = 0;
+        if (!line[0]) {
+            continue;
+        }
+
+        __atomic_store_n(&host.done, 0, __ATOMIC_RELEASE);
+        char *cmd = malloc(strlen(line) * 2 + 64);
+        sprintf(cmd, "{\"cmd\":\"eval\",\"code\":%s}", json_escape(line));
+        qwrt_post_message(rt, cmd, strlen(cmd));
+        free(cmd);
+
+        while (!__atomic_load_n(&host.done, __ATOMIC_ACQUIRE))
+            sched_yield();
+
+        printf("%s\n", host.result);
+        fflush(stdout);
+        if (host.exit_code) {
+            exit_code = 1;
+        }
+    }
+    printf("\n");
+
+    qwrt_destroy(rt);
     return exit_code;
 }
 
@@ -183,5 +380,5 @@ int main(int argc, char **argv) {
     }
 
     /* Task 6: REPL (when no args) */
-    return 0;
+    return repl_loop();
 }
