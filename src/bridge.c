@@ -242,9 +242,12 @@ static JSValue js_pal_log(JSContext *ctx, JSValueConst this_val, int argc, JSVal
     }
 
     /* Web 运行时 console 行为：log/info/debug → stdout；warn/error → stderr。
-     * 去掉 [qwrt:N] 前缀，对齐 node/deno 的 console 输出形态。 */
+     * 去掉 [qwrt:N] 前缀，对齐 node/deno 的 console 输出形态。
+     * fflush 保证输出即使在全缓冲的管道/重定向场景下也即时可见——否则 server
+     * 常驻进程（listener 活跃、loop 不空）的输出会滞留缓冲直到退出才 flush。 */
     FILE *out = (level >= 2) ? stderr : stdout;
     fprintf(out, "%s\n", msg);
+    fflush(out);
 
     if (msg_needs_free) {
         JS_FreeCString(ctx, msg);
