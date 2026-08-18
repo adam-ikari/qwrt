@@ -52,6 +52,42 @@ TEST_F(PolyfillTest, Url) {
     EXPECT_NE(std::string::npos, v.find("\"path\":\"/path\""));
 }
 
+TEST_F(PolyfillTest, UrlPatternBasic) {
+    std::string v;
+    /* named group :id matches one path segment */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLPattern('/books/:id');\n"
+        "JSON.stringify({t: p.test('https://x.com/books/42'),\n"
+        "  g: p.exec('https://x.com/books/42').pathname.groups})", &v));
+    EXPECT_NE(std::string::npos, v.find("\"t\":true"));
+    EXPECT_NE(std::string::npos, v.find("\"id\":\"42\""));
+}
+
+TEST_F(PolyfillTest, UrlPatternModifiers) {
+    std::string v;
+    /* :x? optional segment */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLPattern({pathname: '/a/:x?'});\n"
+        "JSON.stringify([p.test('https://x.com/a/5'), p.test('https://x.com/a/')])", &v));
+    EXPECT_NE(std::string::npos, v.find("true"));
+
+    /* :x+ one-or-more segments (greedy, crosses '/') */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLPattern({pathname: '/a/:x+'});\n"
+        "var m = p.exec('https://x.com/a/b/c');\n"
+        "JSON.stringify({t: !!m, g: m ? m.pathname.groups : null})", &v));
+    EXPECT_NE(std::string::npos, v.find("\"t\":true"));
+    EXPECT_NE(std::string::npos, v.find("\"x\":\"b/c\""));
+
+    /* :x* zero-or-more segments (greedy) */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLPattern({pathname: '/a/:x*'});\n"
+        "var m = p.exec('https://x.com/a/b/c');\n"
+        "JSON.stringify({t: !!m, g: m ? m.pathname.groups : null})", &v));
+    EXPECT_NE(std::string::npos, v.find("\"t\":true"));
+    EXPECT_NE(std::string::npos, v.find("\"x\":\"b/c\""));
+}
+
 TEST_F(PolyfillTest, Storage) {
     std::string v;
     ASSERT_TRUE(host_eval(h,

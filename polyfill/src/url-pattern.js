@@ -148,9 +148,11 @@ export function setupURLPattern() {
         if (modifier === '?') {
           regexStr += '(?:([^/]*))?';
         } else if (modifier === '+') {
-          regexStr += '(:(.+))';
+          /* one-or-more path segments (greedy, crosses '/') */
+          regexStr += '(.+)';
         } else if (modifier === '*') {
-          regexStr += '(:(.*))';
+          /* zero-or-more path segments (greedy) */
+          regexStr += '(.*)';
         } else {
           regexStr += '([^/]*)';
         }
