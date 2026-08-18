@@ -88,6 +88,68 @@ TEST_F(PolyfillTest, UrlPatternModifiers) {
     EXPECT_NE(std::string::npos, v.find("\"x\":\"b/c\""));
 }
 
+TEST_F(PolyfillTest, FormData) {
+    std::string v;
+    /* append / get / getAll / has / set / delete */
+    ASSERT_TRUE(host_value(h,
+        "var fd = new FormData();\n"
+        "fd.append('k', 'a'); fd.append('k', 'b');\n"
+        "var r = [fd.get('k'), fd.getAll('k').length, fd.getAll('k')[0], fd.getAll('k')[1], fd.has('k')];\n"
+        "fd.set('k', 'c'); r.push(fd.get('k'));\n"
+        "fd.delete('k'); r.push(fd.has('k'));\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("\"a\""));
+    EXPECT_NE(std::string::npos, v.find("2"));   /* getAll length */
+    EXPECT_NE(std::string::npos, v.find("\"b\""));
+    EXPECT_NE(std::string::npos, v.find("true")); /* has */
+    EXPECT_NE(std::string::npos, v.find("\"c\"")); /* after set */
+    EXPECT_NE(std::string::npos, v.find("false")); /* after delete */
+
+    /* keys / values / entries / forEach */
+    ASSERT_TRUE(host_value(h,
+        "var fd = new FormData(); fd.append('k1','v1'); fd.append('k2','v2');\n"
+        "var ks = [], vs = [];\n"
+        "fd.forEach(function(v,k){ ks.push(k); vs.push(v); });\n"
+        "JSON.stringify([ks.join(','), vs.join(','), fd.size])", &v));
+    EXPECT_NE(std::string::npos, v.find("k1,k2"));
+    EXPECT_NE(std::string::npos, v.find("v1,v2"));
+
+    /* Blob value with filename -> File-like */
+    ASSERT_TRUE(host_value(h,
+        "var fd = new FormData();\n"
+        "fd.append('f', new Blob(['hi']), 'a.txt');\n"
+        "var f = fd.get('f');\n"
+        "JSON.stringify([f instanceof Blob, f.name, f.size])", &v));
+    EXPECT_NE(std::string::npos, v.find("true"));
+    EXPECT_NE(std::string::npos, v.find("\"a.txt\""));
+}
+
+TEST_F(PolyfillTest, ErrorEventAndEvent) {
+    std::string v;
+    /* ErrorEvent ctor fills standard fields */
+    ASSERT_TRUE(host_value(h,
+        "var e = new ErrorEvent('error', {message:'boom', filename:'x.js', lineno:3, colno:5});\n"
+        "JSON.stringify([e.type, e.message, e.filename, e.lineno, e.colno])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"error\""));
+    EXPECT_NE(std::string::npos, v.find("\"boom\""));
+    EXPECT_NE(std::string::npos, v.find("\"x.js\""));
+    EXPECT_NE(std::string::npos, v.find("3"));
+    EXPECT_NE(std::string::npos, v.find("5"));
+
+    /* ErrorEvent defaults (empty message, 0/0 coords) */
+    ASSERT_TRUE(host_value(h,
+        "var e = new ErrorEvent('error');\n"
+        "JSON.stringify([e.message, e.filename, e.lineno, e.colno])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"\""));
+
+    /* Event basic flags */
+    ASSERT_TRUE(host_value(h,
+        "var e = new Event('x');\n"
+        "JSON.stringify([e.type, e.bubbles, e.cancelable])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"x\""));
+    EXPECT_NE(std::string::npos, v.find("false"));
+}
+
 TEST_F(PolyfillTest, Storage) {
     std::string v;
     ASSERT_TRUE(host_eval(h,
