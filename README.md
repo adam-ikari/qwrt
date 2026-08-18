@@ -80,6 +80,36 @@ cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
 
+## Standalone CLI
+
+qwrt ships a standalone runtime executable (built by default, `QWRT_BUILD_CLI=ON`)
+that runs WinterTC Web APIs directly — no Node.js APIs (`process`, `require`,
+`Buffer` are absent by design).
+
+```bash
+cmake --build build -j$(nproc)   # produces build/qwrt
+
+./build/qwrt script.js a b c     # run a script, args via globalThis.arguments
+./build/qwrt -e 'await fetch(url)' # evaluate a one-liner
+./build/qwrt                     # interactive REPL (Ctrl-D to exit)
+./build/qwrt --help
+./build/qwrt --version
+```
+
+- **`globalThis.arguments`** — script args as an array (WinterCG
+  `proposal-cli-api` direction; excludes the executable and script path)
+- **`globalThis.env`** — process environment as a plain object
+- **Async exit** — the runtime waits for pending async work (fetch, timers,
+  streams) to complete before exiting, so top-level `await`-style scripts run to
+  completion
+- **Console routing** — `console.log`/`info`/`debug` → stdout,
+  `console.warn`/`error` → stderr
+
+```bash
+./build/qwrt -e 'console.log(JSON.stringify(globalThis.arguments))' a b c
+# => ["a","b","c"]
+```
+
 ## Architecture
 
 ```mermaid
