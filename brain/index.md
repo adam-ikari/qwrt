@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-18T07:34:53.453Z._
+_Auto-generated. Last updated 2026-08-18T08:11:46.899Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
@@ -12,3 +12,4 @@ _Auto-generated. Last updated 2026-08-18T07:34:53.453Z._
 - [urlpattern-modifier-fix](pages/urlpattern-modifier-fix.md) — category: decision | tags: [urlpattern, wintertc, ecma429, polyfill] | ## 问题
 - [wasm-engine-integration](pages/wasm-engine-integration.md) — category: decision | tags: [wasm, wamr, threading] | # WAMR 线程环境（关键坑）
 - [worker-error-events](pages/worker-error-events.md) — category: decision | tags: [worker, error-events, w3c] | ## compiled_truth
+- [wpt-runner-removed](pages/wpt-runner-removed.md) — category: decision | tags: [wpt, wintertc, testing, libuv-native] | ## 决策
