@@ -5,13 +5,11 @@
 # ============================================================================
 # Google Test targets
 # ============================================================================
-include(FetchContent)
-FetchContent_Declare(
-    googletest
-    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
-)
+# googletest is a git submodule (deps/googletest) like the other deps — no
+# FetchContent/network download (keeps offline builds reproducible).
+set(GOOGLETEST_DIR "${CMAKE_SOURCE_DIR}/deps/googletest" CACHE PATH "Path to the googletest source tree (git submodule)")
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+add_subdirectory(${GOOGLETEST_DIR} ${CMAKE_CURRENT_BINARY_DIR}/googletest)
 
 # mock libuv: fake uv_* API for deterministic offline tests
 add_library(mock_libuv STATIC mock_libuv.c)

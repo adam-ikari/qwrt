@@ -727,6 +727,21 @@ if(QWRT_BUILD_HTTPSERVER_TESTS)
     )
     set_tests_properties(httpserver_e2e PROPERTIES
         LABELS "httpserver" TIMEOUT 120)
+
+    # CLI end-to-end: forks the real qwrt executable and asserts on
+    # stdout/stderr/exit code. Requires a REAL-libuv CLI (the mock loop used by
+    # QWRT_BUILD_TESTS=ON builds has no real event loop, so the CLI aborts),
+    # which is why it lives here alongside the httpserver e2e suite.
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    add_subdirectory(${CMAKE_SOURCE_DIR}/deps/googletest ${CMAKE_CURRENT_BINARY_DIR}/googletest)
+    add_executable(test_cli_gtest test/test_cli_gtest.cpp)
+    target_include_directories(test_cli_gtest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    target_compile_definitions(test_cli_gtest PRIVATE
+        QWRT_CLI_BIN="${_hts_qwrt_bin}"
+        CLI_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/cli_scripts")
+    target_link_libraries(test_cli_gtest GTest::gtest_main pthread)
+    add_test(NAME test_cli_gtest COMMAND test_cli_gtest)
+    set_tests_properties(test_cli_gtest PROPERTIES LABELS "offline")
 endif()
 if(QWRT_BUILD_EXAMPLES)
     add_subdirectory(examples)
