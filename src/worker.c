@@ -32,8 +32,8 @@
  * 之后 worker 脚本里的 postMessage()/onmessage/close() 即按 worker 语义工作。 */
 #define QWRT_WORKER_BOOT_JS                                                  \
     "(function(pal){                                                         \
-       globalThis.postMessage = function(v){                                 \
-         pal.postMessage(__qwrt_serialize__(v));                             \
+       globalThis.postMessage = function(v, transfer){                         \
+         pal.postMessage(__qwrt_serialize__(v, transfer));                     \
        };                                                                    \
        globalThis.__qwrt_dispatch__ = function(data, source){                \
          var v = __qwrt_deserialize__(data);                                 \

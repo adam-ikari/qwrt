@@ -150,6 +150,42 @@ TEST_F(PolyfillTest, ErrorEventAndEvent) {
     EXPECT_NE(std::string::npos, v.find("false"));
 }
 
+TEST_F(PolyfillTest, StructuredCloneTransferArrayBuffer) {
+    std::string v;
+    /* transfer 一个 ArrayBuffer：克隆结果保留内容，原 buffer 被 detach */
+    ASSERT_TRUE(host_value(h,
+        "var ab = new ArrayBuffer(4);\n"
+        "new Uint8Array(ab).set([1,2,3,4]);\n"
+        "var c = structuredClone(ab, {transfer:[ab]});\n"
+        "JSON.stringify({src: ab.byteLength, c: new Uint8Array(c).join(',')})", &v));
+    EXPECT_NE(std::string::npos, v.find("\"src\":0")) << "got: " << v;      /* 原 buffer detached */
+    EXPECT_NE(std::string::npos, v.find("\"c\":\"1,2,3,4\"")) << "got: " << v;
+
+    /* 不带 transfer：原 buffer 不被 detach */
+    ASSERT_TRUE(host_value(h,
+        "var ab = new ArrayBuffer(4);\n"
+        "var c = structuredClone(ab);\n"
+        "JSON.stringify(ab.byteLength)", &v));
+    EXPECT_NE(std::string::npos, v.find("4")) << "got: " << v;
+
+    /* transfer 列表含不可转移对象（普通对象）→ DataCloneError */
+    ASSERT_TRUE(host_value(h,
+        "var r = 'no-error';\n"
+        "try { structuredClone({}, {transfer:[{}]}); }\n"
+        "catch (e) { r = e.name; }\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("\"DataCloneError\"")) << "got: " << v;
+
+    /* transfer 列表重复对象 → DataCloneError */
+    ASSERT_TRUE(host_value(h,
+        "var ab = new ArrayBuffer(4);\n"
+        "var r = 'no-error';\n"
+        "try { structuredClone(ab, {transfer:[ab, ab]}); }\n"
+        "catch (e) { r = e.name; }\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("\"DataCloneError\"")) << "got: " << v;
+}
+
 TEST_F(PolyfillTest, Storage) {
     std::string v;
     ASSERT_TRUE(host_eval(h,

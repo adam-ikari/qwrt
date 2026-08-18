@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-18T08:11:46.899Z._
+_Auto-generated. Last updated 2026-08-18T12:53:46.181Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
@@ -12,4 +12,5 @@ _Auto-generated. Last updated 2026-08-18T08:11:46.899Z._
 - [urlpattern-modifier-fix](pages/urlpattern-modifier-fix.md) — category: decision | tags: [urlpattern, wintertc, ecma429, polyfill] | ## 问题
 - [wasm-engine-integration](pages/wasm-engine-integration.md) — category: decision | tags: [wasm, wamr, threading] | # WAMR 线程环境（关键坑）
 - [worker-error-events](pages/worker-error-events.md) — category: decision | tags: [worker, error-events, w3c] | ## compiled_truth
+- [worker-transferable](pages/worker-transferable.md) — category: decision | tags: [worker, transferable, arraybuffer, structured-clone, wintertc] | - structuredClone 内通过把 transferSet 挂到 options 副本的 `_qwrtTransfer` 私有字段随递归传递（构造 `{transfer, _qwrtTransfer}` 副本，不改用户对象——防 Object.freeze）；被消息引用
 - [wpt-runner-removed](pages/wpt-runner-removed.md) — category: decision | tags: [wpt, wintertc, testing, libuv-native] | ## 决策

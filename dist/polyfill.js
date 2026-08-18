@@ -3755,8 +3755,33 @@
   // src/structured-clone.js
   function setupStructuredClone() {
     globalThis.structuredClone = function structuredClone(value, options) {
+      var transferSet = null;
+      if (options && options.transfer !== void 0 && options.transfer !== null) {
+        if (!Array.isArray(options.transfer))
+          throw new DOMException("transfer must be a sequence", "DataCloneError");
+        transferSet = /* @__PURE__ */ new Set();
+        for (var i = 0; i < options.transfer.length; i++) {
+          var t = options.transfer[i];
+          if (transferSet.has(t))
+            throw new DOMException("duplicate transferable", "DataCloneError");
+          if (!(t instanceof ArrayBuffer))
+            throw new DOMException("object is not transferable", "DataCloneError");
+          transferSet.add(t);
+        }
+      }
+      if (options && typeof options === "object") {
+        options = { transfer: options.transfer, _qwrtTransfer: transferSet };
+      } else {
+        options = { _qwrtTransfer: transferSet };
+      }
       var seen = /* @__PURE__ */ new Map();
-      return clone(value, seen, options);
+      var result = clone(value, seen, options);
+      if (transferSet) {
+        transferSet.forEach(function(ab) {
+          if (!ab.detached) ab.transfer();
+        });
+      }
+      return result;
     };
     function clone(value, seen, options) {
       if (value === null || value === void 0) return value;
@@ -3813,7 +3838,14 @@
         return result;
       }
       if (value instanceof ArrayBuffer) {
-        var result = value.slice(0);
+        var ts = options && options._qwrtTransfer;
+        var result;
+        if (ts && ts.has(value)) {
+          ts.delete(value);
+          result = value.transfer();
+        } else {
+          result = value.slice(0);
+        }
         seen.set(value, result);
         return result;
       }
@@ -3958,7 +3990,21 @@
       bytes.u32(u.length);
       for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
     }
-    function serializeToBytes(value) {
+    function serializeToBytes(value, transfer) {
+      var transferSet = null;
+      if (transfer !== void 0 && transfer !== null) {
+        if (!Array.isArray(transfer))
+          throw new DOMException("transfer must be a sequence", "DataCloneError");
+        transferSet = /* @__PURE__ */ new Set();
+        for (var i = 0; i < transfer.length; i++) {
+          var t = transfer[i];
+          if (transferSet.has(t))
+            throw new DOMException("duplicate transferable", "DataCloneError");
+          if (!(t instanceof ArrayBuffer))
+            throw new DOMException("object is not transferable", "DataCloneError");
+          transferSet.add(t);
+        }
+      }
       var refs = /* @__PURE__ */ new Map();
       var next = 0;
       var bytes = ByteWriter();
@@ -3971,12 +4017,12 @@
           bytes.u8(2);
           return;
         }
-        var t = typeof v;
-        if (t === "boolean") {
+        var t2 = typeof v;
+        if (t2 === "boolean") {
           bytes.u8(v ? 3 : 4);
           return;
         }
-        if (t === "number") {
+        if (t2 === "number") {
           if (Number.isInteger(v) && !Object.is(v, -0) && v >= -2147483648 && v <= 2147483647) {
             bytes.u8(5);
             bytes.u32(v >>> 0);
@@ -3986,18 +4032,18 @@
           }
           return;
         }
-        if (t === "string") {
+        if (t2 === "string") {
           bytes.u8(7);
           encodeString(bytes, v);
           return;
         }
-        if (t === "bigint") {
+        if (t2 === "bigint") {
           bytes.u8(31);
           encodeString(bytes, v.toString());
           return;
         }
-        if (t === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
-        if (t === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
+        if (t2 === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
+        if (t2 === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
         if (refs.has(v)) {
           bytes.u8(30);
           bytes.u32(refs.get(v));
@@ -4070,6 +4116,10 @@
           var au8 = new Uint8Array(v);
           bytes.u32(au8.length);
           bytes.raw(au8);
+          if (transferSet && transferSet.has(v)) {
+            transferSet.delete(v);
+            v.transfer();
+          }
           return;
         }
         if (v instanceof DataView) {
@@ -4080,10 +4130,10 @@
           bytes.u32(v.byteLength);
           return;
         }
-        for (var i = 0; i < TA_CTORS.length; i++) {
-          if (v instanceof TA_CTORS[i]) {
+        for (var i2 = 0; i2 < TA_CTORS.length; i2++) {
+          if (v instanceof TA_CTORS[i2]) {
             refs.set(v, next++);
-            bytes.u8(15 + i);
+            bytes.u8(15 + i2);
             var tu8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
             bytes.u32(tu8.length);
             bytes.raw(tu8);
@@ -4094,7 +4144,7 @@
           refs.set(v, next++);
           bytes.u8(28);
           bytes.u32(v.length);
-          for (var i = 0; i < v.length; i++) w(v[i]);
+          for (var i2 = 0; i2 < v.length; i2++) w(v[i2]);
           return;
         }
         refs.set(v, next++);
@@ -4106,12 +4156,17 @@
           keys = [];
         }
         bytes.u32(keys.length);
-        for (var i = 0; i < keys.length; i++) {
-          encodeString(bytes, keys[i]);
-          w(v[keys[i]]);
+        for (var i2 = 0; i2 < keys.length; i2++) {
+          encodeString(bytes, keys[i2]);
+          w(v[keys[i2]]);
         }
       }
       w(value);
+      if (transferSet) {
+        transferSet.forEach(function(ab) {
+          if (!ab.detached) ab.transfer();
+        });
+      }
       return bytes.done();
     }
     function ByteReader(u8) {
@@ -4291,8 +4346,8 @@
         configurable: true
       });
     }
-    Worker.prototype.postMessage = function(value) {
-      var bytes = __qwrt_serialize__(value);
+    Worker.prototype.postMessage = function(value, transfer) {
+      var bytes = __qwrt_serialize__(value, transfer);
       pal2.workerPost(this._id, bytes);
     };
     Worker.prototype.terminate = function() {

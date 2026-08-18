@@ -100,3 +100,47 @@ TEST(worker_, import_scripts) {
     EXPECT_NE(std::string::npos, out.find("42")) << "got: " << out;
     host_destroy(h);
 }
+
+// transferable：父 → worker 传 ArrayBuffer + transfer 列表，worker 回显内容，
+// 父侧原 buffer 被 detach（byteLength → 0）。
+TEST(worker_, transfer_arraybuffer_parent_to_worker) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var ab = new ArrayBuffer(4);\n"
+        "new Uint8Array(ab).set([10, 20, 30, 40]);\n"
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_echo.js');\n"
+        "w.onmessage = function(e){ postMessage({v: Array.prototype.join.call(new Uint8Array(e.data), ','), src: ab.byteLength}); };\n"
+        "w.postMessage(ab, [ab]);\n"
+        "'started'", &out));
+
+    ASSERT_TRUE(host_wait_msg(h, &out));   /* worker 回显内容 */
+    EXPECT_NE(std::string::npos, out.find("\"v\":\"10,20,30,40\"")) << "got: " << out;
+    EXPECT_NE(std::string::npos, out.find("\"src\":0")) << "got: " << out;   /* 父侧原 buffer detached */
+    host_destroy(h);
+}
+
+// transferable：worker → 父 传 ArrayBuffer + transfer 列表，父侧收到内容，
+// worker 侧原 buffer 被 detach（byteLength → 0）。
+TEST(worker_, transfer_arraybuffer_worker_to_parent) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_transfer.js');\n"
+        "w.onmessage = function(e){ var d = e.data; if (d.buf !== undefined) { postMessage({bufc: Array.prototype.join.call(new Uint8Array(d.buf), ',')}); } else { postMessage({after: d.after, c: d.contents}); } };\n"
+        "w.postMessage('go');\n"
+        "'started'", &out));
+
+    /* 第一条：父侧收到转移的 ArrayBuffer，内容完整 */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"bufc\":\"7,8,9,10\"")) << "got: " << out;
+    /* 第二条：worker 侧 detached 后的 byteLength === 0，且内容一致 */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"after\":0")) << "got: " << out;
+    EXPECT_NE(std::string::npos, out.find("\"c\":\"7,8,9,10\"")) << "got: " << out;
+    host_destroy(h);
+}

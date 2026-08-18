@@ -57,8 +57,8 @@ export function setupWorker(pal) {
     });
   }
 
-  Worker.prototype.postMessage = function (value) {
-    var bytes = __qwrt_serialize__(value);
+  Worker.prototype.postMessage = function (value, transfer) {
+    var bytes = __qwrt_serialize__(value, transfer);
     pal.workerPost(this._id, bytes);
   };
 

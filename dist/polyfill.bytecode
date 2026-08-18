@@ -1,4 +1,4 @@
-mâ'PşpalsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
+ËÂä†palsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
 debugTrace: objoptions
 depth
 labeltimeNow
@@ -62,7 +62,7 @@ regexnavigatorreportError2lineNumbercolumnNumberlistener_onerrorHand
 en-USlanguagewintercgplatform&hardwareConcurrencyonLinemaxTouchPointsonerror(onunhandledrejection$onrejectionhandled.__installCryptoSubtle__toUint8ArraytoArrayBufferB64_CHARSbase64UrlEncodebase64UrlDecodeCryptoKeySubtleCryptoDExpected ArrayBuffer or TypedArrayu8b0b2_
 charsc0c1c2c3algorithmextractableusages_algorithm_extractable_usagesnativeDigest<Crypto extension not availablekeyDatakeyUsagesalgoNameInvalid keyDatajwk(Invalid JWK key data0Unsupported key format: secrethashAlgoHMACSHA-256nativeHmac.Unsupported algorithm: signaturecomputedsigcompdiffsignplaintextivaadtagLencounter nativeAesEncryptAES-CBCAES-GCMadditionalDatatagLengthAES-CTRciphertext nativeAesDecryptlengthBitslengthByteskeyBytesceil
 SHA-1SHA-512,Invalid AES key lengthOperationError,Key is not extractableoctktyHSSHA-algextkey_ops6Unsupported export format: saltiterations
-dkLenPBKDF2nativePbkdf2derivedKeyTypebitsLengthbitsderiveBitsdigestimportKeyverifyencryptdecryptgenerateKeyexportKeyderiveKeycloneTypedArrayTA_CTORSutf8Encodeutf8DecodeByteWriterencodeString serializeToBytesByteReader(deserializeFromBytesseenCtor0Symbols cannot be cloned4Functions cannot be clonedgetTimeoutcpufu32f64refswtfbytesbbytesau8tu8valisIntegeris*File cannot be cloned*Blob cannot be clonednrrdtagnmmoffdvtabllmflo&Bad serialized data$__qwrt_serialize__(__qwrt_deserialize__workersloadScriptWorkerhostDispatchfile://ZWorker: only file:// URLs are supported in v1fsReadSyncid_onmsg_onerrorspawnWorker_idworkerPostworkerTerminate_pristine_infra
+dkLenPBKDF2nativePbkdf2derivedKeyTypebitsLengthbitsderiveBitsdigestimportKeyverifyencryptdecryptgenerateKeyexportKeyderiveKeycloneTypedArrayTA_CTORSutf8Encodeutf8DecodeByteWriterencodeString serializeToBytesByteReader(deserializeFromBytestransferSettseendetached6transfer must be a sequence,duplicate transferable4object is not transferable_qwrtTransferCtorts0Symbols cannot be cloned4Functions cannot be clonedgetTimeoutcpufu32f64refswt2fbytesbbytesau8tu8valisIntegeris*File cannot be cloned*Blob cannot be clonednrrdtagnmmoffdvtabllmflo&Bad serialized data$__qwrt_serialize__(__qwrt_deserialize__workersloadScriptWorkerhostDispatchfile://ZWorker: only file:// URLs are supported in v1fsReadSyncid_onmsg_onerrorspawnWorker_idworkerPostworkerTerminate_pristine_infra
 propsskippedreccontextSpawncontextSuspendcontextResumecontextDestroycreate(__qwrt_ctx_capture__(__qwrt_ctx_restore__qwrtContext
 spawnsuspendresumedestroyVqueueMicrotask requires a function argumentqueueMicrotask"__native_inject__ 
  ¨    
@@ -9791,25 +9791,53 @@ S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È
  	 
 “
 ò  @ ¼ @¾ @À @Â @Ä @Æ @È  Ê @Ì 	 C
- Ö  ˆ  º  Î   ò  8¿   !  Ïã×ËØ# ¨­":#†function structuredClone(value, options) {
+ Ö …ˆ  º  Î   ¢  Ğ  Ò  ¦  ò  C
+      ş  ×@ª  •ğ×Ai  $  )¨Ä0  Cfunction(ab) {
+          if (!ab.detached) ab.transfer();
+        }ÏØh´   Ø@i  øi¨   Ø@i  ®h›   8Ÿ   AÉ  Ø@i  $ •ğ8İ   «  é  ! 08À   !  ÏºĞÌØ@i  ï¥ğWØ@i  ÌFÑËAk   Í$ ğ8İ   ¬  é  ! 0Í8­   ©•ğ8İ   ­  é  ! 0ËAp   Í$ ’ò Øğ Ø–M   ­ğØ@i  Ki  ËK®  Üò	ËK®  Ü8¿   !  Òã×ÎØ÷ÈËğËAW  Å $ Ç(¨­"&J>>X[?g,D!l0g  F0?m ,::1! (”	function structuredClone(value, options) {
+      var transferSet = null;
+      if (options && options.transfer !== void 0 && options.transfer !== null) {
+        if (!Array.isArray(options.transfer))
+          throw new DOMException("transfer must be a sequence", "DataCloneError");
+        transferSet = /* @__PURE__ */ new Set();
+        for (var i = 0; i < options.transfer.length; i++) {
+          var t = options.transfer[i];
+          if (transferSet.has(t))
+            throw new DOMException("duplicate transferable", "DataCloneError");
+          if (!(t instanceof ArrayBuffer))
+            throw new DOMException("object is not transferable", "DataCloneError");
+          transferSet.add(t);
+        }
+      }
+      if (options && typeof options === "object") {
+        options = { transfer: options.transfer, _qwrtTransfer: transferSet };
+      } else {
+        options = { _qwrtTransfer: transferSet };
+      }
       var seen = /* @__PURE__ */ new Map();
-      return clone(value, seen, options);
+      var result = clone(value, seen, options);
+      if (transferSet) {
+        transferSet.forEach(function(ab) {
+          if (!ab.detached) ab.transfer();
+        });
+      }
+      return result;
     }C
- ò 	ˆ  Î @º @²   Ğ  Î  ¦ @ Ò  ¢  b  ¤9 ò  ¼ C
-     ä  è  ¦ ò ÎºãAF   äØåæ÷ä×åæ÷$ )¨Ú 2bfunction(v, k) {
+ ò	Ô	ˆ  Ò @º @²   Ş  Î  ¦ @ à  Ò  ¢  b  ¤< ò  ¼ C
+     ä  è  ¦ ò ÒºãAF   äØåæ÷ä×åæ÷$ )¨ó 2bfunction(v, k) {
           result.set(clone(k, seen, options), clone(v, seen, options));
         }C
-     ä  ¦ ò ÎºãAp   ä×åæ÷$ )¨â Ffunction(v) {
+     ä  ¦ ò ÒºãAp   ä×åæ÷$ )¨û Ffunction(v) {
           result.add(clone(v, seen, options));
-        }×ùñ×øğ×(×–ÓK   ­ñËJ   ­ñËL   ­ñ	Ë–   ­ğ×(ËN   ­ğ8İ   ©  é  ! 0×–M   ­ñ×ûğØAk   ×$ ğØAE   ×% ×ûğ8İ   ª  é  ! 0×8¨   ©ğ8¨   ×A«  $  ! (×8¬   ©ğ8¬   ×@t   ×@u   ! (×8    ©h¾   ×@@   Ô8    ­ñ@Ì8Ú   ­ñ5Ì8×   ­ñ*Ì8Ù   ­ñÌ8Û   ­ñÌ8Ø   ­ñ	Ì8Ö   ­ğÌ×@4   ! Õ×@9   B9   Í(7İ   ûğ ×8İ   ©ğ8İ   ×@4   ×@:   ! (8    ×@4   ! Õ×@:   B:   Í×@9   B9   Í(×8¿   ©ğ%8¿   !  ÒØAF   ×Î$ ×AW  Å $ Î(×8À   ©ğ%8À   !  ÒØAF   ×Î$ ×AW  Å$ Î(×8­   ©ğ×A§  º$ ÒØAF   ×Î$ Î(×8»   ©ğ%ã×@§  ØÙ÷È8»   Ç×@D  ×@Æ  ! (×8°   ©ğä×8°   Ø# ×8±   ©ğä×8±   Ø# ×8¯   ©ğä×8¯   Ø# ×8²   ©ğä×8²   Ø# ×8³   ©ğä×8³   Ø# ×8´   ©ğä×8´   Ø# ×8µ   ©ğä×8µ   Ø# ×8¹   ©ğä×8¹   Ø# ×8º   ©ğä×8º   Ø# 7¶   úñ×8¶   ©ğä×8¶   Ø# 7·   úñ×8·   ©ğä×8·   Ø# 7ü  úñ$×8ü  ©ğ8ü  ×& ×@Y  KY  ! (7ı  úñ5×8ı  ©ğ,8ı  ×& ×@:   ×@Y  KY  ×@ó  Kó  ! (8Ÿ   AÉ  ×$ ğ9&  ÒØAF   ×Î$ ºÈÇ×ï¥ğÎÇ¯ñqã×ÇFØÙ÷qH’òŞÎ(×@@   8   ­ñ	×@@   •ğNÒØAF   ×Î$ 8   A1   ×$ ÈºÈÇÇï¥ğ#ÎÇÇF¯ñqã×ÇÇFFØÙ÷qH’ò×Î(ÒØAF   ×Î$ kD   8   A1   ×$ ÈºÈÇÇï¥ğ#ÎÇÇF¯ñqã×ÇÇFFØÙ÷qH’ò×òÈk   ò0Î(¨±Ù  $,%9,9*9*<+m>:0E?
+        }×ùñ×øğ×(×–ÓK   ­ñËJ   ­ñËL   ­ñ	Ë–   ­ğ×(ËN   ­ğ8İ   ±  é  ! 0×–M   ­ñ×ûğØAk   ×$ ğØAE   ×% ×ûğ8İ   ²  é  ! 0×8¨   ©ğ8¨   ×A³  $  ! (×8¬   ©ğ8¬   ×@t   ×@u   ! (×8    ©h¾   ×@@   Ô8    ­ñ@Ì8Ú   ­ñ5Ì8×   ­ñ*Ì8Ù   ­ñÌ8Û   ­ñÌ8Ø   ­ñ	Ì8Ö   ­ğÌ×@4   ! Õ×@9   B9   Í(7İ   ûğ ×8İ   ©ğ8İ   ×@4   ×@:   ! (8    ×@4   ! Õ×@:   B:   Í×@9   B9   Í(×8¿   ©ğ%8¿   !  ÒØAF   ×Î$ ×AW  Å $ Î(×8À   ©ğ%8À   !  ÒØAF   ×Î$ ×AW  Å$ Î(×8­   ©ğNÙğÙ@®  Éğ&ÇAk   ×$ ğÇA	   ×$ ×Ai  $  Òò×A§  º$ ÒØAF   ×Î$ Î(×8»   ©ğ%ã×@§  ØÙ÷È8»   Ç×@D  ×@Æ  ! (×8°   ©ğä×8°   Ø# ×8±   ©ğä×8±   Ø# ×8¯   ©ğä×8¯   Ø# ×8²   ©ğä×8²   Ø# ×8³   ©ğä×8³   Ø# ×8´   ©ğä×8´   Ø# ×8µ   ©ğä×8µ   Ø# ×8¹   ©ğä×8¹   Ø# ×8º   ©ğä×8º   Ø# 7¶   úñ×8¶   ©ğä×8¶   Ø# 7·   úñ×8·   ©ğä×8·   Ø# 7ü  úñ$×8ü  ©ğ8ü  ×& ×@Y  KY  ! (7ı  úñ5×8ı  ©ğ,8ı  ×& ×@:   ×@Y  KY  ×@ó  Kó  ! (8Ÿ   AÉ  ×$ ğ9&  ÒØAF   ×Î$ ºÈÇ×ï¥ğÎÇ¯ñqã×ÇFØÙ÷qH’òŞÎ(×@@   8   ­ñ	×@@   •ğNÒØAF   ×Î$ 8   A1   ×$ ÈºÈÇÇï¥ğ#ÎÇÇF¯ñqã×ÇÇFFØÙ÷qH’ò×Î(ÒØAF   ×Î$ kD   8   A1   ×$ ÈºÈÇÇï¥ğ#ÎÇÇF¯ñqã×ÇÇFFØÙ÷qH’ò×òÈk   ò0Î(¨Êå  $,%9,9*9*<+m>:0E?
 m+>,+w^9$9,9.909*96+‡:d4>+[rN? P&+5A !  	
 
 +5A !  	
 
-I % 20:	/D:C/F:E/T:S/F:E/H:G/F:E/H:G/J:I/JN9@0GN
+›!% " ! 20:	/D:C/F:E/T:S/F:E/H:G/F:E/H:G/J:I/JN9@0GN
 @0IN	@+MŸ@+M 5
 6 :#C$ m/ S:!#R0 
-7 m :!#R0È#function clone(value, seen, options) {
+7 m :!#R0Œ%function clone(value, seen, options) {
       if (value === null || value === void 0) return value;
       var type = typeof value;
       if (type === "boolean" || type === "number" || type === "string" || type === "bigint") {
@@ -9864,7 +9892,14 @@ I % 20:	/D:C/F:E/T:S/F:E/H:G/F:E/H:G/J:I/JN9@0GN
         return result;
       }
       if (value instanceof ArrayBuffer) {
-        var result = value.slice(0);
+        var ts = options && options._qwrtTransfer;
+        var result;
+        if (ts && ts.has(value)) {
+          ts.delete(value);
+          result = value.transfer();
+        } else {
+          result = value.slice(0);
+        }
         seen.set(value, result);
         return result;
       }
@@ -9919,13 +9954,13 @@ I % 20:	/D:C/F:E/T:S/F:E/H:G/F:E/H:G/J:I/JN9@0GN
       }
       return result;
     }C
- ¼   ˆ  Ğ  Î  ¦   Ø×! ÏÙAF   ×Ë$ Ë(¨Ÿ&&! ‹function cloneTypedArray(value, Ctor, seen) {
+ ¼   ˆ  Ş  Ò  ¦   Ø×! ÏÙAF   ×Ë$ Ë(¨¿&&! ‹function cloneTypedArray(value, Ctor, seen) {
       var result = new Ctor(value);
       seen.set(value, result);
       return result;
     }C
- À   èô  Ø   ¢  ö  ¤  Ú  &  ÏºĞÌ×ï¥hÛ   ×Aı  Ì$ ÕÃ€ ¥ğËAO  Í$ óµ ÍÃ ¥ğËAO  ÃÀ ÍÀŸ£Ã€ ÍÂ?¡£$ ó’ Í Ø  ¥ñ	Í à  ¨ğ'ËAO  Ãà ÍÂŸ£Ã€ ÍÀŸÂ?¡£Ã€ ÍÂ?¡£$ òW×Aı  ÌÔ$ Ò   ÍÃÿ¡Â
-œÎÃÿ¡œÈËAO  Ãğ ÇÂŸ£Ã€ ÇÂŸÂ?¡£Ã€ ÇÀŸÂ?¡£Ã€ ÇÂ?¡£$ ’ó"ÿË(¨°R',I! 0! 
+ À   èô  è   ¢  ö  ¤  ê  &  ÏºĞÌ×ï¥hÛ   ×Aı  Ì$ ÕÃ€ ¥ğËAO  Í$ óµ ÍÃ ¥ğËAO  ÃÀ ÍÀŸ£Ã€ ÍÂ?¡£$ ó’ Í Ø  ¥ñ	Í à  ¨ğ'ËAO  Ãà ÍÂŸ£Ã€ ÍÀŸÂ?¡£Ã€ ÍÂ?¡£$ òW×Aı  ÌÔ$ Ò   ÍÃÿ¡Â
+œÎÃÿ¡œÈËAO  Ãğ ÇÂŸ£Ã€ ÇÂŸÂ?¡£Ã€ ÇÀŸÂ?¡£Ã€ ÇÂ?¡£$ ’ó"ÿË(¨ĞR',I! 0! 
  ?'9+5 
 %
 %TS?&W!&
@@ -9953,8 +9988,8 @@ I % 20:	/D:C/F:E/T:S/F:E/H:G/F:E/H:G/J:I/JN9@0GN
       }
       return out;
     }C
- Â   €	–  Â  Š	  Ø   ¢  ˜  ¬  Ú  Ü  ÆÏØĞØÙœÑÌÍ¥hò   ×ÌFÖÃ€ ¥ğË8¢   AR  Î$ œÏ»“òÙÎÃà ¥ğ%Ë8¢   AR  ÎÂ¡À×Ì»œFÂ?¡£$ œÏ¼“ò®ÎÃğ ¥ğ2Ë8¢   AR  ÎÂ¡Â×Ì»œFÂ?¡À£×Ì¼œFÂ?¡£$ œÏ½“ówÿÎÁ¡Â×Ì»œFÂ?¡Â£×Ì¼œFÂ?¡À£×Ì½œFÂ?¡£É   ÈË8¢   AR   Ø  ÇÂ
-Ÿœ$ 8¢   AR   Ü  ÇÃÿ¡œ$ œœÏ¾“óÿË(¨Çi>#;!96!5!!9$
+ Â   €	–  Â  Š	  è   ¢  ˜  ¬  ê  ì  ÆÏØĞØÙœÑÌÍ¥hò   ×ÌFÖÃ€ ¥ğË8¢   AR  Î$ œÏ»“òÙÎÃà ¥ğ%Ë8¢   AR  ÎÂ¡À×Ì»œFÂ?¡£$ œÏ¼“ò®ÎÃğ ¥ğ2Ë8¢   AR  ÎÂ¡Â×Ì»œFÂ?¡À£×Ì¼œFÂ?¡£$ œÏ½“ówÿÎÁ¡Â×Ì»œFÂ?¡Â£×Ì¼œFÂ?¡À£×Ì½œFÂ?¡£É   ÈË8¢   AR   Ø  ÇÂ
+Ÿœ$ 8¢   AR   Ü  ÇÃÿ¡œ$ œœÏ¾“óÿË(¨çi>#;!96!5!!9$
 0m!!9$
 
 
@@ -9988,25 +10023,25 @@ I % 20:	/D:C/F:E/T:S/F:E/H:G/F:E/H:G/J:I/JN9@0GN
       return out;
     }C
  Ä   B®  @ C
-     ¬  ®  ãAO  ×Ãÿ ¡$ )¨á 6function(b) {
+     ¬  ®  ãAO  ×Ãÿ ¡$ )¨ 6function(b) {
           bytes.push(b & 255);
         }C
-     'ä  ®  ãAO  ×Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡$ )¨ä 
+     'ä  ®  ãAO  ×Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡$ )¨„ 
 
 efunction(v) {
           bytes.push(v & 255, v >>> 8 & 255, v >>> 16 & 255, v >>> 24 & 255);
         }C
-    Lä  ş   Ş  Ü  ¢  ®  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑÌº¯ñq×qHºÒÎÂ¥ğãAO  ÍÎF$ ’òê)¨ç>094:}b( ¼function(v) {
+    Lä  ş   î  ì  ¢  ®  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑÌº¯ñq×qHºÒÎÂ¥ğãAO  ÍÎF$ ’òê)¨‡>094:}b( ¼function(v) {
           var ab = new ArrayBuffer(8), f = new Float64Array(ab), u = new Uint8Array(ab);
           f[0] = v;
           for (var i = 0; i < 8; i++) bytes.push(u[i]);
         }C
-    –  ¢   ®  ºÏË×ï¥ğãAO  ×ËF$ ’ òê)¨ì"  Yfunction(u8) {
+    –  ¢   ®  ºÏË×ï¥ğãAO  ×ËF$ ’ òê)¨Œ"  Yfunction(u8) {
           for (var i = 0; i < u8.length; i++) bytes.push(u8[i]);
         }C
-        ®  8±   ã! @§  (¨ïEfunction() {
+        ®  8±   ã! @§  (¨Efunction() {
           return new Uint8Array(bytes).buffer;
-        }&  ÏÅ LK  KK  ÅL°  K°  ÅL±  K±  ÅLx   Kx   ÅLq   Kq   (¨Ş Šfunction ByteWriter() {
+        }&  ÏÅ LK  KK  ÅL¸  K¸  ÅL¹  K¹  ÅLx   Kx   ÅLq   Kq   (¨ş Šfunction ByteWriter() {
       var bytes = [];
       return {
         u8: function(b) {
@@ -10028,28 +10063,26 @@ efunction(v) {
         }
       };
     }C
- Æ  /®  ô  Ü   ¢  À ã8¢   ØõõÏ×A°  Ëï$ ºĞÌËï¥ğ×AK  ÊF$ ’òë)¨ô*3 0  function encodeString(bytes, s) {
+ Æ  /®  ô  ì   ¢  À ã8¢   ØõõÏ×A¸  Ëï$ ºĞÌËï¥ğ×AK  ÊF$ ’òë)¨”*3 0  function encodeString(bytes, s) {
       var u = utf8Encode(String(s));
       bytes.u32(u.length);
       for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
     }C
- Èˆ  ä  @ä @® @æ @ Æ ¾ Ä C
- æ ÿ
-	ä  è   ê  ì  î  ¢  ğ  b  ¤1 æ ® Æ ä  ä ¾      àAC
-     ò  °  æ ãØõã×õ)¨ÔHfunction(val, key) {
+ ÈÌ	ˆ  Ò  Î  @¢  Ğ  ô @ä @® @ö @ Æ ¾ Ä C
+ ö ª	ä  ø   ú  ü  ş  ˆ	  €  b  ¤3 ö ® Æ ô ä Î  ¾      àAC
+     ‚  °  ö ãØõã×õ)¨‚ Hfunction(val, key) {
             w(key);
             w(val);
           }C
-     ò  æ ã×õ)¨Ş/function(val) {
+     ‚  ö ã×õ)¨Œ /function(val) {
             w(val);
-          }×ùğäAK  »$ )×øğäAK  ¼$ )×–ÓK   ­ğäAK  ×ğ½ò¾$ )ËJ   ­ğd8¡   Aº  ×$ ğ=8   A»  ×º‹$ •ğ*×Ä ‹¨ğ#×ÿÿÿ¦ğäAK  ¿$ äA°  ×º $ )äAK  À$ äA±  ×$ )ËL   ­ğäAK  Á$ åä×ö)Ë–   ­ğäAK  Â$ åä×A;   $  ö)ËN   ­ğ8İ   ©  é  ! 0Ë   ­ğ8İ   ª  é  ! 0æAk   ×$ ğ!äAK  Â$ äA°  æAE   ×$ $ )×8¨   ©ğ2æAF   ×] ^ $ äAK  Â$ äA±  ×A«  $  $ )×8¬   ©ğ3æAF   ×] ^ $ äAK  Â	$ åä×@t   öåä×@u   ö)×8    ©ğAæAF   ×] ^ $ äAK  Â
-$ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ äAK  Â$ åä×@:   öåä×@Y  ñÆöäA±  ×@ó  $ ×@á  ûğ×Aá  $  òÔ•ğ8İ   ¼  é  ! 0äA°  Ìï$ äAx   Ì$ )7ü  úñ{×8ü  ©ğræAF   ×] ^ $ äAK  Â$ åä×@Y  ñÆö×@á  ûğ×Aá  $  òÕ•ğ8İ   ½  é  ! 0äA°  Íï$ äAx   Í$ )×8¿   ©ğ;æAF   ×] ^ $ äAK  Â$ äA°  ×@2   $ ×AW  Å$ )×8À   ©ğ;æAF   ×] ^ $ äAK  Â$ äA°  ×@2   $ ×AW  Å$ )×8­   ©ğAæAF   ×] ^ $ äAK  Â$ 8±   ×! ÒäA°  Îï$ äAx   Î$ )×8»   ©ğHæAF   ×] ^ $ äAK  Â$ ã×@§  õäA°  ×@D  $ äA°  ×@Æ  $ )ºÈÇ] ï¥ğf×] ÇF©ğXæAF   ×] ^ $ äAK  ÂÇœ$ 8±   ×@§  ×@D  ×@Æ  ! ÈäA°  Çï$ äAx   Ç$ )’ò“8Ÿ   AÉ  ×$ ğAæAF   ×] ^ $ äAK  Â$ äA°  ×ï$ ºÈÇ×ï¥ğã×ÇFõ’òï)æAF   ×] ^ $ äAK  Â$ k   8   A1   ×$ ÈòÈk   &  Èò0äA°  Çï$ ºÈÇÇï¥ğåäÇÇFöã×ÇÇFFõ’òâ)¨ıñ #  + A]R"4%(+  '   + 	+ !%#*(l'*,…%! !  2+ ? !  -+ ? !07+ ? !]d
+          }×ùğäAK  »$ )×øğäAK  ¼$ )×–ÓK   ­ğäAK  ×ğ½ò¾$ )ËJ   ­ğd8¡   AÂ  ×$ ğ=8   AÃ  ×º‹$ •ğ*×Ä ‹¨ğ#×ÿÿÿ¦ğäAK  ¿$ äA¸  ×º $ )äAK  À$ äA¹  ×$ )ËL   ­ğäAK  Á$ åä×ö)Ë–   ­ğäAK  Â$ åä×A;   $  ö)ËN   ­ğ8İ   ±  é  ! 0Ë   ­ğ8İ   ²  é  ! 0æAk   ×$ ğ!äAK  Â$ äA¸  æAE   ×$ $ )×8¨   ©ğ2æAF   ×] ^ $ äAK  Â$ äA¹  ×A³  $  $ )×8¬   ©ğ3æAF   ×] ^ $ äAK  Â	$ åä×@t   öåä×@u   ö)×8    ©ğAæAF   ×] ^ $ äAK  Â
+$ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ äAK  Â$ åä×@:   öåä×@Y  ñÆöäA¹  ×@ó  $ ×@á  ûğ×Aá  $  òÔ•ğ8İ   Ä  é  ! 0äA¸  Ìï$ äAx   Ì$ )7ü  úñ{×8ü  ©ğræAF   ×] ^ $ äAK  Â$ åä×@Y  ñÆö×@á  ûğ×Aá  $  òÕ•ğ8İ   Å  é  ! 0äA¸  Íï$ äAx   Í$ )×8¿   ©ğ;æAF   ×] ^ $ äAK  Â$ äA¸  ×@2   $ ×AW  Å$ )×8À   ©ğ;æAF   ×] ^ $ äAK  Â$ äA¸  ×@2   $ ×AW  Å$ )×8­   ©ğlæAF   ×] ^ $ äAK  Â$ 8±   ×! ÒäA¸  Îï$ äAx   Î$ ] ğ&] Ak   ×$ ğ] A	   ×$ ×Ai  $  )×8»   ©ğHæAF   ×] ^ $ äAK  Â$ ã×@§  õäA¸  ×@D  $ äA¸  ×@Æ  $ )ºÈÇ] ï¥ğf×] ÇF©ğXæAF   ×] ^ $ äAK  ÂÇœ$ 8±   ×@§  ×@D  ×@Æ  ! ÈäA¸  Çï$ äAx   Ç$ )’ò“8Ÿ   AÉ  ×$ ğAæAF   ×] ^ $ äAK  Â$ äA¸  ×ï$ ºÈÇ×ï¥ğã×ÇFõ’òï)æAF   ×] ^ $ äAK  Â$ k   8   A1   ×$ ÈòÈk   &  Èò0äA¸  Çï$ ºÈÇÇï¥ğåäÇÇFöã×ÇÇFFõ’òâ)¨«ı #  + A ]R"4%(+  '   + + !%#*(l'*,…'! !  2+ ? !  -+ ? !07+ ? !]d
 %8:[ ? !0I S4/57g- ! 78+[ ? !g./57g- ! #
 + ? ! 5  
 + ? ! 5  
 
-+ ? !: ! #
-+ ? !+ 5 P+0 ? & ” &  ! ? ! :<M ? <4&T%1 ?!#+£"function w(v) {
++ ? !: ! ]2!A*&%  + ? !+ 5 P+0 ? & ” &  ! ? ! : <S ? <4&T%1 ?!'+´#function w(v) {
         if (v === null) {
           bytes.u8(1);
           return;
@@ -10058,12 +10091,12 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           bytes.u8(2);
           return;
         }
-        var t = typeof v;
-        if (t === "boolean") {
+        var t2 = typeof v;
+        if (t2 === "boolean") {
           bytes.u8(v ? 3 : 4);
           return;
         }
-        if (t === "number") {
+        if (t2 === "number") {
           if (Number.isInteger(v) && !Object.is(v, -0) && v >= -2147483648 && v <= 2147483647) {
             bytes.u8(5);
             bytes.u32(v >>> 0);
@@ -10073,18 +10106,18 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           }
           return;
         }
-        if (t === "string") {
+        if (t2 === "string") {
           bytes.u8(7);
           encodeString(bytes, v);
           return;
         }
-        if (t === "bigint") {
+        if (t2 === "bigint") {
           bytes.u8(31);
           encodeString(bytes, v.toString());
           return;
         }
-        if (t === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
-        if (t === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
+        if (t2 === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
+        if (t2 === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
         if (refs.has(v)) {
           bytes.u8(30);
           bytes.u32(refs.get(v));
@@ -10157,6 +10190,10 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           var au8 = new Uint8Array(v);
           bytes.u32(au8.length);
           bytes.raw(au8);
+          if (transferSet && transferSet.has(v)) {
+            transferSet.delete(v);
+            v.transfer();
+          }
           return;
         }
         if (v instanceof DataView) {
@@ -10167,10 +10204,10 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           bytes.u32(v.byteLength);
           return;
         }
-        for (var i = 0; i < TA_CTORS.length; i++) {
-          if (v instanceof TA_CTORS[i]) {
+        for (var i2 = 0; i2 < TA_CTORS.length; i2++) {
+          if (v instanceof TA_CTORS[i2]) {
             refs.set(v, next++);
-            bytes.u8(15 + i);
+            bytes.u8(15 + i2);
             var tu8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
             bytes.u32(tu8.length);
             bytes.raw(tu8);
@@ -10181,7 +10218,7 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           refs.set(v, next++);
           bytes.u8(28);
           bytes.u32(v.length);
-          for (var i = 0; i < v.length; i++) w(v[i]);
+          for (var i2 = 0; i2 < v.length; i2++) w(v[i2]);
           return;
         }
         refs.set(v, next++);
@@ -10193,11 +10230,28 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           keys = [];
         }
         bytes.u32(keys.length);
-        for (var i = 0; i < keys.length; i++) {
-          encodeString(bytes, keys[i]);
-          w(v[keys[i]]);
+        for (var i2 = 0; i2 < keys.length; i2++) {
+          encodeString(bytes, keys[i2]);
+          w(v[keys[i2]]);
         }
-      }Å Ò8¿   !  ÏºĞåôÑÎ×õÍAq   %  ¨ùBE% ¬0İ#function serializeToBytes(value) {
+      }C
+      ş  ×@ª  •ğ×Ai  $  )¨Æ 0  Cfunction(ab) {
+          if (!ab.detached) ab.transfer();
+        }Å ÈÏØøi”   Ø®hŒ   8Ÿ   AÉ  Ø$ •ğ8İ   «  é  ! 08À   !  ÏºĞÌØï¥ğRØÌFÑËAk   Í$ ğ8İ   ¬  é  ! 0Í8­   ©•ğ8İ   ­  é  ! 0ËAp   Í$ ’òª8¿   !  ÒºÈåôÈÇ×õËğËAW  Å$ ÇAq   %  ¨™+'&%.X%&g,DO!l0g  2J% ´"  ( í*function serializeToBytes(value, transfer) {
+      var transferSet = null;
+      if (transfer !== void 0 && transfer !== null) {
+        if (!Array.isArray(transfer))
+          throw new DOMException("transfer must be a sequence", "DataCloneError");
+        transferSet = /* @__PURE__ */ new Set();
+        for (var i = 0; i < transfer.length; i++) {
+          var t = transfer[i];
+          if (transferSet.has(t))
+            throw new DOMException("duplicate transferable", "DataCloneError");
+          if (!(t instanceof ArrayBuffer))
+            throw new DOMException("object is not transferable", "DataCloneError");
+          transferSet.add(t);
+        }
+      }
       var refs = /* @__PURE__ */ new Map();
       var next = 0;
       var bytes = ByteWriter();
@@ -10210,12 +10264,12 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           bytes.u8(2);
           return;
         }
-        var t = typeof v;
-        if (t === "boolean") {
+        var t2 = typeof v;
+        if (t2 === "boolean") {
           bytes.u8(v ? 3 : 4);
           return;
         }
-        if (t === "number") {
+        if (t2 === "number") {
           if (Number.isInteger(v) && !Object.is(v, -0) && v >= -2147483648 && v <= 2147483647) {
             bytes.u8(5);
             bytes.u32(v >>> 0);
@@ -10225,18 +10279,18 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           }
           return;
         }
-        if (t === "string") {
+        if (t2 === "string") {
           bytes.u8(7);
           encodeString(bytes, v);
           return;
         }
-        if (t === "bigint") {
+        if (t2 === "bigint") {
           bytes.u8(31);
           encodeString(bytes, v.toString());
           return;
         }
-        if (t === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
-        if (t === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
+        if (t2 === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
+        if (t2 === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
         if (refs.has(v)) {
           bytes.u8(30);
           bytes.u32(refs.get(v));
@@ -10309,6 +10363,10 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           var au8 = new Uint8Array(v);
           bytes.u32(au8.length);
           bytes.raw(au8);
+          if (transferSet && transferSet.has(v)) {
+            transferSet.delete(v);
+            v.transfer();
+          }
           return;
         }
         if (v instanceof DataView) {
@@ -10319,10 +10377,10 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           bytes.u32(v.byteLength);
           return;
         }
-        for (var i = 0; i < TA_CTORS.length; i++) {
-          if (v instanceof TA_CTORS[i]) {
+        for (var i2 = 0; i2 < TA_CTORS.length; i2++) {
+          if (v instanceof TA_CTORS[i2]) {
             refs.set(v, next++);
-            bytes.u8(15 + i);
+            bytes.u8(15 + i2);
             var tu8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
             bytes.u32(tu8.length);
             bytes.raw(tu8);
@@ -10333,7 +10391,7 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           refs.set(v, next++);
           bytes.u8(28);
           bytes.u32(v.length);
-          for (var i = 0; i < v.length; i++) w(v[i]);
+          for (var i2 = 0; i2 < v.length; i2++) w(v[i2]);
           return;
         }
         refs.set(v, next++);
@@ -10345,43 +10403,48 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           keys = [];
         }
         bytes.u32(keys.length);
-        for (var i = 0; i < keys.length; i++) {
-          encodeString(bytes, keys[i]);
-          w(v[keys[i]]);
+        for (var i2 = 0; i2 < keys.length; i2++) {
+          encodeString(bytes, keys[i2]);
+          w(v[keys[i2]]);
         }
       }
       w(value);
+      if (transferSet) {
+        transferSet.forEach(function(ab) {
+          if (!ab.detached) ab.transfer();
+        });
+      }
       return bytes.done();
     }C
  Ê@– @ ¢  @Â C
-        – ¢  ãäèF(¨˜  0function() {
+        – ¢  ãäèF(¨Ï  0function() {
           return u8[i++];
         }C
-      'ä   – ¢  ãäFãä»œFÂ£ãä¼œFÂ£ãä½œFÂ£Ïä¾œèËº (¨› 
+      'ä   – ¢  ãäFãä»œFÂ£ãä¼œFÂ£ãä½œFÂ£Ïä¾œèËº (¨Ò 
 function() {
           var v = u8[i] | u8[i + 1] << 8 | u8[i + 2] << 16 | u8[i + 3] << 24;
           i += 4;
           return v >>> 0;
         }C
-      Kş   Ş  Ü  Ğ	  – ¢  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑºÒÎÂ¥ğÍÎ¯ñqãäÎœFqH’òãäÂœèÌºF(¨  >094IUC:SĞfunction() {
+      Kş   î  ì  Ğ	  – ¢  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑºÒÎÂ¥ğÍÎ¯ñqãäÎœFqH’òãäÂœèÌºF(¨× >094IUC:SĞfunction() {
           var ab = new ArrayBuffer(8), f = new Float64Array(ab), u = new Uint8Array(ab);
           for (var j = 0; j < 8; j++) u[j] = u8[i + j];
           i += 8;
           return f[0];
         }C
-      ü   ô    Â – ¢  ÑÍA°  $  ÏãäåË÷ĞåËœéÌ(¨¦ +%‚function() {
+      Œ   ô    Â – ¢  ÑÍA¸  $  ÏãäåË÷ĞåËœéÌ(¨İ +%‚function() {
           var n = this.u32();
           var s = utf8Decode(u8, i, n);
           i += n;
           return s;
         }C
-    4ü  Ø   Ğ	  – ¢  8±   ×! ÏºĞÌ×¥ğÊ¯ñqãäÌœFqH’òåä×œèË@§  (¨¬ 
+    4Œ  è   Ğ	  – ¢  8±   ×! ÏºĞÌ×¥ğÊ¯ñqãäÌœFqH’òåä×œèË@§  (¨ã 
 I> :W§function(n) {
           var out = new Uint8Array(n);
           for (var j = 0; j < n; j++) out[j] = u8[i + j];
           i += n;
           return out.buffer;
-        }ºÏÅ LK  KK  ÅL°  K°  ÅL±  K±  ÅLò  Kò  ÅL  K  (¨•  Ìfunction ByteReader(u8) {
+        }ºÏÅ LK  KK  ÅL¸  K¸  ÅL¹  K¹  ÅLò  Kò  ÅL  K  (¨Ì  Ìfunction ByteReader(u8) {
       var i = 0;
       return {
         u8: function() {
@@ -10412,15 +10475,15 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
         }
       };
     }C
- ÌÒ  ş  @ ä @€ @¾ Ê C
- €    ‚   „  Î  ¤  ü  †  ¢  ô  ş  Ä 	 ¬ 
- ˆ  Š	  Š  Ğ  Œ  ²      ’  ª  ”  è  ş  ä € ¾ ãAK  $  Ó»­ğ(¼­ğ)½­ğ
-(¾­ğ	(¿­ğãA°  $  º£(À­ğ
-ãA±  %  Á­ğ
-ãAò  %  Â­ğ8¨   ãA±  $  ! (Â	­ğ8¬   ãAò  $  ãAò  $  ! (Â
-­ğ3ãAò  $  ĞãAò  $  Ñ8    Í! ÖÌB:   äAO  Î$ Î(Â­ğCãA°  $  È8¿   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAF   åôåô$ ’òçÇ(Â­ğAãA°  $  È8À   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAp   åô$ ’òéÇ(Â­ğ(ãA°  $  ÈãA  Ç$ ÈäAO  Ç$ Ç(Â­ğPäïÈ	äAO  $ åôÈ
-ãA°  $  ÈãA°  $  È8»   Ç
-ÇÇ! ÈäÇ	¯ñqÇqHÇ(ËÂ¨ğ<ËÂ¦ğ6æËÂFÈãA°  $  ÈÇãA  Ç$ ! ÈäAO  Ç$ Ç(ËÂ­ğGãAò  $  ÈãA°  $  È8ü  ãA  Ç$ & ÇKY  ! ÈäAO  Ç$ Ç(ËÂ­ğdãAò  $  ĞãAò  $  ÈãA±  $  ÈãA°  $  È8ı  ãA  Ç$ & ÌÇKY  ÇKó  ! ÈäAO  Ç$ Ç(ËÂ­ğAãA°  $  È&  ÈäAO  Ç$ ºÈÇÇ¥ğÇÇ¯ñqåôqH’òãÇ(ËÂ­ğJãA°  $  ÈÈäAO  Ç$ ºÈÇÇ¥ğ#ãAò  $  ÈÇÇ¯ñqåôqH’òØÇ(ËÂ­ğäãA°  $  F(ËÂ­ğ8¼   ãAò  $  # 8İ   Ë  é  ! 0¨· ¼! *JJ 1>E>/c#45&    $:7 :% ;$:7 :% /:&!  
+ ÌÒ    @ ô @ @¾ Ê C
+     ’   ”  Î  ¤  Œ  –  ¢  ô  ş  Ä 	 ¬ 
+ ˜  Š	  š  Ş  œ  ²       ¢  ª  ¤  è    ô  ¾ ãAK  $  Ó»­ğ(¼­ğ)½­ğ
+(¾­ğ	(¿­ğãA¸  $  º£(À­ğ
+ãA¹  %  Á­ğ
+ãAò  %  Â­ğ8¨   ãA¹  $  ! (Â	­ğ8¬   ãAò  $  ãAò  $  ! (Â
+­ğ3ãAò  $  ĞãAò  $  Ñ8    Í! ÖÌB:   äAO  Î$ Î(Â­ğCãA¸  $  È8¿   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAF   åôåô$ ’òçÇ(Â­ğAãA¸  $  È8À   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAp   åô$ ’òéÇ(Â­ğ(ãA¸  $  ÈãA  Ç$ ÈäAO  Ç$ Ç(Â­ğPäïÈ	äAO  $ åôÈ
+ãA¸  $  ÈãA¸  $  È8»   Ç
+ÇÇ! ÈäÇ	¯ñqÇqHÇ(ËÂ¨ğ<ËÂ¦ğ6æËÂFÈãA¸  $  ÈÇãA  Ç$ ! ÈäAO  Ç$ Ç(ËÂ­ğGãAò  $  ÈãA¸  $  È8ü  ãA  Ç$ & ÇKY  ! ÈäAO  Ç$ Ç(ËÂ­ğdãAò  $  ĞãAò  $  ÈãA¹  $  ÈãA¸  $  È8ı  ãA  Ç$ & ÌÇKY  ÇKó  ! ÈäAO  Ç$ Ç(ËÂ­ğAãA¸  $  È&  ÈäAO  Ç$ ºÈÇÇ¥ğÇÇ¯ñqåôqH’òãÇ(ËÂ­ğJãA¸  $  ÈÈäAO  Ç$ ºÈÇÇ¥ğ#ãAò  $  ÈÇÇ¯ñqåôqH’òØÇ(ËÂ­ğäãA¸  $  F(ËÂ­ğ8¼   ãAò  $  # 8İ   Ó  é  ! 0¨î ¼! *JJ 1>E>/c#45&    $:7 :% ;$:7 :% /:&!  
  !09X  &?/53 7 :9>l5 7 :4 99Q>”5 7 : 6 :HF1: , ::H >$!#4$ !+îfunction rd() {
         var tag = r.u8();
         switch (tag) {
@@ -10520,7 +10583,7 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
             throw new DOMException("Bad serialized data", "DataCloneError");
           }
         }
-      }Å Ñä8±   ×! õÏ&  ĞÍ#  ¨´ 2 Ìöfunction deserializeFromBytes(buf) {
+      }Å Ñä8±   ×! õÏ&  ĞÍ#  ¨ë 2 Ìöfunction deserializeFromBytes(buf) {
       var r = ByteReader(new Uint8Array(buf));
       var refs = [];
       function rd() {
@@ -10624,10 +10687,35 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
         }
       }
       return rd();
-    }ÅÏÅĞÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	8•   Å Bk  8°   8±   8¯   8²   8³   8´   8µ   8¹   8º   &	 Ñ7¶   úñÍAO  8¶   8·   $ 8•   ÇBÌ  8•   Ç	BÍ  )¨¬¨ B„:  Üo? ä}function setupStructuredClone() {
+    }ÅÏÅĞÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	8•   Å Bk  8°   8±   8¯   8²   8³   8´   8µ   8¹   8º   &	 Ñ7¶   úñÍAO  8¶   8·   $ 8•   ÇBÔ  8•   Ç	BÕ  )¨¬¨ BÄ:  Šo? Æfunction setupStructuredClone() {
     globalThis.structuredClone = function structuredClone(value, options) {
+      var transferSet = null;
+      if (options && options.transfer !== void 0 && options.transfer !== null) {
+        if (!Array.isArray(options.transfer))
+          throw new DOMException("transfer must be a sequence", "DataCloneError");
+        transferSet = /* @__PURE__ */ new Set();
+        for (var i = 0; i < options.transfer.length; i++) {
+          var t = options.transfer[i];
+          if (transferSet.has(t))
+            throw new DOMException("duplicate transferable", "DataCloneError");
+          if (!(t instanceof ArrayBuffer))
+            throw new DOMException("object is not transferable", "DataCloneError");
+          transferSet.add(t);
+        }
+      }
+      if (options && typeof options === "object") {
+        options = { transfer: options.transfer, _qwrtTransfer: transferSet };
+      } else {
+        options = { _qwrtTransfer: transferSet };
+      }
       var seen = /* @__PURE__ */ new Map();
-      return clone(value, seen, options);
+      var result = clone(value, seen, options);
+      if (transferSet) {
+        transferSet.forEach(function(ab) {
+          if (!ab.detached) ab.transfer();
+        });
+      }
+      return result;
     };
     function clone(value, seen, options) {
       if (value === null || value === void 0) return value;
@@ -10684,7 +10772,14 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
         return result;
       }
       if (value instanceof ArrayBuffer) {
-        var result = value.slice(0);
+        var ts = options && options._qwrtTransfer;
+        var result;
+        if (ts && ts.has(value)) {
+          ts.delete(value);
+          result = value.transfer();
+        } else {
+          result = value.slice(0);
+        }
         seen.set(value, result);
         return result;
       }
@@ -10829,7 +10924,21 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
       bytes.u32(u.length);
       for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
     }
-    function serializeToBytes(value) {
+    function serializeToBytes(value, transfer) {
+      var transferSet = null;
+      if (transfer !== void 0 && transfer !== null) {
+        if (!Array.isArray(transfer))
+          throw new DOMException("transfer must be a sequence", "DataCloneError");
+        transferSet = /* @__PURE__ */ new Set();
+        for (var i = 0; i < transfer.length; i++) {
+          var t = transfer[i];
+          if (transferSet.has(t))
+            throw new DOMException("duplicate transferable", "DataCloneError");
+          if (!(t instanceof ArrayBuffer))
+            throw new DOMException("object is not transferable", "DataCloneError");
+          transferSet.add(t);
+        }
+      }
       var refs = /* @__PURE__ */ new Map();
       var next = 0;
       var bytes = ByteWriter();
@@ -10842,12 +10951,12 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           bytes.u8(2);
           return;
         }
-        var t = typeof v;
-        if (t === "boolean") {
+        var t2 = typeof v;
+        if (t2 === "boolean") {
           bytes.u8(v ? 3 : 4);
           return;
         }
-        if (t === "number") {
+        if (t2 === "number") {
           if (Number.isInteger(v) && !Object.is(v, -0) && v >= -2147483648 && v <= 2147483647) {
             bytes.u8(5);
             bytes.u32(v >>> 0);
@@ -10857,18 +10966,18 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           }
           return;
         }
-        if (t === "string") {
+        if (t2 === "string") {
           bytes.u8(7);
           encodeString(bytes, v);
           return;
         }
-        if (t === "bigint") {
+        if (t2 === "bigint") {
           bytes.u8(31);
           encodeString(bytes, v.toString());
           return;
         }
-        if (t === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
-        if (t === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
+        if (t2 === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
+        if (t2 === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
         if (refs.has(v)) {
           bytes.u8(30);
           bytes.u32(refs.get(v));
@@ -10941,6 +11050,10 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           var au8 = new Uint8Array(v);
           bytes.u32(au8.length);
           bytes.raw(au8);
+          if (transferSet && transferSet.has(v)) {
+            transferSet.delete(v);
+            v.transfer();
+          }
           return;
         }
         if (v instanceof DataView) {
@@ -10951,10 +11064,10 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           bytes.u32(v.byteLength);
           return;
         }
-        for (var i = 0; i < TA_CTORS.length; i++) {
-          if (v instanceof TA_CTORS[i]) {
+        for (var i2 = 0; i2 < TA_CTORS.length; i2++) {
+          if (v instanceof TA_CTORS[i2]) {
             refs.set(v, next++);
-            bytes.u8(15 + i);
+            bytes.u8(15 + i2);
             var tu8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
             bytes.u32(tu8.length);
             bytes.raw(tu8);
@@ -10965,7 +11078,7 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           refs.set(v, next++);
           bytes.u8(28);
           bytes.u32(v.length);
-          for (var i = 0; i < v.length; i++) w(v[i]);
+          for (var i2 = 0; i2 < v.length; i2++) w(v[i2]);
           return;
         }
         refs.set(v, next++);
@@ -10977,12 +11090,17 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           keys = [];
         }
         bytes.u32(keys.length);
-        for (var i = 0; i < keys.length; i++) {
-          encodeString(bytes, keys[i]);
-          w(v[keys[i]]);
+        for (var i2 = 0; i2 < keys.length; i2++) {
+          encodeString(bytes, keys[i2]);
+          w(v[keys[i2]]);
         }
       }
       w(value);
+      if (transferSet) {
+        transferSet.forEach(function(ab) {
+          if (!ab.detached) ab.transfer();
+        });
+      }
       return bytes.done();
     }
     function ByteReader(u8) {
@@ -11125,28 +11243,28 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
     globalThis.__qwrt_deserialize__ = deserializeFromBytes;
   }C
  ’ P– @ š
-  @œ @ @   ¢ @C
-    E–  – ×–L   ®ñ×A«  Ò  $ º®ğ8    Ó  ! 0ãAÔ  ×A§  Ò  ï$ % ¨¥!*W *.[m òfunction loadScript(url) {
+  @¬ @® @°  ² @C
+ ®   E–  – ×–L   ®ñ×A«  Ú  $ º®ğ8    Û  ! 0ãAÜ  ×A§  Ú  ï$ % ¨Ü!*W *.[m òfunction loadScript(url) {
       if (typeof url !== "string" || url.indexOf("file://") !== 0) {
         throw new Error("Worker: only file:// URLs are supported in v1");
       }
       return pal2.fsReadSync(url.slice("file://".length));
     }C
-  š–     ª  æ @    – œ C
-        æ ã@Ö  (¨´! 1function() {
+ °š–     º  ö @   ® – ¬ C
+        ö ã@Ş  (¨ë! 1function() {
           return w._onmsg;
         }C
-     Ì  æ ã×BÖ  )¨·!1function(fn) {
+     Ì  ö ã×BŞ  )¨î!1function(fn) {
           w._onmsg = fn;
         }C
-        æ ã@×  (¨½! 3function() {
+        ö ã@ß  (¨ô! 3function() {
           return w._onerror;
         }C
-     Ì  æ ã×B×  )¨À!3function(fn) {
+     Ì  ö ã×Bß  )¨÷!3function(fn) {
           w._onerror = fn;
-        }Òã×õÏäAØ  Ë$ ĞÎÌBÙ  ÎBÖ  ÎB×  åAF   ÌÎ$ ÎÑ8   Am   Îo  Å LE   KE   ÅLF   KF   
+        }Òã×õÏäAà  Ë$ ĞÎÌBá  ÎBŞ  ÎBß  åAF   ÌÎ$ ÎÑ8   Am   Îo  Å LE   KE   ÅLF   KF   
 KA   $ 8   Am   Î?  ÅLE   KE   ÅLF   KF   
-KA   $ )¨«!003& & &  ,4, )+4,function Worker(url) {
+KA   $ )¨â!003& & &  ,4, )+4,function Worker(url) {
       var code = loadScript(url);
       var id = pal2.spawnWorker(code);
       this._id = id;
@@ -11173,16 +11291,16 @@ KA   $ )¨«!003& & &  ,4, )+4,function Worker(url) {
         configurable: true
       });
     }C
-    ˆ  ®     – Ğ8Ì  ×õÏãAÚ  Ì@Ù  Ë$ )¨Æ!$&=  lfunction(value) {
-      var bytes = __qwrt_serialize__(value);
+    ˆ  Ò  ®     – Ğ8Ô  ×ØöÏãAâ  Ì@á  Ë$ )¨ı!$&=  €function(value, transfer) {
+      var bytes = __qwrt_serialize__(value, transfer);
       pal2.workerPost(this._id, bytes);
     }C
-      "  – œ ÏãAÛ  Ë@Ù  $ äA	   Ë@Ù  $ )¨Ê!"5 *5) Xfunction() {
+      "  – ¬ ÏãAã  Ë@á  $ äA	   Ë@á  $ )¨""5 *5) Xfunction() {
       pal2.workerTerminate(this._id);
       workers.delete(this._id);
     }C
-    ¹	Ü  è  æ   š	  Î ä  ¤  Î Î ¢ œ š
-  Øº­ğã×Øö)äAE   Ø$ Ó•ğ)k   8Í  ×õĞòÑk   8v  Íõn(0ÌğÌ@Y  7   ­ğ	Ë@×  òË@Ö  Ö•ğ)k   8t  4   ÌK.  ! ÈòÈk   8v  Çõn(0k   ÎA©  åÇ$ )Èk   8v  Çõ)0¨Ğ!$&7
+    ¹	Ü  è  ö   š	  Î ä  ¤  Î Î ² ¬ š
+  Øº­ğã×Øö)äAE   Ø$ Ó•ğ)k   8Õ  ×õĞòÑk   8v  Íõn(0ÌğÌ@Y  7   ­ğ	Ë@ß  òË@Ş  Ö•ğ)k   8t  4   ÌK.  ! ÈòÈk   8v  Çõn(0k   ÎA©  åÇ$ )Èk   8v  Çõ)0¨‡"$&7
  #2@1U   '©  T‘function(data, source) {
       if (source === 0) {
         hostDispatch(data, source);
@@ -11211,8 +11329,8 @@ KA   $ )¨«!003& & &  ,4, )+4,function Worker(url) {
       } catch (err) {
         reportError(err);
       }
-    }Å ÑÅÒ8•   Ï8¿   !  ĞÎ@?   ÅBq  Î@?   ÅBÁ  8•   ÎBĞ  Ë@w  È8•   ÅBw  )¨¢!@H 
-DC    c „function setupWorker(pal2) {
+    }Å ÑÅÒ8•   Ï8¿   !  ĞÎ@?   ÅBq  Î@?   ÅBÁ  8•   ÎBØ  Ë@w  È8•   ÅBw  )¨Ù!@H 
+DC    c ˜function setupWorker(pal2) {
     var self = globalThis;
     var workers = /* @__PURE__ */ new Map();
     function loadScript(url) {
@@ -11248,8 +11366,8 @@ DC    c „function setupWorker(pal2) {
         configurable: true
       });
     }
-    Worker.prototype.postMessage = function(value) {
-      var bytes = __qwrt_serialize__(value);
+    Worker.prototype.postMessage = function(value, transfer) {
+      var bytes = __qwrt_serialize__(value, transfer);
       pal2.workerPost(this._id, bytes);
     };
     Worker.prototype.terminate = function() {
@@ -11288,9 +11406,9 @@ DC    c „function setupWorker(pal2) {
       }
     };
   }C
- ” §– @¸  @ ´  ¢  º @C
-      ¡¼   ¾  b  ˆ	  ü  ä  ¤ ¤
- ¸  º Ï&  Ğ8   A1   8•   $ ÑºÒÎÍï¥ğlÍÎFÈãÇFñäÇFñUk   8•   ÇFÈòÈk   ò90k   ËÇ¯ñq8Ì  ÇõqHòÈk   ÌAO  Ç$ ò0’ò8Ì  ËKŞ  ÌKß  # ¨ù!'U? 
+ ” §– @È  @ ´  ¢  Ê @C
+      ¡Ì   Î  b  ˆ	  Œ  ä  ¤ ¤
+ È  Ê Ï&  Ğ8   A1   8•   $ ÑºÒÎÍï¥ğlÍÎFÈãÇFñäÇFñUk   8•   ÇFÈòÈk   ò90k   ËÇ¯ñq8Ô  ÇõqHòÈk   ÌAO  Ç$ ò0’ò8Ô  ËKæ  ÌKç  # ¨°"'U? 
 # 
  W<Y; d†function() {
       var props = {};
@@ -11313,8 +11431,8 @@ DC    c „function setupWorker(pal2) {
       }
       return __qwrt_serialize__({ props, skipped });
     }C
-    ™	®  À   †  b  ˆ	  ü  ä  ¤ ¤
- º 8Í  ×õÓğË@Ş  ñĞ8   A1   Ì$ ÑºÒÎÍï¥ğXÍÎFÈãÇFñIk   8Í  ÌÇFõÈòÈk   ò+0k   8•   Ç¯ñqÇqHòÈk   ò0’ò¤ËğË@ß  ñ&  (¨"'•+ 
+    ™	®  Ğ   †  b  ˆ	  Œ  ä  ¤ ¤
+ Ê 8Õ  ×õÓğË@æ  ñĞ8   A1   Ì$ ÑºÒÎÍï¥ğXÍÎFÈãÇFñIk   8Õ  ÌÇFõÈòÈk   ò+0k   8•   Ç¯ñqÇqHòÈk   ò0’ò¤ËğË@ç  ñ&  (¨Å"'•+ 
 #2 
 1ìfunction(bytes) {
       var rec = __qwrt_deserialize__(bytes);
@@ -11336,18 +11454,18 @@ DC    c „function setupWorker(pal2) {
       }
       return rec && rec.skipped || [];
     }C
-     ô  – ãAá  8¢   ×õ% ¨£"!(Bfunction(s) {
+     ô  – ãAé  8¢   ×õ% ¨Ú"!(Bfunction(s) {
         return pal2.contextSpawn(String(s));
       }C
-     ª  †  – ãAâ  8¡   ×õ8¢   Øõ% ¨¦"!(%Tfunction(id, p) {
+     º  †  – ãAê  8¡   ×õ8¢   Øõ% ¨İ"!(%Tfunction(id, p) {
         return pal2.contextSuspend(Number(id), String(p));
       }C
-     ª  ô  †  – ãAã  8¡   ×õ8¢   Øõ8¢   Ùõ% ¨©"!(%%afunction(id, s, p) {
+     º  ô  †  – ãAë  8¡   ×õ8¢   Øõ8¢   Ùõ% ¨à"!(%%afunction(id, s, p) {
         return pal2.contextResume(Number(id), String(s), String(p));
       }C
-     ª  – ãAä  8¡   ×õ% ¨¬"!(Ffunction(id) {
+     º  – ãAì  8¡   ×õ% ¨ã"!(Ffunction(id) {
         return pal2.contextDestroy(Number(id));
-      }8   Aå  $ Ï8   A1   8•   $ ĞºÑÍÌï¥ğÊÍF¯ñq»qH’òæ»Kæ  »Kç  »Kè  Ò8•   Å Bæ  8•   ÅBç  8•   ÅLé  Ké  ÅLê  Kê  ÅLë  Kë  ÅLì  Kì  Bè  )¨ğ!5`N+?& )M *  ( ™function setupContext(pal2) {
+      }8   Aí  $ Ï8   A1   8•   $ ĞºÑÍÌï¥ğÊÍF¯ñq»qH’òæ»Kî  »Kï  »Kğ  Ò8•   Å Bî  8•   ÅBï  8•   ÅLñ  Kñ  ÅLò  Kò  ÅLó  Kó  ÅLô  Kô  Bğ  )¨§"5`N+?& )M *  ( ™function setupContext(pal2) {
     var _pristine = /* @__PURE__ */ Object.create(null);
     var names = Object.keys(globalThis);
     for (var i = 0; i < names.length; i++) _pristine[names[i]] = 1;
@@ -11412,7 +11530,7 @@ DC    c „function setupWorker(pal2) {
       }
     };
   }C
-      *È  ×ûñ8Ú   í  ! 08Î   AŠ   $  A‰   ×$ )¨Ë"!
+      *È  ×ûñ8Ú   õ  ! 08Î   AŠ   $  A‰   ×$ )¨‚#!
 O4*Âfunction(callback) {
       if (typeof callback !== "function") {
         throw new TypeError("queueMicrotask requires a function argument");
@@ -11421,7 +11539,7 @@ DC    c „function setupWorker(pal2) {
     }Å ÏÅĞÅÑÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	Å
 È
 ÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈË×õÌ×õÍ×õÎôÇôÇôÇôÇ×õÇ×õÇôÇ×õÇ×õÇôÇôÇôÇ×õÇ	×õÇ
-×õÇ×õÇ×õÇôÇ×õÇ×õ8•   @î  ûñ8•   ÅBî  )¨Q \äD"!     &%   $#$# D8M…ßfunction(pal) {
+×õÇ×õÇ×õÇôÇ×õÇ×õ8•   @ö  ûñ8•   ÅBö  )¨Q \ÒE"!     &%   $#$# D8Mûïfunction(pal) {
   // src/pal.js
 // src/console.js
   function setupConsole(pal2) {
@@ -15178,8 +15296,33 @@ DC    c „function setupWorker(pal2) {
   // src/structured-clone.js
   function setupStructuredClone() {
     globalThis.structuredClone = function structuredClone(value, options) {
+      var transferSet = null;
+      if (options && options.transfer !== void 0 && options.transfer !== null) {
+        if (!Array.isArray(options.transfer))
+          throw new DOMException("transfer must be a sequence", "DataCloneError");
+        transferSet = /* @__PURE__ */ new Set();
+        for (var i = 0; i < options.transfer.length; i++) {
+          var t = options.transfer[i];
+          if (transferSet.has(t))
+            throw new DOMException("duplicate transferable", "DataCloneError");
+          if (!(t instanceof ArrayBuffer))
+            throw new DOMException("object is not transferable", "DataCloneError");
+          transferSet.add(t);
+        }
+      }
+      if (options && typeof options === "object") {
+        options = { transfer: options.transfer, _qwrtTransfer: transferSet };
+      } else {
+        options = { _qwrtTransfer: transferSet };
+      }
       var seen = /* @__PURE__ */ new Map();
-      return clone(value, seen, options);
+      var result = clone(value, seen, options);
+      if (transferSet) {
+        transferSet.forEach(function(ab) {
+          if (!ab.detached) ab.transfer();
+        });
+      }
+      return result;
     };
     function clone(value, seen, options) {
       if (value === null || value === void 0) return value;
@@ -15236,7 +15379,14 @@ DC    c „function setupWorker(pal2) {
         return result;
       }
       if (value instanceof ArrayBuffer) {
-        var result = value.slice(0);
+        var ts = options && options._qwrtTransfer;
+        var result;
+        if (ts && ts.has(value)) {
+          ts.delete(value);
+          result = value.transfer();
+        } else {
+          result = value.slice(0);
+        }
         seen.set(value, result);
         return result;
       }
@@ -15381,7 +15531,21 @@ DC    c „function setupWorker(pal2) {
       bytes.u32(u.length);
       for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
     }
-    function serializeToBytes(value) {
+    function serializeToBytes(value, transfer) {
+      var transferSet = null;
+      if (transfer !== void 0 && transfer !== null) {
+        if (!Array.isArray(transfer))
+          throw new DOMException("transfer must be a sequence", "DataCloneError");
+        transferSet = /* @__PURE__ */ new Set();
+        for (var i = 0; i < transfer.length; i++) {
+          var t = transfer[i];
+          if (transferSet.has(t))
+            throw new DOMException("duplicate transferable", "DataCloneError");
+          if (!(t instanceof ArrayBuffer))
+            throw new DOMException("object is not transferable", "DataCloneError");
+          transferSet.add(t);
+        }
+      }
       var refs = /* @__PURE__ */ new Map();
       var next = 0;
       var bytes = ByteWriter();
@@ -15394,12 +15558,12 @@ DC    c „function setupWorker(pal2) {
           bytes.u8(2);
           return;
         }
-        var t = typeof v;
-        if (t === "boolean") {
+        var t2 = typeof v;
+        if (t2 === "boolean") {
           bytes.u8(v ? 3 : 4);
           return;
         }
-        if (t === "number") {
+        if (t2 === "number") {
           if (Number.isInteger(v) && !Object.is(v, -0) && v >= -2147483648 && v <= 2147483647) {
             bytes.u8(5);
             bytes.u32(v >>> 0);
@@ -15409,18 +15573,18 @@ DC    c „function setupWorker(pal2) {
           }
           return;
         }
-        if (t === "string") {
+        if (t2 === "string") {
           bytes.u8(7);
           encodeString(bytes, v);
           return;
         }
-        if (t === "bigint") {
+        if (t2 === "bigint") {
           bytes.u8(31);
           encodeString(bytes, v.toString());
           return;
         }
-        if (t === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
-        if (t === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
+        if (t2 === "symbol") throw new DOMException("Symbols cannot be cloned", "DataCloneError");
+        if (t2 === "function") throw new DOMException("Functions cannot be cloned", "DataCloneError");
         if (refs.has(v)) {
           bytes.u8(30);
           bytes.u32(refs.get(v));
@@ -15493,6 +15657,10 @@ DC    c „function setupWorker(pal2) {
           var au8 = new Uint8Array(v);
           bytes.u32(au8.length);
           bytes.raw(au8);
+          if (transferSet && transferSet.has(v)) {
+            transferSet.delete(v);
+            v.transfer();
+          }
           return;
         }
         if (v instanceof DataView) {
@@ -15503,10 +15671,10 @@ DC    c „function setupWorker(pal2) {
           bytes.u32(v.byteLength);
           return;
         }
-        for (var i = 0; i < TA_CTORS.length; i++) {
-          if (v instanceof TA_CTORS[i]) {
+        for (var i2 = 0; i2 < TA_CTORS.length; i2++) {
+          if (v instanceof TA_CTORS[i2]) {
             refs.set(v, next++);
-            bytes.u8(15 + i);
+            bytes.u8(15 + i2);
             var tu8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
             bytes.u32(tu8.length);
             bytes.raw(tu8);
@@ -15517,7 +15685,7 @@ DC    c „function setupWorker(pal2) {
           refs.set(v, next++);
           bytes.u8(28);
           bytes.u32(v.length);
-          for (var i = 0; i < v.length; i++) w(v[i]);
+          for (var i2 = 0; i2 < v.length; i2++) w(v[i2]);
           return;
         }
         refs.set(v, next++);
@@ -15529,12 +15697,17 @@ DC    c „function setupWorker(pal2) {
           keys = [];
         }
         bytes.u32(keys.length);
-        for (var i = 0; i < keys.length; i++) {
-          encodeString(bytes, keys[i]);
-          w(v[keys[i]]);
+        for (var i2 = 0; i2 < keys.length; i2++) {
+          encodeString(bytes, keys[i2]);
+          w(v[keys[i2]]);
         }
       }
       w(value);
+      if (transferSet) {
+        transferSet.forEach(function(ab) {
+          if (!ab.detached) ab.transfer();
+        });
+      }
       return bytes.done();
     }
     function ByteReader(u8) {
@@ -15714,8 +15887,8 @@ DC    c „function setupWorker(pal2) {
         configurable: true
       });
     }
-    Worker.prototype.postMessage = function(value) {
-      var bytes = __qwrt_serialize__(value);
+    Worker.prototype.postMessage = function(value, transfer) {
+      var bytes = __qwrt_serialize__(value, transfer);
       pal2.workerPost(this._id, bytes);
     };
     Worker.prototype.terminate = function() {
@@ -15854,4 +16027,4 @@ DC    c „function setupWorker(pal2) {
       Promise.resolve().then(callback);
     };
   }
-}Å 8ï  õÓ(¨ ¢E 
+}Å 8÷  õÓ(¨ F 

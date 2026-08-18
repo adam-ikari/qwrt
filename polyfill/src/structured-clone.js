@@ -27,8 +27,34 @@ export function setupStructuredClone() {
    * Handles circular references and special JS types.
    */
   globalThis.structuredClone = function structuredClone(value, options) {
+    /* transfer 列表校验（v1 只支持 ArrayBuffer） */
+    var transferSet = null;
+    if (options && options.transfer !== undefined && options.transfer !== null) {
+      if (!Array.isArray(options.transfer))
+        throw new DOMException('transfer must be a sequence', 'DataCloneError');
+      transferSet = new Set();
+      for (var i = 0; i < options.transfer.length; i++) {
+        var t = options.transfer[i];
+        if (transferSet.has(t))
+          throw new DOMException('duplicate transferable', 'DataCloneError');
+        if (!(t instanceof ArrayBuffer))
+          throw new DOMException('object is not transferable', 'DataCloneError');
+        transferSet.add(t);
+      }
+    }
+    /* 把 transferSet 挂到私有字段，随 clone 递归自动传递（不改用户对象） */
+    if (options && typeof options === 'object') {
+      options = { transfer: options.transfer, _qwrtTransfer: transferSet };
+    } else {
+      options = { _qwrtTransfer: transferSet };
+    }
     var seen = new Map();
-    return clone(value, seen, options);
+    var result = clone(value, seen, options);
+    /* 未被消息引用的 transfer 对象也要 detach */
+    if (transferSet) {
+      transferSet.forEach(function (ab) { if (!ab.detached) ab.transfer(); });
+    }
+    return result;
   };
 
   function clone(value, seen, options) {
@@ -107,7 +133,14 @@ export function setupStructuredClone() {
 
     // ArrayBuffer
     if (value instanceof ArrayBuffer) {
-      var result = value.slice(0);
+      var ts = options && options._qwrtTransfer;
+      var result;
+      if (ts && ts.has(value)) {
+        ts.delete(value);
+        result = value.transfer();   /* 内容转移到新 buffer，原 buffer detached */
+      } else {
+        result = value.slice(0);
+      }
       seen.set(value, result);
       return result;
     }
@@ -266,7 +299,22 @@ export function setupStructuredClone() {
     for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
   }
 
-  function serializeToBytes(value) {
+  function serializeToBytes(value, transfer) {
+    /* transfer 列表校验：v1 只支持 ArrayBuffer；重复/不可转移 → DataCloneError */
+    var transferSet = null;
+    if (transfer !== undefined && transfer !== null) {
+      if (!Array.isArray(transfer))
+        throw new DOMException('transfer must be a sequence', 'DataCloneError');
+      transferSet = new Set();
+      for (var i = 0; i < transfer.length; i++) {
+        var t = transfer[i];
+        if (transferSet.has(t))
+          throw new DOMException('duplicate transferable', 'DataCloneError');
+        if (!(t instanceof ArrayBuffer))
+          throw new DOMException('object is not transferable', 'DataCloneError');
+        transferSet.add(t);
+      }
+    }
     var refs = new Map();     /* object -> 索引（首次出现分配） */
     var next = 0;
     var bytes = ByteWriter();
@@ -336,6 +384,10 @@ export function setupStructuredClone() {
         refs.set(v, next++); bytes.u8(0x0D);
         var au8 = new Uint8Array(v);
         bytes.u32(au8.length); bytes.raw(au8);
+        if (transferSet && transferSet.has(v)) {
+          transferSet.delete(v);
+          v.transfer();   /* detach 原 buffer（返回的新 buffer 丢弃） */
+        }
         return;
       }
       if (v instanceof DataView) {
@@ -367,6 +419,12 @@ export function setupStructuredClone() {
     }
 
     w(value);
+    /* 序列化完成后，detach 未被消息引用的 transfer 对象 */
+    if (transferSet) {
+      transferSet.forEach(function (ab) {
+        if (!ab.detached) ab.transfer();
+      });
+    }
     return bytes.done();
   }
 

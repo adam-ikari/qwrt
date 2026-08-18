@@ -5,6 +5,7 @@ All notable changes to Qwrt.js.
 ## [Unreleased]
 
 ### Added
+- `structuredClone(value, {transfer})` and `Worker.postMessage(value, transfer)` support ArrayBuffer transfer: transferred buffers are detached (`byteLength → 0`) per the structured-clone spec (MessagePort transfer deferred — throws DataCloneError)
 - Standalone CLI (`qwrt`): script / `-e` / REPL modes, WinterCG `arguments`/`env` bridge, async-exit (waits for pending timers/fetch/streams); no Node.js APIs
 - HTTPServer extension (`serve`): HTTP/1.1 + HTTPS (mbedTLS) + WebSocket + static files + gzip compression, uvhttp-backed
 - Worker top-level exceptions now dispatch `ErrorEvent` on the worker (`self.onerror`) and on the parent (`w.onerror`)
