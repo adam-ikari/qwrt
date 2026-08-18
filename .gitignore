@@ -51,3 +51,10 @@ docs/api/
 
 # Local pi agent config
 .pi/
+
+# Agent session artifacts
+.workflow/
+
+# Python
+__pycache__/
+*.pyc
