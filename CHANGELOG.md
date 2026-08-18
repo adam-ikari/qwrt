@@ -5,6 +5,11 @@ All notable changes to Qwrt.js.
 ## [Unreleased]
 
 ### Added
+- Standalone CLI (`qwrt`): script / `-e` / REPL modes, WinterCG `arguments`/`env` bridge, async-exit (waits for pending timers/fetch/streams); no Node.js APIs
+- HTTPServer extension (`serve`): HTTP/1.1 + HTTPS (mbedTLS) + WebSocket + static files + gzip compression, uvhttp-backed
+- Worker top-level exceptions now dispatch `ErrorEvent` on the worker (`self.onerror`) and on the parent (`w.onerror`)
+- `importScripts('file://...')` in Workers (synchronous extra-script loading)
+- `WebAssembly.compileStreaming` / `instantiateStreaming`
 - `examples/` tree with runnable samples: `hello` (host↔JS messaging) and `worker` (real-thread Web Worker); built via `QWRT_BUILD_EXAMPLES=ON`
 - qwrt_tick encapsulates run_cycle — single unified call with timeout_ms
 - qwrt_tick non-blocking design (returns 1/0/-1, no internal loop)
@@ -25,6 +30,7 @@ All notable changes to Qwrt.js.
 - QuickJS-ng ES support: ES2020 (not ES2023 — website corrected)
 
 ### Fixed
+- URLPattern `:name+` / `:name*` modifiers emitted a literal `:` (never matched multi-segment paths); now emit `(.+)` / `(.*)` per the spec
 - META: script= parsing off-by-one (16 chars not 15)
 - Blob.slice edge cases (start/end handling, normalizeType spec compliance)
 - pal_uv chunk-size cap for non-streaming chunked decode

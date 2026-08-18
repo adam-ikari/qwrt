@@ -7,11 +7,16 @@ Qwrt.js has a comprehensive multi-layer test suite.
 | Layer | Runner | Coverage | Command |
 |-------|--------|----------|---------|
 | **Offline** | gtest + ctest | Core runtime, extensions, WASM | `ctest -L offline` |
-| **WPT** | wpt_runner | WinterTC Web APIs | `./build/test/wpt_runner test/wpt` |
-| **test262** | test262_runner | ECMAScript language conformance | `./build/test/test262_runner test/test262/test` |
+| **WinterTC** | gtest | Web APIs (URL/URLPattern/FormData/Event/Blob/console/...) | `ctest -L offline` (`test_polyfill_gtest` etc.) |
+| **test262** | ctest | ECMAScript language conformance | `ctest -R test262` |
 | **Network** | ctest | HTTP/HTTPS/TLS integration | `ctest -L network` |
 | **Benchmark** | ctest | Performance regression | `ctest -L benchmark` |
 | **DAP** | ctest | Debugger protocol | `ctest -L dap` |
+
+> The old `wpt_runner` (vendored WPT `.any.js` files) was removed in the
+> libuv-native refactor (mock-PAL gone). WinterTC Web API coverage now lives
+> in the offline gtest suites (`test_polyfill_gtest` etc.); the vendored
+> `test/wpt/` files remain for reference.
 
 ## Quick Run
 
@@ -20,14 +25,11 @@ Qwrt.js has a comprehensive multi-layer test suite.
 cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQWRT_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 
-# All offline tests
+# All offline tests (includes WinterTC Web API gtest suites)
 cd build && ctest -L offline --output-on-failure
 
-# WPT WinterTC compliance
-./build/test/wpt_runner test/wpt
-
-# test262 ECMAScript conformance (first 2000 tests)
-./build/test/test262_runner test/test262/test
+# test262 ECMAScript conformance
+cd build && ctest -R test262
 ```
 
 ## Test Labels
@@ -45,14 +47,16 @@ cd build && ctest -L offline --output-on-failure
 
 | Suite | Tests | Pass | Fail | Skip | Rate |
 |-------|-------|------|------|------|------|
-| Offline | 15 | 15 | 0 | 0 | 100% |
+| Offline (gtest) | 13 | 13 | 0 | 0 | 100% |
 | WASM compliance | 14 | 14 | 0 | 0 | 100% |
 | WASM streaming | 3 | 3 | 0 | 0 | 100% |
-| WPT WinterTC | 32 | 27 | 0 | 5 | 100%¹ |
-| test262 (built-ins) | 2,000 | 1,118 | 494 | 388 | 69.4% |
+| CLI end-to-end | 9 | 9 | 0 | 0 | 100% |
+| HTTPServer e2e | 8 | 8 | 0 | 0 | 100% |
+| test262 (quickjs runner) | 1 | 1 | 0 | 0 | 100% |
 
-¹ All 5 skipped tests are non-UTF encoding labels (intentionally unsupported).
-² WASM streaming 3 用例来自 `test/test_wasm_streaming_gtest.cpp`：compileStreaming/instantiateStreaming 语义等价实现 + 非法 source 拒绝。
+¹ WASM streaming 3 用例来自 `test/test_wasm_streaming_gtest.cpp`：compileStreaming/instantiateStreaming 语义等价实现 + 非法 source 拒绝。
+² CLI end-to-end 来自 `test/test_cli_gtest.cpp`（fork 真实 qwrt 可执行文件，断言 stdout/stderr/退出码）。
+³ HTTPServer e2e 来自 `test/test_httpserver_e2e.py`（真实 libuv 构建 + uvhttp listener）。
 
 ## Memory Safety
 
