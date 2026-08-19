@@ -48,6 +48,7 @@ static JSValue js_pal_storage_del(JSContext *ctx, JSValueConst this_val, int arg
 static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_post_message(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_read_sync(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_port_create(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_spawn_worker(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_worker_post(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_worker_terminate(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
@@ -1127,6 +1128,29 @@ static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int ar
 }
 
 /* ================================================================
+ * MessagePort transfer — global port id allocator (Task: transferable)
+ * ================================================================ */
+
+/* 全局递增 port id 池（跨线程原子分配；0 保留给无效 id）。每个
+ * MessageChannel 分配一对连续 id（id1=port1, id2=port2，纠缠对）。
+ * id 只用于跨线程路由标记，具体路由在 JS 层 polyfill 完成。 */
+static _Atomic uint32_t g_qwrt_next_port_id = 1;
+
+/* portCreate() -> {id1, id2}：分配一对全局唯一纠缠 port id。 */
+static JSValue js_pal_port_create(JSContext *ctx, JSValueConst this_val,
+                                  int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
+    uint32_t id1 = __atomic_fetch_add(&g_qwrt_next_port_id, 1, __ATOMIC_RELAXED) + 1;
+    uint32_t id2 = __atomic_fetch_add(&g_qwrt_next_port_id, 1, __ATOMIC_RELAXED) + 1;
+    JSValue obj = JS_NewObject(ctx);
+    if (JS_IsException(obj)) return JS_EXCEPTION;
+    JS_SetPropertyStr(ctx, obj, "id1", JS_NewUint32(ctx, id1));
+    JS_SetPropertyStr(ctx, obj, "id2", JS_NewUint32(ctx, id2));
+    return obj;
+}
+
+/* ================================================================
  * Host message boundary
  * ================================================================ */
 
@@ -1448,6 +1472,9 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
 
     /* Sync CSPRNG */
     JS_SetPropertyStr(jsctx, pal, "randomBytes", JS_NewCFunction(jsctx, js_pal_random_bytes, "randomBytes", 1));
+
+    /* MessagePort transfer: 全局唯一 port id 对分配（worker/父都可用） */
+    JS_SetPropertyStr(jsctx, pal, "portCreate", JS_NewCFunction(jsctx, js_pal_port_create, "portCreate", 0));
 
     /* Host message boundary / Web Worker (Task 4).
      * worker runtime（rt->worker_self 非 NULL）：postMessage → 父入站（克隆

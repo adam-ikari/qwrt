@@ -144,3 +144,55 @@ TEST(worker_, transfer_arraybuffer_worker_to_parent) {
     EXPECT_NE(std::string::npos, out.find("\"c\":\"7,8,9,10\"")) << "got: " << out;
     host_destroy(h);
 }
+
+// transferable: 父 → worker 转移一个 MessagePort（w.postMessage(..., [port1])），
+// worker 侧 event.ports[0] 收到该端口，发 'ready' 经端口回传；父侧 port2.onmessage 收到。
+// 之后父侧 port2 → worker 侧 port1 双向 echo。
+TEST(worker_, transfer_messageport) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var ch = new MessageChannel();\n"
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_port.js');\n"
+        "ch.port2.onmessage = function(e){ postMessage({port: e.data}); };\n"
+        "w.postMessage('init', [ch.port1]);\n"
+        "'started'", &out));
+
+    /* worker 经转移的端口回传 'ready' → 父侧 port2.onmessage → 宿主 */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"port\":\"ready\"")) << "got: " << out;
+    host_destroy(h);
+}
+
+// transferable: 转移后双向通信——父侧 port2 → worker 侧 port1（worker_port.js
+// echo 回 'echo:<msg>'）；同时父侧原 port1 已 detached。
+TEST(worker_, transfer_messageport_bidirectional) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var ch = new MessageChannel();\n"
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_port.js');\n"
+        "ch.port2.onmessage = function(e){ postMessage({port: e.data}); };\n"
+        "w.postMessage('init', [ch.port1]);\n"
+        "globalThis.p2 = ch.port2;\n"
+        "globalThis.p1 = ch.port1;\n"
+        "'started'", &out));
+
+    /* 第一条：worker 收到 port 后回传 'ready' → 父侧 port2.onmessage → 宿主 */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"port\":\"ready\"")) << "got: " << out;
+
+    /* 父侧 port2.postMessage('ping') → worker 侧 port echo 'echo:ping' → 父侧 */
+    ASSERT_TRUE(host_eval(h, "p2.postMessage('ping'); 'sent'", &out));
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"port\":\"echo:ping\"")) << "got: " << out;
+
+    /* 父侧原 port1 已 detached（被转移） */
+    ASSERT_TRUE(host_value(h, "p1._detached ? 'detached' : 'active'", &out));
+    EXPECT_NE(std::string::npos, out.find("detached")) << "got: " << out;
+    host_destroy(h);
+}

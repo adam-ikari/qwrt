@@ -68,7 +68,7 @@ setupEncoding(pal);
 // ================================================================
 
 setupFetch(pal);
-setupMessageChannel();
+setupMessageChannel(pal);
 setupHostMessaging(pal);
 setupStreams(pal);
 setupBlobFileFormData();

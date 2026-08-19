@@ -37,7 +37,10 @@ export function setupStructuredClone() {
         var t = options.transfer[i];
         if (transferSet.has(t))
           throw new DOMException('duplicate transferable', 'DataCloneError');
-        if (!(t instanceof ArrayBuffer))
+        /* transferable: ArrayBuffer, 或 MessagePort（v1 只这两种） */
+        var isPort = typeof globalThis.MessagePort === 'function' &&
+                     t instanceof globalThis.MessagePort;
+        if (!(t instanceof ArrayBuffer) && !isPort)
           throw new DOMException('object is not transferable', 'DataCloneError');
         transferSet.add(t);
       }
@@ -50,9 +53,16 @@ export function setupStructuredClone() {
     }
     var seen = new Map();
     var result = clone(value, seen, options);
-    /* 未被消息引用的 transfer 对象也要 detach */
+    /* 未被消息引用的 transfer 对象也要 detach（ArrayBuffer: transfer()；
+     * MessagePort: 标记 detached——同线程转移返回原引用，仅表达不可再用） */
     if (transferSet) {
-      transferSet.forEach(function (ab) { if (!ab.detached) ab.transfer(); });
+      transferSet.forEach(function (t) {
+        if (t instanceof ArrayBuffer) {
+          if (!t.detached) t.transfer();
+        } else if (typeof t._detached === 'boolean') {
+          t._detached = true;
+        }
+      });
     }
     return result;
   };
@@ -129,6 +139,29 @@ export function setupStructuredClone() {
         result.add(clone(v, seen, options));
       });
       return result;
+    }
+
+    // MessagePort：只可转移（transfer 列表），不可克隆。
+    if (typeof globalThis.MessagePort === 'function' &&
+        value instanceof globalThis.MessagePort) {
+      var ts = options && options._qwrtTransfer;
+      if (ts && ts.has(value)) {
+        ts.delete(value);
+        /* 转移：原 port detached；返回一个新的可用代理（同线程下与原
+         * 对端纠缠）。复用 message-channel 的 __qwrt_port_from_ref__。 */
+        if (globalThis.__qwrt_port_from_ref__) {
+          var peer = value._entangledPort;
+          value._detached = true;
+          var pr = globalThis.__qwrt_port_from_ref__(
+            { id: value._id, peerId: value._peerId, peerThread: 'local' });
+          if (peer && pr) pr._entangledPort = peer;
+          seen.set(value, pr);
+          return pr;
+        }
+        seen.set(value, value);
+        return value;
+      }
+      throw new DOMException('MessagePort cannot be cloned (use transfer)', 'DataCloneError');
     }
 
     // ArrayBuffer
@@ -310,7 +343,9 @@ export function setupStructuredClone() {
         var t = transfer[i];
         if (transferSet.has(t))
           throw new DOMException('duplicate transferable', 'DataCloneError');
-        if (!(t instanceof ArrayBuffer))
+        var isPort = typeof globalThis.MessagePort === 'function' &&
+                     t instanceof globalThis.MessagePort;
+        if (!(t instanceof ArrayBuffer) && !isPort)
           throw new DOMException('object is not transferable', 'DataCloneError');
         transferSet.add(t);
       }
@@ -378,6 +413,19 @@ export function setupStructuredClone() {
         refs.set(v, next++); bytes.u8(0x0C);
         bytes.u32(v.size);
         v.forEach(function (val) { w(val); });
+        return;
+      }
+      /* MessagePort：transfer 列表中的 → 编码为 __qwrt_port_ref；否则不可克隆 */
+      if (typeof globalThis.MessagePort === 'function' &&
+          v instanceof globalThis.MessagePort) {
+        if (!transferSet || !transferSet.has(v))
+          throw new DOMException('MessagePort cannot be cloned (use transfer)', 'DataCloneError');
+        transferSet.delete(v);
+        v._detached = true;
+        refs.set(v, next++); bytes.u8(0x20);
+        bytes.u32(v._id || 0);
+        bytes.u32(v._peerId || 0);
+        encodeString(bytes, v._peerThread || 'local');
         return;
       }
       if (v instanceof ArrayBuffer) {
@@ -535,6 +583,19 @@ export function setupStructuredClone() {
           }
           if (tag === 0x1E) return refs[r.u32()];
           if (tag === 0x1F) return BigInt(r.str());
+          if (tag === 0x20) {
+            /* MessagePort 引用：__qwrt_port_from_ref__ 创建/复用本地代理 */
+            var pid = r.u32(), ppeer = r.u32(), pth = r.str();
+            var portRef;
+            if (globalThis.__qwrt_port_from_ref__) {
+              portRef = globalThis.__qwrt_port_from_ref__(
+                { id: pid, peerId: ppeer, peerThread: pth });
+            } else {
+              throw new DOMException('MessagePort reference requires message-channel', 'DataCloneError');
+            }
+            refs.push(portRef);
+            return portRef;
+          }
           throw new DOMException('Bad serialized data', 'DataCloneError');
         }
       }

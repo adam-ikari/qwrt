@@ -58,8 +58,34 @@ export function setupWorker(pal) {
   }
 
   Worker.prototype.postMessage = function (value, transfer) {
-    var bytes = __qwrt_serialize__(value, transfer);
-    pal.workerPost(this._id, bytes);
+    /* 拆出 transfer 列表里的 MessagePort（其余 ArrayBuffer 照常序列化），
+     * 并把它们编码成 {__qwrt_ports:[{id,peerId,peerThread}], __qwrt_payload}。
+     * 转移语义：原 port 标记 detached；父侧对端 port 的 _peerThread 指向 worker。 */
+    var ports = [];
+    var abTransfer;
+    if (transfer && transfer.length) {
+      abTransfer = [];
+      for (var i = 0; i < transfer.length; i++) {
+        var t = transfer[i];
+        if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) {
+          ports.push({ id: t._id, peerId: t._peerId, peerThread: 'parent' });
+          t._detached = true;   /* 原 port 已转移，不再可用 */
+          var peer = globalThis.__qwrt_lookup_port__(t._peerId);
+          if (peer) peer._peerThread = this._id;  /* 对端现在在 worker */
+        } else {
+          abTransfer.push(t);
+        }
+      }
+      if (!abTransfer.length) abTransfer = undefined;
+    }
+    var dataBytes = __qwrt_serialize__(value, abTransfer);
+    if (ports.length) {
+      var wrapped = __qwrt_serialize__(
+        { __qwrt_ports: ports, __qwrt_payload: dataBytes });
+      pal.workerPost(this._id, wrapped);
+    } else {
+      pal.workerPost(this._id, dataBytes);
+    }
   };
 
   Worker.prototype.terminate = function () {
@@ -76,11 +102,32 @@ export function setupWorker(pal) {
       hostDispatch(data, source);
       return;
     }
-    var w = workers.get(source);
-    if (!w) return;
     var d;
     try { d = __qwrt_deserialize__(data); }
     catch (err) { reportError(err); return; }
+    /* 跨线程 port 消息：路由到本地 port 对象，不是 Worker 实例的 onmessage */
+    if (globalThis.__qwrt_deliver_port_msg__ &&
+        globalThis.__qwrt_deliver_port_msg__(d)) return;
+    var w = workers.get(source);
+    if (!w) return;
+    /* 带 MessagePort 转移的 worker 消息：解包 ports + payload */
+    if (d && typeof d === 'object' && d.__qwrt_ports) {
+      var ports = [];
+      try {
+        for (var i = 0; i < d.__qwrt_ports.length; i++) {
+          ports.push(globalThis.__qwrt_port_from_ref__(d.__qwrt_ports[i]));
+        }
+      } catch (err) { reportError(err); return; }
+      var inner;
+      try { inner = __qwrt_deserialize__(d.__qwrt_payload); }
+      catch (err) { reportError(err); return; }
+      var ev2;
+      try { ev2 = new MessageEvent('message', { data: inner, ports: ports }); }
+      catch (err) { reportError(err); return; }
+      var h2 = (inner && inner.type === 'error') ? w._onerror : w._onmsg;
+      if (h2) { try { h2.call(self, ev2); } catch (err) { reportError(err); } }
+      return;
+    }
     var handler = (d && d.type === 'error') ? w._onerror : w._onmsg;
     if (!handler) return;
     var e;

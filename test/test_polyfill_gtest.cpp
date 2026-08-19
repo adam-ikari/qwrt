@@ -186,6 +186,25 @@ TEST_F(PolyfillTest, StructuredCloneTransferArrayBuffer) {
     EXPECT_NE(std::string::npos, v.find("\"DataCloneError\"")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, StructuredCloneTransferMessagePort) {
+    std::string v;
+    /* transfer 一个 MessagePort：不抛错，原 port 被标记 detached */
+    ASSERT_TRUE(host_value(h,
+        "var ch = new MessageChannel();\n"
+        "var c = structuredClone({p: ch.port1}, {transfer:[ch.port1]});\n"
+        "JSON.stringify({d: ch.port1._detached, hasP: c.p instanceof MessagePort})", &v));
+    EXPECT_NE(std::string::npos, v.find("\"d\":true")) << "got: " << v;   /* 原 port detached */
+    EXPECT_NE(std::string::npos, v.find("\"hasP\":true")) << "got: " << v;
+
+    /* 值里的 MessagePort（不在 transfer）不可克隆 → DataCloneError */
+    ASSERT_TRUE(host_value(h,
+        "var r = 'no-error';\n"
+        "try { structuredClone(new MessageChannel().port1); }\n"
+        "catch (e) { r = e.name; }\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("\"DataCloneError\"")) << "got: " << v;
+}
+
 TEST_F(PolyfillTest, Storage) {
     std::string v;
     ASSERT_TRUE(host_eval(h,

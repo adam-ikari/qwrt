@@ -1,4 +1,4 @@
-ËÂä†palsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
+Î—´X¶palsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
 debugTrace: objoptions
 depth
 labeltimeNow
@@ -43,11 +43,12 @@ FoundSee OtherNot Modified$Temporary Redirect$Permanent RedirectBad Requ
 clonejsonarrayBufferblobreleaseLockredirectfsfsReadencodingfsWritefsExistsfsListfsRemove^Synchronous fs operations not supported in qwrtqwrtreadFilewriteFileexistsreaddirunlinkreadFileSyncstoragestorageGetstorageSetstorageDeluseNativeEncodeuseNativeDecodeTextEncoder2TextDecoder2utf8LeadLen
 byteshilocodePoint nativeEncodeUtf8encodeIntosrcdstencodedminwritten
 fatalignoreBOM_buffer"unicode-1-1-utf-8utf8_decoderreplacementjThe "replacement" label is not a valid encoding labelEncoding "" not supportedbytestreamModeallByteslastCompleteleadwantb1bufWantkavailContcodepointlatin1ıÿfromCodePoint nativeDecodeUtf8crypto2getRandomValuestypedArraytotalBytesab:Argument must be a TypedArray"BYTES_PER_ELEMENTjgetRandomValues: requested length exceeds 65536 bytesrandomBytesbyteOffsetrandomUUIDhexpadStart-subtlecryptoErrorEvent*PromiseRejectionEvent_messagefilename_filenamelineno_lineno
-colno_colno$unhandledrejection_promiseXErrorEvent requires Event to be loaded firstMessageEvent2MessagePortMessageChannel
+colno_colno$unhandledrejection_promiseXErrorEvent requires Event to be loaded firstportRegistryinWorkerregisterPortlookupPortMessageEvent2MessagePort2MessageChannel_idid
 _data_originlastEventId_lastEventId_source
-ports_ports_entangledPort_started_messageQueue_onmessage_onmessageerrorfn_startmessageerrortransfererrorEventstructuredClone_port1_port2fMessagePort requires EventTarget to be loaded firstonmessageonmessageerrorpostMessage
+ports_portspeerId_peerId_entangledPort
+local_peerThread_detached_started_messageQueue_onmessage_onmessageerrorfn_startmessageerrorpayloadByteswrapped$__qwrt_serialize__payload__qwrt_port_msgpostMessageworkerPost^MessagePort: cannot route to parent from parenttransfererrorEvent:MessagePort: port is detachedstructuredClone_sendRemoteerrEvent(__qwrt_deserialize__idsportCreateid1id2_port1_port2msgpm_deliverRemote:invalid MessagePort referencepeerThreadparentfMessagePort requires EventTarget to be loaded firstworkerCloseonmessageonmessageerror
 port1
-port2MessageEvent__onmsgreportError"__qwrt_dispatch__VReadableStreamUnderlyingSourceDefaultCancelRReadableStreamUnderlyingSourceDefaultPullTReadableStreamUnderlyingSourceDefaultStart>ReadableStreamDefaultController>WritableStreamDefaultController6WritableStreamDefaultWriterWritableStream@TransformStreamDefaultControllerTransformStream"CompressionStream&DecompressionStream2ByteLengthQueuingStrategy(CountQueuingStrategy"TextEncoderStream"TextDecoderStream_closeRequested_statereadable_hwm_queueclosed_notifyReaderserrored_storedError_closedResolve_closedRejectFReadableStream already has a reader_isClosed_readResolve_readRejectstrategyhighWaterMarkcancel_cancelpull
+port2MessagePortMessageEvent(__qwrt_lookup_port__2__qwrt_deliver_port_msg__,__qwrt_port_from_ref____onmsgreportError"__qwrt_dispatch__VReadableStreamUnderlyingSourceDefaultCancelRReadableStreamUnderlyingSourceDefaultPullTReadableStreamUnderlyingSourceDefaultStart>ReadableStreamDefaultController>WritableStreamDefaultController6WritableStreamDefaultWriterWritableStream@TransformStreamDefaultControllerTransformStream"CompressionStream&DecompressionStream2ByteLengthQueuingStrategy(CountQueuingStrategy"TextEncoderStream"TextDecoderStream_closeRequested_statereadable_hwm_queueclosed_notifyReaderserrored_storedError_closedResolve_closedRejectFReadableStream already has a reader_isClosed_readResolve_readRejectstrategyhighWaterMarkcancel_cancelpull
 _pull"branch1Controller"branch2Controllerbranch1Closedbranch2ClosedreadingpullAndDispatchcreateBranchbranch1branch2destwriter
 writexgetWritertransformpipeTo_released_closedPromise_writeChunk_closeStream_abortStream_writerunderlyingSink_writePromise_closePromise_readyPromise_write_closeFWritableStream already has a writer Stream is closed,Stream is not writable&_readableControllerdesiredSizetransformer$readableControllertsController
 flushterminate_readable_writableformatcompressedbyteLengthnativeCompressTNative compression extension not available_formatgzipdeflatedeflate-rawNCompressionStream: unsupported format: decompressed nativeDecompressRDecompressionStream: unsupported format: _highWaterMarkdecoderdecodedlockedteepipeThroughasyncIterator
@@ -62,12 +63,14 @@ regexnavigatorreportError2lineNumbercolumnNumberlistener_onerrorHand
 en-USlanguagewintercgplatform&hardwareConcurrencyonLinemaxTouchPointsonerror(onunhandledrejection$onrejectionhandled.__installCryptoSubtle__toUint8ArraytoArrayBufferB64_CHARSbase64UrlEncodebase64UrlDecodeCryptoKeySubtleCryptoDExpected ArrayBuffer or TypedArrayu8b0b2_
 charsc0c1c2c3algorithmextractableusages_algorithm_extractable_usagesnativeDigest<Crypto extension not availablekeyDatakeyUsagesalgoNameInvalid keyDatajwk(Invalid JWK key data0Unsupported key format: secrethashAlgoHMACSHA-256nativeHmac.Unsupported algorithm: signaturecomputedsigcompdiffsignplaintextivaadtagLencounter nativeAesEncryptAES-CBCAES-GCMadditionalDatatagLengthAES-CTRciphertext nativeAesDecryptlengthBitslengthByteskeyBytesceil
 SHA-1SHA-512,Invalid AES key lengthOperationError,Key is not extractableoctktyHSSHA-algextkey_ops6Unsupported export format: saltiterations
-dkLenPBKDF2nativePbkdf2derivedKeyTypebitsLengthbitsderiveBitsdigestimportKeyverifyencryptdecryptgenerateKeyexportKeyderiveKeycloneTypedArrayTA_CTORSutf8Encodeutf8DecodeByteWriterencodeString serializeToBytesByteReader(deserializeFromBytestransferSettseendetached6transfer must be a sequence,duplicate transferable4object is not transferable_qwrtTransferCtorts0Symbols cannot be cloned4Functions cannot be clonedgetTimeoutcpufu32f64refswt2fbytesbbytesau8tu8valisIntegeris*File cannot be cloned*Blob cannot be clonednrrdtagnmmoffdvtabllmflo&Bad serialized data$__qwrt_serialize__(__qwrt_deserialize__workersloadScriptWorkerhostDispatchfile://ZWorker: only file:// URLs are supported in v1fsReadSyncid_onmsg_onerrorspawnWorker_idworkerPostworkerTerminate_pristine_infra
+dkLenPBKDF2nativePbkdf2derivedKeyTypebitsLengthbitsderiveBitsdigestimportKeyverifyencryptdecryptgenerateKeyexportKeyderiveKeycloneTypedArrayTA_CTORSutf8Encodeutf8DecodeByteWriterencodeString serializeToBytesByteReader(deserializeFromBytestransferSettisPortseent2detached6transfer must be a sequence,duplicate transferable4object is not transferable_qwrtTransferCtortspeerpr0Symbols cannot be cloned4Functions cannot be clonedgetTimeVMessagePort cannot be cloned (use transfer)outcpufu32f64refswfbytesbbytesau8tu8valisIntegeris*File cannot be cloned*Blob cannot be clonednrrdtagnmmoffdvtabllmflopid
+ppeerpthportRef\MessagePort reference requires message-channel&Bad serialized dataworkersloadScriptWorkerhostDispatchfile://ZWorker: only file:// URLs are supported in v1fsReadSync_onmsg_onerrorspawnWorkerabTransferdataBytes__qwrt_ports__qwrt_payloadworkerTerminate
+innerev2h2_pristine_infra
 propsskippedreccontextSpawncontextSuspendcontextResumecontextDestroycreate(__qwrt_ctx_capture__(__qwrt_ctx_restore__qwrtContext
 spawnsuspendresumedestroyVqueueMicrotask requires a function argumentqueueMicrotask"__native_inject__ 
  ¨    
 ª   C
-   Üä  æ   è  ê  ì  î  ğ  ò  ô  ö  ø 	 ú 
+   İä  æ   è  ê  ì  î  ğ  ò  ô  ö  ø 	 ú 
  ü  ş  €  ‚  „  †  ˆ  Š  Œ   @   ’  ”  C
  æ †– @ ˜ pšpœ  @0C
  œ      B
@@ -5072,7 +5075,16 @@ function setupErrorEvents() {
     globalThis.ErrorEvent = ErrorEvent;
     globalThis.PromiseRejectionEvent = PromiseRejectionEvent;
   }C
- € 	  —	®	0şp ® `°	0şp°`²	0ş	p² Æ   ·²  º  ö  ô    şÏĞ` +Ë5Ì×Ø! c d  ğa $  a Ø¯ğò@.  ¯ğBZ  a Ø¯ğò@9  ¯ğÆB[  a Ø¯ğò@\  ¯ğÆB]  a Ø¯ğò@t   ¯ğB^  a Ø¯ğò@_  ¯ğ&  B`  a (¨­5Š     †class MessageEvent2 extends Event {
+ €
+ æ– @®  @ ° @² @´ @	¶0şp¶ `¸0şp¸`º0ş	pº
+ C
+ ²   †  ®  ×@^  ğãAF   ×@^  ×$ )¨®+ "Mfunction registerPort(p) {
+      if (p._id) portRegistry.set(p._id, p);
+    }C
+ ´   
+¾  ®  ãAE   ×% ¨±!4Bfunction lookupPort(id) {
+      return portRegistry.get(id);
+    }Æ   ·²  º  ö  ô    şÏĞ` +Ë5Ì×Ø! c d  ğa $  a Ø¯ğò@.  ¯ğB`  a Ø¯ğò@9  ¯ğÆBa  a Ø¯ğò@b  ¯ğÆBc  a Ø¯ğò@t   ¯ğBd  a Ø¯ğò@e  ¯ğ&  Bf  a (¨µ5Š     †class MessageEvent2 extends Event {
       constructor(type, options) {
         super(type, options);
         this._data = options?.data ?? null;
@@ -5096,20 +5108,24 @@ function setupErrorEvents() {
       get ports() {
         return this._ports;
       }
-    }B      	  ÏË@Z  (¨µ /get data() {
+    }B      	  ÏË@`  (¨½ /get data() {
         return this._data;
-      }B      	  ÏË@[  (¨¸ 3get origin() {
+      }B      	  ÏË@a  (¨À 3get origin() {
         return this._origin;
-      }B      	  ÏË@]  (¨» =get lastEventId() {
+      }B      	  ÏË@c  (¨Ã =get lastEventId() {
         return this._lastEventId;
-      }B      	  ÏË@^  (¨¾ 3get source() {
+      }B      	  ÏË@d  (¨Æ 3get source() {
         return this._source;
-      }B      	  ÏË@`  (¨Á 1get ports() {
+      }B      	  ÏË@f  (¨É 1get ports() {
         return this._ports;
-      }Æ     Vö  ô    şÏĞ` +Ë5Ì!  c d  ğa $  a Ba  a 	Bb  a &  Bc  a Bd  a Be  a (¨Æ5€ 0 0 : 0 ¬class MessagePort extends EventTarget {
-      constructor() {
+      }Æ   ~¾  Î  ö  ô    şÏĞ` +Ë5Ì!  c d  ğa $  a ×B^  a ØBh  a Bi  a j  Bk  a 	Bl  a 	Bm  a &  Bn  a Bo  a Bp  a (¨Î5€ 0 0 0 D 0 0 : 0 äclass MessagePort2 extends EventTarget {
+      constructor(id, peerId) {
         super();
+        this._id = id;
+        this._peerId = peerId;
         this._entangledPort = null;
+        this._peerThread = "local";
+        this._detached = false;
         this._started = false;
         this._messageQueue = [];
         this._onmessage = null;
@@ -5140,21 +5156,59 @@ function setupErrorEvents() {
           this.addEventListener("messageerror", fn);
         }
       }
+      /* è·¨çº¿ç¨‹å‘é€ï¼šæ¶ˆæ¯å­—èŠ‚ â†’ åŒ…è£… {__qwrt_port_msg} â†’ ç»ç°æœ‰é€šé“æŠ•é€’åˆ°å¯¹ç«¯çº¿ç¨‹ */
+      _sendRemote(payloadBytes) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_port_msg: { target: this._peerId, payload: payloadBytes } }
+        );
+        if (inWorker) {
+          pal2.postMessage(wrapped);
+        } else if (this._peerThread > 0) {
+          pal2.workerPost(this._peerThread, wrapped);
+        } else {
+          throw new Error("MessagePort: cannot route to parent from parent");
+        }
+      }
       postMessage(message, transfer) {
-        if (!this._entangledPort) return;
-        var data;
+        if (this._detached) {
+          throw new Error("MessagePort: port is detached");
+        }
+        if (this._peerThread === "local") {
+          if (!this._entangledPort) return;
+          var data;
+          try {
+            data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
+          } catch (e) {
+            var errorEvent = new MessageEvent2("messageerror", { data: e });
+            this._entangledPort.dispatchEvent(errorEvent);
+            return;
+          }
+          var event = new MessageEvent2("message", { data, ports: [] });
+          if (this._entangledPort._started) {
+            this._entangledPort.dispatchEvent(event);
+          } else {
+            this._entangledPort._messageQueue.push(event);
+          }
+        } else {
+          var bytes = __qwrt_serialize__(message, transfer);
+          this._sendRemote(bytes);
+        }
+      }
+      /* å…¥ç«™ï¼šæ¥æ”¶è·¨çº¿ç¨‹ port æ¶ˆæ¯ï¼ˆpayload æ˜¯åºåˆ—åŒ–å­—èŠ‚ï¼‰ */
+      _deliverRemote(payloadBytes) {
+        var v;
         try {
-          data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
-        } catch (e) {
-          var errorEvent = new MessageEvent2("messageerror", { data: e });
-          this._entangledPort.dispatchEvent(errorEvent);
+          v = __qwrt_deserialize__(payloadBytes);
+        } catch (err) {
+          var errEvent = new MessageEvent2("messageerror", { data: err });
+          this.dispatchEvent(errEvent);
           return;
         }
-        var event = new MessageEvent2("message", { data, ports: [] });
-        if (this._entangledPort._started) {
-          this._entangledPort.dispatchEvent(event);
+        var event = new MessageEvent2("message", { data: v, ports: [] });
+        if (this._started) {
+          this.dispatchEvent(event);
         } else {
-          this._entangledPort._messageQueue.push(event);
+          this._messageQueue.push(event);
         }
       }
       start() {
@@ -5169,13 +5223,14 @@ function setupErrorEvents() {
         this._messageQueue = [];
       }
       close() {
+        this._detached = true;
         this._entangledPort = null;
         this._started = false;
         this._messageQueue = [];
       }
-    }B      	  ÏË@d  (¨Î 9get onmessage() {
+    }B      	  ÏË@o  (¨Ú 9get onmessage() {
         return this._onmessage;
-      }B    CÌ    ÏË@d  ğËA¶  4   Ë@d  $ Ë×Bd  ×ğËAµ  4   ×$ ËAg  $  )¨Ñ6  
+      }B    Câ    ÏË@o  ğËA¶  4   Ë@o  $ Ë×Bo  ×ğËAµ  4   ×$ ËAr  $  )¨İ6  
 O6 
 6 
 …set onmessage(fn) {
@@ -5187,9 +5242,9 @@ O6
           this.addEventListener("message", fn);
         }
         this._start();
-      }B      	  ÏË@e  (¨Û Cget onmessageerror() {
+      }B      	  ÏË@p  (¨ç Cget onmessageerror() {
         return this._onmessageerror;
-      }B    :Ì    ÏË@e  ğËA¶  h  Ë@e  $ Ë×Be  ×ğËAµ  h  ×$ )¨Ş
+      }B    :â    ÏË@p  ğËA¶  s  Ë@p  $ Ë×Bp  ×ğËAµ  s  ×$ )¨ê
 6  
 O6 
 Œset onmessageerror(fn) {
@@ -5200,28 +5255,62 @@ O6
         if (fn) {
           this.addEventListener("messageerror", fn);
         }
-      }B   Şh  Ò  Ü   ¤ Ô  ¸    ®ÈÇ@a  •ğ)kM   8•   @k  ûğ8•   Ak  ×Øğ
-ØKi  ò$ ò8§   Az  8§   A  ×$ $ Ïò0Ğk,   d  h  ÌK.  ! ÑÇ@a  A·  Í$ n(0d  4   ËK.  &  K_  ! ÒÇ@a  @b  ğÇ@a  A·  Î$ )Ç@a  @c  AO  Î$ )¨ç 4ZCP“p4Yg)>D2'Ö>D"CWNÔpostMessage(message, transfer) {
-        if (!this._entangledPort) return;
-        var data;
+      }B   [è  ê     ° – Ğ8v  Ì@h  K^   ×Kw  Kx  õÏãğäAy  Ë$ )Ì@k  º§ğäAz  Ì@k  Ë$ )8    {  ! 0¨ô'–  "?7  @®_sendRemote(payloadBytes) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_port_msg: { target: this._peerId, payload: payloadBytes } }
+        );
+        if (inWorker) {
+          pal2.postMessage(wrapped);
+        } else if (this._peerThread > 0) {
+          pal2.workerPost(this._peerThread, wrapped);
+        } else {
+          throw new Error("MessagePort: cannot route to parent from parent");
+        }
+      }B    h  ø  Ü   ¤ ú  ¸  ®    ¶ÈÇ@l  ğ8    ~  ! 0Ç@k  j  ­hß   Ç@i  •ğ)kM   8•   @  ûğ8•   A  ×Øğ
+ØK|  ò$ ò8§   Az  8§   A  ×$ $ Ïò0Ğk,   d  s  ÌK.  ! ÑÇ@i  A·  Í$ n(0d  4   ËK.  &  Ke  ! ÒÇ@i  @m  ğÇ@i  A·  Î$ )Ç@i  @n  AO  Î$ )8v  ×ØöÈÇA€  Ç$ )¨€'@r )4ZCP“p4Yg)>D2'Ö>D"CWN<=%"ıpostMessage(message, transfer) {
+        if (this._detached) {
+          throw new Error("MessagePort: port is detached");
+        }
+        if (this._peerThread === "local") {
+          if (!this._entangledPort) return;
+          var data;
+          try {
+            data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
+          } catch (e) {
+            var errorEvent = new MessageEvent2("messageerror", { data: e });
+            this._entangledPort.dispatchEvent(errorEvent);
+            return;
+          }
+          var event = new MessageEvent2("message", { data, ports: [] });
+          if (this._entangledPort._started) {
+            this._entangledPort.dispatchEvent(event);
+          } else {
+            this._entangledPort._messageQueue.push(event);
+          }
+        } else {
+          var bytes = __qwrt_serialize__(message, transfer);
+          this._sendRemote(bytes);
+        }
+      }B   è  ä   Î ‚  ¸    ¶Èk   8‚  ×õÏò+Ğk'   d  s  ÌK.  ! ÑÇA·  Í$ n(0d  4   ËK.  &  Ke  ! ÒÇ@m  ğÇA·  Î$ )Ç@n  AO  Î$ )¨š-2@g%%&2	½%&"%>0í_deliverRemote(payloadBytes) {
+        var v;
         try {
-          data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
-        } catch (e) {
-          var errorEvent = new MessageEvent2("messageerror", { data: e });
-          this._entangledPort.dispatchEvent(errorEvent);
+          v = __qwrt_deserialize__(payloadBytes);
+        } catch (err) {
+          var errEvent = new MessageEvent2("messageerror", { data: err });
+          this.dispatchEvent(errEvent);
           return;
         }
-        var event = new MessageEvent2("message", { data, ports: [] });
-        if (this._entangledPort._started) {
-          this._entangledPort.dispatchEvent(event);
+        var event = new MessageEvent2("message", { data: v, ports: [] });
+        if (this._started) {
+          this.dispatchEvent(event);
         } else {
-          this._entangledPort._messageQueue.push(event);
+          this._messageQueue.push(event);
         }
-      }B        ÏËAg  $  )¨ø 
+      }B        ÏËAr  $  )¨ª 
 (start() {
         this._start();
-      }B      >¢     ĞÌ@b  ğ)Ì
-Bb  ºÏÊ@c  ï¥ğÌA·  Ì@c  ËF$ ’ òáÌ&  Bc  )¨û
+      }B      >¢     ĞÌ@m  ğ)Ì
+Bm  ºÏÊ@n  ï¥ğÌA·  Ì@n  ËF$ ’ òáÌ&  Bn  )¨­
 ;0(5# &T)ñ_start() {
         if (this._started) return;
         this._started = true;
@@ -5229,16 +5318,21 @@ Bb  ºÏÊ@c  ï¥ğÌA·  Ì@c  ËF$ ’ òáÌ&  Bc  )¨û
           this.dispatchEvent(this._messageQueue[i]);
         }
         this._messageQueue = [];
-      }B        ÏËBa  Ë	Bb  Ë&  Bc  )¨ƒ& & uclose() {
+      }B      !  ÏË
+Bl  ËBi  Ë	Bm  Ë&  Bn  )¨µ& & & ”close() {
+        this._detached = true;
         this._entangledPort = null;
         this._started = false;
         this._messageQueue = [];
-      }B     L  ş°Ï+d  ğË$  Ëd !  Bl  Ëd !  Bm  Ë@l  Ë@m  Ba  Ë@m  Ë@l  Ba  )¨ŠN$?#$?#X àclass MessageChannel {
+      }B     †     ş– ¸	² Ğ+d  ğÌ$  äA„  $  ÏÌd Ë@…  Ë@†  ! B‡  Ìd Ë@†  Ë@…  ! Bˆ  Ì@‡  Ì@ˆ  Bi  Ì@ˆ  Ì@‡  Bi  æÌ@‡  õæÌ@ˆ  õ)¨½l"${#${#X X +íclass MessageChannel {
       constructor() {
-        this._port1 = new MessagePort();
-        this._port2 = new MessagePort();
+        var ids = pal2.portCreate();
+        this._port1 = new MessagePort2(ids.id1, ids.id2);
+        this._port2 = new MessagePort2(ids.id2, ids.id1);
         this._port1._entangledPort = this._port2;
         this._port2._entangledPort = this._port1;
+        registerPort(this._port1);
+        registerPort(this._port2);
       }
       get port1() {
         return this._port1;
@@ -5246,14 +5340,45 @@ Bb  ºÏÊ@c  ï¥ğÌA·  Ì@c  ËF$ ’ òáÌ&  Bc  )¨û
       get port2() {
         return this._port2;
       }
-    }B      	  ÏË@l  (¨ 1get port1() {
+    }B      	  ÏË@‡  (¨Æ 1get port1() {
         return this._port1;
-      }B      	  ÏË@m  (¨“ 1get port2() {
+      }B      	  ÏË@ˆ  (¨É 1get port2() {
         return this._port2;
-      }` ` ` 8•   @¹  ûñ8    n  ! 0`  8¸  ` Ä UW  ÅS.  ÅS9  ÅS\  ÅSt   ÅS_  ĞÓg Ñ` 8¹  ` ÄUX  ÅSo  ÅSo  Å	Sp  Å
-Sp  ÅSq   ÅS!   ÅSg   ÅS‰   ÈÖg È` ` ÄUY   ÅSr  ÅSs  ÈÉg È8•   a BY  8•   a BX  8•   a Bt  )¨¨bP3 ÙÚD D Øfunction setupMessageChannel() {
+      }C
+    s’  ”   ¼  î  ¨  ´ ×•ñ×–M   ®ñ	×@x  •ğ	(×@x  ÓğË–M   ­ğ	Ë@^   òĞËğË–M   ­ğ	Ë@w  òÑÌùñÌ®ğãÌõòÖ•ğ	(ÎA‹  Í$ 
+(¨Ñ,&¤vg&(;y (½function(msg) {
+      if (!msg || typeof msg !== "object" || !msg.__qwrt_port_msg) return false;
+      var pm = msg.__qwrt_port_msg;
+      var target = pm && typeof pm === "object" ? pm.target : null;
+      var payload = pm && typeof pm === "object" ? pm.payload : null;
+      var port = target !== null && target !== void 0 ? lookupPort(target) : null;
+      if (!port) return false;
+      port._deliverRemote(payload);
+      return true;
+    }C
+    c°  †   ¸	² ×•ñ×@_  øñ	×@_  ùğ8İ   Œ  é  ! 0d  ×@_  ×@g  ! Ó×@  ñ  Bk  Ë	Bl  äËõË(¨Û)?9,Eh bl & Ùfunction(info) {
+      if (!info || info.id === void 0 || info.id === null) {
+        throw new DOMException("invalid MessagePort reference", "DataCloneError");
+      }
+      var p = new MessagePort2(info.id, info.peerId);
+      p._peerThread = info.peerThread || "parent";
+      p._detached = false;
+      registerPort(p);
+      return p;
+    }Å ÑÅÒ` `	 ` 8•   @¹  ûñ8      ! 08¿   !  Ï×@  ûĞ` 8¸  ` ÄU[  ÅS.  ÅS9  ÅSb  ÅSt   ÅSe  ÈÉg È` 8¹  ` ÄU\  Å	S‘  Å
+S‘  ÅS’  ÅS’  ÅS€   ÅSy   ÅS‹   ÅS!   ÅSr   ÅS‰   ÈÉg È	`
+ ` ÄU]   ÅS“  ÅS”  ÈÉ
+g È8•   a B]  8•   a	 B•  8•   a B–  8•   ÎB—  8•   ÅB˜  8•   ÅB™  )¨¨€P3O6S àÀUD D D :   Ç1function setupMessageChannel(pal2) {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("MessagePort requires EventTarget to be loaded first");
+    }
+    var portRegistry = /* @__PURE__ */ new Map();
+    var inWorker = typeof pal2.workerClose === "function";
+    function registerPort(p) {
+      if (p._id) portRegistry.set(p._id, p);
+    }
+    function lookupPort(id) {
+      return portRegistry.get(id);
     }
     class MessageEvent2 extends Event {
       constructor(type, options) {
@@ -5280,10 +5405,14 @@ Sp  ÅSq   ÅS!   ÅSg   ÅS‰   ÈÖg È` ` ÄUY   ÅSr  ÅSs  
         return this._ports;
       }
     }
-    class MessagePort extends EventTarget {
-      constructor() {
+    class MessagePort2 extends EventTarget {
+      constructor(id, peerId) {
         super();
+        this._id = id;
+        this._peerId = peerId;
         this._entangledPort = null;
+        this._peerThread = "local";
+        this._detached = false;
         this._started = false;
         this._messageQueue = [];
         this._onmessage = null;
@@ -5314,21 +5443,59 @@ Sp  ÅSq   ÅS!   ÅSg   ÅS‰   ÈÖg È` ` ÄUY   ÅSr  ÅSs  
           this.addEventListener("messageerror", fn);
         }
       }
+      /* è·¨çº¿ç¨‹å‘é€ï¼šæ¶ˆæ¯å­—èŠ‚ â†’ åŒ…è£… {__qwrt_port_msg} â†’ ç»ç°æœ‰é€šé“æŠ•é€’åˆ°å¯¹ç«¯çº¿ç¨‹ */
+      _sendRemote(payloadBytes) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_port_msg: { target: this._peerId, payload: payloadBytes } }
+        );
+        if (inWorker) {
+          pal2.postMessage(wrapped);
+        } else if (this._peerThread > 0) {
+          pal2.workerPost(this._peerThread, wrapped);
+        } else {
+          throw new Error("MessagePort: cannot route to parent from parent");
+        }
+      }
       postMessage(message, transfer) {
-        if (!this._entangledPort) return;
-        var data;
+        if (this._detached) {
+          throw new Error("MessagePort: port is detached");
+        }
+        if (this._peerThread === "local") {
+          if (!this._entangledPort) return;
+          var data;
+          try {
+            data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
+          } catch (e) {
+            var errorEvent = new MessageEvent2("messageerror", { data: e });
+            this._entangledPort.dispatchEvent(errorEvent);
+            return;
+          }
+          var event = new MessageEvent2("message", { data, ports: [] });
+          if (this._entangledPort._started) {
+            this._entangledPort.dispatchEvent(event);
+          } else {
+            this._entangledPort._messageQueue.push(event);
+          }
+        } else {
+          var bytes = __qwrt_serialize__(message, transfer);
+          this._sendRemote(bytes);
+        }
+      }
+      /* å…¥ç«™ï¼šæ¥æ”¶è·¨çº¿ç¨‹ port æ¶ˆæ¯ï¼ˆpayload æ˜¯åºåˆ—åŒ–å­—èŠ‚ï¼‰ */
+      _deliverRemote(payloadBytes) {
+        var v;
         try {
-          data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
-        } catch (e) {
-          var errorEvent = new MessageEvent2("messageerror", { data: e });
-          this._entangledPort.dispatchEvent(errorEvent);
+          v = __qwrt_deserialize__(payloadBytes);
+        } catch (err) {
+          var errEvent = new MessageEvent2("messageerror", { data: err });
+          this.dispatchEvent(errEvent);
           return;
         }
-        var event = new MessageEvent2("message", { data, ports: [] });
-        if (this._entangledPort._started) {
-          this._entangledPort.dispatchEvent(event);
+        var event = new MessageEvent2("message", { data: v, ports: [] });
+        if (this._started) {
+          this.dispatchEvent(event);
         } else {
-          this._entangledPort._messageQueue.push(event);
+          this._messageQueue.push(event);
         }
       }
       start() {
@@ -5343,6 +5510,7 @@ Sp  ÅSq   ÅS!   ÅSg   ÅS‰   ÈÖg È` ` ÄUY   ÅSr  ÅSs  
         this._messageQueue = [];
       }
       close() {
+        this._detached = true;
         this._entangledPort = null;
         this._started = false;
         this._messageQueue = [];
@@ -5350,10 +5518,13 @@ Sp  ÅSq   ÅS!   ÅSg   ÅS‰   ÈÖg È` ` ÄUY   ÅSr  ÅSs  
     }
     class MessageChannel {
       constructor() {
-        this._port1 = new MessagePort();
-        this._port2 = new MessagePort();
+        var ids = pal2.portCreate();
+        this._port1 = new MessagePort2(ids.id1, ids.id2);
+        this._port2 = new MessagePort2(ids.id2, ids.id1);
         this._port1._entangledPort = this._port2;
         this._port2._entangledPort = this._port1;
+        registerPort(this._port1);
+        registerPort(this._port2);
       }
       get port1() {
         return this._port1;
@@ -5363,31 +5534,52 @@ Sp  ÅSq   ÅS!   ÅSg   ÅS‰   ÈÖg È` ` ÄUY   ÅSr  ÅSs  
       }
     }
     globalThis.MessageChannel = MessageChannel;
-    globalThis.MessagePort = MessagePort;
+    globalThis.MessagePort = MessagePort2;
     globalThis.MessageEvent = MessageEvent2;
+    globalThis.__qwrt_lookup_port__ = lookupPort;
+    globalThis.__qwrt_deliver_port_msg__ = function(msg) {
+      if (!msg || typeof msg !== "object" || !msg.__qwrt_port_msg) return false;
+      var pm = msg.__qwrt_port_msg;
+      var target = pm && typeof pm === "object" ? pm.target : null;
+      var payload = pm && typeof pm === "object" ? pm.payload : null;
+      var port = target !== null && target !== void 0 ? lookupPort(target) : null;
+      if (!port) return false;
+      port._deliverRemote(payload);
+      return true;
+    };
+    globalThis.__qwrt_port_from_ref__ = function(info) {
+      if (!info || info.id === void 0 || info.id === null) {
+        throw new DOMException("invalid MessagePort reference", "DataCloneError");
+      }
+      var p = new MessagePort2(info.id, info.peerId);
+      p._peerThread = info.peerThread || "parent";
+      p._detached = false;
+      registerPort(p);
+      return p;
+    };
   }C
  ‚ S– @ š
-  @ê @C
-     Ü  – ãAq  ×$ )¨Ÿ- "4function(data) {
+  @´ @C
+     Ü  – ãAy  ×$ )¨ê- "4function(data) {
       pal2.postMessage(data);
     }C
      Ü  è  š
-  ãA·  8t  4   ×K.  ! $ )¨¢$9 ._function(data, source) {
+  ãA·  8–  4   ×K.  ! $ )¨í$9 ._function(data, source) {
       self.dispatchEvent(new MessageEvent("message", { data }));
     }C
-        ê ã(¨§ ,function() {
+        ´ ã(¨ò ,function() {
         return __onmsg;
       }C
-   /Ì @ š
-  ê C
-    $¤  Î Ì š
- k   ãA©  ä×$ )Ïk   8v  Ëõ)0¨¬ J‰function(e) {
+   /â @ š
+  ´ C
+    $¤  Î â š
+ k   ãA©  ä×$ )Ïk   8›  Ëõ)0¨÷ J‰function(e) {
           try {
             fn.call(self, e);
           } catch (err) {
             reportError(err);
           }
-        }äğãA¶  4   ä$ Å Lu  è×ğãAµ  4   ä$ )¨ª 
+        }äğãA¶  4   ä$ Å Lš  è×ğãAµ  4   ä$ )¨õ 
 5#  
 ±function(fn) {
         if (__onmsg) self.removeEventListener("message", __onmsg);
@@ -5399,8 +5591,8 @@ Sp  ÅSq   ÅS!   ÅSg   ÅS‰   ÈÖg È` ` ÄUY   ÅSr  ÅSs  
           }
         };
         if (fn) self.addEventListener("message", __onmsg);
-      }8•   Ï8•   Å Bq  8•   ÅBw  Ğ8   Am   Ëo  ÅLE   KE   ÅLF   KF   
-KA   $ )¨
+      }8•   Ï8•   Å By  8•   ÅBœ  Ğ8   Am   Ë‘  ÅLE   KE   ÅLF   KF   
+KA   $ )¨è
 "A   4,øfunction setupHostMessaging(pal2) {
     var self = globalThis;
     globalThis.postMessage = function(data) {
@@ -5428,17 +5620,17 @@ KA   $ )¨
       configurable: true
     });
   }C
- „* @Ï+– @ğ  @ò @ô  ö*0şp ö `¼	*0şp¼	`º	*pş
-pº		`¤*ø @	ú @
-ü*0şpü`ş*0şpş`€*0şp€ ‚*0şp‚ „*0şp„ †*0şp† ˆ*0ş"pˆ! Š*0ş%pŠ$ Œ*0ş(pŒ' C
- ğ        )¨» >function ReadableStreamUnderlyingSourceDefaultCancel() {
+ „* @Ï+– @º  @¼ @¾  À*0şp À `¼	*0şp¼	`º	*pş
+pº		`¤*Â @	Ä @
+Æ*0şpÆ`È*0şpÈ`Ê*0şpÊ Ì*0şpÌ Î*0şpÎ Ğ*0şpĞ Ò*0ş"pÒ! Ô*0ş%pÔ$ Ö*0ş(pÖ' C
+ º        )¨† >function ReadableStreamUnderlyingSourceDefaultCancel() {
     }C
- ò       8Î   AŠ   %  ¨½5"\function ReadableStreamUnderlyingSourceDefaultPull() {
+ ¼       8Î   AŠ   %  ¨ˆ5"\function ReadableStreamUnderlyingSourceDefaultPull() {
       return Promise.resolve();
     }C
- ô        )¨À =function ReadableStreamUnderlyingSourceDefaultStart() {
+ ¾        )¨‹ =function ReadableStreamUnderlyingSourceDefaultStart() {
     }B   –
-    şÏ+d  ğË$  Ë×Bƒ  Ë	B‡  )¨ÃN& €class ReadableStreamDefaultController {
+    şÏ+d  ğË$  Ë×Bƒ  Ë	B¬  )¨N& €class ReadableStreamDefaultController {
       constructor(stream) {
         this._stream = stream;
         this._closeRequested = false;
@@ -5464,22 +5656,22 @@ pº		`¤*ø @	ú @
         this._stream._storedError = e;
         this._stream._notifyReaders();
       }
-    }B      0  ÏË@ƒ  @ˆ  ‰  ­ğË@ƒ  @Š  Ë@ƒ  @‹  ï((¨ÇD:aB†get desiredSize() {
+    }B      0  ÏË@ƒ  @­  ®  ­ğË@ƒ  @¯  Ë@ƒ  @°  ï((¨’D:aB†get desiredSize() {
         return this._stream._state === "readable" ? this._stream._hwm - this._stream._queue.length : null;
-      }B      E  ÏË@‡  ğ)Ë
-B‡  Ë@ƒ  @ˆ  ‰  ®ğ)Ë@ƒ  Œ  Bˆ  Ë@ƒ  A  $  )¨Ê
+      }B      E  ÏË@¬  ğ)Ë
+B¬  Ë@ƒ  @­  ®  ®ğ)Ë@ƒ  ±  B­  Ë@ƒ  A²  $  )¨•
 ;]807S 9çclose() {
         if (this._closeRequested) return;
         this._closeRequested = true;
         if (this._stream._state !== "readable") return;
         this._stream._state = "closed";
         this._stream._notifyReaders();
-      }B    :ø	    ÏË@ƒ  @ˆ  ‰  ®ğ)Ë@ƒ  @‹  AO  ×$ Ë@ƒ  A  $  )¨Ñ
+      }B    :ø	    ÏË@ƒ  @­  ®  ®ğ)Ë@ƒ  @°  AO  ×$ Ë@ƒ  A²  $  )¨œ
 D<07R219 enqueue(chunk) {
         if (this._stream._state !== "readable") return;
         this._stream._queue.push(chunk);
         this._stream._notifyReaders();
-      }B    A¤    ÏË@ƒ  @ˆ  ‰  ®ğ)Ë@ƒ    Bˆ  Ë@ƒ  ×B  Ë@ƒ  A  $  )¨Ö
+      }B    A¤    ÏË@ƒ  @­  ®  ®ğ)Ë@ƒ  ³  B­  Ë@ƒ  ×B´  Ë@ƒ  A²  $  )¨¡
 D<07S ? 9Áerror(e) {
         if (this._stream._state !== "readable") return;
         this._stream._state = "errored";
@@ -5487,10 +5679,10 @@ D<07S ? 9Áerror(e) {
         this._stream._notifyReaders();
       }B  Ã–
     şC
-    ”  –    ÏË×B  ËØB‘  )¨ï&1& {function(resolve, reject) {
+    ”  –    ÏË×Bµ  ËØB¶  )¨º&1& {function(resolve, reject) {
             this._closedResolve = resolve;
             this._closedReject = reject;
-          }Ï+d  ğË$  ×@ˆ    ­ğ×@  0×@„  ğ8Ú   ’  ! 0×ËB„  Ë×Bƒ  Ë	B“  ËB”  ËB•  ×@ˆ  Œ  ­ğË8Î   AŠ   $  B~  )×@ˆ    ­ğË8Î   A‹   ×@  $ B~  )Ë8Î   Å Aº  Ë$ ! B~  )¨Ş"l0+PO& & & & D,+'9.N+59<O;&FÕclass ReadableStreamDefaultReader {
+          }Ï+d  ğË$  ×@­  ³  ­ğ×@´  0×@„  ğ8Ú   ·  ! 0×ËB„  Ë×Bƒ  Ë	B¸  ËB¹  ËBº  ×@­  ±  ­ğË8Î   AŠ   $  B~  )×@­  ³  ­ğË8Î   A‹   ×@´  $ B~  )Ë8Î   Å Aº  Ë$ ! B~  )¨©"l0+PO& & & & D,+'9.N+59<O;&FÕclass ReadableStreamDefaultReader {
       constructor(stream) {
         if (stream._state === "errored") {
           throw stream._storedError;
@@ -5542,17 +5734,17 @@ D<07S ? 9Áerror(e) {
         this._stream._reader = null;
         this._isClosed = true;
       }
-    }B      	  ÏË@~  (¨õ 3get closed() {
+    }B      	  ÏË@~  (¨À 3get closed() {
         return this._closed;
       }B    º–
   @ ø	    C
     ”  –  –
-  ã@  AO  ×KŠ   ØK‹   $ )¨ˆ!9*_function(resolve, reject) {
+  ã@  AO  ×KŠ   ØK‹   $ )¨Ó!9*_function(resolve, reject) {
           stream._pendingReads.push({ resolve, reject });
-        }ÑÍ@“  ğ8Î   AŠ   
-Kq   KD   % Í@ƒ  Ó@ˆ    ­ğ8Î   A‹   Ë@  % Ë@‹  ïº§ğ*Ë@‹  A€  $  Ğ8Î   AŠ   	Kq   ÌKD   % Ë@ˆ  Œ  ­ğ"Í
-B“  8Î   AŠ   
-Kq   KD   % 8Î   Å ! (¨øh&‘
+        }ÑÍ@¸  ğ8Î   AŠ   
+Kq   KD   % Í@ƒ  Ó@­  ³  ­ğ8Î   A‹   Ë@´  % Ë@°  ïº§ğ*Ë@°  A€  $  Ğ8Î   AŠ   	Kq   ÌKD   % Ë@­  ±  ­ğ"Í
+B¸  8Î   AŠ   
+Kq   KD   % 8Î   Å ! (¨Ãh&‘
 ]TNIr
 +'XTºread() {
         if (this._isClosed) {
@@ -5574,12 +5766,12 @@ Kq   KD   % 8Î   Å ! (¨øh&‘
           stream._pendingReads.push({ resolve, reject });
         });
       }B      &  ÏË@ƒ  @„  Ë®ğ)Ë@ƒ  B„  Ë
-B“  )¨ŒD>9? releaseLock() {
+B¸  )¨×D>9? releaseLock() {
         if (this._stream._reader !== this) return;
         this._stream._reader = null;
         this._isClosed = true;
-      }B   ¢ö	  ¬  è     ş
-öğ  ò Ğ+d  ğÌ$  ×ñÛÌ‰  Bˆ  ÌB„  Ì&  B‹  ÌØğØ@—  ñ»BŠ  ÌB  Ì&  B  Ìd Ì! BŠ  ×ÏÌË@˜  ñåB™  ÌË@š  ñæB›  Ë@!  ğËA!  Ì@Š  $ )¨“N& : & 0 q & 0 .O-X  Í(class ReadableStream {
+      }B   ¢ö	  ö  è     ş
+Àº  ¼ Ğ+d  ğÌ$  ×ñÛÌ®  B­  ÌB„  Ì&  B°  ÌØğØ@¼  ñ»B¯  ÌB´  Ì&  B  Ìd Ì! BŠ  ×ÏÌË@½  ñåB¾  ÌË@¿  ñæBÀ  Ë@!  ğËA!  Ì@Š  $ )¨ŞN& : & 0 q & 0 .O-X  Í(class ReadableStream {
       constructor(underlyingSource, strategy) {
         underlyingSource = underlyingSource || {};
         this._state = "readable";
@@ -5729,10 +5921,10 @@ B“  )¨ŒD>9? releaseLock() {
         return transform.readable;
       }
     }B     ã¨   ø	  ¦  ¤   C
-    ¤    ÏË@Š  A7   ×$ )¨Â9.Hfunction(e) {
+    ¤    ÏË@Š  A7   ×$ )¨9.Hfunction(e) {
                 this._controller.error(e);
-              }ÈÇ@  ïº§h³   Ç@‹  ïº§ğ:Ç@  A€  $  ÏÇ@‹  A€  $  ĞËAŠ   	Kq   ÌKD   $ ò­Ç@ˆ  Œ  ­ğ*Ç@  A€  $  ÓAŠ   
-Kq   KD   $ óvÿÇ@ˆ    ­ğ$Ç@  A€  $  ÓA‹   Ç@  $ óDÿÇ@„  h›   Ç@ˆ  Œ  ­ğ;Ç@„  @  ğ-Ç@„  A  $  Ç@„  B  Ç@„  B‘  òOÇ@ˆ    ­ğ@Ç@„  @‘  ğ2Ç@„  A‘  Ç@  $ Ç@„  B  Ç@„  B‘  Ç@ˆ  ‰  ­ğpÇ@‹  ïÇ@Š  ¥ğ^Ç@›  ğUk9   ÇA›  Ç@Š  $ Õğ Í@   ûğÍA   Å Aº  Ç$ $ )Òk   Ç@Š  A7   Î$ )0)¨£D:JNSS/ …&g= Š&g=  !
+              }ÈÇ@  ïº§h³   Ç@°  ïº§ğ:Ç@  A€  $  ÏÇ@°  A€  $  ĞËAŠ   	Kq   ÌKD   $ ò­Ç@­  ±  ­ğ*Ç@  A€  $  ÓAŠ   
+Kq   KD   $ óvÿÇ@­  ³  ­ğ$Ç@  A€  $  ÓA‹   Ç@´  $ óDÿÇ@„  h›   Ç@­  ±  ­ğ;Ç@„  @µ  ğ-Ç@„  Aµ  $  Ç@„  Bµ  Ç@„  B¶  òOÇ@­  ³  ­ğ@Ç@„  @¶  ğ2Ç@„  A¶  Ç@´  $ Ç@„  Bµ  Ç@„  B¶  Ç@­  ®  ­ğpÇ@°  ïÇ@¯  ¥ğ^Ç@À  ğUk9   ÇAÀ  Ç@Š  $ Õğ Í@   ûğÍA   Å Aº  Ç$ $ )Òk   Ç@Š  A7   Î$ )0)¨îD:JNSS/ …&g= Š&g=  !
 q#>D q2q1>6:5D i RFŸ5bG 'Z>.Ÿ_notifyReaders() {
         while (this._pendingReads.length > 0) {
           if (this._queue.length > 0) {
@@ -5772,14 +5964,14 @@ q#>D q2q1>6:5D i RFŸ5bG 'Z>.Ÿ_notifyReaders() {
             this._controller.error(e);
           }
         }
-      }B        ÏË@„  ®(¨Ë+,<get locked() {
+      }B        ÏË@„  ®(¨–+,<get locked() {
         return this._reader !== null;
-      }B     "  ¼	ÏË@„  ğ8Ú   Œ  ! 0d  Ë! (¨Î6O±getReader() {
+      }B     "  ¼	ÏË@„  ğ8Ú   Œ  ! 0d  Ë! (¨™6O±getReader() {
         if (this._reader) {
           throw new TypeError("ReadableStream already locked");
         }
         return new ReadableStreamDefaultReader(this);
-      }B    e¨  ¤   ĞÌ@ˆ  ‰  ®ğ8Î   AŠ   %  ÌŒ  Bˆ  Ì&  B‹  k   ÌA™  ×$ òÏk   ò0ÌA  $  8Î   AŠ   %  ¨Ô+,\6]: J _ 
+      }B    e¨  ¤   ĞÌ@­  ®  ®ğ8Î   AŠ   %  Ì±  B­  Ì&  B°  k   ÌA¾  ×$ òÏk   ò0ÌA²  $  8Î   AŠ   %  ¨Ÿ+,\6]: J _ 
 I£cancel(reason) {
         if (this._state !== "readable") return Promise.resolve();
         this._state = "closed";
@@ -5791,12 +5983,12 @@ I£cancel(reason) {
         this._notifyReaders();
         return Promise.resolve();
       }B   Bè   È
- @¸ @º @¼ @¾ @À @ Â @Ä  Æ 	 È 
+ @‚ @„ @† @ˆ @Š @ Œ @   	 ’ 
    º		C
-Â    & À ¼ ¸ ¾ º Â È
+Œ    & Š † ‚ ˆ „ Œ È
  C
-    q¦  À ¼¸¾ºÂ	ç×@q   ğ(ä•ğåğåA‰  $  æ•ğ] ğ] A‰  $  )ä•ğåğåAˆ  ×@D   $ æ•ğ] ğ] Aˆ  ×@D   $ ä•ğ
-æ•ğ] ô)¨è!YV $D#*$A' 4b3*4^Áfunction(result) {
+    q¦  Š †‚ˆ„Œ	ç×@q   ğ(ä•ğåğåA‰  $  æ•ğ] ğ] A‰  $  )ä•ğåğåAˆ  ×@D   $ æ•ğ] ğ] Aˆ  ×@D   $ ä•ğ
+æ•ğ] ô)¨³!YV $D#*$A' 4b3*4^Áfunction(result) {
             reading = false;
             if (result.done) {
               if (!branch1Closed && branch1Controller) branch1Controller.close();
@@ -5809,13 +6001,13 @@ I£cancel(reason) {
               pullAndDispatch();
             }
           }C
-    ¤  À ¸º	çäğäA7   ×$ åğåA7   ×$ )¨ô
+    ¤  Š ‚„	çäğäA7   ×$ åğåA7   ×$ )¨¿
 . 0+/ 0´function(e) {
             reading = false;
             if (branch1Controller) branch1Controller.error(e);
             if (branch2Controller) branch2Controller.error(e);
           }ãğ)
-ç] A¦  $  A‰   Å $ A   Å$ )¨å	 ** 
+ç] A¦  $  A‰   Å $ A   Å$ )¨°	 ** 
 üfunction pullAndDispatch() {
           if (reading) return;
           reading = true;
@@ -5837,16 +6029,16 @@ I£cancel(reason) {
             if (branch2Controller) branch2Controller.error(e);
           });
         }C
-Ä    - Â º	 C
+    - Œ º	 C
       °
-  )¨ü $function(controller) {
+  )¨Ç $function(controller) {
             }C
     °
-  Â ãô)¨şEfunction(controller) {
+  Œ ãô)¨ÉEfunction(controller) {
               pullAndDispatch();
             }C
-         )¨ function() {
-            }d Å L!  K!  ÅLš  Kš  ÅL˜  K˜  ! (¨ú	˜function createBranch() {
+         )¨Ì function() {
+            }d Å L!  K!  ÅL¿  K¿  ÅL½  K½  ! (¨Å	˜function createBranch() {
           return new ReadableStream({
             start: function(controller) {
             },
@@ -5859,7 +6051,7 @@ I£cancel(reason) {
         }ÈÅ ÈÅÈÇÓA”  $  Ğ	È	È	ÈÇôÈ	ÇôÈ
 Ç	@Š  ÑÇ
 @Š  ÒÇ	Ç
-& (¨ßc, H + Ótee() {
+& (¨ªc, H + Ótee() {
         var source = this;
         var reader = source.getReader();
         var branch1Controller, branch2Controller;
@@ -5902,23 +6094,23 @@ I£cancel(reason) {
         branch1Controller = branch1._controller;
         branch2Controller = branch2._controller;
         return [branch1, branch2];
-      }B  %Ê  È
-  @ Ì @Ê
+      }B  %”  È
+  @ – @Ê
  @  C
 Ê
      È
-  Ì Ê
+  – Ê
  C
     3¦  È
- ÌÊ
-×@q   ğãAı  $  äA‰  %  äA§  ×@D   $ A‰   å% ¨%
+ –Ê
+×@q   ğãAı  $  äA‰  %  äAÌ  ×@D   $ A‰   å% ¨Ú%
 ,+ 51H&Îfunction(result) {
             if (result.done) {
               reader.releaseLock();
               return writer.close();
             }
             return writer.write(result.value).then(pump);
-          }ãA¦  $  A‰   Å % ¨	! *function pump() {
+          }ãA¦  $  A‰   Å % ¨Ù	! *function pump() {
           return reader.read().then(function(result) {
             if (result.done) {
               reader.releaseLock();
@@ -5927,8 +6119,8 @@ I£cancel(reason) {
             return writer.write(result.value).then(pump);
           });
         }C
-   ;¤  Ğ Ğ È
-  Ì k   ãAı  $  òÏk   ò0k   äAÂ  ×$ òĞk   ò0×0¨—   _Ñfunction(e) {
+   ;¤  š š È
+  – k   ãAı  $  òÏk   ò0k   äAÂ  ×$ òĞk   ò0×0¨â   _Ñfunction(e) {
           try {
             reader.releaseLock();
           } catch (x) {
@@ -5938,7 +6130,7 @@ I£cancel(reason) {
           } catch (x) {
           }
           throw e;
-        }ÒÅ ÑÎA”  $  Ï×A©  $  ĞÍôA   Å% ¨‹
+        }ÒÅ ÑÎA”  $  Ï×AÎ  $  ĞÍôA   Å% ¨Ö
 :(5   ípipeTo(dest) {
         var reader = this.getReader();
         var writer = dest.getWriter();
@@ -5962,22 +6154,22 @@ I£cancel(reason) {
           }
           throw e;
         });
-      }B    Ô    ÏËA«  ×@B   $ ×@‰  (¨£ lpipeThrough(transform) {
+      }B        ÏËAĞ  ×@B   $ ×@®  (¨î lpipeThrough(transform) {
         this.pipeTo(transform.writable);
         return transform.readable;
       }C
      &È
   @   C
        	 È
-  ãA¦  %  ¨­!>function() {
+  ãA¦  %  ¨ø!>function() {
               return reader.read();
             }C
      $ˆ  È
   ãAı  $  8Î   AŠ   
-Kq   ×KD   % ¨° I€function(value) {
+Kq   ×KD   % ¨û I€function(value) {
               reader.releaseLock();
               return Promise.resolve({ done: true, value });
-            }ĞÌA”  $  ÏÅ Lr   Kr   ÅL   K   (¨ª:+9Æfunction() {
+            }ĞÌA”  $  ÏÅ Lr   Kr   ÅL   K   (¨õ:+9Æfunction() {
           var reader = this.getReader();
           return {
             next: function() {
@@ -5989,22 +6181,22 @@ Kq   ×KD   % ¨° I€function(value) {
             }
           };
         }C
- ø   
+ Â   
 –
-    ÏË×Bƒ  )¨¹Ufunction WritableStreamDefaultController(stream) {
+    ÏË×Bƒ  )¨„Ufunction WritableStreamDefaultController(stream) {
       this._stream = stream;
     }C
-     ¤    ÏË@ƒ  A†  ×$ )¨¼7_9(1function(e) {
+     ¤    ÏË@ƒ  A†  ×$ )¨‡7_9(1function(e) {
       this._stream._error(e);
     }C
- ú $–
+ Ä $–
   š
   @   C
      ”  –  š
-  ã×B  ãØB‘  )¨Ã)?& ofunction(resolve, reject) {
+  ã×Bµ  ãØB¶  )¨)?& ofunction(resolve, reject) {
         self._closedResolve = resolve;
         self._closedReject = reject;
-      }ĞÌ×Bƒ  Ì	B¬  ÌÏÌ8Î   Å ! B­  )¨¿& 1 4 function WritableStreamDefaultWriter(stream) {
+      }ĞÌ×Bƒ  Ì	BÑ  ÌÏÌ8Î   Å ! BÒ  )¨Š& 1 4 function WritableStreamDefaultWriter(stream) {
       this._stream = stream;
       this._released = false;
       var self = this;
@@ -6013,43 +6205,43 @@ Kq   ×KD   % ¨° I€function(value) {
         self._closedReject = reject;
       });
     }C
-       	  ÏË@­  (¨É 8function() {
+       	  ÏË@Ò  (¨” 8function() {
         return this._closedPromise;
       }C
-         8Î   AŠ   %  ¨Î56function() {
+         8Î   AŠ   %  ¨™56function() {
         return Promise.resolve();
       }C
-         (¨Ó )function() {
+         (¨ )function() {
         return null;
       }C
-     ø	    ÏË@ƒ  A®  ×% ¨×3DEfunction(chunk) {
+     ø	    ÏË@ƒ  AÓ  ×% ¨¢3DEfunction(chunk) {
       return this._stream._writeChunk(chunk);
     }C
-         ÏË@ƒ  A¯  %  ¨Ú3D/<function() {
+         ÏË@ƒ  AÔ  %  ¨¥3D/<function() {
       return this._stream._closeStream();
     }C
-     ¨    ÏË@ƒ  A°  ×% ¨İ3DHfunction(reason) {
+     ¨    ÏË@ƒ  AÕ  ×% ¨¨3DHfunction(reason) {
       return this._stream._abortStream(reason);
     }C
-       &  ÏË@ƒ  @±  Ë®ğ)Ë@ƒ  B±  Ë
-B¬  )¨à9D)9? ƒfunction() {
+       &  ÏË@ƒ  @Ö  Ë®ğ)Ë@ƒ  BÖ  Ë
+BÑ  )¨«9D)9? ƒfunction() {
       if (this._stream._writer !== this) return;
       this._stream._writer = null;
       this._released = true;
-    }B  ãä  ¬  ¦     şø C
-        8Î   AŠ   %  ¨ğ/5):function() {
+    }B  ã®  ö  ¦     şÂ C
+        8Î   AŠ   %  ¨»/5):function() {
           return Promise.resolve();
         }C
-        8Î   AŠ   %  ¨ó/5):function() {
+        8Î   AŠ   %  ¨¾/5):function() {
           return Promise.resolve();
         }C
-        8Î   AŠ   %  ¨ö/5):function() {
+        8Î   AŠ   %  ¨Á/5):function() {
           return Promise.resolve();
         }C
-    ”  –    ÏË×B  ËØB‘  )¨ÿ+?& ufunction(resolve, reject) {
+    ”  –    ÏË×Bµ  ËØB¶  )¨Ê+?& ufunction(resolve, reject) {
           this._closedResolve = resolve;
           this._closedReject = reject;
-        }Ğ+d  ğÌ$  ×ñÛÌB   Bˆ  ÌB  ÌB±  ÌB³  ÌB´  Ì8Î   AŠ   $  Bµ  ÌäÌ! BŠ  Ì×@!  Bg  Ì×@§  ñÅ B¶  Ì×@‰  ñÅB·  Ì×@Â  ñÅBÅ  Ì@g  ğ#ÌAg  Ì@Š  $ ÓğË@‰   ûğÌËBµ  Ì8Î   ÅAº  Ì$ ! B­  )¨æ*N& : & & & & 9:+9.:-? _ _   6]E(4F%±class WritableStream {
+        }Ğ+d  ğÌ$  ×ñÛÌB   B­  ÌB´  ÌBÖ  ÌBØ  ÌBÙ  Ì8Î   AŠ   $  BÚ  ÌäÌ! BŠ  Ì×@!  Br  Ì×@Ì  ñÅ BÛ  Ì×@‰  ñÅBÜ  Ì×@Â  ñÅBÅ  Ì@r  ğ#ÌAr  Ì@Š  $ ÓğË@‰   ûğÌËBÚ  Ì8Î   ÅAº  Ì$ ! BÒ  )¨±*N& : & & & & 9:+9.:-? _ _   6]E(4F%±class WritableStream {
       constructor(underlyingSink, strategy) {
         underlyingSink = underlyingSink || {};
         this._state = "writable";
@@ -6147,9 +6339,9 @@ B¬  )¨à9D)9? ƒfunction() {
         this._storedError = e;
         this._closedReject(e);
       }
-    }B        ÏË@±  ®(¨„+,<get locked() {
+    }B        ÏË@Ö  ®(¨Ï+,<get locked() {
         return this._writer !== null;
-      }B     )Ì     ú ĞÌ@±  ğ8Ú   ¸  ! 0ãÌ! ÏÌËB±  Ë(¨‡6O
+      }B     )–     Ä ĞÌ@Ö  ğ8Ú   İ  ! 0ãÌ! ÏÌËBÖ  Ë(¨Ò6O
 &!ógetWriter() {
         if (this._writer) {
           throw new TypeError("WritableStream already has a writer");
@@ -6158,7 +6350,7 @@ B¬  )¨à9D)9? ƒfunction() {
         this._writer = writer;
         return writer;
       }B    ¡ø	  š
-   ¦  ¤   ÒÎ@ˆ    ­ğ8Î   A‹   Î@  % Î@ˆ  Œ  ­ğ8Î   A‹   8Ú   ¹  ! % ÎÏk;   ËA¶  ×Ë@Š  $ Ô•ñÌ@‰   –   ®ğ8Î   AŠ   Ì$ ĞÌn(Ñk   8Î   A‹   Í$ n(0¨+,\BNA\H›9q0G42 	†_writeChunk(chunk) {
+   ¦  ¤   ÒÎ@­  ³  ­ğ8Î   A‹   Î@´  % Î@­  ±  ­ğ8Î   A‹   8Ú   Ş  ! % ÎÏk;   ËAÛ  ×Ë@Š  $ Ô•ñÌ@‰   –   ®ğ8Î   AŠ   Ì$ ĞÌn(Ñk   8Î   A‹   Í$ n(0¨Ú+,\BNA\H›9q0G42 	†_writeChunk(chunk) {
         if (this._state === "errored") return Promise.reject(this._storedError);
         if (this._state === "closed") return Promise.reject(new TypeError("Stream is closed"));
         var self = this;
@@ -6175,10 +6367,10 @@ B¬  )¨à9D)9? ƒfunction() {
   @ ¦  ¤   C
       
  š
-  ãA  $  )¨¨! 
+  ãAµ  $  )¨ó! 
 ;function() {
             self._closedResolve();
-          }ÒÎ@ˆ  B   ®ğ8Î   A‹   8Ú   º  ! % ÎŒ  Bˆ  ÎÏk>   ËA·  $  Ô•ñÌ@‰   –   ®ğ8Î   AŠ   Ì$ ĞÌA‰   Å $ n(Ñk   ËA‘  Í$ 8Î   A‹   Í$ n(0¨+,]Y7}(N(0G42; % &N»_closeStream() {
+          }ÒÎ@­  B   ®ğ8Î   A‹   8Ú   ß  ! % Î±  B­  ÎÏk>   ËAÜ  $  Ô•ñÌ@‰   –   ®ğ8Î   AŠ   Ì$ ĞÌA‰   Å $ n(Ñk   ËA¶  Í$ 8Î   A‹   Í$ n(0¨è+,]Y7}(N(0G42; % &N»_closeStream() {
         if (this._state !== "writable") {
           return Promise.reject(new TypeError("Stream is not writable"));
         }
@@ -6199,9 +6391,9 @@ B¬  )¨à9D)9? ƒfunction() {
       }B  x¨ @š
   @ ¦  ¤   C
        š
-  ¨ ãA‘  ä$ )¨¹! &@function() {
+  ¨ ãA¶  ä$ )¨„! &@function() {
             self._closedReject(reason);
-          }ÒÎ  Bˆ  Î×B  ÎÏk?   ËAÅ  ×$ Ô•ñÌ@‰   –   ®ğ8Î   AŠ   Ì$ ĞÌA‰   Å $ n(Ñk   ËA‘  Í$ 8Î   A‹   Í$ n(0¨°: i6S0G42; % &Nó_abortStream(reason) {
+          }ÒÎ³  B­  Î×B´  ÎÏk?   ËAÅ  ×$ Ô•ñÌ@‰   –   ®ğ8Î   AŠ   Ì$ ĞÌA‰   Å $ n(Ñk   ËA¶  Í$ 8Î   A‹   Í$ n(0¨û: i6S0G42; % &Nó_abortStream(reason) {
         this._state = "errored";
         this._storedError = reason;
         var self = this;
@@ -6217,13 +6409,13 @@ B¬  )¨à9D)9? ƒfunction() {
           self._closedReject(e);
           return Promise.reject(e);
         }
-      }B    .¤    ÏË@ˆ  B   ®ğ)Ë  Bˆ  Ë×B  ËA‘  ×$ )¨Á
+      }B    .¤    ÏË@­  B   ®ğ)Ë³  B­  Ë×B´  ËA¶  ×$ )¨Œ
 +,0': &  &¢_error(e) {
         if (this._state !== "writable") return;
         this._state = "errored";
         this._storedError = e;
         this._closedReject(e);
-      }B       şÏ+d  ğË$  ËB»  )¨ÉN©class TransformStreamDefaultController {
+      }B       şÏ+d  ğË$  ËBà  )¨”N©class TransformStreamDefaultController {
       constructor() {
         this._readableController = null;
       }
@@ -6239,43 +6431,43 @@ B¬  )¨à9D)9? ƒfunction() {
       terminate() {
         if (this._readableController) this._readableController.close();
       }
-    }B        ÏË@»  ğË@»  @¼  (º(¨Ì oget desiredSize() {
+    }B        ÏË@à  ğË@à  @á  (º(¨— oget desiredSize() {
         return this._readableController ? this._readableController.desiredSize : 0;
-      }B    ø	    ÏË@»  ğË@»  Aˆ  ×$ )¨Ï5@9Bgenqueue(chunk) {
+      }B    ø	    ÏË@à  ğË@à  Aˆ  ×$ )¨š5@9Bgenqueue(chunk) {
         if (this._readableController) this._readableController.enqueue(chunk);
-      }B    ¨    ÏË@»  ğË@»  A7   ×$ )¨Ò5@9>eerror(reason) {
+      }B    ¨    ÏË@à  ğË@à  A7   ×$ )¨5@9>eerror(reason) {
         if (this._readableController) this._readableController.error(reason);
-      }B        ÏË@»  ğË@»  A‰  $  )¨Õ5@92]terminate() {
+      }B        ÏË@à  ğË@à  A‰  $  )¨ 5@92]terminate() {
         if (this._readableController) this._readableController.close();
-      }B …ú @š
-   ü @ ş @  şşº	üC
+      }B …Ä @š
+   Æ @ È @  şÈº	ÆC
     
-ö  ü ş ×çä×B»  )¨à	 ofunction(c) {
+ö  Æ È ×çä×Bà  )¨«	 ofunction(c) {
             readableController = c;
             tsController._readableController = c;
           }C
-         )¨ä function() {
+         )¨¯ function() {
           }C
-         )¨æ function() {
+         )¨± function() {
           }C
-    +ø	  ú ş ã@ª  ğãAª  ×ä% äAˆ  ×$ 8Î   AŠ   %  ¨êJ4= *Näfunction(chunk) {
+    +ø	  Ä È ã@Ï  ğãAÏ  ×ä% äAˆ  ×$ 8Î   AŠ   %  ¨µJ4= *Näfunction(chunk) {
             if (transformer.transform) {
               return transformer.transform(chunk, tsController);
             }
             tsController.enqueue(chunk);
             return Promise.resolve();
           }C
-      ) ú ş ã@À  ğãAÀ  ä% äAÁ  $  8Î   AŠ   %  ¨ñJ,5 IÍfunction() {
+      ) Ä È ã@å  ğãAå  ä% äAæ  $  8Î   AŠ   %  ¨¼J,5 IÍfunction() {
             if (transformer.flush) {
               return transformer.flush(tsController);
             }
             tsController.terminate();
             return Promise.resolve();
           }C
-    ¨  ş ãA7   ×$ 8Î   AŠ   %  ¨ø	 &Nlfunction(reason) {
+    ¨  È ãA7   ×$ 8Î   AŠ   %  ¨Ã	 &Nlfunction(reason) {
             tsController.error(reason);
             return Promise.resolve();
-          }Ò+d  ğÎ$  ×ñÛÎÏd !  ÑËd Å L!  K!  ÅLš  Kš  ÅL˜  K˜  ! BÂ  Ëd ÅL§  K§  ÅL‰  K‰  ÅLÂ  KÂ  ! BÃ  )¨ÚN2.+-* 1)*‡
+          }Ò+d  ğÎ$  ×ñÛÎÏd !  ÑËd Å L!  K!  ÅL¿  K¿  ÅL½  K½  ! Bç  Ëd ÅLÌ  KÌ  ÅL‰  K‰  ÅLÂ  KÂ  ! Bè  )¨¥N2.+-* 1)*‡
 class TransformStream {
       constructor(transformer) {
         transformer = transformer || {};
@@ -6319,28 +6511,28 @@ class TransformStream {
       get writable() {
         return this._writable;
       }
-    }B      	  ÏË@Â  (¨ş 7get readable() {
+    }B      	  ÏË@ç  (¨É 7get readable() {
         return this._readable;
-      }B      	  ÏË@Ã  (¨ 7get writable() {
+      }B      	  ÏË@è  (¨Ì 7get writable() {
         return this._writable;
-      }B ˆ  š
+      }B Ò  š
   @¸
- @   – şº	üC
-         )¨ function() {
+ @   – şº	ÆC
+         )¨Ù function() {
           }C
-         )¨ function() {
+         )¨Û function() {
           }C
     ø	  ¸
- ãAO  ×$ 8Î   AŠ   %  ¨•	 Ncfunction(chunk) {
+ ãAO  ×$ 8Î   AŠ   %  ¨à	 Ncfunction(chunk) {
             chunks.push(chunk);
             return Promise.resolve();
           }C
      šº
    ¢  ¼
   ¾
-  ö  Š  ¤	 ¸
+  ö  Ô  ¤	 ¸
  – š
-  ºÏºĞÌãï¥ğËãÌFïñãÌF@Æ  ñºœÏ’òß8±   Ë! ÑºÒºĞÌãï¥ğ6ãÌF8±   ©ğãÌFò8±   ãÌF! ÈÍAF   ÇÎ$ ÎÇïœÒ’òÆä@Ç  ûñ0å@Â  @Š  A7   8Ú   È  ! $ 8Î   AŠ   %  kC   äAÇ  Íå@É  $ Èå@Â  @Š  Aˆ  Ç$ å@Â  @Š  A‰  $  ò"Èk   å@Â  @Š  A7   Ç$ ò08Î   AŠ   %  ¨™*#"T+C:Is &TBARJ+K,?IRF!ER6J5RBh'¯function() {
+  ºÏºĞÌãï¥ğËãÌFïñãÌF@ë  ñºœÏ’òß8±   Ë! ÑºÒºĞÌãï¥ğ6ãÌF8±   ©ğãÌFò8±   ãÌF! ÈÍAF   ÇÎ$ ÎÇïœÒ’òÆä@ì  ûñ0å@ç  @Š  A7   8Ú   í  ! $ 8Î   AŠ   %  kC   äAì  Íå@î  $ Èå@ç  @Š  Aˆ  Ç$ å@ç  @Š  A‰  $  ò"Èk   å@ç  @Š  A7   Ç$ ò08Î   AŠ   %  ¨ä*#"T+C:Is &TBARJ+K,?IRF!ER6J5RBh'¯function() {
             var totalLen = 0;
             for (var i = 0; i < chunks.length; i++) {
               totalLen += chunks[i].length || chunks[i].byteLength || 0;
@@ -6364,7 +6556,7 @@ class TransformStream {
               self._readable._controller.error(e);
             }
             return Promise.resolve();
-          }Ñ+d ğÍ$  ×ñÊ  ßÊ  ®ğ$×Ë  ®ğ×Ì  ®ğ8    Í  ×œ! 0Í×BÉ  ÍÓd Å L!  K!  ÅLš  Kš  ! BÂ  &  ĞËd ÅL§  K§  ÅL‰  K‰  ! BÃ  )¨†N:/*/0+_9d"{, * ))*àclass CompressionStream {
+          }Ñ+d ğÍ$  ×ñï  ßï  ®ğ$×ğ  ®ğ×ñ  ®ğ8    ò  ×œ! 0Í×Bî  ÍÓd Å L!  K!  ÅL¿  K¿  ! Bç  &  ĞËd ÅLÌ  KÌ  ÅL‰  K‰  ! Bè  )¨ÑN:/*/0+_9d"{, * ))*àclass CompressionStream {
       constructor(format) {
         format = format || "gzip";
         if (format !== "gzip" && format !== "deflate" && format !== "deflate-raw") {
@@ -6417,28 +6609,28 @@ class TransformStream {
       get writable() {
         return this._writable;
       }
-    }B      	  ÏË@Â  (¨´ 7get readable() {
+    }B      	  ÏË@ç  (¨ÿ 7get readable() {
         return this._readable;
-      }B      	  ÏË@Ã  (¨· 7get writable() {
+      }B      	  ÏË@è  (¨‚ 7get writable() {
         return this._writable;
-      }B Ÿˆ  š
+      }B ŸÒ  š
   @¸
- @   – şº	üC
-         )¨Å function() {
+ @   – şº	ÆC
+         )¨ function() {
           }C
-         )¨Ç function() {
+         )¨’ function() {
           }C
     ø	  ¸
- ãAO  ×$ 8Î   AŠ   %  ¨Ë	 Ncfunction(chunk) {
+ ãAO  ×$ 8Î   AŠ   %  ¨–	 Ncfunction(chunk) {
             chunks.push(chunk);
             return Promise.resolve();
           }C
      šº
    ¢  ¼
   ¾
-  ö  œ  ¤	 ¸
+  ö  æ  ¤	 ¸
  – š
-  ºÏºĞÌãï¥ğËãÌFïñãÌF@Æ  ñºœÏ’òß8±   Ë! ÑºÒºĞÌãï¥ğ6ãÌF8±   ©ğãÌFò8±   ãÌF! ÈÍAF   ÇÎ$ ÎÇïœÒ’òÆä@Ï  ûñ0å@Â  @Š  A7   8Ú   È  ! $ 8Î   AŠ   %  kC   äAÏ  Íå@É  $ Èå@Â  @Š  Aˆ  Ç$ å@Â  @Š  A‰  $  ò"Èk   å@Â  @Š  A7   Ç$ ò08Î   AŠ   %  ¨Ï*#"T+C:Is &TFERJ+K4?QRF!ER6J5RBh'·function() {
+  ºÏºĞÌãï¥ğËãÌFïñãÌF@ë  ñºœÏ’òß8±   Ë! ÑºÒºĞÌãï¥ğ6ãÌF8±   ©ğãÌFò8±   ãÌF! ÈÍAF   ÇÎ$ ÎÇïœÒ’òÆä@ô  ûñ0å@ç  @Š  A7   8Ú   í  ! $ 8Î   AŠ   %  kC   äAô  Íå@î  $ Èå@ç  @Š  Aˆ  Ç$ å@ç  @Š  A‰  $  ò"Èk   å@ç  @Š  A7   Ç$ ò08Î   AŠ   %  ¨š*#"T+C:Is &TFERJ+K4?QRF!ER6J5RBh'·function() {
             var totalLen = 0;
             for (var i = 0; i < chunks.length; i++) {
               totalLen += chunks[i].length || chunks[i].byteLength || 0;
@@ -6462,7 +6654,7 @@ class TransformStream {
               self._readable._controller.error(e);
             }
             return Promise.resolve();
-          }Ñ+d ğÍ$  ×ñÊ  ßÊ  ®ğ$×Ë  ®ğ×Ì  ®ğ8    Ğ  ×œ! 0Í×BÉ  ÍÏ&  ĞËd Å L!  K!  ÅLš  Kš  ! BÂ  Ëd ÅL§  K§  ÅL‰  K‰  ! BÃ  )¨¼N:/*/0+_9h"F * %)*ìclass DecompressionStream {
+          }Ñ+d ğÍ$  ×ñï  ßï  ®ğ$×ğ  ®ğ×ñ  ®ğ8    õ  ×œ! 0Í×Bî  ÍÏ&  ĞËd Å L!  K!  ÅL¿  K¿  ! Bç  Ëd ÅLÌ  KÌ  ÅL‰  K‰  ! Bè  )¨‡N:/*/0+_9h"F * %)*ìclass DecompressionStream {
       constructor(format) {
         format = format || "gzip";
         if (format !== "gzip" && format !== "deflate" && format !== "deflate-raw") {
@@ -6515,11 +6707,11 @@ class TransformStream {
       get writable() {
         return this._writable;
       }
-    }B      	  ÏË@Â  (¨ê 7get readable() {
+    }B      	  ÏË@ç  (¨µ 7get readable() {
         return this._readable;
-      }B      	  ÏË@Ã  (¨í 7get writable() {
+      }B      	  ÏË@è  (¨¸ 7get writable() {
         return this._writable;
-      }B   *º    şÏ+d  ğË$  Ë×¯ğò@—  ¯ğ»BÑ  )¨òN’class ByteLengthQueuingStrategy {
+      }B   *º    şÏ+d  ğË$  Ë×¯ğò@¼  ¯ğ»Bö  )¨½N’class ByteLengthQueuingStrategy {
       constructor(options) {
         this._highWaterMark = options?.highWaterMark ?? 1;
       }
@@ -6529,11 +6721,11 @@ class TransformStream {
       size(chunk) {
         return chunk?.byteLength ?? 0;
       }
-    }B      	  ÏË@Ñ  (¨õ Aget highWaterMark() {
+    }B      	  ÏË@ö  (¨À Aget highWaterMark() {
         return this._highWaterMark;
-      }B     ø	  ×¯ğò@Æ  ¯ğº(¨ø <size(chunk) {
+      }B     ø	  ×¯ğò@ë  ¯ğº(¨Ã <size(chunk) {
         return chunk?.byteLength ?? 0;
-      }B   *º    ş"Ï+d  ğË$  Ë×¯ğò@—  ¯ğ»BÑ  )¨ıNóclass CountQueuingStrategy {
+      }B   *º    ş"Ï+d  ğË$  Ë×¯ğò@¼  ¯ğ»Bö  )¨ÈNóclass CountQueuingStrategy {
       constructor(options) {
         this._highWaterMark = options?.highWaterMark ?? 1;
       }
@@ -6543,18 +6735,18 @@ class TransformStream {
       size() {
         return 1;
       }
-    }B      	  ÏË@Ñ  (¨€ Aget highWaterMark() {
+    }B      	  ÏË@ö  (¨Ë Aget highWaterMark() {
         return this._highWaterMark;
-      }B        »(¨ƒ "size() {
+      }B        »(¨Î "size() {
         return 1;
       }B   hš
-  @   ş%º	üC
-         )¨Œ function() {
+  @   ş%º	ÆC
+         )¨× function() {
           }C
-         )¨ function() {
+         )¨Ù function() {
           }C
    Vø	  ¾   š
-  ×–L   ­ğ+8e  !  Af  ×$ Ïã@Â  @Š  Aˆ  Ë$ òã@Â  @Š  Aˆ  ×$ 8Î   AŠ   %  ¨’ 0H*MRF'ERFO+Äfunction(chunk) {
+  ×–L   ­ğ+8e  !  Af  ×$ Ïã@ç  @Š  Aˆ  Ë$ òã@ç  @Š  Aˆ  ×$ 8Î   AŠ   %  ¨İ 0H*MRF'ERFO+Äfunction(chunk) {
             if (typeof chunk === "string") {
               var encoded = new TextEncoder().encode(chunk);
               self._readable._controller.enqueue(encoded);
@@ -6564,10 +6756,10 @@ class TransformStream {
             return Promise.resolve();
           }C
       ! š
-  ã@Â  @Š  A‰  $  8Î   AŠ   %  ¨›	R6Infunction() {
+  ã@ç  @Š  A‰  $  8Î   AŠ   %  ¨æ	R6Infunction() {
             self._readable._controller.close();
             return Promise.resolve();
-          }Ğ+d  ğÌ$  Ì¡  B  ÌÓd Å L!  K!  ÅLš  Kš  ! BÂ  Ëd ÅL§  K§  ÅL‰  K‰  ! BÃ  )¨ˆN@ * %)*’class TextEncoderStream {
+          }Ğ+d  ğÌ$  Ì¡  B  ÌÓd Å L!  K!  ÅL¿  K¿  ! Bç  Ëd ÅLÌ  KÌ  ÅL‰  K‰  ! Bè  )¨ÓN@ * %)*’class TextEncoderStream {
       constructor() {
         this.encoding = "utf-8";
         var self = this;
@@ -6599,34 +6791,34 @@ class TransformStream {
       get writable() {
         return this._writable;
       }
-    }B      	  ÏË@Â  (¨¡ 7get readable() {
+    }B      	  ÏË@ç  (¨ì 7get readable() {
         return this._readable;
-      }B      	  ÏË@Ã  (¨¤ 7get writable() {
+      }B      	  ÏË@è  (¨ï 7get writable() {
         return this._writable;
-      }B Â¾  º  ¤  @ š
- @  ş(º	üC
-         )¨² function() {
+      }B Â¾  º  î  @ š
+ @  ş(º	ÆC
+         )¨ı function() {
           }C
-         )¨´ function() {
+         )¨ÿ function() {
           }C
-   6ø	  ¦   ¤  š
+   6ø	  ğ   î  š
  ãA¢  ×
-K‹  $ Óğä@Â  @Š  Aˆ  Ë$ 8Î   AŠ   %  ¨¸!0J5RFO+êfunction(chunk) {
+K‹  $ Óğä@ç  @Š  Aˆ  Ë$ 8Î   AŠ   %  ¨ƒ!0J5RFO+êfunction(chunk) {
             var decoded = decoder.decode(chunk, { stream: true });
             if (decoded) {
               self._readable._controller.enqueue(decoded);
             }
             return Promise.resolve();
           }C
-     B¦   ¤  š
- ãA¢  $  Óğä@Â  @Š  Aˆ  Ë$ ä@Â  @Š  A‰  $  8Î   AŠ   %  ¨¿!""'RFIR6Işfunction() {
+     Bğ   î  š
+ ãA¢  $  Óğä@ç  @Š  Aˆ  Ë$ ä@ç  @Š  A‰  $  8Î   AŠ   %  ¨Š!""'RFIR6Işfunction() {
             var decoded = decoder.decode();
             if (decoded) {
               self._readable._controller.enqueue(decoded);
             }
             self._readable._controller.close();
             return Promise.resolve();
-          }Ñ+d  ğÍ$  ×ñ¡  ÛØñÜÍ×A'  $  B  ÍØ@"  ñ	B"  ÍØ@#  ñ	B#  8   ×Í@"  K"  Í@#  K#  ! ÏÍÔd Å L!  K!  ÅLš  Kš  ! BÂ  Ìd ÅL§  K§  ÅL‰  K‰  ! BÃ  )¨©N: & %,++X X$³#* %)*ç	class TextDecoderStream {
+          }Ñ+d  ğÍ$  ×ñ¡  ÛØñÜÍ×A'  $  B  ÍØ@"  ñ	B"  ÍØ@#  ñ	B#  8   ×Í@"  K"  Í@#  K#  ! ÏÍÔd Å L!  K!  ÅL¿  K¿  ! Bç  Ìd ÅLÌ  KÌ  ÅL‰  K‰  ! Bè  )¨ôN: & %,++X X$³#* %)*ç	class TextDecoderStream {
       constructor(label, options) {
         label = label || "utf-8";
         options = options || {};
@@ -6665,15 +6857,15 @@ K‹  $ Óğä@Â  @Š  Aˆ  Ë$ 8Î   AŠ   %  ¨¸!0J5RFO+êfunction(chunk) {
       get writable() {
         return this._writable;
       }
-    }B      	  ÏË@Â  (¨É 7get readable() {
+    }B      	  ÏË@ç  (¨” 7get readable() {
         return this._readable;
-      }B      	  ÏË@Ã  (¨Ì 7get writable() {
+      }B      	  ÏË@è  (¨— 7get writable() {
         return this._writable;
-      }Å ÏÅĞÅÑÅÈÅÈ`) `& `# `  ` ` ` ` ` ` ` ` ` ` ÄU{   ÅS¼  ÅS‰   ÅSˆ   ÅS7    ÈÖg È` ` ÄU^   Å	SŒ  Å
+      }Å ÏÅĞÅÑÅÈÅÈ`) `& `# `  ` ` ` ` ` ` ` ` ` ` ÄU    ÅSá  ÅS‰   ÅSˆ   ÅS7    ÈÖg È` ` ÄU^   Å	S±  Å
 S¦   ÅSı   ÈÉg È`	 `
- ÄU]   ÅS   ÅSÔ  ÅS”   ÅS˜   ÅSÕ   ÅS«   ÅSÖ   È
+ ÄU]   ÅS²   ÅSù  ÅS”   ÅS½   ÅSú   ÅSĞ   ÅSû   È
 É	g
- g	 Èk4   8¤   @×  ğ"a @?   8¤   @×  ¯ñqÅqHòÈk   ò0Ç@?   ÅB7   8   Am   Ç@?   Œ  ÅLE   KE   $ 8   Am   Ç@?   Ø  ÅLE   KE   $ 8   Am   Ç@?   ¼  ÅLE   KE   $ Ç@?   ÅB§  Ç@?   ÅB‰  Ç@?   ÅBÂ  Ç@?   ÅBı  ` ` ÄU~   Å SÔ  Å!S©   Å"S®   Å#S¯   Å$S°   Å%S†   ÈÉg È` ` Ä&U   Å'S¼  Å(Sˆ   Å)S7    Å*SÁ   ÈÉg È` ` Ä+U€   Å,S‰  Å-SB   ÈÉg È` ` Ä.U   Å/S‰  Å0SB   ÈÉg È` ` Ä1U‚   Å2S‰  Å3SB   ÈÉg È` ` Ä4Uƒ   Å5S—  Å6S2    ÈÉg È `! `" Ä7U„   Å8S—  Å9S2    È"É!g" È#`$ `% Ä:U…   Å;S‰  Å<SB   È%É$g% È&`' `( Ä=U†   Å>S‰  Å?SB   È(É'g( È)8•   a B]  8•   a B{  8•   a B^  8•   a B~  8•   ÇB|  8•   ÇB}  8•   a B€  8•   a B  8•   a  Bƒ  8•   a# B„  8•   a B  8•   a B‚  8•   a& B…  8•   a) B†  )¨ºF †à /$  4, 
+ g	 Èk4   8¤   @ü  ğ"a @?   8¤   @ü  ¯ñqÅqHòÈk   ò0Ç@?   ÅB7   8   Am   Ç@?   ±  ÅLE   KE   $ 8   Am   Ç@?   ı  ÅLE   KE   $ 8   Am   Ç@?   á  ÅLE   KE   $ Ç@?   ÅBÌ  Ç@?   ÅB‰  Ç@?   ÅBÂ  Ç@?   ÅBı  ` ` ÄU£   Å Sù  Å!SÎ   Å"SÓ   Å#SÔ   Å$SÕ   Å%S†   ÈÉg È` ` Ä&U¤   Å'Sá  Å(Sˆ   Å)S7    Å*Sæ   ÈÉg È` ` Ä+U¥   Å,S®  Å-SB   ÈÉg È` ` Ä.U¦   Å/S®  Å0SB   ÈÉg È` ` Ä1U§   Å2S®  Å3SB   ÈÉg È` ` Ä4U¨   Å5S¼  Å6S2    ÈÉg È `! `" Ä7U©   Å8S¼  Å9S2    È"É!g" È#`$ `% Ä:Uª   Å;S®  Å<SB   È%É$g% È&`' `( Ä=U«   Å>S®  Å?SB   È(É'g( È)8•   a B]  8•   a B   8•   a B^  8•   a B£  8•   ÇB¡  8•   ÇB¢  8•   a B¥  8•   a B¤  8•   a  B¨  8•   a# B©  8•   a B¦  8•   a B§  8•   a& Bª  8•   a) B«  )¨…F †à /$  4, 
 +4, 
 +4, 
 +K K K  ¸à D D D D ? ? D D D D D D D ¡°function setupStreams(pal2) {
@@ -7353,10 +7545,10 @@ S¦   ÅSı   ÈÉg È`	 `
     globalThis.TextEncoderStream = TextEncoderStream;
     globalThis.TextDecoderStream = TextDecoderStream;
   }C
- †   ²²	pşp ² `´	0şp´`¶	0şp¶ ¸  @º 
+ †   ²ü	pşp ü `ş	0şpş`€	0şp€ ‚  @„ 
 @B   Ï
-¼  º  ¾   À  ¢  Ô  ®  Ğ	  ä    ş² ¸	 È+d  ğÇ$  ØñÜ&  ÏºĞ×h
-  ºÑÍ×ï¥hÿ   ×ÍFÖd ©ğÎAá  $  ÈóÎ Î8­   ©ğ8±   Î! Èó¶ 8­   Aâ  Î$ ğ!8±   Î@§  Î@D  Î@Æ  ! Èó† Î–L   ­ğ88±   Îï! ÈºÈÇÎï¥ğdÇÇ¯ñqÎAı  Ç$ qH’òÚ8¢   ÎõÈ8±   Çï! ÈºÈÇÇï¥ğ"ÇÇ¯ñqÇAı  Ç$ qH’òØËAO  Ç$ ÌÇïœĞ’óşşÇËBã  ÇÌBä  ÇåØ@Y  ñÆõB|  )¨ã6X ,A!# 0+€ !¨0]#a6_	b!#f4F; !<+ + 6ˆclass Blob2 {
+†  º  ˆ   Š  ¢  Ô  ®  Ğ	  ä    şü ‚	 È+d  ğÇ$  ØñÜ&  ÏºĞ×h
+  ºÑÍ×ï¥hÿ   ×ÍFÖd ©ğÎA  $  ÈóÎ Î8­   ©ğ8±   Î! Èó¶ 8­   A  Î$ ğ!8±   Î@§  Î@D  Î@ë  ! Èó† Î–L   ­ğ88±   Îï! ÈºÈÇÎï¥ğdÇÇ¯ñqÎAı  Ç$ qH’òÚ8¢   ÎõÈ8±   Çï! ÈºÈÇÇï¥ğ"ÇÇ¯ñqÇAı  Ç$ qH’òØËAO  Ç$ ÌÇïœĞ’óşşÇËB  ÇÌB	  ÇåØ@Y  ñÆõB|  )¨®6X ,A!# 0+€ !¨0]#a6_	b!#f4F; !<+ + 6ˆclass Blob2 {
       constructor(blobParts, options) {
         options = options || {};
         var buffers = [];
@@ -7462,24 +7654,24 @@ S¦   ÅSı   ÈÉg È`	 `
       static isBlob(obj) {
         return obj instanceof Blob2;
       }
-    }B      	  ÏË@ä  (¨… /get size() {
+    }B      	  ÏË@	  (¨Ğ /get size() {
         return this._size;
-      }B      	  ÏË@|  (¨ˆ /get type() {
+      }B      	  ÏË@|  (¨Ó /get type() {
         return this._type;
-      }B   ¸Â  ˜  Ê  Ì   Î  ¦  ¾
-  Ğ  ¢  Ò  Ô  Ö  Ø 	   ² È
+      }B   ¸Â  ˜  ”  –   ˜  ¦  ¾
+  š  ¢  œ       ¢ 	   ü È
 ×øğºò×ßº£ßº¥ğ8¦   Ak  Ç
-@ä  ×œº$ Û×Ç
-@ä  §ğ	Ç
-@ä  ÛØøğ
+@	  ×œº$ Û×Ç
+@	  §ğ	Ç
+@	  ÛØøğ
 Ç
-@ä  òØàº£àº¥ğ8¦   Ak  Ç
-@ä  Øœº$ ÜØÇ
-@ä  §ğ	Ç
-@ä  ÜØ×¥ğ×ÜØ×ÏÙøñ
+@	  òØàº£àº¥ğ8¦   Ak  Ç
+@	  Øœº$ ÜØÇ
+@	  §ğ	Ç
+@	  ÜØ×¥ğ×ÜØ×ÏÙøñ
 8¢   ÙõòÆĞ8±   Ë! ÑºÒ×ÈºÈÇÇ
-@ã  ï¥ğmÎË¥ğhÇ
-@ã  ÇFÈÇÇï¨ğÇÇïÈòFÇÈ8¦   A   ÇïÇËœÎ$ ÉÇÉ	º§ğÍAF   ÇAí  ÇÇ$ Î$ Ç	“ºÈ’òˆd  Í& ÌKY  ! (¨‹P$+4"%+A4+/I4%+=40* !An>B^?!! ,2&E %?/'
+@  ï¥ğmÎË¥ğhÇ
+@  ÇFÈÇÇï¨ğÇÇïÈòFÇÈ8¦   A   ÇïÇËœÎ$ ÉÇÉ	º§ğÍAF   ÇA  ÇÇ$ Î$ Ç	“ºÈ’òˆd  Í& ÌKY  ! (¨ÖP$+4"%+A4+/I4%+=40* !An>B^?!! ,2&E %?/'
 slice(start, end, contentType) {
         start = start === void 0 ? 0 : start;
         start = start | 0;
@@ -7511,8 +7703,8 @@ slice(start, end, contentType) {
           globalStart = 0;
         }
         return new Blob2([result], { type: effectiveCT });
-      }B      b¦   Ü  ¾
-  ¢    È8­   Ç@ä  ! Ï8±   Ë! ĞºÑºÒÎÇ@ã  ï¥ğ&ÌAF   Ç@ã  ÎFÍ$ ÍÇ@ã  ÎFïœÑ’òĞ8Î   AŠ   Ë% ¨«&XT
+      }B      b¦   ¦  ¾
+  ¢    È8­   Ç@	  ! Ï8±   Ë! ĞºÑºÒÎÇ@  ï¥ğ&ÌAF   Ç@  ÎFÍ$ ÍÇ@  ÎFïœÑ’òĞ8Î   AŠ   Ë% ¨ö&XT
 :# I‹*ÒarrayBuffer() {
         var result = new ArrayBuffer(this._size);
         var view = new Uint8Array(result);
@@ -7522,24 +7714,24 @@ slice(start, end, contentType) {
           offset += this._buffers[i].length;
         }
         return Promise.resolve(result);
-      }B      º
+      }B      „
  C
-    Ò  º ã8±   ×! # ¨¶(Qfunction(buf) {
+    œ  „ ã8±   ×! # ¨(Qfunction(buf) {
           return decodeUint8Array(new Uint8Array(buf));
-        }ÏËAû  $  A‰   Å % ¨µ+*&‹text() {
+        }ÏËAû  $  A‰   Å % ¨€+*&‹text() {
         return this.arrayBuffer().then(function(buf) {
           return decodeUint8Array(new Uint8Array(buf));
         });
       }B       C
-     Ş  8§   Az  ×% ¨»!5;function(txt) {
+     ¨  8§   Az  ×% ¨†!5;function(txt) {
           return JSON.parse(txt);
-        }ÏËAy  $  A‰   Å % ¨º+*njson() {
+        }ÏËAy  $  A‰   Å % ¨…+*njson() {
         return this.text().then(function(txt) {
           return JSON.parse(txt);
         });
       }B      Z¦   ¾
-  ¢    ÒÎ@ã  ï»­ğ
-Î@ã  ºF(8±   Î@ä  ! ÏºĞºÑÍÎ@ã  ï¥ğ$ËAF   Î@ã  ÍFÌ$ ÌÎ@ã  ÍFïœĞ’òÓË(¨¿0>Dm5# DÖ_getBytes() {
+  ¢    ÒÎ@  ï»­ğ
+Î@  ºF(8±   Î@	  ! ÏºĞºÑÍÎ@  ï¥ğ$ËAF   Î@  ÍFÌ$ ÌÎ@  ÍFïœĞ’òÓË(¨Š0>Dm5# DÖ_getBytes() {
         if (this._buffers.length === 1) return this._buffers[0];
         var result = new Uint8Array(this._size);
         var offset = 0;
@@ -7548,9 +7740,9 @@ slice(start, end, contentType) {
           offset += this._buffers[i].length;
         }
         return result;
-      }B    ¸  ² ×d  ©(¨É":isBlob(obj) {
+      }B    ¸  ü ×d  ©(¨”":isBlob(obj) {
         return obj instanceof Blob2;
-      }Æ   ^à  â  º  ö  ô    şÏĞ` +ÙñİË5Ì×Ù! c d  ğa $  a 8¢   ØõBò  a Ù@ó  ñ8¨   A\  $  Bô  a (¨Î5& Š *(&'udclass File2 extends Blob2 {
+      }Æ   ^ª  ¬  º  ö  ô    şÏĞ` +ÙñİË5Ì×Ù! c d  ğa $  a 8¢   ØõB  a Ù@  ñ8¨   A\  $  B  a (¨™5& Š *(&'udclass File2 extends Blob2 {
       constructor(fileBits, fileName, options) {
         options = options || {};
         super(fileBits, options);
@@ -7563,11 +7755,11 @@ slice(start, end, contentType) {
       get lastModified() {
         return this._lastModified;
       }
-    }B      	  ÏË@ò  (¨Ô /get name() {
+    }B      	  ÏË@  (¨Ÿ /get name() {
         return this._name;
-      }B      	  ÏË@ô  (¨× ?get lastModified() {
+      }B      	  ÏË@  (¨¢ ?get lastModified() {
         return this._lastModified;
-      }B       şÏ+d  ğË$  Ë&  Bõ  )¨ÜN‘class FormData {
+      }B       şÏ+d  ğË$  Ë&  B  )¨§N‘class FormData {
       constructor() {
         this._entries = [];
       }
@@ -7653,47 +7845,47 @@ slice(start, end, contentType) {
         }
         return String(value);
       }
-    }B    .t  ˆ  œ    ÏË@õ  AO  8¢   ×õK:   ËAö  ØÙ$ KD   $ )¨ß9!D¥append(name, value, filename) {
+    }B    .t  ˆ  œ    ÏË@  AO  8¢   ×õK:   ËA  ØÙ$ KD   $ )¨ª9!D¥append(name, value, filename) {
         this._entries.push({
           name: String(name),
           value: this._normalizeValue(value, filename)
         });
       }B  t @   C
-    	¨  t ×@:   ã®(¨æ.!Afunction(entry) {
+    	¨  t ×@:   ã®(¨±.!Afunction(entry) {
           return entry.name !== name;
-        }ÏËË@õ  A[  Å $ Bõ  )¨å>J‡delete(name) {
+        }ÏËË@  A[  Å $ B  )¨°>J‡delete(name) {
         this._entries = this._entries.filter(function(entry) {
           return entry.name !== name;
         });
       }B  t @ ¨     C
-    	¤  t ×@:   ã­(¨ë(!9function(e) {
+    	¤  t ×@:   ã­(¨¶(!9function(e) {
           return e.name === name;
-        }ĞÌ@õ  A÷  Å $ ÓğË@D   ((¨êDB¡get(name) {
+        }ĞÌ@  A  Å $ ÓğË@D   ((¨µDB¡get(name) {
         var entry = this._entries.find(function(e) {
           return e.name === name;
         });
         return entry ? entry.value : null;
       }B  t @   C
-    	¤  t ×@:   ã­(¨ñ%!9function(e) {
+    	¤  t ×@:   ã­(¨¼%!9function(e) {
           return e.name === name;
         }C
-     ¤  ×@D   (¨ó 1function(e) {
+     ¤  ×@D   (¨¾ 1function(e) {
           return e.value;
-        }ÏË@õ  A[  Å $ A  Å% ¨ğD<6)­getAll(name) {
+        }ÏË@  A[  Å $ A  Å% ¨»D<6)­getAll(name) {
         return this._entries.filter(function(e) {
           return e.name === name;
         }).map(function(e) {
           return e.value;
         });
       }B  t @   C
-    	¤  t ×@:   ã­(¨ø#!9function(e) {
+    	¤  t ×@:   ã­(¨Ã#!9function(e) {
           return e.name === name;
-        }ÏË@õ  Aø  Å % ¨÷D8qhas(name) {
+        }ÏË@  A  Å % ¨ÂD8qhas(name) {
         return this._entries.some(function(e) {
           return e.name === name;
         });
-      }B    t  ˆ  œ  ˆ   ò  ¢    Ò	Ï&  ĞºÑÍÎ@õ  ï¥ğWÎ@õ  ÍF@:   ×­ğ0Ë•ğ>ÌAO  8¢   ×õK:   ÎAö  ØÙ$ KD   $ 
-ÏòÌAO  Î@õ  ÍF$ ’ò Ë•ğ(ÌAO  8¢   ×õK:   ÎAö  ØÙ$ KD   $ ÎÌBõ  )¨ü<,v,3 !DJ;   # !DK?»set(name, value, filename) {
+      }B    t  ˆ  œ  ˆ   ¼  ¢    Ò	Ï&  ĞºÑÍÎ@  ï¥ğWÎ@  ÍF@:   ×­ğ0Ë•ğ>ÌAO  8¢   ×õK:   ÎA  ØÙ$ KD   $ 
+ÏòÌAO  Î@  ÍF$ ’ò Ë•ğ(ÌAO  8¢   ×õK:   ÎA  ØÙ$ KD   $ ÎÌB  )¨Ç<,v,3 !DJ;   # !DK?»set(name, value, filename) {
         var found = false;
         var newEntries = [];
         for (var i = 0; i < this._entries.length; i++) {
@@ -7716,32 +7908,32 @@ slice(start, end, contentType) {
           });
         }
         this._entries = newEntries;
-      }B    9È    ¢     ĞºÏÊ@õ  ï¥ğ+×A©  ØÌ@õ  ËF@D   Ì@õ  ËF@:   Ì$ ’ òÍ)¨”,5# ¾forEach(callback, thisArg) {
+      }B    9È    ¢     ĞºÏÊ@  ï¥ğ+×A©  ØÌ@  ËF@D   Ì@  ËF@:   Ì$ ’ òÍ)¨ß,5# ¾forEach(callback, thisArg) {
         for (var i = 0; i < this._entries.length; i++) {
           callback.call(thisArg, this._entries[i].value, this._entries[i].name, this);
         }
       }B        C
-     ¤  ×@:   (¨š" 0function(e) {
+     ¤  ×@:   (¨å" 0function(e) {
           return e.name;
-        }ÏË@õ  A  Å $ 8¤   @ñ  G%  ¨™D6Twkeys() {
+        }ÏË@  A  Å $ 8¤   @ñ  G%  ¨äD6Twkeys() {
         return this._entries.map(function(e) {
           return e.name;
         })[Symbol.iterator]();
       }B        C
-     ¤  ×@D   (¨Ÿ" 1function(e) {
+     ¤  ×@D   (¨ê" 1function(e) {
           return e.value;
-        }ÏË@õ  A  Å $ 8¤   @ñ  G%  ¨D6Tzvalues() {
+        }ÏË@  A  Å $ 8¤   @ñ  G%  ¨éD6Tzvalues() {
         return this._entries.map(function(e) {
           return e.value;
         })[Symbol.iterator]();
       }B        C
-     ¤  ×@:   ×@D   & (¨¤" ;function(e) {
+     ¤  ×@:   ×@D   & (¨ï" ;function(e) {
           return [e.name, e.value];
-        }ÏË@õ  A  Å $ 8¤   @ñ  G%  ¨£D6T…entries() {
+        }ÏË@  A  Å $ 8¤   @ñ  G%  ¨îD6T…entries() {
         return this._entries.map(function(e) {
           return [e.name, e.value];
         })[Symbol.iterator]();
-      }B    6ˆ  œ  ²´×d  ©ğ'×d ©•ğØğd ×& Ø×@Y  KY  ! (×(8¢   ×# ¨¨
+      }B    6ˆ  œ  üş×d  ©ğ'×d ©•ğØğd ×& Ø×@Y  KY  ! (×(8¢   ×# ¨ó
 .&5  š_normalizeValue(value, filename) {
         if (value instanceof Blob2) {
           if (!(value instanceof File2) && filename) {
@@ -7751,19 +7943,19 @@ slice(start, end, contentType) {
         }
         return String(value);
       }C
- ¸  '²  ô   [\x09\x0A\x0D]F     	   õÿÿÿ  	 
-    8¢   ×õA'  $  ÓAú  Ä Ä4Æ$ ÓA  %  ¨²
+ ‚  '²  ¾   [\x09\x0A\x0D]F     	   õÿÿÿ  	 
+    8¢   ×õA'  $  ÓAú  Ä Ä4Æ$ ÓA  %  ¨ı
 "%) N‘function normalizeType(type) {
       var s = String(type).toLowerCase();
       s = s.replace(/[\x09\x0A\x0D]/g, "");
       return s.trim();
     }C
- º    ®  8   !  A¢  ×% ¨·H*Vfunction decodeUint8Array(bytes) {
+ „    ®  8   !  A¢  ×% ¨‚H*Vfunction decodeUint8Array(bytes) {
       return new TextDecoder().decode(bytes);
     }ÅÈ	ÅÈ
-` ` ` `  ` Ä UÙ   ÅS2   ÅSY  ÅS§   ÅSû   ÅSy   ÅSú   ÅSá   ÅSû   ĞÓg g  Ñ` a ` Ä	UÚ  Å
-S:   ÅSó  ÈÖg È` ` ÄUÛ   ÅS6   ÅS	    ÅSE    ÅS7   ÅSk    ÅSF    ÅSW   ÅS1    ÅSs    ÅS
-   ÅSö   ÈÉg È8•   a Bü  8•   a Bı  8•   a BÛ  )¨á
+` ` ` `  ` Ä Uş   ÅS2   ÅSY  ÅS§   ÅSû   ÅSy   ÅSú   ÅS   ÅS    ĞÓg g  Ñ` a ` Ä	Uÿ  Å
+S:   ÅS  ÈÖg È` ` ÄU    ÅS6   ÅS	    ÅSE    ÅS7   ÅSk    ÅSF    ÅSW   ÅS1    ÅSs    ÅS
+   ÅS   ÈÉg È8•   a B!  8•   a B"  8•   a B   )¨¬
  Š²D D 6function setupBlobFileFormData() {
     class Blob2 {
       constructor(blobParts, options) {
@@ -7985,8 +8177,7 @@ S:   ÅSó  ÈÖg È` ` ÄUÛ   ÅS6   ÅS	    ÅSE    ÅS7   ÅSk    Å
     globalThis.File = File2;
     globalThis.FormData = FormData;
   }C
- ˆ   ‡ü0şp ü  ş  @€ @‚ @„ @B   òÀ  †  ˆ     şş € Ğ+d  ğÌ$  ×–L   ­ğ×ñ‡   K;  Ïò×ñÏÌäË@  ñ‡   õB  ÌäË@  ñ‡   õB   ÌäË@  ñ‡   õB!  ÌäË@:  ñ‡   õB  ÌäË@  ñ‡   õB  ÌäË@;  ñ‡   õB#  ÌäË@<  ñ‡   õB  ÌäË@  ñ‡   õB(  ÌØñË@  ñB  ÌåÌ@  õB  ÌåÌ@   õB  ÌåÌ@!  õB	  ÌåÌ@  õB
-  ÌåÌ@  õB  ÌåÌ@#  õB  ÌåÌ@  õB  ÌåÌ@(  õB  )¨ÂHT.0%c '@l?@l?@l?@l?8l7@l?<l;8l7q B?AB?AB?AB?A:?9B?A>?=:æclass URLPattern {
+ ˆ   ‡Æ0şp Æ  È  @Ê @Ì @Î @B   òÀ  Ğ  Ò     şÈ Ê Ğ+d  ğÌ$  ×–L   ­ğ×ñ‡   K;  Ïò×ñÏÌäË@  ñ‡   õB  ÌäË@  ñ‡   õB   ÌäË@  ñ‡   õB!  ÌäË@:  ñ‡   õB*  ÌäË@  ñ‡   õB  ÌäË@;  ñ‡   õB#  ÌäË@<  ñ‡   õB  ÌäË@  ñ‡   õB(  ÌØñË@(  ñB+  ÌåÌ@  õB,  ÌåÌ@   õB-  ÌåÌ@!  õB.  ÌåÌ@*  õB/  ÌåÌ@  õB0  ÌåÌ@#  õB1  ÌåÌ@  õB2  ÌåÌ@(  õB3  )¨HT.0%c '@l?@l?@l?@l?8l7@l?<l;8l7q B?AB?AB?AB?A:?9B?A>?=:æclass URLPattern {
       constructor(input, baseURL) {
         var pattern;
         if (typeof input === "string") {
@@ -8073,44 +8264,43 @@ S:   ÅSó  ÈÖg È` ` ÄUÛ   ÅS6   ÅS	    ÅSE    ÅS7   ÅSk    Å
           hash: hashResult
         };
       }
-    }B        ÏË@  @  (¨Û ?get protocol() {
+    }B        ÏË@  @)  (¨¦ ?get protocol() {
         return this._protocol.pattern;
-      }B        ÏË@   @  (¨Ş ?get username() {
+      }B        ÏË@   @)  (¨© ?get username() {
         return this._username.pattern;
-      }B        ÏË@!  @  (¨á ?get password() {
+      }B        ÏË@!  @)  (¨¬ ?get password() {
         return this._password.pattern;
-      }B        ÏË@  @  (¨ä ?get hostname() {
+      }B        ÏË@*  @)  (¨¯ ?get hostname() {
         return this._hostname.pattern;
-      }B        ÏË@  @  (¨ç 7get port() {
+      }B        ÏË@  @)  (¨² 7get port() {
         return this._port.pattern;
-      }B        ÏË@#  @  (¨ê ?get pathname() {
+      }B        ÏË@#  @)  (¨µ ?get pathname() {
         return this._pathname.pattern;
-      }B        ÏË@  @  (¨í ;get search() {
+      }B        ÏË@  @)  (¨¸ ;get search() {
         return this._search.pattern;
-      }B        ÏË@(  @  (¨ğ 7get hash() {
+      }B        ÏË@(  @)  (¨» 7get hash() {
         return this._hash.pattern;
-      }B    À  †    ÏËA   ×Ø$ ®(¨ó+&(Qtest(input, baseURL) {
+      }B    À  Ğ    ÏËA   ×Ø$ ®(¨¾+&(Qtest(input, baseURL) {
         return this.exec(input, baseURL) !== null;
-      }B   À  †  –   ¤      ¢  ¤  ¦  ¨  ª  ¬ 	   „ ‚ È
+      }B   À  Ğ  –   ¤ è  ê  ì  î  ğ  ò  ô  ö 	   Î Ì È
 ×–L   ­ğ#k   ã×Øñ	Ç
-@  öÏòĞk   n(0×ÏäÇ
+@+  öÏòĞk   n(0×ÏäÇ
 @  Ç
-@  Ë@  ñÆ÷ÑäÇ
+@,  Ë@  ñÆ÷ÑäÇ
 @   Ç
-@  Ë@  ñÆ÷ÒäÇ
+@-  Ë@  ñÆ÷ÒäÇ
 @!  Ç
-@	  Ë@  ñÆ÷ÈäÇ
-@  Ç
-@
-  Ë@:  ñÆ÷ÈäÇ
+@.  Ë@  ñÆ÷ÈäÇ
+@*  Ç
+@/  Ë@:  ñÆ÷ÈäÇ
 @  Ç
-@  Ë@  ñÆ÷ÈäÇ
+@0  Ë@  ñÆ÷ÈäÇ
 @#  Ç
-@  Ë@;  ñÆ÷ÈäÇ
+@1  Ë@;  ñÆ÷ÈäÇ
 @  Ç
-@  Ë@<  ñÆ÷ÈäÇ
+@2  Ë@<  ñÆ÷ÈäÇ
 @(  Ç
-@  Ë@  ñÆ÷È	Í•ñ.Î•ñ(Ç•ñ!Ç•ñÇ•ñÇ•ñÇ•ñÇ	•ğ(×& K  ÍK  ÎK  ÇK  ÇK:  ÇK  ÇK;  ÇK<  Ç	K  (¨ö.J! 
+@3  Ë@  ñÆ÷È	Í•ñ.Î•ñ(Ç•ñ!Ç•ñÇ•ñÇ•ñÇ•ñÇ	•ğ(×& K<  ÍK  ÎK  ÇK  ÇK:  ÇK  ÇK;  ÇK<  Ç	K  (¨Á.J! 
 !@  ” ””””‰exec(input, baseURL) {
         var url;
         if (typeof input === "string") {
@@ -8145,7 +8335,7 @@ S:   ÅSó  ÈÖg È` ` ÄUÛ   ÅS6   ÅS	    ÅSE    ÅS7   ÅSk    Å
           hash: hashResult
         };
       }C
- ş  É	°  ²   ´  ¢  ¶  t  ¸  º  ¼  [a-zA-Z0-9_]V   #   	   õÿÿÿ  0 9 A Z _ _ a z  "[\\^$.|?+(){}[\]]n   /   	   õÿÿÿ  $ $ ( ) + + . . ? ? [ ^ { }  ×‡   ­ğ ×K    K  ‡   & K  (ÆÏ&  ĞºÑÍ×ï¥ht  ×ÍFÖ0  ­h´   ’ÆÈÍ×ï¥ğÄ Ä4AQ  ×ÍF$ ğÇ×ÍFœÈ’òİÆÈÍ×ï¥ğ-×ÍFõ  ­ñ×ÍF   ­ñ×ÍF‡   ­ğ×ÍFÈ’ÌAO  Ç$ Çõ  ­ğ  “ ólÿÇ   ­ğ   “ óXÿÇ‡   ­ğ  “ óDÿ!  “ ó:ÿÎ"  ­ğa’ÆÈ»ÈÍ×ï¥ğ3Çº§ğ-×ÍF"  ­ğ’×ÍF#  ­ğ‘Çº§ğ	Ç×ÍFœÈ’òÉË$  Çœ%  œœÏÌAO  Ç$ óÑşÎ‡   ­ğ&  “ ÌAO  ‡   $ ’ó­şÄÄ4AQ  Î$ ğË'  ÎœœÏòÎ“ ’ó‰ş×K  (  Ëœ)  œK  ÌK  (¨™k* 0@:"MR+c+ -*PC2C2+¿  ++?,++?,++6 ;+2%:&*
+ È  É	ú  ü   ş  ¢  €  t  ‚  „  ¼  [a-zA-Z0-9_]V   #   	   õÿÿÿ  0 9 A Z _ _ a z  "[\\^$.|?+(){}[\]]n   /   	   õÿÿÿ  $ $ ( ) + + . . ? ? [ ^ { }  ×‡   ­ğ ×K)  C  K>  ‡   & K?  (ÆÏ&  ĞºÑÍ×ï¥ht  ×ÍFÖ0  ­h´   ’ÆÈÍ×ï¥ğÄ Ä4AQ  ×ÍF$ ğÇ×ÍFœÈ’òİÆÈÍ×ï¥ğ-×ÍFõ  ­ñ×ÍF   ­ñ×ÍF‡   ­ğ×ÍFÈ’ÌAO  Ç$ Çõ  ­ğD  “ ólÿÇ   ­ğE  “ óXÿÇ‡   ­ğC  “ óDÿF  “ ó:ÿÎG  ­ğa’ÆÈ»ÈÍ×ï¥ğ3Çº§ğ-×ÍFG  ­ğ’×ÍFH  ­ğ‘Çº§ğ	Ç×ÍFœÈ’òÉËI  ÇœJ  œœÏÌAO  Ç$ óÑşÎ‡   ­ğK  “ ÌAO  ‡   $ ’ó­şÄÄ4AQ  Î$ ğËL  ÎœœÏòÎ“ ’ó‰ş×K)  M  ËœN  œK>  ÌK?  (¨äk* 0@:"MR+c+ -*PC2C2+¿  ++?,++?,++6 ;+2%:&*
 	*
 + $+A 5
 +&  0O:!5 &"% 
@@ -8215,14 +8405,14 @@ S:   ÅSó  ÈÖg È` ` ÄUÛ   ÅS6   ÅS	    ÅSE    ÅS7   ÅSk    Å
         names
       };
     }C
- €   %Ô  ¤ k   8¬   ×@  Q  ! n(Ïk   n(0¨Û•function buildRegex(compiled) {
+ Ê   %  ¤ k   8¬   ×@>  Q  ! n(Ïk   n(0¨¦•function buildRegex(compiled) {
       try {
         return new RegExp(compiled.regexStr, "i");
       } catch (e) {
         return null;
       }
     }C
- ‚   qÔ  Ö  ˆ     ¢  À  ¢  t  Ø•ğ(ÙA  Ø$ Ó•ğ(ĞËºFÑºÒÎ×@  ï¥ğ;×@  ÎFÈËÎ»œFİÇğ#Ç‡   ®ğÌÇ¯ñqÙøñÙòÆqH’ò¼ÍK`   ÌK‘   (¨â@4 r5+%C2ğfunction matchPattern(compiled, regex, value) {
+ Ì   q     ˆ     ¢  À  ¢  t  Ø•ğ(ÙA  Ø$ Ó•ğ(ĞËºFÑºÒÎ×@?  ï¥ğ;×@?  ÎFÈËÎ»œFİÇğ#Ç‡   ®ğÌÇ¯ñqÙøñÙòÆqH’ò¼ÍK`   ÌK‘   (¨­@4 r5+%C2ğfunction matchPattern(compiled, regex, value) {
       if (!regex) return null;
       var match = value.match(regex);
       if (!match) return null;
@@ -8240,7 +8430,7 @@ S:   ÅSó  ÈÖg È` ` ÄUÛ   ÅS6   ÅS	    ÅSE    ÅS7   ÅSk    Å
         groups
       };
     }C
- „  Ø–  ˜  ä   ¦    ğ^(?:([a-z][a-z0-9+.-]*):)?(?:\/\/(?:([^:@]*)(?::([^@]*))?@)?([^:/?#]*)(?::(\d+))?)?(\/?[^?#]*)?(?:\?([^#]*))?(?:#(.*))?$Ö 	£  	   õÿÿÿ 
+ Î  Ø–  ˜  ä   ¦    ğ^(?:([a-z][a-z0-9+.-]*):)?(?:\/\/(?:([^:@]*)(?::([^@]*))?@)?([^:/?#]*)(?::(\d+))?)?(\/?[^?#]*)?(?:\?([^#]*))?(?:#(.*))?$Ö 	£  	   õÿÿÿ 
 4    A Z        ÿÿÿ    + + - . 0 9 A Z :
 º   //
 V          ÿÿÿ      9 ; ? A ÿÿ
@@ -8248,7 +8438,7 @@ V          ÿÿÿ      9 ; ? A ÿÿ
 !   :      ÿÿÿ    0 9 
 ;                /       ÿÿÿ      " $ > @ ÿÿ
 %   ?       ÿÿÿ      " $ ÿÿ
-   #       ÿÿÿ    8¢   ×õÏÆK  ÆK  ÆK  ÆK:  ÆK  "  K;  ÆK<  ÆK  ĞËA  Ä Ä4$ Õ•ğ8Ú     Ëœ! 0ÌÍ»FñÆB  ÌÍ¼FñÆB  ÌÍ½FñÆB  ÌÍ¾FñÆB:  ÌÍ¿FñÆB  ÌÍÀFñ"  B;  ÌÍÁFñÆB<  ÌÍÂFñÆB  Ì(¨ô& ??98!cI I I I I ] I ©function parseURL(url, base) {
+   #       ÿÿÿ    8¢   ×õÏÆK  ÆK  ÆK  ÆK:  ÆK  "  K;  ÆK<  ÆK  ĞËA  Ä Ä4$ Õ•ğ8Ú     Ëœ! 0ÌÍ»FñÆB  ÌÍ¼FñÆB  ÌÍ½FñÆB  ÌÍ¾FñÆB:  ÌÍ¿FñÆB  ÌÍÀFñ"  B;  ÌÍÁFñÆB<  ÌÍÂFñÆB  Ì(¨¿& ??98!cI I I I I ] I ©function parseURL(url, base) {
       var str = String(url);
       var result = {
         protocol: "",
@@ -8271,8 +8461,8 @@ V          ÿÿÿ      9 ; ? A ÿÿ
       result.search = match[7] || "";
       result.hash = match[8] || "";
       return result;
-    }ÅÒÅÈÅÈÅÈ` `  ` Ä Uş   ÅS  ÅS  ÅS  ÅS:  ÅS  ÅS;  ÅS<  ÅS  Å	SQ   Å
-S    ĞÓg Ñ8•   a Bş  )¨À y˜Û5function setupURLPattern() {
+    }ÅÒÅÈÅÈÅÈ` `  ` Ä U#   ÅS  ÅS  ÅS  ÅS:  ÅS  ÅS;  ÅS<  ÅS  Å	SQ   Å
+S    ĞÓg Ñ8•   a B#  )¨‹ y˜Û5function setupURLPattern() {
     class URLPattern {
       constructor(input, baseURL) {
         var pattern;
@@ -8478,9 +8668,9 @@ S    ĞÓg Ñ8•   a Bş  )¨À y˜Û5function setupURLPattern() {
     }
     globalThis.URLPattern = URLPattern;
   }C
- Š    Ø   C
- Ú   ûn  ¸   h  œ     ¤  ×øñ×ùğ)8•   @K  ûh¢   ×8    ©ğ	×@4   ò8¢   ×õĞ×8    ©ğ×@ñ  ñÆòÆÑ×8    ©ğ×@.  ñºòºÒ×8    ©ğ×@/  ñºòºÈ8•   @K  7   ÌK4   ÍKN  ÎKP  ÇKR  ×K7   
-K  ! Ïò48¸  7   ! Ó×8    ©ğ	×@4   ò8¢   ×õB4   Ë×B7   8•   A·  Ë$ )¨›" (J&k>;{{{! < N *k>&'42Öfunction reportError2(error) {
+ Š    ¢   C
+ ¤   ûn  ¸   h  œ     ¤  ×øñ×ùğ)8•   @K  ûh¢   ×8    ©ğ	×@4   ò8¢   ×õĞ×8    ©ğ×@  ñÆòÆÑ×8    ©ğ×@S  ñºòºÒ×8    ©ğ×@T  ñºòºÈ8•   @K  7   ÌK4   ÍKN  ÎKP  ÇKR  ×K7   
+K  ! Ïò48¸  7   ! Ó×8    ©ğ	×@4   ò8¢   ×õB4   Ë×B7   8•   A·  Ë$ )¨æ" (J&k>;{{{! < N *k>&'42Öfunction reportError2(error) {
       if (error === void 0 || error === null) return;
       var event;
       if (typeof globalThis.ErrorEvent === "function") {
@@ -8503,11 +8693,11 @@ K  ! Ïò48¸  7   ! Ó×8    ©ğ	×@4   ò8¢   ×õB4   Ë×B7   8•   A·  Ë$ )¨›
       }
       globalThis.dispatchEvent(event);
     }C
-       à     ĞÌ@1  Óñ(¨³ bfunction() {
+       ª     ĞÌ@V  Óñ(¨ş bfunction() {
         var listener = this._onerrorHandler;
         return listener || null;
       }C
-     :ä    ÏË@1  ğËA¶  7   Ë@1  $ Ë×B1  ×ğËAµ  7   ×$ )¨·
+     :®    ÏË@V  ğËA¶  7   Ë@V  $ Ë×BV  ×ğËAµ  7   ×$ )¨‚
 6 
 O6 
 ˆfunction(handler) {
@@ -8519,11 +8709,11 @@ O6
           this.addEventListener("error", handler);
         }
       }C
-       à     ĞÌ@3  Óñ(¨Ä ofunction() {
+       ª     ĞÌ@X  Óñ(¨ ofunction() {
         var listener = this._onunhandledrejectionHandler;
         return listener || null;
       }C
-     :ä    ÏË@3  ğËA¶  T  Ë@3  $ Ë×B3  ×ğËAµ  T  ×$ )¨È
+     :®    ÏË@X  ğËA¶  T  Ë@X  $ Ë×BX  ×ğËAµ  T  ×$ )¨“
 6 
 O6 
 Éfunction(handler) {
@@ -8535,11 +8725,11 @@ O6
           this.addEventListener("unhandledrejection", handler);
         }
       }C
-       à     ĞÌ@4  Óñ(¨Õ mfunction() {
+       ª     ĞÌ@Y  Óñ(¨  mfunction() {
         var listener = this._onrejectionhandledHandler;
         return listener || null;
       }C
-     :ä    ÏË@4  ğËA¶  5  Ë@4  $ Ë×B4  ×ğËAµ  5  ×$ )¨Ù
+     :®    ÏË@Y  ğËA¶  Z  Ë@Y  $ Ë×BY  ×ğËAµ  Z  ×$ )¨¤
 6 
 O6 
 ¿function(handler) {
@@ -8550,14 +8740,14 @@ O6
         if (handler) {
           this.addEventListener("rejectionhandled", handler);
         }
-      }6  K7  8  K9  :  K;  »K<  
-K=  ºK>  Ï8•   ËB,  8•   8•   B  8•   Å Bv  8   Am   8•   ?  ÅLE   KE   ÅLF   KF   
+      }[  K\  ]  K^  _  K`  »Ka  
+Kb  ºKc  Ï8•   ËBQ  8•   8•   B  8•   Å B›  8   Am   8•   d  ÅLE   KE   ÅLF   KF   
 KA   
-KC   $ 8   Am   8•   @  ÅLE   KE   ÅLF   KF   
+KC   $ 8   Am   8•   e  ÅLE   KE   ÅLF   KF   
 KA   
-KC   $ 8   Am   8•   A  ÅLE   KE   ÅLF   KF   
+KC   $ 8   Am   8•   f  ÅLE   KE   ÅLF   KF   
 KA   
-KC   $ )¨ 2: N  . 4, 3"+4, 3"+4,£function setupNavigatorReportError() {
+KC   $ )¨Û 2: N  . 4, 3"+4, 3"+4,£function setupNavigatorReportError() {
     var navigator = {
       userAgent: "qwrt/1.0 (WinterTC)",
       language: "en-US",
@@ -8644,25 +8834,25 @@ KC   $ )¨ 2: N  . 4, 3"+4, 3"+4,£function setupNavigatorReportError() 
     });
   }C
  Œ 	– @  C
-         – ãäõ)¨é$9(3function() {
+         – ãäõ)¨´$9(3function() {
       installCryptoSubtle(pal2);
-    }×Å BB  )¨è~function setupCryptoSubtle(pal2) {
+    }×Å Bg  )¨³~function setupCryptoSubtle(pal2) {
     pal2.__installCryptoSubtle__ = function() {
       installCryptoSubtle(pal2);
     };
   }C
- 	 ù– @†  @ˆ @Š @ Œ @ @0şp `’0ş	p’ C
- †    ZÜ  ×8±   ©ğ×(×8­   ©ğ8±   ×! (8­   Aâ  ×$ ğ8±   ×@§  ×@D  ×@Æ  ! (8Ú   J  ! 0¨î,: *0l) $=Åfunction toUint8Array(data) {
+ 	 ù– @Ğ  @Ò @Ô @ Ö @Ø @Ú0şpÚ `Ü0ş	pÜ C
+ Ğ    ZÜ  ×8±   ©ğ×(×8­   ©ğ8±   ×! (8­   A  ×$ ğ8±   ×@§  ×@D  ×@ë  ! (8Ú   o  ! 0¨¹,: *0l) $=Åfunction toUint8Array(data) {
       if (data instanceof Uint8Array) return data;
       if (data instanceof ArrayBuffer) return new Uint8Array(data);
       if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
       throw new TypeError("Expected ArrayBuffer or TypedArray");
     }C
- ˆ    !–  ×@§  A§  ×@D  ×@D  ×@Æ  œ% ¨ô:2>>nfunction toArrayBuffer(u8) {
+ Ò    !à  ×@§  A§  ×@D  ×@D  ×@ë  œ% ¨¿:2>>nfunction toArrayBuffer(u8) {
       return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
     }C
- Œ ´®  ä   ¢  ˜  ä  š  Š \+4     	   õÿÿÿ + \/4     	   õÿÿÿ / =+$Z   %   	   õÿÿÿ       ÿÿÿ   = ÆÏºĞÌ×ï¥ğx×ÌFÑÌ»œ×ï¥ğ×Ì»œFòºÒÌ¼œ×ï¥ğ×Ì¼œFòºÈËãÍ¼ŸFœÓãÍ½¡¾Î¾Ÿ£FœÓÌ»œ×ï¥ğãÎÂ¡¼ÇÀŸ£Fò÷  œÓÌ¼œ×ï¥ğ
-ãÇÂ?¡Fò÷  œÏ½“ò„ËAú  Ä Ä4H  $ Aú  ÄÄ4N  $ Aú  ÄÄ4Æ% ¨ø7,5%2*"%2+Í. ! 7%>D g*<|G\(\( function base64UrlEncode(bytes) {
+ Ö ´®  ä   ¢  â  ä  ä  Ô \+4     	   õÿÿÿ + \/4     	   õÿÿÿ / =+$Z   %   	   õÿÿÿ       ÿÿÿ   = ÆÏºĞÌ×ï¥ğx×ÌFÑÌ»œ×ï¥ğ×Ì»œFòºÒÌ¼œ×ï¥ğ×Ì¼œFòºÈËãÍ¼ŸFœÓãÍ½¡¾Î¾Ÿ£FœÓÌ»œ×ï¥ğãÎÂ¡¼ÇÀŸ£Fò÷  œÓÌ¼œ×ï¥ğ
+ãÇÂ?¡Fò÷  œÏ½“ò„ËAú  Ä Ä4H  $ Aú  ÄÄ4s  $ Aú  ÄÄ4Æ% ¨Ã7,5%2*"%2+Í. ! 7%>D g*<|G\(\( function base64UrlEncode(bytes) {
       var str = "";
       for (var i = 0; i < bytes.length; i += 3) {
         var b0 = bytes[i], b1 = i + 1 < bytes.length ? bytes[i + 1] : 0, b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
@@ -8673,7 +8863,7 @@ KC   $ )¨ 2: N  . 4, 3"+4, 3"+4,£function setupNavigatorReportError() 
       }
       return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     }C
-   úä     ®  ¢     ¢  ¤  ¦  -4     	   õÿÿÿ - _4     	   õÿÿÿ _ ×Aú  Ä Ä4   $ Aú  ÄÄ4"  $ Û×ï¾›ğ×÷  œÛòñS  Ï&  ĞºÑÍ×ï¥h¨   ËA«  ×ÍF$ ÒËA«  ×Í»œF$ ÈËA«  ×Í¼œF$ ÈËA«  ×Í½œF$ ÈÌAO  Î¼Ç¾Ÿ£$ Ç¹®ğ$×Í¼œF÷  ®ğÌAO  ÇÂ¡¾Ç¼Ÿ£$ Ç¹®ğ!×Í½œF÷  ®ğÌAO  Ç½¡ÀÇ£$ ¾“óUÿ8±   Ì! (¨ƒH \&SxI
+ Ø  úä  è   ®  ¢  ê  ì  î  ğ  -4     	   õÿÿÿ - _4     	   õÿÿÿ _ ×Aú  Ä Ä4   $ Aú  ÄÄ4"  $ Û×ï¾›ğ×÷  œÛòñS  Ï&  ĞºÑÍ×ï¥h¨   ËA«  ×ÍF$ ÒËA«  ×Í»œF$ ÈËA«  ×Í¼œF$ ÈËA«  ×Í½œF$ ÈÌAO  Î¼Ç¾Ÿ£$ Ç¹®ğ$×Í¼œF÷  ®ğÌAO  ÇÂ¡¾Ç¼Ÿ£$ Ç¹®ğ!×Í½œF÷  ®ğÌAO  Ç½¡ÀÇ£$ ¾“óUÿ8±   Ì! (¨ÎH \&SxI
 C8IGH0+} 0 *
  0w *
  Em¨function base64UrlDecode(str) {
@@ -8689,7 +8879,7 @@ C8IGH0+} 0 *
         if (c3 !== -1 && str[i + 3] !== "=") bytes.push((c2 & 3) << 6 | c3);
       }
       return new Uint8Array(bytes);
-    }B   5²  ¨  ª  ¬  Ü    şÏ+d  ğË$  Ë×B|  ËØBW  ËÙBX  ËÚBY  ËZ BZ  )¨’
+    }B   5²  ò  ô  ö  Ü    şÏ+d  ğË$  Ë×B|  ËØB|  ËÙB}  ËÚB~  ËZ B`  )¨İ
 N& & & & öclass CryptoKey {
       constructor(type, algorithm, extractable, usages, data) {
         this._type = type;
@@ -8710,15 +8900,15 @@ N& & & & öclass CryptoKey {
       get usages() {
         return this._usages;
       }
-    }B      	  ÏË@|  (¨™ /get type() {
+    }B      	  ÏË@|  (¨ä /get type() {
         return this._type;
-      }B      	  ÏË@W  (¨œ 9get algorithm() {
+      }B      	  ÏË@|  (¨ç 9get algorithm() {
         return this._algorithm;
-      }B      	  ÏË@X  (¨Ÿ =get extractable() {
+      }B      	  ÏË@}  (¨ê =get extractable() {
         return this._extractable;
-      }B      	  ÏË@Y  (¨¢ 3get usages() {
+      }B      	  ÏË@~  (¨í 3get usages() {
         return this._usages;
-      }B       ş	Ï+d  ğË$  )¨§ íUclass SubtleCrypto {
+      }B       ş	Ï+d  ğË$  )¨ò íUclass SubtleCrypto {
       constructor() {
       }
       digest(algorithm, data) {
@@ -8971,9 +9161,9 @@ N& & & & öclass CryptoKey {
           }, reject);
         });
       }
-    }B  ¨ @ Ü @– †  ˆ C
-   ]”  –  t   ¦  ¤ ¨ – †Üˆã–L   ­ğãòã@:   Ïä@Z  ûñØ8İ   [  Ü  ! õ)k   äAZ  Ëåæõ$ Ğ×] Ìõõ)Ñk
-   ØÍõ)0¨ª€=  (&!c@+éfunction(resolve, reject) {
+    }B  ò @ Ü @– Ğ  Ò C
+   ]”  –  t   ¦  ¤ ò – ĞÜÒã–L   ­ğãòã@:   Ïä@  ûñØ8İ   €  Ü  ! õ)k   äA  Ëåæõ$ Ğ×] Ìõõ)Ñk
+   ØÍõ)0¨õ€=  (&!c@+éfunction(resolve, reject) {
           var name = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (typeof pal2.nativeDigest !== "function") {
             reject(new DOMException("Crypto extension not available", "NotSupportedError"));
@@ -8985,7 +9175,7 @@ N& & & & öclass CryptoKey {
           } catch (e) {
             reject(e);
           }
-        }8Î   Å ! (¨©¨digest(algorithm, data) {
+        }8Î   Å ! (¨ô¨digest(algorithm, data) {
         return new Promise(function(resolve, reject) {
           var name = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (typeof pal2.nativeDigest !== "function") {
@@ -8999,8 +9189,8 @@ N& & & & öclass CryptoKey {
             reject(e);
           }
         });
-      }B  ˆ @¸ @¨ @ ª @º @ C
-   Ü”  –  ¼   Ü  ¨ˆ ¸ ªºã–L   ­ğãòã@:   Ïäx   ­ğWå8­   ©ğ8±   å! Ğó 8­   Aâ  å$ ğ8±   å@§  å@D  å@Æ  ! Ğò^Ø8Ú   _  ! õ)ä`  ­ğ,å•ñ	å@4  •ğØ8Ú   a  ! õ)æå@4  õĞòØ8İ   b  äœÜ  ! õ)×d c  ËK:   ] ] Ì! õ)¨¹$&h)0+{"!!šZw#U.6-9TAm°function(resolve, reject) {
+      }B  Ò @‚ @ò @ ô @„ @Ø ÚC
+   Ü”  –  †   Ü  òÒ ‚Ø Úô„ã–L   ­ğãòã@:   Ïäx   ­ğWå8­   ©ğ8±   å! Ğó 8­   A  å$ ğ8±   å@§  å@D  å@ë  ! Ğò^Ø8Ú   „  ! õ)ä…  ­ğ,å•ñ	å@4  •ğØ8Ú   †  ! õ)æå@4  õĞòØ8İ   ‡  äœÜ  ! õ)×d ˆ  ËK:   ] ] Ì! õ)¨„$&h)0+{"!!šZw#U.6-9TAm°function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var data;
           if (format === "raw") {
@@ -9029,7 +9219,7 @@ N& & & & öclass CryptoKey {
             keyUsages,
             data
           ));
-        }8Î   Å ! (¨¸•	importKey(format, keyData, algorithm, extractable, keyUsages) {
+        }8Î   Å ! (¨ƒ•	importKey(format, keyData, algorithm, extractable, keyUsages) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var data;
@@ -9060,9 +9250,9 @@ N& & & & öclass CryptoKey {
             data
           ));
         });
-      }B  ¨ @ ° @Ü @– †  ˆ C
-   º”  –  ¼   È  ¦  ¤ ¨ – °†Üˆã–L   ­ğãòã@:   Óe  ­h‡   ã@  ğ%ã@  –L   ­ğ	ã@  òã@  @:   òf  Ğä@g  ûñØ8İ   [  Ü  ! õ)k$   äAg  Ìå@Z  æ] õ$ Ñ×] Íõõ)Òk
-   ØÎõ)0Ø8İ   h  ËœÜ  ! õ)¨Ù$&b%€VÕ59  $*D+}@+ 9R³function(resolve, reject) {
+      }B  ò @ ° @Ü @– Ğ  Ò C
+   º”  –  †   ’  ¦  ¤ ò – °ĞÜÒã–L   ­ğãòã@:   ÓŠ  ­h‡   ã@  ğ%ã@  –L   ­ğ	ã@  òã@  @:   ò‹  Ğä@Œ  ûñØ8İ   €  Ü  ! õ)k$   äAŒ  Ìå@`  æ] õ$ Ñ×] Íõõ)Òk
+   ØÎõ)0Ø8İ     ËœÜ  ! õ)¨¤$&b%€VÕ59  $*D+}@+ 9R³function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "HMAC") {
             var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : "SHA-256";
@@ -9079,7 +9269,7 @@ N& & & & öclass CryptoKey {
             return;
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
-        }8Î   Å ! (¨Øõsign(algorithm, key, data) {
+        }8Î   Å ! (¨£õsign(algorithm, key, data) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "HMAC") {
@@ -9098,9 +9288,9 @@ N& & & & öclass CryptoKey {
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         });
-      }B ¨ @° @Ò @ Ü @  †  C
- P” @ –  ¼     † Ò¨ °ÜC
-   8Ô  Ö   Ø  Ú  ¢  † Ò” ãäõÏ8±   ×! ĞËïÌï®ğå	õ)ºÑºÒÎËï¥ğÍËÎFÌÎF¢£Ñ’òíåÍº­õ)¨ğ2D! #"6%¬function(computed) {
+      }B ò @° @œ @ Ü @  Ğ  C
+ P” @ –  †     Ğ œò °ÜC
+   8      ¢  ¤  ¢  Ğ œ” ãäõÏ8±   ×! ĞËïÌï®ğå	õ)ºÑºÒÎËï¥ğÍËÎFÌÎF¢£Ñ’òíåÍº­õ)¨»2D! #"6%¬function(computed) {
               var sig = toUint8Array(signature);
               var comp = new Uint8Array(computed);
               if (sig.length !== comp.length) {
@@ -9112,7 +9302,7 @@ N& & & & öclass CryptoKey {
                 diff |= sig[i] ^ comp[i];
               }
               resolve(diff === 0);
-            }Ğå–L   ­ğåòå@:   Óe  ­ğÌAn  åæ] $ A‰   Å Ø$ )Ø8İ   h  ËœÜ  ! õ)¨í&b%+ C6 M9R†function(resolve, reject) {
+            }Ğå–L   ­ğåòå@:   ÓŠ  ­ğÌA“  åæ] $ A‰   Å Ø$ )Ø8İ     ËœÜ  ! õ)¨¸&b%+ C6 M9R†function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "HMAC") {
             this.sign(algorithm, key, data).then(function(computed) {
@@ -9131,7 +9321,7 @@ N& & & & öclass CryptoKey {
             return;
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
-        }Ï8Î   Å Aº  Ë$ ! (¨ì &àverify(algorithm, key, signature, data) {
+        }Ï8Î   Å Aº  Ë$ ! (¨· &àverify(algorithm, key, signature, data) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "HMAC") {
@@ -9152,9 +9342,9 @@ N& & & & öclass CryptoKey {
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         }.bind(this));
-      }B  ¨ @ ° @Ü @†  – ˆ C
+      }B  ò @ ° @Ü @Ğ  – Ò C
  	  ¼
-”  –  ¼   Ş  à  ¦  â  ä  æ  ¤ ¨ † Ü–°ˆã–L   ­ğãòã@:   ÏäåõĞæ@t  ûñØ8İ   [  Ü  ! õ)kÜ   Ëu  ­ğ.äã@p  õÑæAt  Ì] @Z  Íu  $ Ò×] Îõõn(Ëv  ­ğ_äã@p  õÑã@w  ğäã@w  õòÈã@x  øñã@x  ÂšòÂÈæAt  Ì] @Z  Ív  ÇÇ$ Ò×] Îõõn(Ëy  ­ğ0äã@s  õÈæAt  Ì] @Z  Çy  $ Ò×] Îõõn(òÈk   ØÇõn(0Ø8İ   h  ËœÜ  ! õ)¨ƒB&g0E 0IbE-0X8]/>NAvE-0NgE /-9RŒfunction(resolve, reject) {
+”  –  †   ¨  ª  ¦  ¬  ®  °  ¤ ò Ğ Ü–°Òã–L   ­ğãòã@:   ÏäåõĞæ@™  ûñØ8İ   €  Ü  ! õ)kÜ   Ëš  ­ğ.äã@•  õÑæA™  Ì] @`  Íš  $ Ò×] Îõõn(Ë›  ­ğ_äã@•  õÑã@œ  ğäã@œ  õòÈã@  øñã@  ÂšòÂÈæA™  Ì] @`  Í›  ÇÇ$ Ò×] Îõõn(Ë  ­ğ0äã@˜  õÈæA™  Ì] @`  Ç  $ Ò×] Îõõn(òÈk   ØÇõn(0Ø8İ     ËœÜ  ! õ)¨ÎB&g0E 0IbE-0X8]/>NAvE-0NgE /-9RŒfunction(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var plaintext = toUint8Array(data);
           if (typeof pal2.nativeAesEncrypt !== "function") {
@@ -9187,7 +9377,7 @@ N& & & & öclass CryptoKey {
             return;
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
-        }8Î   Å ! (¨‚Ñencrypt(algorithm, key, data) {
+        }8Î   Å ! (¨ÍÑencrypt(algorithm, key, data) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var plaintext = toUint8Array(data);
@@ -9222,9 +9412,9 @@ N& & & & öclass CryptoKey {
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         });
-      }B  ¨ @ ° @Ü @†  – ˆ C
+      }B  ò @ ° @Ü @Ğ  – Ò C
  	  ¼
-”  –  ¼   ô  à  ¦  â  ä  æ  ¤ ¨ † Ü–°ˆã–L   ­ğãòã@:   ÏäåõĞæ@{  ûñØ8İ   [  Ü  ! õ)kÜ   Ëu  ­ğ.äã@p  õÑæA{  Ì] @Z  Íu  $ Ò×] Îõõn(Ëv  ­ğ_äã@p  õÑã@w  ğäã@w  õòÈã@x  øñã@x  ÂšòÂÈæA{  Ì] @Z  Ív  ÇÇ$ Ò×] Îõõn(Ëy  ­ğ0äã@s  õÈæA{  Ì] @Z  Çy  $ Ò×] Îõõn(òÈk   ØÇõn(0Ø8İ   h  ËœÜ  ! õ)¨§B&g0E 0IbE-0X8]/>NAvE-0NgE /-9Rfunction(resolve, reject) {
+”  –  †   ¾  ª  ¦  ¬  ®  °  ¤ ò Ğ Ü–°Òã–L   ­ğãòã@:   ÏäåõĞæ@   ûñØ8İ   €  Ü  ! õ)kÜ   Ëš  ­ğ.äã@•  õÑæA   Ì] @`  Íš  $ Ò×] Îõõn(Ë›  ­ğ_äã@•  õÑã@œ  ğäã@œ  õòÈã@  øñã@  ÂšòÂÈæA   Ì] @`  Í›  ÇÇ$ Ò×] Îõõn(Ë  ­ğ0äã@˜  õÈæA   Ì] @`  Ç  $ Ò×] Îõõn(òÈk   ØÇõn(0Ø8İ     ËœÜ  ! õ)¨òB&g0E 0IbE-0X8]/>NAvE-0NgE /-9Rfunction(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var ciphertext = toUint8Array(data);
           if (typeof pal2.nativeAesDecrypt !== "function") {
@@ -9257,7 +9447,7 @@ N& & & & öclass CryptoKey {
             return;
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
-        }8Î   Å ! (¨¦Õdecrypt(algorithm, key, data) {
+        }8Î   Å ! (¨ñÕdecrypt(algorithm, key, data) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var ciphertext = toUint8Array(data);
@@ -9292,8 +9482,8 @@ N& & & & öclass CryptoKey {
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         });
-      }B  ¨ @ ª @º @C
-   €”  –  ¼   È  ø  ú  ü  f  ¨  ªºã–L   ­ğãòã@:   Óe  ­h¶   ã@  ğ%ã@  –L   ­ğ	ã@  òã@  @:   òf  ĞãïøñãïòºÕº§ğ8¦   A  ÍÂš$ ÒòÌ€  ­ğÂòÌ  ­ğÂ@òÂ Ò8±   Î! È8J  A<  Ç$ ×d c  e  K:   ÌK  åæÇ! õ)Ëu  ­ñËv  ­ñ	Ëy  ­ğyãïñÃ€ ÉÃ€ ®ğ'ÇÃÀ ®ğÇÃ ®ğØ8İ   ‚  ƒ  ! õ)8±   ÇÂš! È8J  A<  Ç$ ×d c  ËK:   ÇK3   åæÇ! õ)Ø8İ   h  ËœÜ  ! õ)¨ËB&b%€VÁ'1)401I6C8OK?%4.!-¹9494cg*$*$!an*(+M4.!-¥9Rúfunction(resolve, reject) {
+      }B  ò @ ô @„ @ÚC
+   €”  –  †   ’  Â  Ä  Æ  f  ò Ú ô„ã–L   ­ğãòã@:   ÓŠ  ­h¶   ã@  ğ%ã@  –L   ­ğ	ã@  òã@  @:   ò‹  ĞãïøñãïòºÕº§ğ8¦   A¤  ÍÂš$ ÒòÌ¥  ­ğÂòÌ¦  ­ğÂ@òÂ Ò8±   Î! È8J  A<  Ç$ ×d ˆ  Š  K:   ÌK  åæÇ! õ)Ëš  ­ñË›  ­ñ	Ë  ­ğyãïñÃ€ ÉÃ€ ®ğ'ÇÃÀ ®ğÇÃ ®ğØ8İ   §  ¨  ! õ)8±   ÇÂš! È8J  A<  Ç$ ×d ˆ  ËK:   ÇK3   åæÇ! õ)Ø8İ     ËœÜ  ! õ)¨–B&b%€VÁ'1)401I6C8OK?%4.!-¹9494cg*$*$!an*(+M4.!-¥9Rúfunction(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "HMAC") {
             var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : "SHA-256";
@@ -9321,7 +9511,7 @@ N& & & & öclass CryptoKey {
             return;
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
-        }8Î   Å ! (¨ÊĞgenerateKey(algorithm, extractable, keyUsages) {
+        }8Î   Å ! (¨•ĞgenerateKey(algorithm, extractable, keyUsages) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "HMAC") {
@@ -9351,9 +9541,9 @@ N& & & & öclass CryptoKey {
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         });
-      }B  ˆ @° @ ˆ Œ C
-  Ú”  –  À   °ˆ ˆ Œ256ã@U  •ğØ8İ   „  á  ! õ)äx   ­ğ×åã@Z  õõ)ä`  ­h‡   …  K†  æã@Z  õK4  ã@T  @:   e  ­ğ3‡  ã@T  @  ğã@T  @  Aú  ˆ  Æ$ òÄ œòã@T  @:   K‰  
-KŠ  ã@V  K‹  Ï×Ëõ)Ø8İ   Œ  äœÜ  ! õ)¨ê#1s+7xvC “R 2­9Zªfunction(resolve, reject) {
+      }B  Ò @° @ Ò Ö C
+  Ú”  –  Š   °Ò Ò Ö256ã@z  •ğØ8İ   ©  á  ! õ)äx   ­ğ×åã@`  õõ)ä…  ­h‡   ª  K«  æã@`  õK4  ã@y  @:   Š  ­ğ3¬  ã@y  @  ğã@y  @  Aú  ­  Æ$ òÄ œòã@y  @:   K®  
+K¯  ã@{  K°  Ï×Ëõ)Ø8İ   ±  äœÜ  ! õ)¨µ#1s+7xvC “R 2­9Zªfunction(resolve, reject) {
           if (!key.extractable) {
             reject(new DOMException("Key is not extractable", "InvalidAccessError"));
             return;
@@ -9374,7 +9564,7 @@ KŠ  ã@V  K‹  Ï×Ëõ)Ø8İ   Œ  äœÜ  ! õ)¨ê#1s+7xvC “R 2­
             return;
           }
           reject(new DOMException("Unsupported export format: " + format, "NotSupportedError"));
-        }8Î   Å ! (¨éèexportKey(format, key) {
+        }8Î   Å ! (¨´èexportKey(format, key) {
         return new Promise(function(resolve, reject) {
           if (!key.extractable) {
             reject(new DOMException("Key is not extractable", "InvalidAccessError"));
@@ -9397,8 +9587,8 @@ KŠ  ã@V  K‹  Ï×Ëõ)Ø8İ   Œ  äœÜ  ! õ)¨ê#1s+7xvC “R 2­
           }
           reject(new DOMException("Unsupported export format: " + format, "NotSupportedError"));
         });
-      }B  ¨ @ ° @f @†  – ˆ C
-   â	”  –  ¼   š  œ  È    ¦  ¤ ¨ † –f°ˆã–L   ­ğãòã@:   Ó  ­h¯   äã@  õĞã@  Ñã@  ğ%ã@  –L   ­ğ	ã@  òã@  @:   ò€  Òå@‘  ûñØ8İ   [  Ü  ! õ)k:   8¦   A  æÂš$ ÈåA‘  ] @Z  ÌÍÎÇ$ È×] Çõõ)Èk   ØÇõ)0Ø8İ   h  ËœÜ  ! õ)¨‚(&b%?•DÕ1= $I ]=J+ 9RÕfunction(resolve, reject) {
+      }B  ò @ ° @f @Ğ  – Ò C
+   â	”  –  †   ä  æ  ’  è  ¦  ¤ ò Ğ –f°Òã–L   ­ğãòã@:   Óµ  ­h¯   äã@²  õĞã@³  Ñã@  ğ%ã@  –L   ­ğ	ã@  òã@  @:   ò¥  Òå@¶  ûñØ8İ   €  Ü  ! õ)k:   8¦   A¤  æÂš$ ÈåA¶  ] @`  ÌÍÎÇ$ È×] Çõõ)Èk   ØÇõ)0Ø8İ     ËœÜ  ! õ)¨Í(&b%?•DÕ1= $I ]=J+ 9RÕfunction(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "PBKDF2") {
             var salt = toUint8Array(algorithm.salt);
@@ -9418,7 +9608,7 @@ KŠ  ã@V  K‹  Ï×Ëõ)Ø8İ   Œ  äœÜ  ! õ)¨ê#1s+7xvC “R 2­
             return;
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
-        }8Î   Å ! (¨ŸderiveBits(algorithm, key, length) {
+        }8Î   Å ! (¨ÌŸderiveBits(algorithm, key, length) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "PBKDF2") {
@@ -9440,23 +9630,23 @@ KŠ  ã@V  K‹  Ï×Ëõ)Ø8İ   Œ  äœÜ  ! õ)¨ê#1s+7xvC “R 2­
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         });
-      }B ¨ @° @¤ @ ª @º @š
-  @  C
- 7” @ –  ¦   ¤ ªºš
-  ¨ °C
-   :¨  Ü   ¼  ¤ ” ªº8±   ×! Ïã–L   ­ğãòã@:   Ğäd c  ÌK:   æ] Ë! õ)¨œ<??4bQfunction(bits) {
+      }B ò @° @î @ ô @„ @š
+  @  ÚC
+ 7” @ –  ğ   îÚ ô„š
+  ò °C
+   :ò  Ü   †  î ” Úô„8±   ×! Ïã–L   ­ğãòã@:   Ğäd ˆ  ÌK:   æ] Ë! õ)¨ç<??4bQfunction(bits) {
             var data = new Uint8Array(bits);
             var algoName = typeof derivedKeyType === "string" ? derivedKeyType : derivedKeyType.name;
             resolve(new CryptoKey("secret", { name: algoName }, extractable, keyUsages, data));
           }ã–L   ­ğÃ ò
-ãïñÃ Ï] A•  ] ] Ë$ A‰   Å Ø$ )¨š4{U* MBŞfunction(resolve, reject) {
+ãïñÃ Ï] Aº  ] ] Ë$ A‰   Å Ø$ )¨å4{U* MBŞfunction(resolve, reject) {
           var bitsLength = typeof derivedKeyType === "string" ? 256 : derivedKeyType.length || 256;
           self.deriveBits(algorithm, key, bitsLength).then(function(bits) {
             var data = new Uint8Array(bits);
             var algoName = typeof derivedKeyType === "string" ? derivedKeyType : derivedKeyType.name;
             resolve(new CryptoKey("secret", { name: algoName }, extractable, keyUsages, data));
           }, reject);
-        }ĞÌÏ8Î   Å ! (¨˜àderiveKey(algorithm, key, derivedKeyType, extractable, keyUsages) {
+        }ĞÌÏ8Î   Å ! (¨ãàderiveKey(algorithm, key, derivedKeyType, extractable, keyUsages) {
         var self = this;
         return new Promise(function(resolve, reject) {
           var bitsLength = typeof derivedKeyType === "string" ? 256 : derivedKeyType.length || 256;
@@ -9467,10 +9657,10 @@ KŠ  ã@V  K‹  Ï×Ëõ)Ø8İ   Œ  äœÜ  ! õ)¨ê#1s+7xvC “R 2­
           }, reject);
         });
       }Å ÏÅĞÅÒÅÈ`
- ` S  Ñ` ` ÄUH   ÅSY  ÅST  ÅSU  ÅSV  ÈÉg È` `	 Ä	UI   Å
-S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È	Ég	 È
+ ` S  Ñ` ` ÄUm   ÅSY  ÅSy  ÅSz  ÅS{  ÈÉg È` `	 Ä	Un   Å
+S»   ÅS¼   ÅS“   ÅS½   ÅS¾   ÅS¿   ÅSÀ   ÅSÁ   ÅSº   ÅSÂ   È	Ég	 È
 8•   @J  •ğ8•   BJ  8•   @J  a
- !  BI  8•   a BH  )¨í Êğ;4>?=—ifunction installCryptoSubtle(pal2) {
+ !  BI  8•   a Bm  )¨¸ Êğ;4>?=—ifunction installCryptoSubtle(pal2) {
     function toUint8Array(data) {
       if (data instanceof Uint8Array) return data;
       if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -9790,11 +9980,17 @@ S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È
   
  	 
 “
-ò  @ ¼ @¾ @À @Â @Ä @Æ @È  Ê @Ì 	 C
- Ö …ˆ  º  Î   ¢  Ğ  Ò  ¦  ò  C
-      ş  ×@ª  •ğ×Ai  $  )¨Ä0  Cfunction(ab) {
-          if (!ab.detached) ab.transfer();
-        }ÏØh´   Ø@i  øi¨   Ø@i  ®h›   8Ÿ   AÉ  Ø@i  $ •ğ8İ   «  é  ! 08À   !  ÏºĞÌØ@i  ï¥ğWØ@i  ÌFÑËAk   Í$ ğ8İ   ¬  é  ! 0Í8­   ©•ğ8İ   ­  é  ! 0ËAp   Í$ ’ò Øğ Ø–M   ­ğØ@i  Ki  ËK®  Üò	ËK®  Ü8¿   !  Òã×ÎØ÷ÈËğËAW  Å $ Ç(¨­"&J>>X[?g,D!l0g  F0?m ,::1! (”	function structuredClone(value, options) {
+ò  @ † @ˆ @Š @Œ @ @ @’  ” @– 	 C
+ ş §ˆ  º  ˜   ¢  š  œ    ¦  ò  C
+      4   ×8­   ©ğ×@Ñ  •ğ"×A|  $  )×@l  –K   ­ğ×
+Bl  )¨
+ X :0A×function(t2) {
+          if (t2 instanceof ArrayBuffer) {
+            if (!t2.detached) t2.transfer();
+          } else if (typeof t2._detached === "boolean") {
+            t2._detached = true;
+          }
+        }ÏØhÔ   Ø@|  øiÈ   Ø@|  ®h»   8Ÿ   AÉ  Ø@|  $ •ğ8İ   Ò  é  ! 08À   !  ÏºĞÌØ@|  ï¥ğwØ@|  ÌFÑËAk   Í$ ğ8İ   Ó  é  ! 08•   @•  ûğÍ8•   @•  ©ÒÍ8­   ©•ğÎ•ğ8İ   Ô  é  ! 0ËAp   Í$ ’ò€Øğ Ø–M   ­ğØ@|  K|  ËKÕ  Üò	ËKÕ  Ü8¿   !  Èã×ÇØ÷ÈËğËAW  Å $ Ç(¨ø"*J>>X[?g,D!™F 6DmDg  F0?m ,:?6! (Ÿfunction structuredClone(value, options) {
       var transferSet = null;
       if (options && options.transfer !== void 0 && options.transfer !== null) {
         if (!Array.isArray(options.transfer))
@@ -9804,7 +10000,8 @@ S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È
           var t = options.transfer[i];
           if (transferSet.has(t))
             throw new DOMException("duplicate transferable", "DataCloneError");
-          if (!(t instanceof ArrayBuffer))
+          var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
+          if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
           transferSet.add(t);
         }
@@ -9817,27 +10014,33 @@ S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È
       var seen = /* @__PURE__ */ new Map();
       var result = clone(value, seen, options);
       if (transferSet) {
-        transferSet.forEach(function(ab) {
-          if (!ab.detached) ab.transfer();
+        transferSet.forEach(function(t2) {
+          if (t2 instanceof ArrayBuffer) {
+            if (!t2.detached) t2.transfer();
+          } else if (typeof t2._detached === "boolean") {
+            t2._detached = true;
+          }
         });
       }
       return result;
     }C
- ò	Ô	ˆ  Ò @º @²   Ş  Î  ¦ @ à  Ò  ¢  b  ¤< ò  ¼ C
-     ä  è  ¦ ò ÒºãAF   äØåæ÷ä×åæ÷$ )¨ó 2bfunction(v, k) {
+ ò±ˆ   @º @²   ¬  Î  ¦ @ ®  °  ²  œ  ¢  b 	 ¤C ò  † C
+     ä  è  ¦ ò ºãAF   äØåæ÷ä×åæ÷$ )¨Ã 2bfunction(v, k) {
           result.set(clone(k, seen, options), clone(v, seen, options));
         }C
-     ä  ¦ ò ÒºãAp   ä×åæ÷$ )¨û Ffunction(v) {
+     ä  ¦ ò ºãAp   ä×åæ÷$ )¨Ë Ffunction(v) {
           result.add(clone(v, seen, options));
-        }×ùñ×øğ×(×–ÓK   ­ñËJ   ­ñËL   ­ñ	Ë–   ­ğ×(ËN   ­ğ8İ   ±  é  ! 0×–M   ­ñ×ûğØAk   ×$ ğØAE   ×% ×ûğ8İ   ²  é  ! 0×8¨   ©ğ8¨   ×A³  $  ! (×8¬   ©ğ8¬   ×@t   ×@u   ! (×8    ©h¾   ×@@   Ô8    ­ñ@Ì8Ú   ­ñ5Ì8×   ­ñ*Ì8Ù   ­ñÌ8Û   ­ñÌ8Ø   ­ñ	Ì8Ö   ­ğÌ×@4   ! Õ×@9   B9   Í(7İ   ûğ ×8İ   ©ğ8İ   ×@4   ×@:   ! (8    ×@4   ! Õ×@:   B:   Í×@9   B9   Í(×8¿   ©ğ%8¿   !  ÒØAF   ×Î$ ×AW  Å $ Î(×8À   ©ğ%8À   !  ÒØAF   ×Î$ ×AW  Å$ Î(×8­   ©ğNÙğÙ@®  Éğ&ÇAk   ×$ ğÇA	   ×$ ×Ai  $  Òò×A§  º$ ÒØAF   ×Î$ Î(×8»   ©ğ%ã×@§  ØÙ÷È8»   Ç×@D  ×@Æ  ! (×8°   ©ğä×8°   Ø# ×8±   ©ğä×8±   Ø# ×8¯   ©ğä×8¯   Ø# ×8²   ©ğä×8²   Ø# ×8³   ©ğä×8³   Ø# ×8´   ©ğä×8´   Ø# ×8µ   ©ğä×8µ   Ø# ×8¹   ©ğä×8¹   Ø# ×8º   ©ğä×8º   Ø# 7¶   úñ×8¶   ©ğä×8¶   Ø# 7·   úñ×8·   ©ğä×8·   Ø# 7ü  úñ$×8ü  ©ğ8ü  ×& ×@Y  KY  ! (7ı  úñ5×8ı  ©ğ,8ı  ×& ×@:   ×@Y  KY  ×@ó  Kó  ! (8Ÿ   AÉ  ×$ ğ9&  ÒØAF   ×Î$ ºÈÇ×ï¥ğÎÇ¯ñqã×ÇFØÙ÷qH’òŞÎ(×@@   8   ­ñ	×@@   •ğNÒØAF   ×Î$ 8   A1   ×$ ÈºÈÇÇï¥ğ#ÎÇÇF¯ñqã×ÇÇFFØÙ÷qH’ò×Î(ÒØAF   ×Î$ kD   8   A1   ×$ ÈºÈÇÇï¥ğ#ÎÇÇF¯ñqã×ÇÇFFØÙ÷qH’ò×òÈk   ò0Î(¨Êå  $,%9,9*9*<+m>:0E?
+        }×ùñ×øğ×(×–ÓK   ­ñËJ   ­ñËL   ­ñ	Ë–   ­ğ×(ËN   ­ğ8İ   Ú  é  ! 0×–M   ­ñ×ûğØAk   ×$ ğØAE   ×% ×ûğ8İ   Û  é  ! 0×8¨   ©ğ8¨   ×AÜ  $  ! (×8¬   ©ğ8¬   ×@t   ×@u   ! (×8    ©h¾   ×@@   Ô8    ­ñ@Ì8Ú   ­ñ5Ì8×   ­ñ*Ì8Ù   ­ñÌ8Û   ­ñÌ8Ø   ­ñ	Ì8Ö   ­ğÌ×@4   ! Õ×@9   B9   Í(7İ   ûğ ×8İ   ©ğ8İ   ×@4   ×@:   ! (8    ×@4   ! Õ×@:   B:   Í×@9   B9   Í(×8¿   ©ğ%8¿   !  ÒØAF   ×Î$ ×AW  Å $ Î(×8À   ©ğ%8À   !  ÒØAF   ×Î$ ×AW  Å$ Î(8•   @•  ûhÑ   ×8•   @•  ©hÀ   ÙğÙ@Õ  Éhš   ÇAk   ×$ hŠ   ÇA	   ×$ 8•   @™  ğa×@i  È×
+Bl  8•   A™  ×@^  K_  ×@h  Kg  j  K  $ ÈÇğÇğ
+ÇÇBi  ØAF   ×Ç$ Ç(ØAF   ××$ ×(8İ   İ  é  ! 0×8­   ©ğNÙğÙ@Õ  Éğ&ÇAk   ×$ ğÇA	   ×$ ×A|  $  Òò×A§  º$ ÒØAF   ×Î$ Î(×8»   ©ğ%ã×@§  ØÙ÷È8»   Ç×@D  ×@ë  ! (×8°   ©ğä×8°   Ø# ×8±   ©ğä×8±   Ø# ×8¯   ©ğä×8¯   Ø# ×8²   ©ğä×8²   Ø# ×8³   ©ğä×8³   Ø# ×8´   ©ğä×8´   Ø# ×8µ   ©ğä×8µ   Ø# ×8¹   ©ğä×8¹   Ø# ×8º   ©ğä×8º   Ø# 7¶   úñ×8¶   ©ğä×8¶   Ø# 7·   úñ×8·   ©ğä×8·   Ø# 7!  úñ$×8!  ©ğ8!  ×& ×@Y  KY  ! (7"  úñ5×8"  ©ğ,8"  ×& ×@:   ×@Y  KY  ×@  K  ! (8Ÿ   AÉ  ×$ ğ9&  ÒØAF   ×Î$ ºÈÇ×ï¥ğÎÇ¯ñqã×ÇFØÙ÷qH’òŞÎ(×@@   8   ­ñ	×@@   •ğNÒØAF   ×Î$ 8   A1   ×$ È	ºÈÇÇ	ï¥ğ#ÎÇ	ÇF¯ñqã×Ç	ÇFFØÙ÷qH’ò×Î(ÒØAF   ×Î$ kD   8   A1   ×$ È	ºÈÇÇ	ï¥ğ#ÎÇ	ÇF¯ñqã×Ç	ÇFFØÙ÷qH’ò×òÈ
+k   ò0Î(¨šÿ  $,%9,9*9*<+m>:0E?
 m+>,+w^9$9,9.909*96+‡:d4>+[rN? P&+5A !  	
 
-+5A !  	
-
-›!% " ! 20:	/D:C/F:E/T:S/F:E/H:G/F:E/H:G/J:I/JN9@0GN
++5A !  
+,%>Ñc0%‚Yê0 7 -m›!% " ! 20:	/D:C/F:E/T:S/F:E/H:G/F:E/H:G/J:I/JN9@0GN
 @0IN	@+MŸ@+M 5
 6 :#C$ m/ S:!#R0 
-7 m :!#R0Œ%function clone(value, seen, options) {
+7 m :!#R0¡+function clone(value, seen, options) {
       if (value === null || value === void 0) return value;
       var type = typeof value;
       if (type === "boolean" || type === "number" || type === "string" || type === "bigint") {
@@ -9890,6 +10093,25 @@ S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È
           result.add(clone(v, seen, options));
         });
         return result;
+      }
+      if (typeof globalThis.MessagePort === "function" && value instanceof globalThis.MessagePort) {
+        var ts = options && options._qwrtTransfer;
+        if (ts && ts.has(value)) {
+          ts.delete(value);
+          if (globalThis.__qwrt_port_from_ref__) {
+            var peer = value._entangledPort;
+            value._detached = true;
+            var pr = globalThis.__qwrt_port_from_ref__(
+              { id: value._id, peerId: value._peerId, peerThread: "local" }
+            );
+            if (peer && pr) pr._entangledPort = peer;
+            seen.set(value, pr);
+            return pr;
+          }
+          seen.set(value, value);
+          return value;
+        }
+        throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
       }
       if (value instanceof ArrayBuffer) {
         var ts = options && options._qwrtTransfer;
@@ -9954,13 +10176,13 @@ S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È
       }
       return result;
     }C
- ¼   ˆ  Ş  Ò  ¦   Ø×! ÏÙAF   ×Ë$ Ë(¨¿&&! ‹function cloneTypedArray(value, Ctor, seen) {
+ †   ˆ  ¬    ¦   Ø×! ÏÙAF   ×Ë$ Ë(¨¢&&! ‹function cloneTypedArray(value, Ctor, seen) {
       var result = new Ctor(value);
       seen.set(value, result);
       return result;
     }C
- À   èô  è   ¢  ö  ¤  ê  &  ÏºĞÌ×ï¥hÛ   ×Aı  Ì$ ÕÃ€ ¥ğËAO  Í$ óµ ÍÃ ¥ğËAO  ÃÀ ÍÀŸ£Ã€ ÍÂ?¡£$ ó’ Í Ø  ¥ñ	Í à  ¨ğ'ËAO  Ãà ÍÂŸ£Ã€ ÍÀŸÂ?¡£Ã€ ÍÂ?¡£$ òW×Aı  ÌÔ$ Ò   ÍÃÿ¡Â
-œÎÃÿ¡œÈËAO  Ãğ ÇÂŸ£Ã€ ÇÂŸÂ?¡£Ã€ ÇÀŸÂ?¡£Ã€ ÇÂ?¡£$ ’ó"ÿË(¨ĞR',I! 0! 
+ Š   è¾  ¼   ¢  ö  î  ¾  &  ÏºĞÌ×ï¥hÛ   ×Aı  Ì$ ÕÃ€ ¥ğËAO  Í$ óµ ÍÃ ¥ğËAO  ÃÀ ÍÀŸ£Ã€ ÍÂ?¡£$ ó’ Í Ø  ¥ñ	Í à  ¨ğ'ËAO  Ãà ÍÂŸ£Ã€ ÍÀŸÂ?¡£Ã€ ÍÂ?¡£$ òW×Aı  ÌÔ$ Ò   ÍÃÿ¡Â
+œÎÃÿ¡œÈËAO  Ãğ ÇÂŸ£Ã€ ÇÂŸÂ?¡£Ã€ ÇÀŸÂ?¡£Ã€ ÇÂ?¡£$ ’ó"ÿË(¨³R',I! 0! 
  ?'9+5 
 %
 %TS?&W!&
@@ -9988,8 +10210,8 @@ S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È
       }
       return out;
     }C
- Â   €	–  Â  Š	  è   ¢  ˜  ¬  ê  ì  ÆÏØĞØÙœÑÌÍ¥hò   ×ÌFÖÃ€ ¥ğË8¢   AR  Î$ œÏ»“òÙÎÃà ¥ğ%Ë8¢   AR  ÎÂ¡À×Ì»œFÂ?¡£$ œÏ¼“ò®ÎÃğ ¥ğ2Ë8¢   AR  ÎÂ¡Â×Ì»œFÂ?¡À£×Ì¼œFÂ?¡£$ œÏ½“ówÿÎÁ¡Â×Ì»œFÂ?¡Â£×Ì¼œFÂ?¡À£×Ì½œFÂ?¡£É   ÈË8¢   AR   Ø  ÇÂ
-Ÿœ$ 8¢   AR   Ü  ÇÃÿ¡œ$ œœÏ¾“óÿË(¨çi>#;!96!5!!9$
+ Œ   €	à  Â  Š	  ¼   ¢  ˜  ¬  ¾  À  ÆÏØĞØÙœÑÌÍ¥hò   ×ÌFÖÃ€ ¥ğË8¢   AR  Î$ œÏ»“òÙÎÃà ¥ğ%Ë8¢   AR  ÎÂ¡À×Ì»œFÂ?¡£$ œÏ¼“ò®ÎÃğ ¥ğ2Ë8¢   AR  ÎÂ¡Â×Ì»œFÂ?¡À£×Ì¼œFÂ?¡£$ œÏ½“ówÿÎÁ¡Â×Ì»œFÂ?¡Â£×Ì¼œFÂ?¡À£×Ì½œFÂ?¡£É   ÈË8¢   AR   Ø  ÇÂ
+Ÿœ$ 8¢   AR   Ü  ÇÃÿ¡œ$ œœÏ¾“óÿË(¨Êi>#;!96!5!!9$
 0m!!9$
 
 
@@ -10022,26 +10244,26 @@ S–   ÅS—   ÅSn   ÅS˜   ÅS™   ÅSš   ÅS›   ÅSœ   ÅS•   ÅS   È
       }
       return out;
     }C
- Ä   B®  @ C
-     ¬  ®  ãAO  ×Ãÿ ¡$ )¨ 6function(b) {
+    B®  @ C
+     ¬  ®  ãAO  ×Ãÿ ¡$ )¨ä 6function(b) {
           bytes.push(b & 255);
         }C
-     'ä  ®  ãAO  ×Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡$ )¨„ 
+     'ä  ®  ãAO  ×Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡$ )¨ç 
 
 efunction(v) {
           bytes.push(v & 255, v >>> 8 & 255, v >>> 16 & 255, v >>> 24 & 255);
         }C
-    Lä  ş   î  ì  ¢  ®  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑÌº¯ñq×qHºÒÎÂ¥ğãAO  ÍÎF$ ’òê)¨‡>094:}b( ¼function(v) {
+    Lä  ş   Â  À  ¢  ®  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑÌº¯ñq×qHºÒÎÂ¥ğãAO  ÍÎF$ ’òê)¨ê>094:}b( ¼function(v) {
           var ab = new ArrayBuffer(8), f = new Float64Array(ab), u = new Uint8Array(ab);
           f[0] = v;
           for (var i = 0; i < 8; i++) bytes.push(u[i]);
         }C
-    –  ¢   ®  ºÏË×ï¥ğãAO  ×ËF$ ’ òê)¨Œ"  Yfunction(u8) {
+    à  ¢   ®  ºÏË×ï¥ğãAO  ×ËF$ ’ òê)¨ï"  Yfunction(u8) {
           for (var i = 0; i < u8.length; i++) bytes.push(u8[i]);
         }C
-        ®  8±   ã! @§  (¨Efunction() {
+        ®  8±   ã! @§  (¨òEfunction() {
           return new Uint8Array(bytes).buffer;
-        }&  ÏÅ LK  KK  ÅL¸  K¸  ÅL¹  K¹  ÅLx   Kx   ÅLq   Kq   (¨ş Šfunction ByteWriter() {
+        }&  ÏÅ Lp  Kp  ÅLâ  Kâ  ÅLã  Kã  ÅLx   Kx   ÅLq   Kq   (¨á Šfunction ByteWriter() {
       var bytes = [];
       return {
         u8: function(b) {
@@ -10063,26 +10285,27 @@ efunction(v) {
         }
       };
     }C
- Æ  /®  ô  ì   ¢  À ã8¢   ØõõÏ×A¸  Ëï$ ºĞÌËï¥ğ×AK  ÊF$ ’òë)¨”*3 0  function encodeString(bytes, s) {
+   /®  ¾  À   ¢  Š ã8¢   ØõõÏ×Aâ  Ëï$ ºĞÌËï¥ğ×Ap  ÊF$ ’òë)¨÷*3 0  function encodeString(bytes, s) {
       var u = utf8Encode(String(s));
       bytes.u32(u.length);
       for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
     }C
- ÈÌ	ˆ  Ò  Î  @¢  Ğ  ô @ä @® @ö @ Æ ¾ Ä C
- ö ª	ä  ø   ú  ü  ş  ˆ	  €  b  ¤3 ö ® Æ ô ä Î  ¾      àAC
-     ‚  °  ö ãØõã×õ)¨‚ Hfunction(val, key) {
+ ’í
+ˆ  ø  ˜  @¢  š  œ  È @ä @® @Ê @  ˆ  C
+ Ê å	ä      Ì  Î  Ğ  ˆ	  Ò  b  ¤6 Ê ®  È ä ˜  ˆ      àAC
+     Ô  °  Ê ãØõã×õ)¨æ Hfunction(val, key) {
             w(key);
             w(val);
           }C
-     ‚  ö ã×õ)¨Œ /function(val) {
+     Ô  Ê ã×õ)¨ğ /function(val) {
             w(val);
-          }×ùğäAK  »$ )×øğäAK  ¼$ )×–ÓK   ­ğäAK  ×ğ½ò¾$ )ËJ   ­ğd8¡   AÂ  ×$ ğ=8   AÃ  ×º‹$ •ğ*×Ä ‹¨ğ#×ÿÿÿ¦ğäAK  ¿$ äA¸  ×º $ )äAK  À$ äA¹  ×$ )ËL   ­ğäAK  Á$ åä×ö)Ë–   ­ğäAK  Â$ åä×A;   $  ö)ËN   ­ğ8İ   ±  é  ! 0Ë   ­ğ8İ   ²  é  ! 0æAk   ×$ ğ!äAK  Â$ äA¸  æAE   ×$ $ )×8¨   ©ğ2æAF   ×] ^ $ äAK  Â$ äA¹  ×A³  $  $ )×8¬   ©ğ3æAF   ×] ^ $ äAK  Â	$ åä×@t   öåä×@u   ö)×8    ©ğAæAF   ×] ^ $ äAK  Â
-$ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ äAK  Â$ åä×@:   öåä×@Y  ñÆöäA¹  ×@ó  $ ×@á  ûğ×Aá  $  òÔ•ğ8İ   Ä  é  ! 0äA¸  Ìï$ äAx   Ì$ )7ü  úñ{×8ü  ©ğræAF   ×] ^ $ äAK  Â$ åä×@Y  ñÆö×@á  ûğ×Aá  $  òÕ•ğ8İ   Å  é  ! 0äA¸  Íï$ äAx   Í$ )×8¿   ©ğ;æAF   ×] ^ $ äAK  Â$ äA¸  ×@2   $ ×AW  Å$ )×8À   ©ğ;æAF   ×] ^ $ äAK  Â$ äA¸  ×@2   $ ×AW  Å$ )×8­   ©ğlæAF   ×] ^ $ äAK  Â$ 8±   ×! ÒäA¸  Îï$ äAx   Î$ ] ğ&] Ak   ×$ ğ] A	   ×$ ×Ai  $  )×8»   ©ğHæAF   ×] ^ $ äAK  Â$ ã×@§  õäA¸  ×@D  $ äA¸  ×@Æ  $ )ºÈÇ] ï¥ğf×] ÇF©ğXæAF   ×] ^ $ äAK  ÂÇœ$ 8±   ×@§  ×@D  ×@Æ  ! ÈäA¸  Çï$ äAx   Ç$ )’ò“8Ÿ   AÉ  ×$ ğAæAF   ×] ^ $ äAK  Â$ äA¸  ×ï$ ºÈÇ×ï¥ğã×ÇFõ’òï)æAF   ×] ^ $ äAK  Â$ k   8   A1   ×$ ÈòÈk   &  Èò0äA¸  Çï$ ºÈÇÇï¥ğåäÇÇFöã×ÇÇFFõ’òâ)¨«ı #  + A ]R"4%(+  '   + + !%#*(l'*,…'! !  2+ ? !  -+ ? !07+ ? !]d
+          }×ùğäAp  »$ )×øğäAp  ¼$ )×–ÓK   ­ğäAp  ×ğ½ò¾$ )ËJ   ­ğd8¡   Aë  ×$ ğ=8   Aì  ×º‹$ •ğ*×Ä ‹¨ğ#×ÿÿÿ¦ğäAp  ¿$ äAâ  ×º $ )äAp  À$ äAã  ×$ )ËL   ­ğäAp  Á$ åä×ö)Ë–   ­ğäAp  Â$ åä×A;   $  ö)ËN   ­ğ8İ   Ú  é  ! 0Ë   ­ğ8İ   Û  é  ! 0æAk   ×$ ğ!äAp  Â$ äAâ  æAE   ×$ $ )×8¨   ©ğ2æAF   ×] ^ $ äAp  Â$ äAã  ×AÜ  $  $ )×8¬   ©ğ3æAF   ×] ^ $ äAp  Â	$ åä×@t   öåä×@u   ö)×8    ©ğAæAF   ×] ^ $ äAp  Â
+$ åä×@:   ñ    öåä×@4   ñÆö)7"  úi›   ×8"  ©h   æAF   ×] ^ $ äAp  Â$ åä×@:   öåä×@Y  ñÆöäAã  ×@  $ ×@  ûğ×A  $  òÔ•ğ8İ   í  é  ! 0äAâ  Ìï$ äAx   Ì$ )7!  úñ{×8!  ©ğræAF   ×] ^ $ äAp  Â$ åä×@Y  ñÆö×@  ûğ×A  $  òÕ•ğ8İ   î  é  ! 0äAâ  Íï$ äAx   Í$ )×8¿   ©ğ;æAF   ×] ^ $ äAp  Â$ äAâ  ×@2   $ ×AW  Å$ )×8À   ©ğ;æAF   ×] ^ $ äAp  Â$ äAâ  ×@2   $ ×AW  Å$ )8•   @•  ûh¯   ×8•   @•  ©h   ] •ñ] Ak   ×$ •ğ8İ   İ  é  ! 0] A	   ×$ ×
+Bl  æAF   ×] ^ $ äAp  Â $ äAâ  ×@^  ñº$ äAâ  ×@h  ñº$ åä×@k  ñj  ö)×8­   ©ğlæAF   ×] ^ $ äAp  Â$ 8±   ×! ÒäAâ  Îï$ äAx   Î$ ] ğ&] Ak   ×$ ğ] A	   ×$ ×A|  $  )×8»   ©ğHæAF   ×] ^ $ äAp  Â$ ã×@§  õäAâ  ×@D  $ äAâ  ×@ë  $ )ºÈÇ] ï¥ğf×] ÇF©ğXæAF   ×] ^ $ äAp  ÂÇœ$ 8±   ×@§  ×@D  ×@ë  ! ÈäAâ  Çï$ äAx   Ç$ )’ò“8Ÿ   AÉ  ×$ ğAæAF   ×] ^ $ äAp  Â$ äAâ  ×ï$ ºÈÇ×ï¥ğã×ÇFõ’òï)æAF   ×] ^ $ äAp  Â$ k   8   A1   ×$ ÈòÈk   &  Èò0äAâ  Çï$ ºÈÇÇï¥ğåäÇÇFöã×ÇÇFFõ’òâ)¨ Ÿ #  + A ]R"4%(+  '   + + !%#*(l'*,…'! !  2+ ? !  -+ ? !07+ ? !]d
 %8:[ ? !0I S4/57g- ! 78+[ ? !g./57g- ! #
 + ? ! 5  
-+ ? ! 5  
-
-+ ? !: ! ]2!A*&%  + ? !+ 5 P+0 ? & ” &  ! ? ! : <S ? <4&T%1 ?!'+´#function w(v) {
++ ? ! 5  
+4%6£3&1g*&%&  ? ! N Nd+ ? !: ! ]2!A*&%  + ? !+ 5 P+0 ? & ” &  ! ? ! : <S ? <4&T%1 ?!'+À'function w(v) {
         if (v === null) {
           bytes.u8(1);
           return;
@@ -10184,6 +10407,18 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           });
           return;
         }
+        if (typeof globalThis.MessagePort === "function" && v instanceof globalThis.MessagePort) {
+          if (!transferSet || !transferSet.has(v))
+            throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
+          transferSet.delete(v);
+          v._detached = true;
+          refs.set(v, next++);
+          bytes.u8(32);
+          bytes.u32(v._id || 0);
+          bytes.u32(v._peerId || 0);
+          encodeString(bytes, v._peerThread || "local");
+          return;
+        }
         if (v instanceof ArrayBuffer) {
           refs.set(v, next++);
           bytes.u8(13);
@@ -10235,9 +10470,9 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           w(v[keys[i2]]);
         }
       }C
-      ş  ×@ª  •ğ×Ai  $  )¨Æ 0  Cfunction(ab) {
+      ş  ×@Ñ  •ğ×A|  $  )¨¶!0  Cfunction(ab) {
           if (!ab.detached) ab.transfer();
-        }Å ÈÏØøi”   Ø®hŒ   8Ÿ   AÉ  Ø$ •ğ8İ   «  é  ! 08À   !  ÏºĞÌØï¥ğRØÌFÑËAk   Í$ ğ8İ   ¬  é  ! 0Í8­   ©•ğ8İ   ­  é  ! 0ËAp   Í$ ’òª8¿   !  ÒºÈåôÈÇ×õËğËAW  Å$ ÇAq   %  ¨™+'&%.X%&g,DO!l0g  2J% ´"  ( í*function serializeToBytes(value, transfer) {
+        }Å ÈÏØøi´   Ø®h¬   8Ÿ   AÉ  Ø$ •ğ8İ   Ò  é  ! 08À   !  ÏºĞÌØï¥ğrØÌFÑËAk   Í$ ğ8İ   Ó  é  ! 08•   @•  ûğÍ8•   @•  ©ÒÍ8­   ©•ğÎ•ğ8İ   Ô  é  ! 0ËAp   Í$ ’òŠ8¿   !  ÈºÈåôÈÇ×õËğËAW  Å$ ÇAq   %  ¨ü/'&%.X%&g,DO!™F 6DmDg  2O% Ì"  ( ğ/function serializeToBytes(value, transfer) {
       var transferSet = null;
       if (transfer !== void 0 && transfer !== null) {
         if (!Array.isArray(transfer))
@@ -10247,7 +10482,8 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           var t = transfer[i];
           if (transferSet.has(t))
             throw new DOMException("duplicate transferable", "DataCloneError");
-          if (!(t instanceof ArrayBuffer))
+          var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
+          if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
           transferSet.add(t);
         }
@@ -10357,6 +10593,18 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           });
           return;
         }
+        if (typeof globalThis.MessagePort === "function" && v instanceof globalThis.MessagePort) {
+          if (!transferSet || !transferSet.has(v))
+            throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
+          transferSet.delete(v);
+          v._detached = true;
+          refs.set(v, next++);
+          bytes.u8(32);
+          bytes.u32(v._id || 0);
+          bytes.u32(v._peerId || 0);
+          encodeString(bytes, v._peerThread || "local");
+          return;
+        }
         if (v instanceof ArrayBuffer) {
           refs.set(v, next++);
           bytes.u8(13);
@@ -10416,35 +10664,35 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
       }
       return bytes.done();
     }C
- Ê@– @ ¢  @Â C
-        – ¢  ãäèF(¨Ï  0function() {
+ ”@à @ ¢  @Œ C
+        à ¢  ãäèF(¨¿! 0function() {
           return u8[i++];
         }C
-      'ä   – ¢  ãäFãä»œFÂ£ãä¼œFÂ£ãä½œFÂ£Ïä¾œèËº (¨Ò 
+      'ä   à ¢  ãäFãä»œFÂ£ãä¼œFÂ£ãä½œFÂ£Ïä¾œèËº (¨Â!
 function() {
           var v = u8[i] | u8[i + 1] << 8 | u8[i + 2] << 16 | u8[i + 3] << 24;
           i += 4;
           return v >>> 0;
         }C
-      Kş   î  ì  Ğ	  – ¢  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑºÒÎÂ¥ğÍÎ¯ñqãäÎœFqH’òãäÂœèÌºF(¨× >094IUC:SĞfunction() {
+      Kş   Â  À  Ğ	  à ¢  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑºÒÎÂ¥ğÍÎ¯ñqãäÎœFqH’òãäÂœèÌºF(¨Ç!>094IUC:SĞfunction() {
           var ab = new ArrayBuffer(8), f = new Float64Array(ab), u = new Uint8Array(ab);
           for (var j = 0; j < 8; j++) u[j] = u8[i + j];
           i += 8;
           return f[0];
         }C
-      Œ   ô    Â – ¢  ÑÍA¸  $  ÏãäåË÷ĞåËœéÌ(¨İ +%‚function() {
+      Ş   ¾    Œ à ¢  ÑÍAâ  $  ÏãäåË÷ĞåËœéÌ(¨Í!+%‚function() {
           var n = this.u32();
           var s = utf8Decode(u8, i, n);
           i += n;
           return s;
         }C
-    4Œ  è   Ğ	  – ¢  8±   ×! ÏºĞÌ×¥ğÊ¯ñqãäÌœFqH’òåä×œèË@§  (¨ã 
+    4Ş  ¼   Ğ	  à ¢  8±   ×! ÏºĞÌ×¥ğÊ¯ñqãäÌœFqH’òåä×œèË@§  (¨Ó!
 I> :W§function(n) {
           var out = new Uint8Array(n);
           for (var j = 0; j < n; j++) out[j] = u8[i + j];
           i += n;
           return out.buffer;
-        }ºÏÅ LK  KK  ÅL¸  K¸  ÅL¹  K¹  ÅLò  Kò  ÅL  K  (¨Ì  Ìfunction ByteReader(u8) {
+        }ºÏÅ Lp  Kp  ÅLâ  Kâ  ÅLã  Kã  ÅLò  Kò  ÅL  K  (¨¼! Ìfunction ByteReader(u8) {
       var i = 0;
       return {
         u8: function() {
@@ -10475,16 +10723,16 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
         }
       };
     }C
- ÌÒ    @ ô @ @¾ Ê C
-     ’   ”  Î  ¤  Œ  –  ¢  ô  ş  Ä 	 ¬ 
- ˜  Š	  š  Ş  œ  ²       ¢  ª  ¤  è    ô  ¾ ãAK  $  Ó»­ğ(¼­ğ)½­ğ
-(¾­ğ	(¿­ğãA¸  $  º£(À­ğ
-ãA¹  %  Á­ğ
-ãAò  %  Â­ğ8¨   ãA¹  $  ! (Â	­ğ8¬   ãAò  $  ãAò  $  ! (Â
-­ğ3ãAò  $  ĞãAò  $  Ñ8    Í! ÖÌB:   äAO  Î$ Î(Â­ğCãA¸  $  È8¿   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAF   åôåô$ ’òçÇ(Â­ğAãA¸  $  È8À   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAp   åô$ ’òéÇ(Â­ğ(ãA¸  $  ÈãA  Ç$ ÈäAO  Ç$ Ç(Â­ğPäïÈ	äAO  $ åôÈ
-ãA¸  $  ÈãA¸  $  È8»   Ç
-ÇÇ! ÈäÇ	¯ñqÇqHÇ(ËÂ¨ğ<ËÂ¦ğ6æËÂFÈãA¸  $  ÈÇãA  Ç$ ! ÈäAO  Ç$ Ç(ËÂ­ğGãAò  $  ÈãA¸  $  È8ü  ãA  Ç$ & ÇKY  ! ÈäAO  Ç$ Ç(ËÂ­ğdãAò  $  ĞãAò  $  ÈãA¹  $  ÈãA¸  $  È8ı  ãA  Ç$ & ÌÇKY  ÇKó  ! ÈäAO  Ç$ Ç(ËÂ­ğAãA¸  $  È&  ÈäAO  Ç$ ºÈÇÇ¥ğÇÇ¯ñqåôqH’òãÇ(ËÂ­ğJãA¸  $  ÈÈäAO  Ç$ ºÈÇÇ¥ğ#ãAò  $  ÈÇÇ¯ñqåôqH’òØÇ(ËÂ­ğäãA¸  $  F(ËÂ­ğ8¼   ãAò  $  # 8İ   Ó  é  ! 0¨î ¼! *JJ 1>E>/c#45&    $:7 :% ;$:7 :% /:&!  
- !09X  &?/53 7 :9>l5 7 :4 99Q>”5 7 : 6 :HF1: , ::H >$!#4$ !+îfunction rd() {
+ –œ  à  @ È @â @ˆ ” C
+ â    šä   æ  Î  ¤  Ş  è  ¢  ¾  ş  Ä 	 ¬ 
+ ê  Š	  ì  ¬  î  ²  ğ  ò  ô  ª  ö  è  ø  ú  ü  ş  à  È â ˆ ãAp  $  Ó»­ğ(¼­ğ)½­ğ
+(¾­ğ	(¿­ğãAâ  $  º£(À­ğ
+ãAã  %  Á­ğ
+ãAò  %  Â­ğ8¨   ãAã  $  ! (Â	­ğ8¬   ãAò  $  ãAò  $  ! (Â
+­ğ3ãAò  $  ĞãAò  $  Ñ8    Í! ÖÌB:   äAO  Î$ Î(Â­ğCãAâ  $  È8¿   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAF   åôåô$ ’òçÇ(Â­ğAãAâ  $  È8À   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAp   åô$ ’òéÇ(Â­ğ(ãAâ  $  ÈãA  Ç$ ÈäAO  Ç$ Ç(Â­ğPäïÈ	äAO  $ åôÈ
+ãAâ  $  ÈãAâ  $  È8»   Ç
+ÇÇ! ÈäÇ	¯ñqÇqHÇ(ËÂ¨ğ<ËÂ¦ğ6æËÂFÈãAâ  $  ÈÇãA  Ç$ ! ÈäAO  Ç$ Ç(ËÂ­ğGãAò  $  ÈãAâ  $  È8!  ãA  Ç$ & ÇKY  ! ÈäAO  Ç$ Ç(ËÂ­ğdãAò  $  ĞãAò  $  ÈãAã  $  ÈãAâ  $  È8"  ãA  Ç$ & ÌÇKY  ÇK  ! ÈäAO  Ç$ Ç(ËÂ­ğAãAâ  $  È&  ÈäAO  Ç$ ºÈÇÇ¥ğÇÇ¯ñqåôqH’òãÇ(ËÂ­ğJãAâ  $  ÈÈäAO  Ç$ ºÈÇÇ¥ğ#ãAò  $  ÈÇÇ¯ñqåôqH’òØÇ(ËÂ­ğäãAâ  $  F(ËÂ­ğ8¼   ãAò  $  # ËÂ ­ğxãAâ  $  ÈãAâ  $  ÈãAò  $  È8•   @™  ğ(8•   A™  ÇK_  ÇKg  ÇK  $ Èò8İ      é  ! 0äAO  Ç$ Ç(8İ     é  ! 0¨Ş!Î! *JJ 1>E>/c#45&    $:7 :% ;$:7 :% /:&!  
+ !09X  &?/53 7 :9>l5 7 :4 99Q>”5 7 : 6 :HF1: , ::H >$!#4$ &':9"9ZS5–h 2function rd() {
         var tag = r.u8();
         switch (tag) {
           case 1:
@@ -10580,10 +10828,23 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
             }
             if (tag === 30) return refs[r.u32()];
             if (tag === 31) return BigInt(r.str());
+            if (tag === 32) {
+              var pid = r.u32(), ppeer = r.u32(), pth = r.str();
+              var portRef;
+              if (globalThis.__qwrt_port_from_ref__) {
+                portRef = globalThis.__qwrt_port_from_ref__(
+                  { id: pid, peerId: ppeer, peerThread: pth }
+                );
+              } else {
+                throw new DOMException("MessagePort reference requires message-channel", "DataCloneError");
+              }
+              refs.push(portRef);
+              return portRef;
+            }
             throw new DOMException("Bad serialized data", "DataCloneError");
           }
         }
-      }Å Ñä8±   ×! õÏ&  ĞÍ#  ¨ë 2 Ìöfunction deserializeFromBytes(buf) {
+      }Å Ñä8±   ×! õÏ&  ĞÍ#  ¨Û!2 æ–function deserializeFromBytes(buf) {
       var r = ByteReader(new Uint8Array(buf));
       var refs = [];
       function rd() {
@@ -10682,12 +10943,25 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
             }
             if (tag === 30) return refs[r.u32()];
             if (tag === 31) return BigInt(r.str());
+            if (tag === 32) {
+              var pid = r.u32(), ppeer = r.u32(), pth = r.str();
+              var portRef;
+              if (globalThis.__qwrt_port_from_ref__) {
+                portRef = globalThis.__qwrt_port_from_ref__(
+                  { id: pid, peerId: ppeer, peerThread: pth }
+                );
+              } else {
+                throw new DOMException("MessagePort reference requires message-channel", "DataCloneError");
+              }
+              refs.push(portRef);
+              return portRef;
+            }
             throw new DOMException("Bad serialized data", "DataCloneError");
           }
         }
       }
       return rd();
-    }ÅÏÅĞÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	8•   Å Bk  8°   8±   8¯   8²   8³   8´   8µ   8¹   8º   &	 Ñ7¶   úñÍAO  8¶   8·   $ 8•   ÇBÔ  8•   Ç	BÕ  )¨¬¨ BÄ:  Šo? Æfunction setupStructuredClone() {
+    }ÅÏÅĞÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	8•   Å B  8°   8±   8¯   8²   8³   8´   8µ   8¹   8º   &	 Ñ7¶   úñÍAO  8¶   8·   $ 8•   ÇBv  8•   Ç	B‚  )¨÷¨ Bô:  ¾o? ‰ function setupStructuredClone() {
     globalThis.structuredClone = function structuredClone(value, options) {
       var transferSet = null;
       if (options && options.transfer !== void 0 && options.transfer !== null) {
@@ -10698,7 +10972,8 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           var t = options.transfer[i];
           if (transferSet.has(t))
             throw new DOMException("duplicate transferable", "DataCloneError");
-          if (!(t instanceof ArrayBuffer))
+          var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
+          if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
           transferSet.add(t);
         }
@@ -10711,8 +10986,12 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
       var seen = /* @__PURE__ */ new Map();
       var result = clone(value, seen, options);
       if (transferSet) {
-        transferSet.forEach(function(ab) {
-          if (!ab.detached) ab.transfer();
+        transferSet.forEach(function(t2) {
+          if (t2 instanceof ArrayBuffer) {
+            if (!t2.detached) t2.transfer();
+          } else if (typeof t2._detached === "boolean") {
+            t2._detached = true;
+          }
         });
       }
       return result;
@@ -10770,6 +11049,25 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           result.add(clone(v, seen, options));
         });
         return result;
+      }
+      if (typeof globalThis.MessagePort === "function" && value instanceof globalThis.MessagePort) {
+        var ts = options && options._qwrtTransfer;
+        if (ts && ts.has(value)) {
+          ts.delete(value);
+          if (globalThis.__qwrt_port_from_ref__) {
+            var peer = value._entangledPort;
+            value._detached = true;
+            var pr = globalThis.__qwrt_port_from_ref__(
+              { id: value._id, peerId: value._peerId, peerThread: "local" }
+            );
+            if (peer && pr) pr._entangledPort = peer;
+            seen.set(value, pr);
+            return pr;
+          }
+          seen.set(value, value);
+          return value;
+        }
+        throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
       }
       if (value instanceof ArrayBuffer) {
         var ts = options && options._qwrtTransfer;
@@ -10934,7 +11232,8 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           var t = transfer[i];
           if (transferSet.has(t))
             throw new DOMException("duplicate transferable", "DataCloneError");
-          if (!(t instanceof ArrayBuffer))
+          var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
+          if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
           transferSet.add(t);
         }
@@ -11042,6 +11341,18 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
           v.forEach(function(val) {
             w(val);
           });
+          return;
+        }
+        if (typeof globalThis.MessagePort === "function" && v instanceof globalThis.MessagePort) {
+          if (!transferSet || !transferSet.has(v))
+            throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
+          transferSet.delete(v);
+          v._detached = true;
+          refs.set(v, next++);
+          bytes.u8(32);
+          bytes.u32(v._id || 0);
+          bytes.u32(v._peerId || 0);
+          encodeString(bytes, v._peerThread || "local");
           return;
         }
         if (v instanceof ArrayBuffer) {
@@ -11233,6 +11544,19 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
             }
             if (tag === 30) return refs[r.u32()];
             if (tag === 31) return BigInt(r.str());
+            if (tag === 32) {
+              var pid = r.u32(), ppeer = r.u32(), pth = r.str();
+              var portRef;
+              if (globalThis.__qwrt_port_from_ref__) {
+                portRef = globalThis.__qwrt_port_from_ref__(
+                  { id: pid, peerId: ppeer, peerThread: pth }
+                );
+              } else {
+                throw new DOMException("MessagePort reference requires message-channel", "DataCloneError");
+              }
+              refs.push(portRef);
+              return portRef;
+            }
             throw new DOMException("Bad serialized data", "DataCloneError");
           }
         }
@@ -11243,28 +11567,31 @@ $ åä×@:   ñ    öåä×@4   ñÆö)7ı  úi›   ×8ı  ©h   æAF   ×] ^ $ ä
     globalThis.__qwrt_deserialize__ = deserializeFromBytes;
   }C
  ’ P– @ š
-  @¬ @® @°  ² @C
- ®   E–  – ×–L   ®ñ×A«  Ú  $ º®ğ8    Û  ! 0ãAÜ  ×A§  Ú  ï$ % ¨Ü!*W *.[m òfunction loadScript(url) {
+  @„ @† @ˆ  Š @C
+ †   E–  – ×–L   ®ñ×A«    $ º®ğ8      ! 0ãA  ×A§    ï$ % ¨Ù"*W *.[m òfunction loadScript(url) {
       if (typeof url !== "string" || url.indexOf("file://") !== 0) {
         throw new Error("Worker: only file:// URLs are supported in v1");
       }
       return pal2.fsReadSync(url.slice("file://".length));
     }C
- °š–     º  ö @   ® – ¬ C
-        ö ã@Ş  (¨ë! 1function() {
+ ˆš–     ¾  Ê @   † – „ C
+        Ê ã@	  (¨è" 1function() {
           return w._onmsg;
         }C
-     Ì  ö ã×BŞ  )¨î!1function(fn) {
+     â  Ê ã×B	  )¨ë"1function(fn) {
           w._onmsg = fn;
         }C
-        ö ã@ß  (¨ô! 3function() {
+        Ê ã@
+  (¨ñ" 3function() {
           return w._onerror;
         }C
-     Ì  ö ã×Bß  )¨÷!3function(fn) {
+     â  Ê ã×B
+  )¨ô"3function(fn) {
           w._onerror = fn;
-        }Òã×õÏäAà  Ë$ ĞÎÌBá  ÎBŞ  ÎBß  åAF   ÌÎ$ ÎÑ8   Am   Îo  Å LE   KE   ÅLF   KF   
-KA   $ 8   Am   Î?  ÅLE   KE   ÅLF   KF   
-KA   $ )¨â!003& & &  ,4, )+4,function Worker(url) {
+        }Òã×õÏäA  Ë$ ĞÎÌB^  ÎB	  ÎB
+  åAF   ÌÎ$ ÎÑ8   Am   Î‘  Å LE   KE   ÅLF   KF   
+KA   $ 8   Am   Îd  ÅLE   KE   ÅLF   KF   
+KA   $ )¨ß"003& & &  ,4, )+4,function Worker(url) {
       var code = loadScript(url);
       var id = pal2.spawnWorker(code);
       this._id = id;
@@ -11291,28 +11618,96 @@ KA   $ )¨â!003& & &  ,4, )+4,function Worker(url) {
         configurable: true
       });
     }C
-    ˆ  Ò  ®     – Ğ8Ô  ×ØöÏãAâ  Ì@á  Ë$ )¨ı!$&=  €function(value, transfer) {
-      var bytes = __qwrt_serialize__(value, transfer);
-      pal2.workerPost(this._id, bytes);
+    ô
+ˆ  ø  Ê   ˜  ¢  š  °  š  ê    – È&  ÏØhŸ   Øïh˜   &  ĞºÑÍØï¥h‚   ØÍFÒ7•  úñcÎ8•  ©ğZËAO  Î@^  K_  Î@h  Kg    K  $ Î
+Bl  8•   A—  Î@h  $ ÉğÇÇ@^  Bk  òÌAO  Î$ ’ó{ÿÌï•ğĞ8v  ×ÌöÈËïğ+8v  ËK  ÇK  õÈãAz  Ç@^  Ç$ )ãAz  Ç@^  Ç$ )¨ú"$& 5&(Y8+i ¼XVDAT  P'K=Y  J  Øfunction(value, transfer) {
+      var ports = [];
+      var abTransfer;
+      if (transfer && transfer.length) {
+        abTransfer = [];
+        for (var i = 0; i < transfer.length; i++) {
+          var t = transfer[i];
+          if (typeof MessagePort !== "undefined" && t instanceof MessagePort) {
+            ports.push({ id: t._id, peerId: t._peerId, peerThread: "parent" });
+            t._detached = true;
+            var peer = globalThis.__qwrt_lookup_port__(t._peerId);
+            if (peer) peer._peerThread = this._id;
+          } else {
+            abTransfer.push(t);
+          }
+        }
+        if (!abTransfer.length) abTransfer = void 0;
+      }
+      var dataBytes = __qwrt_serialize__(value, abTransfer);
+      if (ports.length) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_ports: ports, __qwrt_payload: dataBytes }
+        );
+        pal2.workerPost(this._id, wrapped);
+      } else {
+        pal2.workerPost(this._id, dataBytes);
+      }
     }C
-      "  – ¬ ÏãAã  Ë@á  $ äA	   Ë@á  $ )¨""5 *5) Xfunction() {
+      "  – „ ÏãA  Ë@^  $ äA	   Ë@^  $ )¨–#"5 *5) Xfunction() {
       pal2.workerTerminate(this._id);
       workers.delete(this._id);
     }C
-    ¹	Ü  è  ö   š	  Î ä  ¤  Î Î ² ¬ š
-  Øº­ğã×Øö)äAE   Ø$ Ó•ğ)k   8Õ  ×õĞòÑk   8v  Íõn(0ÌğÌ@Y  7   ­ğ	Ë@ß  òË@Ş  Ö•ğ)k   8t  4   ÌK.  ! ÈòÈk   8v  Çõn(0k   ÎA©  åÇ$ )Èk   8v  Çõ)0¨‡"$&7
- #2@1U   '©  T‘function(data, source) {
+    ûÜ  è  š	   Î Ê  Ê  ¢  Î ¢  Î ¤  Î ¦ 	 Î ®  ¤  Î" Î& Š „ š
+  Øº­ğã×Øö)k   8‚  ×õÏòĞk   8›  Ìõn(08•   @˜  ğ8•   A˜  Ë$ ğ)äAE   Ø$ Õ•ğ)Ëh!  Ë–M   ­h  Ë@  h	  &  Òk:   ºÈÇË@  ï¥ğ%ÎAO  8•   A™  Ë@  ÇF$ $ ’òÑòÈk   8›  Çõn(0k   8‚  Ë@  õÈòÈk   8›  Çõn(0k%   8–  4   ÇK.  ÎKe  ! ÈòÈ	k   8›  Ç	õn(0ÇğÇ@Y  7   ­ğ	Í@
+  òÍ@	  É
+ğ)k   Ç
+A©  åÇ$ )Èk   8›  Çõ)0)ËğË@Y  7   ­ğ	Í@
+  òÍ@	  É•ğ)k   8–  4   ËK.  ! ÈòÈk   8›  Çõn(0k   ÇA©  åÇ$ )Èk   8›  Çõ)0¨œ#$U 	
+2@1–†DyT¾5# 4D›] 
+:c9 
+Ìd& 9%T 
+ !'© %T‹function(data, source) {
       if (source === 0) {
         hostDispatch(data, source);
         return;
       }
-      var w = workers.get(source);
-      if (!w) return;
       var d;
       try {
         d = __qwrt_deserialize__(data);
       } catch (err) {
         reportError(err);
+        return;
+      }
+      if (globalThis.__qwrt_deliver_port_msg__ && globalThis.__qwrt_deliver_port_msg__(d)) return;
+      var w = workers.get(source);
+      if (!w) return;
+      if (d && typeof d === "object" && d.__qwrt_ports) {
+        var ports = [];
+        try {
+          for (var i = 0; i < d.__qwrt_ports.length; i++) {
+            ports.push(globalThis.__qwrt_port_from_ref__(d.__qwrt_ports[i]));
+          }
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var inner;
+        try {
+          inner = __qwrt_deserialize__(d.__qwrt_payload);
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var ev2;
+        try {
+          ev2 = new MessageEvent("message", { data: inner, ports });
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var h2 = inner && inner.type === "error" ? w._onerror : w._onmsg;
+        if (h2) {
+          try {
+            h2.call(self, ev2);
+          } catch (err) {
+            reportError(err);
+          }
+        }
         return;
       }
       var handler = d && d.type === "error" ? w._onerror : w._onmsg;
@@ -11329,8 +11724,8 @@ KA   $ )¨â!003& & &  ,4, )+4,function Worker(url) {
       } catch (err) {
         reportError(err);
       }
-    }Å ÑÅÒ8•   Ï8¿   !  ĞÎ@?   ÅBq  Î@?   ÅBÁ  8•   ÎBØ  Ë@w  È8•   ÅBw  )¨Ù!@H 
-DC    c ˜function setupWorker(pal2) {
+    }Å ÑÅÒ8•   Ï8¿   !  ĞÎ@?   ÅBy  Î@?   ÅBæ  8•   ÎB  Ë@œ  È8•   ÅBœ  )¨Ö"@H 
+DC 8   c êfunction setupWorker(pal2) {
     var self = globalThis;
     var workers = /* @__PURE__ */ new Map();
     function loadScript(url) {
@@ -11367,8 +11762,32 @@ DC    c ˜function setupWorker(pal2) {
       });
     }
     Worker.prototype.postMessage = function(value, transfer) {
-      var bytes = __qwrt_serialize__(value, transfer);
-      pal2.workerPost(this._id, bytes);
+      var ports = [];
+      var abTransfer;
+      if (transfer && transfer.length) {
+        abTransfer = [];
+        for (var i = 0; i < transfer.length; i++) {
+          var t = transfer[i];
+          if (typeof MessagePort !== "undefined" && t instanceof MessagePort) {
+            ports.push({ id: t._id, peerId: t._peerId, peerThread: "parent" });
+            t._detached = true;
+            var peer = globalThis.__qwrt_lookup_port__(t._peerId);
+            if (peer) peer._peerThread = this._id;
+          } else {
+            abTransfer.push(t);
+          }
+        }
+        if (!abTransfer.length) abTransfer = void 0;
+      }
+      var dataBytes = __qwrt_serialize__(value, abTransfer);
+      if (ports.length) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_ports: ports, __qwrt_payload: dataBytes }
+        );
+        pal2.workerPost(this._id, wrapped);
+      } else {
+        pal2.workerPost(this._id, dataBytes);
+      }
     };
     Worker.prototype.terminate = function() {
       pal2.workerTerminate(this._id);
@@ -11381,13 +11800,48 @@ DC    c ˜function setupWorker(pal2) {
         hostDispatch(data, source);
         return;
       }
-      var w = workers.get(source);
-      if (!w) return;
       var d;
       try {
         d = __qwrt_deserialize__(data);
       } catch (err) {
         reportError(err);
+        return;
+      }
+      if (globalThis.__qwrt_deliver_port_msg__ && globalThis.__qwrt_deliver_port_msg__(d)) return;
+      var w = workers.get(source);
+      if (!w) return;
+      if (d && typeof d === "object" && d.__qwrt_ports) {
+        var ports = [];
+        try {
+          for (var i = 0; i < d.__qwrt_ports.length; i++) {
+            ports.push(globalThis.__qwrt_port_from_ref__(d.__qwrt_ports[i]));
+          }
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var inner;
+        try {
+          inner = __qwrt_deserialize__(d.__qwrt_payload);
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var ev2;
+        try {
+          ev2 = new MessageEvent("message", { data: inner, ports });
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var h2 = inner && inner.type === "error" ? w._onerror : w._onmsg;
+        if (h2) {
+          try {
+            h2.call(self, ev2);
+          } catch (err) {
+            reportError(err);
+          }
+        }
         return;
       }
       var handler = d && d.type === "error" ? w._onerror : w._onmsg;
@@ -11406,9 +11860,9 @@ DC    c ˜function setupWorker(pal2) {
       }
     };
   }C
- ” §– @È  @ ´  ¢  Ê @C
-      ¡Ì   Î  b  ˆ	  Œ  ä  ¤ ¤
- È  Ê Ï&  Ğ8   A1   8•   $ ÑºÒÎÍï¥ğlÍÎFÈãÇFñäÇFñUk   8•   ÇFÈòÈk   ò90k   ËÇ¯ñq8Ô  ÇõqHòÈk   ÌAO  Ç$ ò0’ò8Ô  ËKæ  ÌKç  # ¨°"'U? 
+ ” §– @¨  @ ş  ¢  ª @C
+      ¡¬   ®  b  ˆ	  Ş  ä  ¤ ¤
+ ¨  ª Ï&  Ğ8   A1   8•   $ ÑºÒÎÍï¥ğlÍÎFÈãÇFñäÇFñUk   8•   ÇFÈòÈk   ò90k   ËÇ¯ñq8v  ÇõqHòÈk   ÌAO  Ç$ ò0’ò8v  ËK  ÌK  # ¨è#'U? 
 # 
  W<Y; d†function() {
       var props = {};
@@ -11431,8 +11885,8 @@ DC    c ˜function setupWorker(pal2) {
       }
       return __qwrt_serialize__({ props, skipped });
     }C
-    ™	®  Ğ   †  b  ˆ	  Œ  ä  ¤ ¤
- Ê 8Õ  ×õÓğË@æ  ñĞ8   A1   Ì$ ÑºÒÎÍï¥ğXÍÎFÈãÇFñIk   8Õ  ÌÇFõÈòÈk   ò+0k   8•   Ç¯ñqÇqHòÈk   ò0’ò¤ËğË@ç  ñ&  (¨Å"'•+ 
+    ™	®  °   †  b  ˆ	  Ş  ä  ¤ ¤
+ ª 8‚  ×õÓğË@  ñĞ8   A1   Ì$ ÑºÒÎÍï¥ğXÍÎFÈãÇFñIk   8‚  ÌÇFõÈòÈk   ò+0k   8•   Ç¯ñqÇqHòÈk   ò0’ò¤ËğË@  ñ&  (¨ı#'•+ 
 #2 
 1ìfunction(bytes) {
       var rec = __qwrt_deserialize__(bytes);
@@ -11454,18 +11908,18 @@ DC    c ˜function setupWorker(pal2) {
       }
       return rec && rec.skipped || [];
     }C
-     ô  – ãAé  8¢   ×õ% ¨Ú"!(Bfunction(s) {
+     ¾  – ãA  8¢   ×õ% ¨’$!(Bfunction(s) {
         return pal2.contextSpawn(String(s));
       }C
-     º  †  – ãAê  8¡   ×õ8¢   Øõ% ¨İ"!(%Tfunction(id, p) {
+     ¾  †  – ãA  8¡   ×õ8¢   Øõ% ¨•$!(%Tfunction(id, p) {
         return pal2.contextSuspend(Number(id), String(p));
       }C
-     º  ô  †  – ãAë  8¡   ×õ8¢   Øõ8¢   Ùõ% ¨à"!(%%afunction(id, s, p) {
+     ¾  ¾  †  – ãA  8¡   ×õ8¢   Øõ8¢   Ùõ% ¨˜$!(%%afunction(id, s, p) {
         return pal2.contextResume(Number(id), String(s), String(p));
       }C
-     º  – ãAì  8¡   ×õ% ¨ã"!(Ffunction(id) {
+     ¾  – ãA  8¡   ×õ% ¨›$!(Ffunction(id) {
         return pal2.contextDestroy(Number(id));
-      }8   Aí  $ Ï8   A1   8•   $ ĞºÑÍÌï¥ğÊÍF¯ñq»qH’òæ»Kî  »Kï  »Kğ  Ò8•   Å Bî  8•   ÅBï  8•   ÅLñ  Kñ  ÅLò  Kò  ÅLó  Kó  ÅLô  Kô  Bğ  )¨§"5`N+?& )M *  ( ™function setupContext(pal2) {
+      }8   A  $ Ï8   A1   8•   $ ĞºÑÍÌï¥ğÊÍF¯ñq»qH’òæ»K  »K  »K   Ò8•   Å B  8•   ÅB  8•   ÅL!  K!  ÅL"  K"  ÅL#  K#  ÅL$  K$  B   )¨ß#5`N+?& )M *  ( ™function setupContext(pal2) {
     var _pristine = /* @__PURE__ */ Object.create(null);
     var names = Object.keys(globalThis);
     for (var i = 0; i < names.length; i++) _pristine[names[i]] = 1;
@@ -11530,7 +11984,7 @@ DC    c ˜function setupWorker(pal2) {
       }
     };
   }C
-      *È  ×ûñ8Ú   õ  ! 08Î   AŠ   $  A‰   ×$ )¨‚#!
+      *È  ×ûñ8Ú   %  ! 08Î   AŠ   $  A‰   ×$ )¨º$!
 O4*Âfunction(callback) {
       if (typeof callback !== "function") {
         throw new TypeError("queueMicrotask requires a function argument");
@@ -11538,8 +11992,8 @@ DC    c ˜function setupWorker(pal2) {
       Promise.resolve().then(callback);
     }Å ÏÅĞÅÑÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	Å
 È
-ÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈË×õÌ×õÍ×õÎôÇôÇôÇôÇ×õÇ×õÇôÇ×õÇ×õÇôÇôÇôÇ×õÇ	×õÇ
-×õÇ×õÇ×õÇôÇ×õÇ×õ8•   @ö  ûñ8•   ÅBö  )¨Q \ÒE"!     &%   $#$# D8Mûïfunction(pal) {
+ÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈË×õÌ×õÍ×õÎôÇôÇôÇôÇ×õÇ×õÇ×õÇ×õÇ×õÇôÇôÇôÇ×õÇ	×õÇ
+×õÇ×õÇ×õÇôÇ×õÇ×õ8•   @&  ûñ8•   ÅB&  )¨S \ÂH"!    ('&%   $#$# D8M‚§	function(pal) {
   // src/pal.js
 // src/console.js
   function setupConsole(pal2) {
@@ -13626,9 +14080,17 @@ DC    c ˜function setupWorker(pal2) {
   }
 
   // src/message-channel.js
-  function setupMessageChannel() {
+  function setupMessageChannel(pal2) {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("MessagePort requires EventTarget to be loaded first");
+    }
+    var portRegistry = /* @__PURE__ */ new Map();
+    var inWorker = typeof pal2.workerClose === "function";
+    function registerPort(p) {
+      if (p._id) portRegistry.set(p._id, p);
+    }
+    function lookupPort(id) {
+      return portRegistry.get(id);
     }
     class MessageEvent2 extends Event {
       constructor(type, options) {
@@ -13655,10 +14117,14 @@ DC    c ˜function setupWorker(pal2) {
         return this._ports;
       }
     }
-    class MessagePort extends EventTarget {
-      constructor() {
+    class MessagePort2 extends EventTarget {
+      constructor(id, peerId) {
         super();
+        this._id = id;
+        this._peerId = peerId;
         this._entangledPort = null;
+        this._peerThread = "local";
+        this._detached = false;
         this._started = false;
         this._messageQueue = [];
         this._onmessage = null;
@@ -13689,21 +14155,59 @@ DC    c ˜function setupWorker(pal2) {
           this.addEventListener("messageerror", fn);
         }
       }
+      /* è·¨çº¿ç¨‹å‘é€ï¼šæ¶ˆæ¯å­—èŠ‚ â†’ åŒ…è£… {__qwrt_port_msg} â†’ ç»ç°æœ‰é€šé“æŠ•é€’åˆ°å¯¹ç«¯çº¿ç¨‹ */
+      _sendRemote(payloadBytes) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_port_msg: { target: this._peerId, payload: payloadBytes } }
+        );
+        if (inWorker) {
+          pal2.postMessage(wrapped);
+        } else if (this._peerThread > 0) {
+          pal2.workerPost(this._peerThread, wrapped);
+        } else {
+          throw new Error("MessagePort: cannot route to parent from parent");
+        }
+      }
       postMessage(message, transfer) {
-        if (!this._entangledPort) return;
-        var data;
+        if (this._detached) {
+          throw new Error("MessagePort: port is detached");
+        }
+        if (this._peerThread === "local") {
+          if (!this._entangledPort) return;
+          var data;
+          try {
+            data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
+          } catch (e) {
+            var errorEvent = new MessageEvent2("messageerror", { data: e });
+            this._entangledPort.dispatchEvent(errorEvent);
+            return;
+          }
+          var event = new MessageEvent2("message", { data, ports: [] });
+          if (this._entangledPort._started) {
+            this._entangledPort.dispatchEvent(event);
+          } else {
+            this._entangledPort._messageQueue.push(event);
+          }
+        } else {
+          var bytes = __qwrt_serialize__(message, transfer);
+          this._sendRemote(bytes);
+        }
+      }
+      /* å…¥ç«™ï¼šæ¥æ”¶è·¨çº¿ç¨‹ port æ¶ˆæ¯ï¼ˆpayload æ˜¯åºåˆ—åŒ–å­—èŠ‚ï¼‰ */
+      _deliverRemote(payloadBytes) {
+        var v;
         try {
-          data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
-        } catch (e) {
-          var errorEvent = new MessageEvent2("messageerror", { data: e });
-          this._entangledPort.dispatchEvent(errorEvent);
+          v = __qwrt_deserialize__(payloadBytes);
+        } catch (err) {
+          var errEvent = new MessageEvent2("messageerror", { data: err });
+          this.dispatchEvent(errEvent);
           return;
         }
-        var event = new MessageEvent2("message", { data, ports: [] });
-        if (this._entangledPort._started) {
-          this._entangledPort.dispatchEvent(event);
+        var event = new MessageEvent2("message", { data: v, ports: [] });
+        if (this._started) {
+          this.dispatchEvent(event);
         } else {
-          this._entangledPort._messageQueue.push(event);
+          this._messageQueue.push(event);
         }
       }
       start() {
@@ -13718,6 +14222,7 @@ DC    c ˜function setupWorker(pal2) {
         this._messageQueue = [];
       }
       close() {
+        this._detached = true;
         this._entangledPort = null;
         this._started = false;
         this._messageQueue = [];
@@ -13725,10 +14230,13 @@ DC    c ˜function setupWorker(pal2) {
     }
     class MessageChannel {
       constructor() {
-        this._port1 = new MessagePort();
-        this._port2 = new MessagePort();
+        var ids = pal2.portCreate();
+        this._port1 = new MessagePort2(ids.id1, ids.id2);
+        this._port2 = new MessagePort2(ids.id2, ids.id1);
         this._port1._entangledPort = this._port2;
         this._port2._entangledPort = this._port1;
+        registerPort(this._port1);
+        registerPort(this._port2);
       }
       get port1() {
         return this._port1;
@@ -13738,8 +14246,29 @@ DC    c ˜function setupWorker(pal2) {
       }
     }
     globalThis.MessageChannel = MessageChannel;
-    globalThis.MessagePort = MessagePort;
+    globalThis.MessagePort = MessagePort2;
     globalThis.MessageEvent = MessageEvent2;
+    globalThis.__qwrt_lookup_port__ = lookupPort;
+    globalThis.__qwrt_deliver_port_msg__ = function(msg) {
+      if (!msg || typeof msg !== "object" || !msg.__qwrt_port_msg) return false;
+      var pm = msg.__qwrt_port_msg;
+      var target = pm && typeof pm === "object" ? pm.target : null;
+      var payload = pm && typeof pm === "object" ? pm.payload : null;
+      var port = target !== null && target !== void 0 ? lookupPort(target) : null;
+      if (!port) return false;
+      port._deliverRemote(payload);
+      return true;
+    };
+    globalThis.__qwrt_port_from_ref__ = function(info) {
+      if (!info || info.id === void 0 || info.id === null) {
+        throw new DOMException("invalid MessagePort reference", "DataCloneError");
+      }
+      var p = new MessagePort2(info.id, info.peerId);
+      p._peerThread = info.peerThread || "parent";
+      p._detached = false;
+      registerPort(p);
+      return p;
+    };
   }
 
   // src/host-messaging.js
@@ -15305,7 +15834,8 @@ DC    c ˜function setupWorker(pal2) {
           var t = options.transfer[i];
           if (transferSet.has(t))
             throw new DOMException("duplicate transferable", "DataCloneError");
-          if (!(t instanceof ArrayBuffer))
+          var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
+          if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
           transferSet.add(t);
         }
@@ -15318,8 +15848,12 @@ DC    c ˜function setupWorker(pal2) {
       var seen = /* @__PURE__ */ new Map();
       var result = clone(value, seen, options);
       if (transferSet) {
-        transferSet.forEach(function(ab) {
-          if (!ab.detached) ab.transfer();
+        transferSet.forEach(function(t2) {
+          if (t2 instanceof ArrayBuffer) {
+            if (!t2.detached) t2.transfer();
+          } else if (typeof t2._detached === "boolean") {
+            t2._detached = true;
+          }
         });
       }
       return result;
@@ -15377,6 +15911,25 @@ DC    c ˜function setupWorker(pal2) {
           result.add(clone(v, seen, options));
         });
         return result;
+      }
+      if (typeof globalThis.MessagePort === "function" && value instanceof globalThis.MessagePort) {
+        var ts = options && options._qwrtTransfer;
+        if (ts && ts.has(value)) {
+          ts.delete(value);
+          if (globalThis.__qwrt_port_from_ref__) {
+            var peer = value._entangledPort;
+            value._detached = true;
+            var pr = globalThis.__qwrt_port_from_ref__(
+              { id: value._id, peerId: value._peerId, peerThread: "local" }
+            );
+            if (peer && pr) pr._entangledPort = peer;
+            seen.set(value, pr);
+            return pr;
+          }
+          seen.set(value, value);
+          return value;
+        }
+        throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
       }
       if (value instanceof ArrayBuffer) {
         var ts = options && options._qwrtTransfer;
@@ -15541,7 +16094,8 @@ DC    c ˜function setupWorker(pal2) {
           var t = transfer[i];
           if (transferSet.has(t))
             throw new DOMException("duplicate transferable", "DataCloneError");
-          if (!(t instanceof ArrayBuffer))
+          var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
+          if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
           transferSet.add(t);
         }
@@ -15649,6 +16203,18 @@ DC    c ˜function setupWorker(pal2) {
           v.forEach(function(val) {
             w(val);
           });
+          return;
+        }
+        if (typeof globalThis.MessagePort === "function" && v instanceof globalThis.MessagePort) {
+          if (!transferSet || !transferSet.has(v))
+            throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
+          transferSet.delete(v);
+          v._detached = true;
+          refs.set(v, next++);
+          bytes.u8(32);
+          bytes.u32(v._id || 0);
+          bytes.u32(v._peerId || 0);
+          encodeString(bytes, v._peerThread || "local");
           return;
         }
         if (v instanceof ArrayBuffer) {
@@ -15840,6 +16406,19 @@ DC    c ˜function setupWorker(pal2) {
             }
             if (tag === 30) return refs[r.u32()];
             if (tag === 31) return BigInt(r.str());
+            if (tag === 32) {
+              var pid = r.u32(), ppeer = r.u32(), pth = r.str();
+              var portRef;
+              if (globalThis.__qwrt_port_from_ref__) {
+                portRef = globalThis.__qwrt_port_from_ref__(
+                  { id: pid, peerId: ppeer, peerThread: pth }
+                );
+              } else {
+                throw new DOMException("MessagePort reference requires message-channel", "DataCloneError");
+              }
+              refs.push(portRef);
+              return portRef;
+            }
             throw new DOMException("Bad serialized data", "DataCloneError");
           }
         }
@@ -15888,8 +16467,32 @@ DC    c ˜function setupWorker(pal2) {
       });
     }
     Worker.prototype.postMessage = function(value, transfer) {
-      var bytes = __qwrt_serialize__(value, transfer);
-      pal2.workerPost(this._id, bytes);
+      var ports = [];
+      var abTransfer;
+      if (transfer && transfer.length) {
+        abTransfer = [];
+        for (var i = 0; i < transfer.length; i++) {
+          var t = transfer[i];
+          if (typeof MessagePort !== "undefined" && t instanceof MessagePort) {
+            ports.push({ id: t._id, peerId: t._peerId, peerThread: "parent" });
+            t._detached = true;
+            var peer = globalThis.__qwrt_lookup_port__(t._peerId);
+            if (peer) peer._peerThread = this._id;
+          } else {
+            abTransfer.push(t);
+          }
+        }
+        if (!abTransfer.length) abTransfer = void 0;
+      }
+      var dataBytes = __qwrt_serialize__(value, abTransfer);
+      if (ports.length) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_ports: ports, __qwrt_payload: dataBytes }
+        );
+        pal2.workerPost(this._id, wrapped);
+      } else {
+        pal2.workerPost(this._id, dataBytes);
+      }
     };
     Worker.prototype.terminate = function() {
       pal2.workerTerminate(this._id);
@@ -15902,13 +16505,48 @@ DC    c ˜function setupWorker(pal2) {
         hostDispatch(data, source);
         return;
       }
-      var w = workers.get(source);
-      if (!w) return;
       var d;
       try {
         d = __qwrt_deserialize__(data);
       } catch (err) {
         reportError(err);
+        return;
+      }
+      if (globalThis.__qwrt_deliver_port_msg__ && globalThis.__qwrt_deliver_port_msg__(d)) return;
+      var w = workers.get(source);
+      if (!w) return;
+      if (d && typeof d === "object" && d.__qwrt_ports) {
+        var ports = [];
+        try {
+          for (var i = 0; i < d.__qwrt_ports.length; i++) {
+            ports.push(globalThis.__qwrt_port_from_ref__(d.__qwrt_ports[i]));
+          }
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var inner;
+        try {
+          inner = __qwrt_deserialize__(d.__qwrt_payload);
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var ev2;
+        try {
+          ev2 = new MessageEvent("message", { data: inner, ports });
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var h2 = inner && inner.type === "error" ? w._onerror : w._onmsg;
+        if (h2) {
+          try {
+            h2.call(self, ev2);
+          } catch (err) {
+            reportError(err);
+          }
+        }
         return;
       }
       var handler = d && d.type === "error" ? w._onerror : w._onmsg;
@@ -16005,7 +16643,7 @@ DC    c ˜function setupWorker(pal2) {
   setupURL();
   setupEncoding(pal);
   setupFetch(pal);
-  setupMessageChannel();
+  setupMessageChannel(pal);
   setupHostMessaging(pal);
   setupStreams(pal);
   setupBlobFileFormData();
@@ -16027,4 +16665,4 @@ DC    c ˜function setupWorker(pal2) {
       Promise.resolve().then(callback);
     };
   }
-}Å 8÷  õÓ(¨ F 
+}Å 8'  õÓ(¨ €I 

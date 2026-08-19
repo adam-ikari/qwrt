@@ -2085,9 +2085,17 @@
   }
 
   // src/message-channel.js
-  function setupMessageChannel() {
+  function setupMessageChannel(pal2) {
     if (typeof globalThis.EventTarget !== "function") {
       throw new Error("MessagePort requires EventTarget to be loaded first");
+    }
+    var portRegistry = /* @__PURE__ */ new Map();
+    var inWorker = typeof pal2.workerClose === "function";
+    function registerPort(p) {
+      if (p._id) portRegistry.set(p._id, p);
+    }
+    function lookupPort(id) {
+      return portRegistry.get(id);
     }
     class MessageEvent2 extends Event {
       constructor(type, options) {
@@ -2114,10 +2122,14 @@
         return this._ports;
       }
     }
-    class MessagePort extends EventTarget {
-      constructor() {
+    class MessagePort2 extends EventTarget {
+      constructor(id, peerId) {
         super();
+        this._id = id;
+        this._peerId = peerId;
         this._entangledPort = null;
+        this._peerThread = "local";
+        this._detached = false;
         this._started = false;
         this._messageQueue = [];
         this._onmessage = null;
@@ -2148,21 +2160,59 @@
           this.addEventListener("messageerror", fn);
         }
       }
+      /* 跨线程发送：消息字节 → 包装 {__qwrt_port_msg} → 经现有通道投递到对端线程 */
+      _sendRemote(payloadBytes) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_port_msg: { target: this._peerId, payload: payloadBytes } }
+        );
+        if (inWorker) {
+          pal2.postMessage(wrapped);
+        } else if (this._peerThread > 0) {
+          pal2.workerPost(this._peerThread, wrapped);
+        } else {
+          throw new Error("MessagePort: cannot route to parent from parent");
+        }
+      }
       postMessage(message, transfer) {
-        if (!this._entangledPort) return;
-        var data;
+        if (this._detached) {
+          throw new Error("MessagePort: port is detached");
+        }
+        if (this._peerThread === "local") {
+          if (!this._entangledPort) return;
+          var data;
+          try {
+            data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
+          } catch (e) {
+            var errorEvent = new MessageEvent2("messageerror", { data: e });
+            this._entangledPort.dispatchEvent(errorEvent);
+            return;
+          }
+          var event = new MessageEvent2("message", { data, ports: [] });
+          if (this._entangledPort._started) {
+            this._entangledPort.dispatchEvent(event);
+          } else {
+            this._entangledPort._messageQueue.push(event);
+          }
+        } else {
+          var bytes = __qwrt_serialize__(message, transfer);
+          this._sendRemote(bytes);
+        }
+      }
+      /* 入站：接收跨线程 port 消息（payload 是序列化字节） */
+      _deliverRemote(payloadBytes) {
+        var v;
         try {
-          data = typeof globalThis.structuredClone === "function" ? globalThis.structuredClone(message, transfer ? { transfer } : void 0) : JSON.parse(JSON.stringify(message));
-        } catch (e) {
-          var errorEvent = new MessageEvent2("messageerror", { data: e });
-          this._entangledPort.dispatchEvent(errorEvent);
+          v = __qwrt_deserialize__(payloadBytes);
+        } catch (err) {
+          var errEvent = new MessageEvent2("messageerror", { data: err });
+          this.dispatchEvent(errEvent);
           return;
         }
-        var event = new MessageEvent2("message", { data, ports: [] });
-        if (this._entangledPort._started) {
-          this._entangledPort.dispatchEvent(event);
+        var event = new MessageEvent2("message", { data: v, ports: [] });
+        if (this._started) {
+          this.dispatchEvent(event);
         } else {
-          this._entangledPort._messageQueue.push(event);
+          this._messageQueue.push(event);
         }
       }
       start() {
@@ -2177,6 +2227,7 @@
         this._messageQueue = [];
       }
       close() {
+        this._detached = true;
         this._entangledPort = null;
         this._started = false;
         this._messageQueue = [];
@@ -2184,10 +2235,13 @@
     }
     class MessageChannel {
       constructor() {
-        this._port1 = new MessagePort();
-        this._port2 = new MessagePort();
+        var ids = pal2.portCreate();
+        this._port1 = new MessagePort2(ids.id1, ids.id2);
+        this._port2 = new MessagePort2(ids.id2, ids.id1);
         this._port1._entangledPort = this._port2;
         this._port2._entangledPort = this._port1;
+        registerPort(this._port1);
+        registerPort(this._port2);
       }
       get port1() {
         return this._port1;
@@ -2197,8 +2251,29 @@
       }
     }
     globalThis.MessageChannel = MessageChannel;
-    globalThis.MessagePort = MessagePort;
+    globalThis.MessagePort = MessagePort2;
     globalThis.MessageEvent = MessageEvent2;
+    globalThis.__qwrt_lookup_port__ = lookupPort;
+    globalThis.__qwrt_deliver_port_msg__ = function(msg) {
+      if (!msg || typeof msg !== "object" || !msg.__qwrt_port_msg) return false;
+      var pm = msg.__qwrt_port_msg;
+      var target = pm && typeof pm === "object" ? pm.target : null;
+      var payload = pm && typeof pm === "object" ? pm.payload : null;
+      var port = target !== null && target !== void 0 ? lookupPort(target) : null;
+      if (!port) return false;
+      port._deliverRemote(payload);
+      return true;
+    };
+    globalThis.__qwrt_port_from_ref__ = function(info) {
+      if (!info || info.id === void 0 || info.id === null) {
+        throw new DOMException("invalid MessagePort reference", "DataCloneError");
+      }
+      var p = new MessagePort2(info.id, info.peerId);
+      p._peerThread = info.peerThread || "parent";
+      p._detached = false;
+      registerPort(p);
+      return p;
+    };
   }
 
   // src/host-messaging.js
@@ -3764,7 +3839,8 @@
           var t = options.transfer[i];
           if (transferSet.has(t))
             throw new DOMException("duplicate transferable", "DataCloneError");
-          if (!(t instanceof ArrayBuffer))
+          var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
+          if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
           transferSet.add(t);
         }
@@ -3777,8 +3853,12 @@
       var seen = /* @__PURE__ */ new Map();
       var result = clone(value, seen, options);
       if (transferSet) {
-        transferSet.forEach(function(ab) {
-          if (!ab.detached) ab.transfer();
+        transferSet.forEach(function(t2) {
+          if (t2 instanceof ArrayBuffer) {
+            if (!t2.detached) t2.transfer();
+          } else if (typeof t2._detached === "boolean") {
+            t2._detached = true;
+          }
         });
       }
       return result;
@@ -3836,6 +3916,25 @@
           result.add(clone(v, seen, options));
         });
         return result;
+      }
+      if (typeof globalThis.MessagePort === "function" && value instanceof globalThis.MessagePort) {
+        var ts = options && options._qwrtTransfer;
+        if (ts && ts.has(value)) {
+          ts.delete(value);
+          if (globalThis.__qwrt_port_from_ref__) {
+            var peer = value._entangledPort;
+            value._detached = true;
+            var pr = globalThis.__qwrt_port_from_ref__(
+              { id: value._id, peerId: value._peerId, peerThread: "local" }
+            );
+            if (peer && pr) pr._entangledPort = peer;
+            seen.set(value, pr);
+            return pr;
+          }
+          seen.set(value, value);
+          return value;
+        }
+        throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
       }
       if (value instanceof ArrayBuffer) {
         var ts = options && options._qwrtTransfer;
@@ -4000,7 +4099,8 @@
           var t = transfer[i];
           if (transferSet.has(t))
             throw new DOMException("duplicate transferable", "DataCloneError");
-          if (!(t instanceof ArrayBuffer))
+          var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
+          if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
           transferSet.add(t);
         }
@@ -4108,6 +4208,18 @@
           v.forEach(function(val) {
             w(val);
           });
+          return;
+        }
+        if (typeof globalThis.MessagePort === "function" && v instanceof globalThis.MessagePort) {
+          if (!transferSet || !transferSet.has(v))
+            throw new DOMException("MessagePort cannot be cloned (use transfer)", "DataCloneError");
+          transferSet.delete(v);
+          v._detached = true;
+          refs.set(v, next++);
+          bytes.u8(32);
+          bytes.u32(v._id || 0);
+          bytes.u32(v._peerId || 0);
+          encodeString(bytes, v._peerThread || "local");
           return;
         }
         if (v instanceof ArrayBuffer) {
@@ -4299,6 +4411,19 @@
             }
             if (tag === 30) return refs[r.u32()];
             if (tag === 31) return BigInt(r.str());
+            if (tag === 32) {
+              var pid = r.u32(), ppeer = r.u32(), pth = r.str();
+              var portRef;
+              if (globalThis.__qwrt_port_from_ref__) {
+                portRef = globalThis.__qwrt_port_from_ref__(
+                  { id: pid, peerId: ppeer, peerThread: pth }
+                );
+              } else {
+                throw new DOMException("MessagePort reference requires message-channel", "DataCloneError");
+              }
+              refs.push(portRef);
+              return portRef;
+            }
             throw new DOMException("Bad serialized data", "DataCloneError");
           }
         }
@@ -4347,8 +4472,32 @@
       });
     }
     Worker.prototype.postMessage = function(value, transfer) {
-      var bytes = __qwrt_serialize__(value, transfer);
-      pal2.workerPost(this._id, bytes);
+      var ports = [];
+      var abTransfer;
+      if (transfer && transfer.length) {
+        abTransfer = [];
+        for (var i = 0; i < transfer.length; i++) {
+          var t = transfer[i];
+          if (typeof MessagePort !== "undefined" && t instanceof MessagePort) {
+            ports.push({ id: t._id, peerId: t._peerId, peerThread: "parent" });
+            t._detached = true;
+            var peer = globalThis.__qwrt_lookup_port__(t._peerId);
+            if (peer) peer._peerThread = this._id;
+          } else {
+            abTransfer.push(t);
+          }
+        }
+        if (!abTransfer.length) abTransfer = void 0;
+      }
+      var dataBytes = __qwrt_serialize__(value, abTransfer);
+      if (ports.length) {
+        var wrapped = __qwrt_serialize__(
+          { __qwrt_ports: ports, __qwrt_payload: dataBytes }
+        );
+        pal2.workerPost(this._id, wrapped);
+      } else {
+        pal2.workerPost(this._id, dataBytes);
+      }
     };
     Worker.prototype.terminate = function() {
       pal2.workerTerminate(this._id);
@@ -4361,13 +4510,48 @@
         hostDispatch(data, source);
         return;
       }
-      var w = workers.get(source);
-      if (!w) return;
       var d;
       try {
         d = __qwrt_deserialize__(data);
       } catch (err) {
         reportError(err);
+        return;
+      }
+      if (globalThis.__qwrt_deliver_port_msg__ && globalThis.__qwrt_deliver_port_msg__(d)) return;
+      var w = workers.get(source);
+      if (!w) return;
+      if (d && typeof d === "object" && d.__qwrt_ports) {
+        var ports = [];
+        try {
+          for (var i = 0; i < d.__qwrt_ports.length; i++) {
+            ports.push(globalThis.__qwrt_port_from_ref__(d.__qwrt_ports[i]));
+          }
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var inner;
+        try {
+          inner = __qwrt_deserialize__(d.__qwrt_payload);
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var ev2;
+        try {
+          ev2 = new MessageEvent("message", { data: inner, ports });
+        } catch (err) {
+          reportError(err);
+          return;
+        }
+        var h2 = inner && inner.type === "error" ? w._onerror : w._onmsg;
+        if (h2) {
+          try {
+            h2.call(self, ev2);
+          } catch (err) {
+            reportError(err);
+          }
+        }
         return;
       }
       var handler = d && d.type === "error" ? w._onerror : w._onmsg;
@@ -4464,7 +4648,7 @@
   setupURL();
   setupEncoding(pal);
   setupFetch(pal);
-  setupMessageChannel();
+  setupMessageChannel(pal);
   setupHostMessaging(pal);
   setupStreams(pal);
   setupBlobFileFormData();

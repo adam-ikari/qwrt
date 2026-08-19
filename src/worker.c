@@ -33,11 +33,42 @@
 #define QWRT_WORKER_BOOT_JS                                                  \
     "(function(pal){                                                         \
        globalThis.postMessage = function(v, transfer){                         \
-         pal.postMessage(__qwrt_serialize__(v, transfer));                     \
+         var ports = [];                                                      \
+         var abT;                                                             \
+         if (transfer && transfer.length) {                                   \
+           abT = [];                                                          \
+           for (var i = 0; i < transfer.length; i++) {                        \
+             var t = transfer[i];                                             \
+             if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) { \
+               ports.push({ id: t._id, peerId: t._peerId, peerThread: 'parent' }); \
+               t._detached = true;                                            \
+               var peer = globalThis.__qwrt_lookup_port__(t._peerId);          \
+               if (peer) peer._peerThread = 'parent';                         \
+             } else { abT.push(t); }                                          \
+           }                                                                  \
+           if (!abT.length) abT = undefined;                                  \
+         }                                                                    \
+         var db = __qwrt_serialize__(v, abT);                                 \
+         if (ports.length) {                                                  \
+           pal.postMessage(__qwrt_serialize__({ __qwrt_ports: ports, __qwrt_payload: db })); \
+         } else {                                                             \
+           pal.postMessage(db);                                               \
+         }                                                                    \
        };                                                                    \
        globalThis.__qwrt_dispatch__ = function(data, source){                \
-         var v = __qwrt_deserialize__(data);                                 \
-         globalThis.dispatchEvent(new MessageEvent('message', {data: v}));   \
+         var o = __qwrt_deserialize__(data);                                 \
+         if (globalThis.__qwrt_deliver_port_msg__ &&                         \
+             globalThis.__qwrt_deliver_port_msg__(o)) return;                \
+         if (o && typeof o === 'object' && o.__qwrt_ports) {                 \
+           var ports = [];                                                   \
+           for (var i = 0; i < o.__qwrt_ports.length; i++) {                 \
+             ports.push(globalThis.__qwrt_port_from_ref__(o.__qwrt_ports[i])); \
+           }                                                                  \
+           var inner = __qwrt_deserialize__(o.__qwrt_payload);               \
+           globalThis.dispatchEvent(new MessageEvent('message', {data: inner, ports: ports})); \
+         } else {                                                             \
+           globalThis.dispatchEvent(new MessageEvent('message', {data: o})); \
+         }                                                                    \
        };                                                                    \
        globalThis.close = function(){ pal.workerClose(); };                  \
        globalThis.importScripts = function(){                                \
