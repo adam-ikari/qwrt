@@ -1321,6 +1321,20 @@ static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
+/* Worker 侧 pal.workerId：返回自身 worker id（>0）。worker 把 MessagePort
+ * transfer 给父线程时，父侧需要真实 workerId 才能经 pal.workerPost 把消息
+ * 路由回留在 worker 的对端 port——故此处必须暴露，不能用 'parent' 占位。 */
+static JSValue js_pal_worker_id(JSContext *ctx, JSValueConst this_val,
+                                int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+    if (!w) return JS_NewInt32(ctx, 0);
+    return JS_NewInt32(ctx, w->id);
+}
+
 /* ================================================================
  * Multi-context JS API (Task 5) — 父 runtime 上运行，宿主只见主 context。
  * spawn/suspend/resume/destroy 全部由 qwrtContext（context.js）经这里驱动；
@@ -1483,6 +1497,7 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
     if (rt->worker_self) {
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_worker_emit, "postMessage", 1));
         JS_SetPropertyStr(jsctx, pal, "workerClose", JS_NewCFunction(jsctx, js_pal_worker_close, "workerClose", 0));
+        JS_SetPropertyStr(jsctx, pal, "workerId", JS_NewCFunction(jsctx, js_pal_worker_id, "workerId", 0));
     } else {
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_post_message, "postMessage", 1));
         JS_SetPropertyStr(jsctx, pal, "spawnWorker", JS_NewCFunction(jsctx, js_pal_spawn_worker, "spawnWorker", 1));

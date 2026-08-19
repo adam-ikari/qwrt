@@ -40,7 +40,7 @@
            for (var i = 0; i < transfer.length; i++) {                        \
              var t = transfer[i];                                             \
              if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) { \
-               ports.push({ id: t._id, peerId: t._peerId, peerThread: 'parent' }); \
+               ports.push({ id: t._id, peerId: t._peerId, peerThread: pal.workerId() }); \
                t._detached = true;                                            \
                var peer = globalThis.__qwrt_lookup_port__(t._peerId);          \
                if (peer) peer._peerThread = 'parent';                         \

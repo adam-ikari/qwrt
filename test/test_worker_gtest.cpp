@@ -196,3 +196,38 @@ TEST(worker_, transfer_messageport_bidirectional) {
     EXPECT_NE(std::string::npos, out.find("detached")) << "got: " << out;
     host_destroy(h);
 }
+
+// transferable: worker → 父 转移一个 MessagePort。worker 侧创建 channel，
+// postMessage(data, [port1]) 把 port1 转移给父；父侧 event.ports[0] 收到
+// 端口代理，经它发 'ping' → worker 侧对端 port2 echo 'echo:ping' 返回；
+// worker 侧原 port1 已 detached。该方向在 v1 曾未支持（父侧无 workerId
+// 路由信息——worker 侧硬编码 peerThread 'parent'，父侧代理 port 无法路由
+// 回 worker），本用例验证补齐（worker 侧 pal.workerId）后的双向通信。
+TEST(worker_, transfer_messageport_worker_to_parent) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_to_parent.js');\n"
+        "w.onmessage = function(e){ if (e.ports && e.ports[0]) globalThis.p = e.ports[0]; postMessage({got: e.data}); };\n"
+        "w.postMessage('init');\n"
+        "'started'", &out));
+
+    /* 第一条：worker 转移 port 给父 → event.ports[0] 可用，payload {ready:true} */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"got\"")) << "got: " << out;
+    EXPECT_NE(std::string::npos, out.find("ready")) << "got: " << out;
+
+    /* 第二条：worker 侧原 port1 已 detached（转移语义） */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("detached")) << "got: " << out;
+
+    /* 父侧经转移端口 p 发 'ping' → worker 侧 port2 echo 'echo:ping' → p.onmessage */
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.p.onmessage = function(e){ postMessage({back: e.data}); };\n"
+        "p.postMessage('ping'); 'sent'", &out));
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"back\":\"echo:ping\"")) << "got: " << out;
+    host_destroy(h);
+}
