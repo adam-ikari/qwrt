@@ -404,4 +404,5 @@ function installCryptoSubtle(pal) {
 
   globalThis.crypto.subtle = new SubtleCrypto();
   globalThis.CryptoKey = CryptoKey;
+  globalThis.SubtleCrypto = SubtleCrypto;
 }

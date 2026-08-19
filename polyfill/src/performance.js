@@ -4,6 +4,9 @@
  * Implements performance.now() using pal.hrtime() (nanosecond precision)
  * or pal.timeNow() (millisecond precision) as fallback.
  * Also provides basic performance.mark/measure/getEntries.
+ *
+ * Exposes the Performance interface per ECMA-429 (HR-TIME): the constructor
+ * is globalThis.Performance and the instance is globalThis.performance.
  */
 
 export function setupPerformance(pal) {
@@ -25,13 +28,15 @@ export function setupPerformance(pal) {
     return pal.timeNow();
   }
 
-  const performance = {
+  class Performance {
+    constructor() {}
+
     /**
      * Returns a high-resolution timestamp in milliseconds.
      */
-    now: function() {
+    now() {
       return nowMs();
-    },
+    }
 
     /**
      * Get the time origin (approximation - time when runtime started)
@@ -39,12 +44,12 @@ export function setupPerformance(pal) {
      */
     get timeOrigin() {
       return 0;
-    },
+    }
 
     /**
      * Create a named performance mark.
      */
-    mark: function(name, options) {
+    mark(name, options) {
       if (typeof name !== 'string' || name === '') {
         throw new TypeError('Mark name must be a non-empty string');
       }
@@ -54,12 +59,12 @@ export function setupPerformance(pal) {
         startTime: nowMs(),
         duration: 0
       });
-    },
+    }
 
     /**
      * Create a named performance measure between two marks.
      */
-    measure: function(name, startMark, endMark) {
+    measure(name, startMark, endMark) {
       if (typeof name !== 'string' || name === '') {
         throw new TypeError('Measure name must be a non-empty string');
       }
@@ -105,23 +110,23 @@ export function setupPerformance(pal) {
         startTime: startTime,
         duration: endTime - startTime
       });
-    },
+    }
 
     /**
      * Remove a mark by name.
      */
-    clearMarks: function(name) {
+    clearMarks(name) {
       if (name) {
         marks.delete(name);
       } else {
         marks.clear();
       }
-    },
+    }
 
     /**
      * Remove measures by name.
      */
-    clearMeasures: function(name) {
+    clearMeasures(name) {
       if (name) {
         for (let i = measures.length - 1; i >= 0; i--) {
           if (measures[i].name === name) {
@@ -131,34 +136,35 @@ export function setupPerformance(pal) {
       } else {
         measures.length = 0;
       }
-    },
+    }
 
     /**
      * Get all performance entries.
      */
-    getEntries: function() {
+    getEntries() {
       const result = [];
       marks.forEach(entry => result.push({...entry}));
       measures.forEach(entry => result.push({...entry}));
       return result.sort((a, b) => a.startTime - b.startTime);
-    },
+    }
 
     /**
      * Get entries by name.
      */
-    getEntriesByName: function(name, type) {
+    getEntriesByName(name, type) {
       return this.getEntries().filter(entry =>
         entry.name === name && (!type || entry.entryType === type)
       );
-    },
+    }
 
     /**
      * Get entries by type.
      */
-    getEntriesByType: function(type) {
+    getEntriesByType(type) {
       return this.getEntries().filter(entry => entry.entryType === type);
     }
-  };
+  }
 
-  globalThis.performance = performance;
+  globalThis.performance = new Performance();
+  globalThis.Performance = Performance;
 }

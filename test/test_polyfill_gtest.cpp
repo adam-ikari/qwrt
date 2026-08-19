@@ -357,3 +357,43 @@ TEST_F(PolyfillTest, ByobRequestRespond) {
     EXPECT_NE(std::string::npos, v2.find("\"l\":3")) << "got: " << v2;
     EXPECT_NE(std::string::npos, v2.find("\"d\":false")) << "got: " << v2;
 }
+
+// ================================================================
+// Crypto / Performance constructor exposure (ECMA-429 WEBCRYPTO / HR-TIME)
+// ================================================================
+
+TEST_F(PolyfillTest, CryptoGlobals) {
+    std::string v;
+    /* Crypto / SubtleCrypto 构造函数暴露为 globalThis，且实例关系正确 */
+    ASSERT_TRUE(host_value(h,
+        R"(JSON.stringify([typeof Crypto, typeof SubtleCrypto,
+          globalThis.crypto instanceof Crypto,
+          globalThis.crypto.subtle instanceof SubtleCrypto]))", &v));
+    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+
+    /* getRandomValues 回归：返回同一 typed array，填充正确字节数 */
+    ASSERT_TRUE(host_value(h,
+        R"(var u8 = new Uint8Array(16);
+        var r = globalThis.crypto.getRandomValues(u8);
+        JSON.stringify([r === u8, u8.length, u8[0] !== undefined]))", &v));
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, PerformanceGlobals) {
+    std::string v;
+    /* Performance 构造函数暴露为 globalThis，且实例关系正确 */
+    ASSERT_TRUE(host_value(h,
+        R"(JSON.stringify([typeof Performance,
+          globalThis.performance instanceof Performance,
+          typeof globalThis.performance.now]))", &v));
+    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+
+    /* performance.now 回归：返回数字（毫秒） */
+    ASSERT_TRUE(host_value(h,
+        R"(var t = globalThis.performance.now();
+        JSON.stringify([typeof t, t >= 0]))", &v));
+    EXPECT_NE(std::string::npos, v.find("\"number\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+}

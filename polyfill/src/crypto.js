@@ -1,15 +1,21 @@
 /**
- * qwrt Polyfill - crypto.getRandomValues
+ * qwrt Polyfill - Crypto interface
  *
  * Provides crypto.getRandomValues() and crypto.randomUUID().
  * Uses pal.randomBytes() for cryptographically secure random generation.
  *
- * Mounted on globalThis.crypto
+ * Exposes the Crypto interface per ECMA-429 (WEBCRYPTO): the `Crypto`
+ * constructor is available as globalThis.Crypto and the instance as
+ * globalThis.crypto (crypto.subtle is filled in by crypto-subtle.js).
  */
 
 export function setupCrypto(pal) {
-  var crypto = {
-    getRandomValues: function getRandomValues(typedArray) {
+  class Crypto {
+    constructor() {
+      this.subtle = undefined;  /* filled by setupCryptoSubtle */
+    }
+
+    getRandomValues(typedArray) {
       if (!(typedArray instanceof Uint8Array) &&
           !(typedArray instanceof Uint16Array) &&
           !(typedArray instanceof Uint32Array) &&
@@ -33,9 +39,9 @@ export function setupCrypto(pal) {
       dst.set(src);
 
       return typedArray;
-    },
+    }
 
-    randomUUID: function randomUUID() {
+    randomUUID() {
       // Version 4 UUID using getRandomValues
       var bytes = new Uint8Array(16);
       this.getRandomValues(bytes);
@@ -43,10 +49,9 @@ export function setupCrypto(pal) {
       bytes[8] = (bytes[8] & 0x3F) | 0x80;  // variant 1
       var hex = Array.from(bytes, function(b) { return b.toString(16).padStart(2, '0'); }).join('');
       return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
-    },
+    }
+  }
 
-    subtle: undefined,  // Not implemented
-  };
-
-  globalThis.crypto = crypto;
+  globalThis.crypto = new Crypto();
+  globalThis.Crypto = Crypto;
 }

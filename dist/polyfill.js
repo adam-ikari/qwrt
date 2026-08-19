@@ -116,24 +116,26 @@
       }
       return pal2.timeNow();
     }
-    const performance = {
+    class Performance {
+      constructor() {
+      }
       /**
        * Returns a high-resolution timestamp in milliseconds.
        */
-      now: function() {
+      now() {
         return nowMs();
-      },
+      }
       /**
        * Get the time origin (approximation - time when runtime started)
        * Since we don't track this precisely, we use 0 as baseline.
        */
       get timeOrigin() {
         return 0;
-      },
+      }
       /**
        * Create a named performance mark.
        */
-      mark: function(name, options) {
+      mark(name, options) {
         if (typeof name !== "string" || name === "") {
           throw new TypeError("Mark name must be a non-empty string");
         }
@@ -143,11 +145,11 @@
           startTime: nowMs(),
           duration: 0
         });
-      },
+      }
       /**
        * Create a named performance measure between two marks.
        */
-      measure: function(name, startMark, endMark) {
+      measure(name, startMark, endMark) {
         if (typeof name !== "string" || name === "") {
           throw new TypeError("Measure name must be a non-empty string");
         }
@@ -182,21 +184,21 @@
           startTime,
           duration: endTime - startTime
         });
-      },
+      }
       /**
        * Remove a mark by name.
        */
-      clearMarks: function(name) {
+      clearMarks(name) {
         if (name) {
           marks.delete(name);
         } else {
           marks.clear();
         }
-      },
+      }
       /**
        * Remove measures by name.
        */
-      clearMeasures: function(name) {
+      clearMeasures(name) {
         if (name) {
           for (let i = measures.length - 1; i >= 0; i--) {
             if (measures[i].name === name) {
@@ -206,32 +208,33 @@
         } else {
           measures.length = 0;
         }
-      },
+      }
       /**
        * Get all performance entries.
        */
-      getEntries: function() {
+      getEntries() {
         const result = [];
         marks.forEach((entry) => result.push({ ...entry }));
         measures.forEach((entry) => result.push({ ...entry }));
         return result.sort((a, b) => a.startTime - b.startTime);
-      },
+      }
       /**
        * Get entries by name.
        */
-      getEntriesByName: function(name, type) {
+      getEntriesByName(name, type) {
         return this.getEntries().filter(
           (entry) => entry.name === name && (!type || entry.entryType === type)
         );
-      },
+      }
       /**
        * Get entries by type.
        */
-      getEntriesByType: function(type) {
+      getEntriesByType(type) {
         return this.getEntries().filter((entry) => entry.entryType === type);
       }
-    };
-    globalThis.performance = performance;
+    }
+    globalThis.performance = new Performance();
+    globalThis.Performance = Performance;
   }
 
   // src/timers.js
@@ -2006,8 +2009,11 @@
 
   // src/crypto.js
   function setupCrypto(pal2) {
-    var crypto2 = {
-      getRandomValues: function getRandomValues(typedArray) {
+    class Crypto {
+      constructor() {
+        this.subtle = void 0;
+      }
+      getRandomValues(typedArray) {
         if (!(typedArray instanceof Uint8Array) && !(typedArray instanceof Uint16Array) && !(typedArray instanceof Uint32Array) && !(typedArray instanceof Int8Array) && !(typedArray instanceof Int16Array) && !(typedArray instanceof Int32Array)) {
           throw new TypeError("Argument must be a TypedArray");
         }
@@ -2020,8 +2026,8 @@
         var dst = new Uint8Array(typedArray.buffer, typedArray.byteOffset, totalBytes);
         dst.set(src);
         return typedArray;
-      },
-      randomUUID: function randomUUID() {
+      }
+      randomUUID() {
         var bytes = new Uint8Array(16);
         this.getRandomValues(bytes);
         bytes[6] = bytes[6] & 15 | 64;
@@ -2030,11 +2036,10 @@
           return b.toString(16).padStart(2, "0");
         }).join("");
         return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20);
-      },
-      subtle: void 0
-      // Not implemented
-    };
-    globalThis.crypto = crypto2;
+      }
+    }
+    globalThis.crypto = new Crypto();
+    globalThis.Crypto = Crypto;
   }
 
   // src/error-events.js
@@ -4012,6 +4017,7 @@
     }
     globalThis.crypto.subtle = new SubtleCrypto();
     globalThis.CryptoKey = CryptoKey;
+    globalThis.SubtleCrypto = SubtleCrypto;
   }
 
   // src/structured-clone.js
