@@ -57,6 +57,7 @@ export function setupTextEncoding(pal) {
     this.fatal = (options && options.fatal) || false;
     this.ignoreBOM = (options && options.ignoreBOM) || false;
     this._buffer = null;  /* accumulated incomplete multibyte bytes for stream:true */
+    this._BOMSeen = false;  /* BOM handling: strip EF BB BF from first output only */
 
     /* Resolve encoding label to canonical name per WHATWG Encoding Standard.
      * Only UTF-8 is always supported; Latin-1 and replacement require the
@@ -132,6 +133,17 @@ export function setupTextEncoding(pal) {
       allBytes = bytes;
     }
 
+    /* UTF-8 BOM stripping (WHATWG Encoding): only before the first non-BOM
+     * output, and only when ignoreBOM is false. */
+    if (this._decoder === 'utf8' && !this._BOMSeen && !this.ignoreBOM &&
+        allBytes.length >= 3 &&
+        allBytes[0] === 0xEF && allBytes[1] === 0xBB && allBytes[2] === 0xBF) {
+      allBytes = allBytes.subarray(3);
+    }
+    if (!this._BOMSeen && allBytes.length > 0) {
+      this._BOMSeen = true;
+    }
+
     var str = '';
     var i = 0;
     var lastComplete = 0;
@@ -139,6 +151,7 @@ export function setupTextEncoding(pal) {
       var lead = allBytes[i];
       var want = utf8LeadLen(lead);
       if (want < 0) {
+        if (this.fatal) throw new TypeError('TextDecoder: invalid UTF-8 sequence');
         str += '�';
         i++;
         continue;
@@ -163,6 +176,7 @@ export function setupTextEncoding(pal) {
         }
       }
       if (!ok) {
+        if (this.fatal) throw new TypeError('TextDecoder: invalid UTF-8 sequence');
         str += '�';
         i++;  /* skip lead; continuation bytes caught by want<0 */
         continue;
@@ -185,6 +199,7 @@ export function setupTextEncoding(pal) {
          * available bytes after this are all valid continuation bytes,
          * skip them (they belong to this failed lead). Otherwise each
          * gets its own U+FFFD (overlong/invalid case). */
+        if (this.fatal) throw new TypeError('TextDecoder: incomplete UTF-8 sequence');
         str += '�';
         i++;  /* skip lead */
         var availCont = 0;
@@ -203,6 +218,7 @@ export function setupTextEncoding(pal) {
         if ((allBytes[i + j] & 0xC0) !== 0x80) { ok = false; break; }
       }
       if (!ok) {
+        if (this.fatal) throw new TypeError('TextDecoder: invalid UTF-8 sequence');
         str += '�';
         i++;  /* skip lead; continuation bytes caught by want<0 */
         continue;

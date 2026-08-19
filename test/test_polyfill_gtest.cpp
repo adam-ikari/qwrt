@@ -564,3 +564,46 @@ TEST_F(PolyfillTest, TextDecoderStreamMultibyte) {
     ASSERT_TRUE(host_poll_until_value(h, "_tdec", "8364", &v)) << "got: " << v;
     ASSERT_TRUE(host_poll_until_value(h, "_tdec", "[1,", &v)) << "got: " << v;
 }
+
+TEST_F(PolyfillTest, TextDecoderEdgeCases) {
+    std::string v;
+
+    /* 1. 多字节 + 代理对正确解码（€=E2 82 AC；😀=F0 9F 98 80） */
+    ASSERT_TRUE(host_value(h,
+        "var t = new TextDecoder();\n"
+        "JSON.stringify([t.decode(new Uint8Array([0xE2,0x82,0xAC])), t.decode(new Uint8Array([0xF0,0x9F,0x98,0x80]))])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"€\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"😀\"")) << "got: " << v;
+
+    /* 2. 非 fatal：非法字节 → U+FFFD (0xFFFD) */
+    ASSERT_TRUE(host_value(h,
+        "var t = new TextDecoder();\n"
+        "var s = t.decode(new Uint8Array([0x41, 0x80]));\n"
+        "JSON.stringify([s.length, s.charCodeAt(1)])", &v));
+    EXPECT_NE(std::string::npos, v.find("[2,65533]")) << "got: " << v;
+
+    /* 3. fatal:true：遇非法字节应抛 TypeError */
+    ASSERT_TRUE(host_value(h,
+        "var t = new TextDecoder('utf-8', {fatal:true});\n"
+        "var err = null;\n"
+        "try { t.decode(new Uint8Array([0x41, 0x80])); } catch(e) { err = String(e); }\n"
+        "JSON.stringify([err !== null, /TypeError/.test(err)])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
+
+    /* 4. 流式半字符：{stream:true} 跨调用残留，后续调用补全出完整字符 */
+    ASSERT_TRUE(host_value(h,
+        "var t = new TextDecoder();\n"
+        "var a = t.decode(new Uint8Array([0xE2]), {stream:true});\n"
+        "var b = t.decode(new Uint8Array([0x82, 0xAC]), {stream:true});\n"
+        "var c = t.decode();\n"
+        "JSON.stringify([a.length, b.charCodeAt(0), c.length])", &v));
+    EXPECT_NE(std::string::npos, v.find("[0,8364,0]")) << "got: " << v;
+
+    /* 5. BOM：默认剥离（EF BB BF → 不输出 U+FEFF）；ignoreBOM:true 保留 U+FEFF */
+    ASSERT_TRUE(host_value(h,
+        "var bom = new Uint8Array([0xEF,0xBB,0xBF,0x41]);\n"
+        "var d = new TextDecoder();\n"
+        "var d2 = new TextDecoder('utf-8', {ignoreBOM:true});\n"
+        "JSON.stringify([d.decode(bom).charCodeAt(0), d2.decode(bom).charCodeAt(0)])", &v));
+    EXPECT_NE(std::string::npos, v.find("[65,65279]")) << "got: " << v;  /* 'A', U+FEFF */
+}

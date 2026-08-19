@@ -1965,6 +1965,7 @@
       this.fatal = options && options.fatal || false;
       this.ignoreBOM = options && options.ignoreBOM || false;
       this._buffer = null;
+      this._BOMSeen = false;
       if (label === "unicode-1-1-utf-8" || label === "utf-8" || label === "utf8") {
         this.encoding = "utf-8";
         this._decoder = "utf8";
@@ -2018,6 +2019,12 @@
       } else {
         allBytes = bytes;
       }
+      if (this._decoder === "utf8" && !this._BOMSeen && !this.ignoreBOM && allBytes.length >= 3 && allBytes[0] === 239 && allBytes[1] === 187 && allBytes[2] === 191) {
+        allBytes = allBytes.subarray(3);
+      }
+      if (!this._BOMSeen && allBytes.length > 0) {
+        this._BOMSeen = true;
+      }
       var str = "";
       var i = 0;
       var lastComplete = 0;
@@ -2025,6 +2032,7 @@
         var lead = allBytes[i];
         var want = utf8LeadLen(lead);
         if (want < 0) {
+          if (this.fatal) throw new TypeError("TextDecoder: invalid UTF-8 sequence");
           str += "\uFFFD";
           i++;
           continue;
@@ -2042,6 +2050,7 @@
           }
         }
         if (!ok) {
+          if (this.fatal) throw new TypeError("TextDecoder: invalid UTF-8 sequence");
           str += "\uFFFD";
           i++;
           continue;
@@ -2055,6 +2064,7 @@
             if (i >= allBytes.length) break;
             continue;
           }
+          if (this.fatal) throw new TypeError("TextDecoder: incomplete UTF-8 sequence");
           str += "\uFFFD";
           i++;
           var availCont = 0;
@@ -2074,6 +2084,7 @@
           }
         }
         if (!ok) {
+          if (this.fatal) throw new TypeError("TextDecoder: invalid UTF-8 sequence");
           str += "\uFFFD";
           i++;
           continue;
