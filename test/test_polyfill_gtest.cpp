@@ -409,3 +409,109 @@ TEST_F(PolyfillTest, FetchRequestOptions) {
     EXPECT_NE(std::string::npos, v.find("\"cors\"")) << "got: " << v;
     EXPECT_NE(std::string::npos, v.find("\"include\"")) << "got: " << v;
 }
+
+// ================================================================
+// Streams semantic deepening — Task 1.3/1.4/1.5
+// (tee cancel propagation, pipeTo abort/backpressure, TextDecoderStream
+// cross-chunk multibyte boundary)
+// ================================================================
+
+TEST_F(PolyfillTest, StreamTeeCancel) {
+    std::string v;
+    /* 两个分支都 cancel → 源流 cancel 被调用，源 reader 锁释放 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _tc = null;
+        var srcCancelled = false;
+        var s = new ReadableStream({
+          start: function(c){ c.enqueue('x'); },
+          cancel: function(){ srcCancelled = true; }
+        });
+        var branches = s.tee();
+        Promise.all([branches[0].cancel('a'), branches[1].cancel('b')]).then(function(){
+          _tc = JSON.stringify([srcCancelled, s.locked]);
+        });
+        0)", &v));
+    /* 期望 [true,false]：源 cancelled=true 且源锁释放。当前实现 cancel 为空函数
+     * → [false,true]，此断言不匹配 → RED */
+    ASSERT_TRUE(host_poll_until_value(h, "_tc", "[true,false]", &v));
+}
+
+TEST_F(PolyfillTest, StreamTeeCancelSingleBranch) {
+    std::string v;
+    /* 只 cancel 一个分支：源不应被 cancel（另一分支仍可用），锁不释放 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _tc = null;
+        var srcCancelled = false;
+        var s = new ReadableStream({
+          start: function(c){ c.enqueue('x'); },
+          cancel: function(){ srcCancelled = true; }
+        });
+        var branches = s.tee();
+        branches[0].cancel().then(function(){
+          _tc = JSON.stringify([srcCancelled, branches[1].locked]);
+        });
+        0)", &v));
+    /* 期望 [false,false]：源未取消，分支1 未被锁住（仍可 getReader） */
+    ASSERT_TRUE(host_poll_until_value(h, "_tc", "[false,false]", &v));
+}
+
+TEST_F(PolyfillTest, StreamPipeToAbort) {
+    std::string v;
+    /* dest write 失败 → pipeTo reject，且源流被 cancel（preventCancel 缺省为 false）；
+     * 同时验证背压：writer.write 返回 pending 时 pump 不并发推进 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _pt = null;
+        var srcCancelled = false;
+        var writeCount = 0;
+        var src = new ReadableStream({
+          start: function(c){ c.enqueue('d1'); c.enqueue('d2'); c.enqueue('d3'); },
+          cancel: function(){ srcCancelled = true; }
+        });
+        var dest = new WritableStream({
+          write: function(chunk) {
+            writeCount++;
+            if (chunk === 'd2') return Promise.reject(new Error('sink boom'));
+            return new Promise(function(res){ setTimeout(res, 30); });
+          }
+        });
+        src.pipeTo(dest).catch(function(e){
+          _pt = JSON.stringify([srcCancelled, e.message]);
+        });
+        0)", &v));
+    /* 期望：源 cancelled=true，错误消息为 'sink boom' */
+    ASSERT_TRUE(host_poll_until_value(h, "_pt", "true", &v));
+    std::string v2;
+    ASSERT_TRUE(host_value(h, "_pt", &v2));
+    EXPECT_NE(std::string::npos, v2.find("sink boom")) << "got: " << v2;
+
+    /* 背压：写端第一次 write 是 pending(30ms)，期间不应发起第二次 read ——
+     * d2 失败时 d3 尚未被读走（pump 串行）。验证失败时源只 abort，不 cancel。 */
+    ASSERT_TRUE(host_value(h, "JSON.stringify(writeCount)", &v));
+    EXPECT_EQ(0, v.compare("2")) << "写端并发推进了: got " << v;
+}
+
+TEST_F(PolyfillTest, TextDecoderStreamMultibyte) {
+    std::string v;
+    /* '€' = E2 82 AC 拆成两个 chunk 写入，readable 拼接后应为单字符 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _td = null;
+        var tds = new TextDecoderStream();
+        var writer = tds.writable.getWriter();
+        var reader = tds.readable.getReader();
+        var out = '';
+        function readAll() {
+          reader.read().then(function(r){
+            if (r.done) { _td = JSON.stringify(out); return; }
+            out += r.value;
+            readAll();
+          });
+        }
+        readAll();
+        writer.write(new Uint8Array([0xE2]));
+        writer.write(new Uint8Array([0x82, 0xAC]));
+        writer.close();
+        0)", &v));
+    /* 期望输出字符串 '€'（跨 chunk 多字节正确拼接） */
+    ASSERT_TRUE(host_poll_until_value(h, "_td", "€", &v));
+}
+

@@ -112,6 +112,10 @@ export function setupStreams(pal) {
       this._stream._reader = null;
       this._isClosed = true;
     }
+
+    cancel(reason) {
+      return this._stream.cancel(reason);
+    }
   }
 
   // ================================================================
@@ -213,6 +217,10 @@ export function setupStreams(pal) {
       if (this._stream._reader !== this) return;
       this._stream._reader = null;
       this._isClosed = true;
+    }
+
+    cancel(reason) {
+      return this._stream.cancel(reason);
     }
   }
 
@@ -420,6 +428,11 @@ export function setupStreams(pal) {
       var branch1Controller, branch2Controller;
       var branch1Closed = false, branch2Closed = false;
       var reading = false;
+      /* Track per-branch cancellation so we only tear down the shared source
+       * when BOTH branches are cancelled (spec ReadableStreamTee). Cancelling
+       * a single branch must leave the other branch fully usable. */
+      var flags = { b1: false, b2: false };
+      var sourceCancelled = false;
 
       function pullAndDispatch() {
         if (reading) return;
@@ -427,24 +440,24 @@ export function setupStreams(pal) {
         reader.read().then(function(result) {
           reading = false;
           if (result.done) {
-            if (!branch1Closed && branch1Controller) branch1Controller.close();
-            if (!branch2Closed && branch2Controller) branch2Controller.close();
+            if (!flags.b1 && !branch1Closed && branch1Controller) branch1Controller.close();
+            if (!flags.b2 && !branch2Closed && branch2Controller) branch2Controller.close();
             return;
           }
-          if (!branch1Closed && branch1Controller) branch1Controller.enqueue(result.value);
-          if (!branch2Closed && branch2Controller) branch2Controller.enqueue(result.value);
-          // If both branches still need data and controllers want more, keep pulling
-          if (!branch1Closed && !branch2Closed) {
+          if (!flags.b1 && !branch1Closed && branch1Controller) branch1Controller.enqueue(result.value);
+          if (!flags.b2 && !branch2Closed && branch2Controller) branch2Controller.enqueue(result.value);
+          /* If at least one live branch still wants data, keep pulling */
+          if ((!flags.b1 && !branch1Closed) || (!flags.b2 && !branch2Closed)) {
             pullAndDispatch();
           }
         }).catch(function(e) {
           reading = false;
-          if (branch1Controller) branch1Controller.error(e);
-          if (branch2Controller) branch2Controller.error(e);
+          if (!flags.b1 && branch1Controller) branch1Controller.error(e);
+          if (!flags.b2 && branch2Controller) branch2Controller.error(e);
         });
       }
 
-      function createBranch() {
+      function createBranch(which) {
         return new ReadableStream({
           start: function(controller) {
             // controller will be set after construction
@@ -452,14 +465,21 @@ export function setupStreams(pal) {
           pull: function(controller) {
             pullAndDispatch();
           },
-          cancel: function() {
-            // Release lock when both branches are cancelled
+          cancel: function(reason) {
+            flags[which] = true;
+            /* Both branches cancelled: release the shared source reader lock
+             * and propagate cancel to the underlying source. */
+            if (flags.b1 && flags.b2 && !sourceCancelled) {
+              sourceCancelled = true;
+              try { reader.releaseLock(); } catch (e) {}
+              source.cancel(reason);
+            }
           }
         });
       }
 
-      var branch1 = createBranch();
-      var branch2 = createBranch();
+      var branch1 = createBranch('b1');
+      var branch2 = createBranch('b2');
 
       // Grab controllers from the branches (they're the first reader's stream)
       branch1Controller = branch1._controller;
@@ -468,14 +488,19 @@ export function setupStreams(pal) {
       return [branch1, branch2];
     }
 
-    pipeTo(dest) {
+    pipeTo(dest, options) {
       var reader = this.getReader();
       var writer = dest.getWriter();
+      options = options || {};
+      var preventClose = !!options.preventClose;
+      var preventAbort = !!options.preventAbort;
+      var preventCancel = !!options.preventCancel;
 
       function pump() {
         return reader.read().then(function(result) {
           if (result.done) {
             reader.releaseLock();
+            if (preventClose) return undefined;
             return writer.close();
           }
           return writer.write(result.value).then(pump);
@@ -484,7 +509,15 @@ export function setupStreams(pal) {
 
       return pump().catch(function(e) {
         try { reader.releaseLock(); } catch (x) {}
-        try { writer.abort(e); } catch (x) {}
+        /* Dest write/close failed (or source errored): abort the writer unless
+         * prevented, and cancel the source so it stops producing (spec
+         * ReadableStreamPipeTo). */
+        if (!preventAbort) {
+          try { writer.abort(e); } catch (x) {}
+        }
+        if (!preventCancel) {
+          try { reader.cancel(e); } catch (x) {}
+        }
         throw e;
       });
     }
