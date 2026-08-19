@@ -500,3 +500,32 @@ TEST_F(PolyfillTest, PipeToBackpressureSerial) {
     /* 串行写入：1、2、3 顺序到达，无并发重入 */
     ASSERT_TRUE(host_poll_until_value(h, "_bp", "123", &v)) << "got: " << v;
 }
+
+TEST_F(PolyfillTest, TextDecoderStreamMultibyte) {
+    std::string v;
+    /* 3 字节 UTF-8 字符（€ = E2 82 AC）跨 chunk 边界写入 TextDecoderStream：
+       第一个 chunk 只含首字节，第二个 chunk 含剩余两字节。writable 两次 write
+       必须靠 TextDecoder stream:true 的残留缓冲正确拼接，readable 输出一个字符。
+       用 charCodeAt 断言避免 C++/JSON 非 ASCII 编码歧义（0x20AC = 8364）。 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _tdec = null;
+        var s = new TextDecoderStream('utf-8');
+        var writer = s.writable.getWriter();
+        var reader = s.readable.getReader();
+        var out = '';
+        writer.write(new Uint8Array([0xE2]));
+        writer.write(new Uint8Array([0x82, 0xAC]));
+        writer.close();
+        function pump() {
+          reader.read().then(function(r){
+            if (r.done) { _tdec = JSON.stringify([out.length, out.charCodeAt(0)]); return; }
+            out += r.value;
+            pump();
+          });
+        }
+        pump();
+        0)", &v));
+    /* 输出恰好 1 个字符，码点 0x20AC (8364) */
+    ASSERT_TRUE(host_poll_until_value(h, "_tdec", "8364", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_tdec", "[1,", &v)) << "got: " << v;
+}
