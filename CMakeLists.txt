@@ -417,8 +417,8 @@ if(QWRT_WITH_HTTPSERVER)
         uvhttp_config uvhttp_connection uvhttp_context uvhttp_error
         uvhttp_error_helpers uvhttp_lru_cache uvhttp_protocol_upgrade
         uvhttp_request uvhttp_response uvhttp_router uvhttp_router_cache
-        uvhttp_server uvhttp_static uvhttp_tls uvhttp_utils uvhttp_version
-        uvhttp_websocket)
+        uvhttp_gzip_cache uvhttp_server uvhttp_static uvhttp_tls uvhttp_utils
+        uvhttp_version uvhttp_websocket)
         list(APPEND _qwrt_core_sources ${UVHTTP_DIR}/src/${_uvhttp_src}.c)
     endforeach()
     # uvhttp deps without a qwrt counterpart (llhttp/xxhash/cJSON; uthash is header-only)
@@ -436,6 +436,7 @@ if(QWRT_WITH_HTTPSERVER)
         ${UVHTTP_DIR}/src/uvhttp_config.c ${UVHTTP_DIR}/src/uvhttp_connection.c
         ${UVHTTP_DIR}/src/uvhttp_context.c ${UVHTTP_DIR}/src/uvhttp_error.c
         ${UVHTTP_DIR}/src/uvhttp_error_helpers.c ${UVHTTP_DIR}/src/uvhttp_lru_cache.c
+        ${UVHTTP_DIR}/src/uvhttp_gzip_cache.c
         ${UVHTTP_DIR}/src/uvhttp_protocol_upgrade.c ${UVHTTP_DIR}/src/uvhttp_request.c
         ${UVHTTP_DIR}/src/uvhttp_response.c ${UVHTTP_DIR}/src/uvhttp_router.c
         ${UVHTTP_DIR}/src/uvhttp_router_cache.c ${UVHTTP_DIR}/src/uvhttp_server.c
