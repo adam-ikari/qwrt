@@ -607,3 +607,72 @@ TEST_F(PolyfillTest, TextDecoderEdgeCases) {
         "JSON.stringify([d.decode(bom).charCodeAt(0), d2.decode(bom).charCodeAt(0)])", &v));
     EXPECT_NE(std::string::npos, v.find("[65,65279]")) << "got: " << v;  /* 'A', U+FEFF */
 }
+
+TEST_F(PolyfillTest, UrlSearchParamsEdgeCases) {
+    std::string v;
+
+    /* 1. 解析：重复键、%20 解码、+ 解码为空格 */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLSearchParams('a=1&a=2&b=hello%20world&c=x+y');\n"
+        "JSON.stringify([p.get('a'), p.getAll('a').join(','), p.get('b'), p.get('c')])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"1\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"1,2\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"hello world\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"x y\"")) << "got: " << v;
+
+    /* 2. 编码：空格→+、特殊字符 !'()* → %XX 大写、中文 UTF-8 */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLSearchParams();\n"
+        "p.set('q', 'a b'); p.set('s', '!\\'()*'); p.set('z', '中文');\n"
+        "JSON.stringify(p.toString())", &v));
+    EXPECT_NE(std::string::npos, v.find("q=a+b")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("%21%27%28%29%2A")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("%E4%B8%AD%E6%96%87")) << "got: " << v;
+
+    /* 3. append 重复键 + delete + has + toString 顺序 */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLSearchParams('a=1&a=2&b=3');\n"
+        "p.append('a', '4');\n"
+        "var r = [p.getAll('a').length, p.has('b'), p.toString()];\n"
+        "p.delete('a');\n"
+        "r.push(p.has('a'));\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("3")) << "got: " << v;  /* getAll a length */
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("a=4")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("false")) << "got: " << v;
+
+    /* 4. sort() 按键排序 */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLSearchParams('c=3&a=1&b=2');\n"
+        "p.sort();\n"
+        "JSON.stringify(p.toString())", &v));
+    EXPECT_NE(std::string::npos, v.find("a=1&b=2&c=3")) << "got: " << v;
+
+    /* 5. 迭代器：for..of / entries / keys / values / forEach */
+    ASSERT_TRUE(host_value(h,
+        "var p = new URLSearchParams('a=1&b=2');\n"
+        "var e = [], k = [], vals = [], f = [];\n"
+        "for (var x of p) e.push(x.join(':'));\n"
+        "for (var kv of p.entries()) k.push(kv[0]);\n"
+        "for (var vv of p.values()) vals.push(vv);\n"
+        "p.forEach(function(val, key){ f.push(key+'='+val); });\n"
+        "JSON.stringify([e.join(';'), k.join(','), vals.join(','), f.join(';')])", &v));
+    EXPECT_NE(std::string::npos, v.find("a:1;b:2")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("a,b")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("1,2")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("a=1;b=2")) << "got: " << v;
+
+    /* 6. URL.searchParams 与 URL.search 双向同步 */
+    ASSERT_TRUE(host_value(h,
+        "var u = new URL('https://x.com/p?q=1');\n"
+        "u.searchParams.set('q', '2');\n"
+        "u.searchParams.append('r', '3');\n"
+        "var s1 = u.search;\n"
+        "u.search = '?x=9';\n"
+        "var s2 = u.searchParams.get('x');\n"
+        "JSON.stringify([s1, s2])", &v));
+    EXPECT_NE(std::string::npos, v.find("q=2")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("r=3")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"9\"")) << "got: " << v;
+}
