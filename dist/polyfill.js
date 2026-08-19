@@ -1319,12 +1319,22 @@
         this._headers = new Headers(init.headers || input.headers);
         this._body = init.body !== void 0 ? init.body : input._body;
         this._signal = init.signal || input.signal;
+        this._redirect = init.redirect || input.redirect || "follow";
+        this._keepalive = init.keepalive !== void 0 ? !!init.keepalive : input.keepalive;
+        this._cache = init.cache || input.cache || "default";
+        this._mode = init.mode || input.mode || "cors";
+        this._credentials = init.credentials || input.credentials || "same-origin";
       } else {
         this._method = init.method || "GET";
         this._url = String(input);
         this._headers = new Headers(init.headers);
         this._body = init.body !== void 0 ? init.body : null;
         this._signal = init.signal || null;
+        this._redirect = init.redirect || "follow";
+        this._keepalive = !!init.keepalive;
+        this._cache = init.cache || "default";
+        this._mode = init.mode || "cors";
+        this._credentials = init.credentials || "same-origin";
       }
       this._bodyUsed = false;
       if (!/^[A-Z]+$/.test(this._method)) {
@@ -1359,6 +1369,31 @@
     Object.defineProperty(Request.prototype, "signal", {
       get: function() {
         return this._signal;
+      }
+    });
+    Object.defineProperty(Request.prototype, "redirect", {
+      get: function() {
+        return this._redirect;
+      }
+    });
+    Object.defineProperty(Request.prototype, "keepalive", {
+      get: function() {
+        return this._keepalive;
+      }
+    });
+    Object.defineProperty(Request.prototype, "cache", {
+      get: function() {
+        return this._cache;
+      }
+    });
+    Object.defineProperty(Request.prototype, "mode", {
+      get: function() {
+        return this._mode;
+      }
+    });
+    Object.defineProperty(Request.prototype, "credentials", {
+      get: function() {
+        return this._credentials;
       }
     });
     Request.prototype.clone = function() {

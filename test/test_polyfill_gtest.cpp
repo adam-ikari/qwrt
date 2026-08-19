@@ -397,3 +397,15 @@ TEST_F(PolyfillTest, PerformanceGlobals) {
     EXPECT_NE(std::string::npos, v.find("\"number\"")) << "got: " << v;
     EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
 }
+
+TEST_F(PolyfillTest, FetchRequestOptions) {
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var r = new Request('https://x.com', {redirect:'error', keepalive:true, cache:'no-store', mode:'cors', credentials:'include'});\n"
+        "JSON.stringify([r.redirect, r.keepalive, r.cache, r.mode, r.credentials])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"error\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"no-store\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"cors\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"include\"")) << "got: " << v;
+}
