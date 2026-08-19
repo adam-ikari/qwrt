@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [wintertc, streams, byob, ecma-429]
 created: "2026-08-19T02:39:22"
-updated: "2026-08-19T02:39:43"
+updated: "2026-08-19T11:10:08"
 ---
 
 <!-- compiled_truth -->
@@ -34,4 +34,9 @@ updated: "2026-08-19T02:39:43"
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
+  affects: [wintertc-byob-streams]
+
+- time: 2026-08-19T11:10:08
+  kind: decision
+  summary: "streams 深化：tee() cancel 传播（双分支都 cancel 才释放源锁并 cancel 源，单分支不受影响）；pipeTo 补 preventAbort/preventCancel/preventClose 选项 + 错误时 cancel 源；reader 补 cancel() 方法；TextDecoderStream 跨 chunk 多字节验证通过（text-encoding.js _buffer 已正确处理）。test_polyfill 24/24、offline ctest 12/12、httpserver e2e 8/8 全过。"
   affects: [wintertc-byob-streams]
