@@ -2496,6 +2496,9 @@
         this._stream._reader = null;
         this._isClosed = true;
       }
+      cancel(reason) {
+        return this._stream.cancel(reason);
+      }
     }
     class ReadableStreamBYOBRequest {
       constructor(entry) {
@@ -2579,6 +2582,9 @@
         if (this._stream._reader !== this) return;
         this._stream._reader = null;
         this._isClosed = true;
+      }
+      cancel(reason) {
+        return this._stream.cancel(reason);
       }
     }
     class ReadableByteStreamController {
@@ -2762,58 +2768,52 @@
         var reader = source.getReader();
         var branch1Controller, branch2Controller;
         var branch1Closed = false, branch2Closed = false;
-        var branch1Canceled = false, branch2Canceled = false;
-        var sourceCanceled = false;
         var reading = false;
+        var flags = { b1: false, b2: false };
+        var sourceCancelled = false;
         function pullAndDispatch() {
           if (reading) return;
           reading = true;
           reader.read().then(function(result) {
             reading = false;
             if (result.done) {
-              if (!branch1Closed && branch1Controller) branch1Controller.close();
-              if (!branch2Closed && branch2Controller) branch2Controller.close();
+              if (!flags.b1 && !branch1Closed && branch1Controller) branch1Controller.close();
+              if (!flags.b2 && !branch2Closed && branch2Controller) branch2Controller.close();
               return;
             }
-            if (!branch1Closed && branch1Controller) branch1Controller.enqueue(result.value);
-            if (!branch2Closed && branch2Controller) branch2Controller.enqueue(result.value);
-            if (!branch1Closed && !branch2Closed) {
+            if (!flags.b1 && !branch1Closed && branch1Controller) branch1Controller.enqueue(result.value);
+            if (!flags.b2 && !branch2Closed && branch2Controller) branch2Controller.enqueue(result.value);
+            if (!flags.b1 && !branch1Closed || !flags.b2 && !branch2Closed) {
               pullAndDispatch();
             }
           }).catch(function(e) {
             reading = false;
-            if (branch1Controller) branch1Controller.error(e);
-            if (branch2Controller) branch2Controller.error(e);
+            if (!flags.b1 && branch1Controller) branch1Controller.error(e);
+            if (!flags.b2 && branch2Controller) branch2Controller.error(e);
           });
         }
-        function checkCancelSource() {
-          if (sourceCanceled) return;
-          if (branch1Canceled && branch2Canceled) {
-            sourceCanceled = true;
-            source.cancel();
-          }
-        }
-        function createBranch(index) {
+        function createBranch(which) {
           return new ReadableStream({
             start: function(controller) {
             },
             pull: function(controller) {
               pullAndDispatch();
             },
-            cancel: function() {
-              if (index === 0) {
-                branch1Canceled = true;
-                branch1Closed = true;
-              } else {
-                branch2Canceled = true;
-                branch2Closed = true;
+            cancel: function(reason) {
+              flags[which] = true;
+              if (flags.b1 && flags.b2 && !sourceCancelled) {
+                sourceCancelled = true;
+                try {
+                  reader.releaseLock();
+                } catch (e) {
+                }
+                source.cancel(reason);
               }
-              checkCancelSource();
             }
           });
         }
-        var branch1 = createBranch(0);
-        var branch2 = createBranch(1);
+        var branch1 = createBranch("b1");
+        var branch2 = createBranch("b2");
         branch1Controller = branch1._controller;
         branch2Controller = branch2._controller;
         return [branch1, branch2];
@@ -2822,6 +2822,7 @@
         options = options || {};
         var preventClose = !!options.preventClose;
         var preventAbort = !!options.preventAbort;
+        var preventCancel = !!options.preventCancel;
         var reader, writer;
         try {
           reader = this.getReader();
@@ -2849,6 +2850,12 @@
           if (!preventAbort) {
             try {
               writer.abort(e);
+            } catch (x) {
+            }
+          }
+          if (!preventCancel) {
+            try {
+              reader.cancel(e);
             } catch (x) {
             }
           }

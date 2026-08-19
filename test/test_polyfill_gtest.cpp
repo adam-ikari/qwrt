@@ -501,6 +501,41 @@ TEST_F(PolyfillTest, PipeToBackpressureSerial) {
     ASSERT_TRUE(host_poll_until_value(h, "_bp", "123", &v)) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, StreamPipeToAbort) {
+    std::string v;
+    /* dest write 失败 → pipeTo reject，且源流被 cancel（preventCancel 缺省为 false）；
+     * 同时验证背压：writer.write 返回 pending 时 pump 不并发推进 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _pt = null;
+        var srcCancelled = false;
+        var writeCount = 0;
+        var src = new ReadableStream({
+          start: function(c){ c.enqueue('d1'); c.enqueue('d2'); c.enqueue('d3'); },
+          cancel: function(){ srcCancelled = true; }
+        });
+        var dest = new WritableStream({
+          write: function(chunk) {
+            writeCount++;
+            if (chunk === 'd2') return Promise.reject(new Error('sink boom'));
+            return new Promise(function(res){ setTimeout(res, 30); });
+          }
+        });
+        src.pipeTo(dest).catch(function(e){
+          _pt = JSON.stringify([srcCancelled, e.message]);
+        });
+        0)", &v));
+    /* 期望：源 cancelled=true，错误消息为 'sink boom' */
+    ASSERT_TRUE(host_poll_until_value(h, "_pt", "true", &v));
+    std::string v2;
+    ASSERT_TRUE(host_value(h, "_pt", &v2));
+    EXPECT_NE(std::string::npos, v2.find("sink boom")) << "got: " << v2;
+
+    /* 背压：写端第一次 write 是 pending(30ms)，期间不应发起第二次 read ——
+     * d2 失败时 d3 尚未被读走（pump 串行）。验证失败时源只 abort，不 cancel。 */
+    ASSERT_TRUE(host_value(h, "JSON.stringify(writeCount)", &v));
+    EXPECT_EQ(0, v.compare("2")) << "写端并发推进了: got " << v;
+}
+
 TEST_F(PolyfillTest, TextDecoderStreamMultibyte) {
     std::string v;
     /* 3 字节 UTF-8 字符（€ = E2 82 AC）跨 chunk 边界写入 TextDecoderStream：
