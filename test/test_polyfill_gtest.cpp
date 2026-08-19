@@ -731,3 +731,59 @@ TEST_F(PolyfillTest, StreamEdgeCases) {
         "JSON.stringify([err !== null, /TypeError/.test(err), s.locked])", &v));
     EXPECT_NE(std::string::npos, v.find("[true,true,true]")) << "got: " << v;
 }
+
+TEST_F(PolyfillTest, EventTargetEdgeCases) {
+    std::string v;
+
+    /* 1. {once:true} 触发一次后自动移除 */
+    ASSERT_TRUE(host_value(h,
+        "var et = new EventTarget();\n"
+        "var count = 0;\n"
+        "et.addEventListener('x', function(){ count++; }, {once:true});\n"
+        "et.dispatchEvent(new Event('x'));\n"
+        "et.dispatchEvent(new Event('x'));\n"
+        "JSON.stringify(count)", &v));
+    EXPECT_NE(std::string::npos, v.find("1")) << "got: " << v;
+
+    /* 2. 重复添加相同回调不重复注册 */
+    ASSERT_TRUE(host_value(h,
+        "var et = new EventTarget();\n"
+        "var count = 0;\n"
+        "var fn = function(){ count++; };\n"
+        "et.addEventListener('x', fn);\n"
+        "et.addEventListener('x', fn);\n"
+        "et.dispatchEvent(new Event('x'));\n"
+        "JSON.stringify(count)", &v));
+    EXPECT_NE(std::string::npos, v.find("1")) << "got: " << v;
+
+    /* 3. removeEventListener 移除后不再触发 */
+    ASSERT_TRUE(host_value(h,
+        "var et = new EventTarget();\n"
+        "var count = 0;\n"
+        "var fn = function(){ count++; };\n"
+        "et.addEventListener('x', fn);\n"
+        "et.removeEventListener('x', fn);\n"
+        "et.dispatchEvent(new Event('x'));\n"
+        "JSON.stringify(count)", &v));
+    EXPECT_NE(std::string::npos, v.find("0")) << "got: " << v;
+
+    /* 4. dispatchEvent 返回值：默认阻止返回 false，否则 true */
+    ASSERT_TRUE(host_value(h,
+        "var et = new EventTarget();\n"
+        "var ev = new Event('x', {cancelable:true});\n"
+        "et.addEventListener('x', function(e){ e.preventDefault(); });\n"
+        "var r1 = et.dispatchEvent(ev);\n"
+        "var r2 = et.dispatchEvent(new Event('y'));\n"
+        "JSON.stringify([r1, r2])", &v));
+    EXPECT_NE(std::string::npos, v.find("[false,true]")) << "got: " << v;
+
+    /* 5. AbortSignal abort 后 addEventListener 立即回调（微任务调度） */
+    ASSERT_TRUE(host_eval(h,
+        "var _et5 = null;\n"
+        "var ac = new AbortController();\n"
+        "ac.abort();\n"
+        "var called = false;\n"
+        "ac.signal.addEventListener('abort', function(){ called = true; _et5 = JSON.stringify([called, ac.signal.aborted]); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_et5", "[true,true]", &v)) << "got: " << v;
+}

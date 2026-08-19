@@ -590,6 +590,23 @@
       /**
        * Internal method to abort the signal.
        */
+      /**
+       * Override addEventListener to support the AbortSignal spec: if the signal
+       * has already been aborted, the new listener is called in a microtask.
+       */
+      addEventListener(type, callback, options) {
+        super.addEventListener(type, callback, options);
+        if (type === "abort" && this._aborted) {
+          var self = this;
+          Promise.resolve().then(function() {
+            if (typeof callback === "function") {
+              callback.call(self, new Event("abort"));
+            } else if (callback && typeof callback.handleEvent === "function") {
+              callback.handleEvent.call(self, new Event("abort"));
+            }
+          });
+        }
+      }
       _abort(reason) {
         if (this._aborted) return;
         this._aborted = true;
