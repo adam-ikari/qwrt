@@ -409,3 +409,29 @@ TEST_F(PolyfillTest, FetchRequestOptions) {
     EXPECT_NE(std::string::npos, v.find("\"cors\"")) << "got: " << v;
     EXPECT_NE(std::string::npos, v.find("\"include\"")) << "got: " << v;
 }
+
+TEST_F(PolyfillTest, StreamTeeCancel) {
+    std::string v;
+    /* 单分支取消不应传播到源（另一分支仍活跃）；两分支都取消后才释放源锁
+     * 并触发 underlying source 的 cancel（WHATWG tee 语义）。 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _tc = null;
+        var srcCancelled = false;
+        var s = new ReadableStream({
+          type: 'bytes',
+          start: function(c){ c.enqueue(new Uint8Array([1,2,3])); },
+          cancel: function(){ srcCancelled = true; }
+        });
+        var branches = s.tee();
+        branches[0].cancel().then(function(){
+          var afterOne = JSON.stringify({src: srcCancelled});
+          branches[1].cancel().then(function(){
+            _tc = afterOne + '|' + JSON.stringify({src: srcCancelled});
+          });
+        });
+        0)", &v));
+    /* 阶段一：仅分支0取消 → 源未被 cancel（分支1 仍活跃） */
+    ASSERT_TRUE(host_poll_until_value(h, "_tc", "\"src\":false", &v)) << "got: " << v;
+    /* 阶段二：两分支都取消 → 源 cancel 传播 */
+    ASSERT_TRUE(host_poll_until_value(h, "_tc", "\"src\":true", &v)) << "got: " << v;
+}

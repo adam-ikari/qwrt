@@ -2754,6 +2754,8 @@
         var reader = source.getReader();
         var branch1Controller, branch2Controller;
         var branch1Closed = false, branch2Closed = false;
+        var branch1Canceled = false, branch2Canceled = false;
+        var sourceCanceled = false;
         var reading = false;
         function pullAndDispatch() {
           if (reading) return;
@@ -2776,7 +2778,14 @@
             if (branch2Controller) branch2Controller.error(e);
           });
         }
-        function createBranch() {
+        function checkCancelSource() {
+          if (sourceCanceled) return;
+          if (branch1Canceled && branch2Canceled) {
+            sourceCanceled = true;
+            source.cancel();
+          }
+        }
+        function createBranch(index) {
           return new ReadableStream({
             start: function(controller) {
             },
@@ -2784,11 +2793,19 @@
               pullAndDispatch();
             },
             cancel: function() {
+              if (index === 0) {
+                branch1Canceled = true;
+                branch1Closed = true;
+              } else {
+                branch2Canceled = true;
+                branch2Closed = true;
+              }
+              checkCancelSource();
             }
           });
         }
-        var branch1 = createBranch();
-        var branch2 = createBranch();
+        var branch1 = createBranch(0);
+        var branch2 = createBranch(1);
         branch1Controller = branch1._controller;
         branch2Controller = branch2._controller;
         return [branch1, branch2];

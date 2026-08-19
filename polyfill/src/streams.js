@@ -419,6 +419,8 @@ export function setupStreams(pal) {
       var reader = source.getReader();
       var branch1Controller, branch2Controller;
       var branch1Closed = false, branch2Closed = false;
+      var branch1Canceled = false, branch2Canceled = false;
+      var sourceCanceled = false;
       var reading = false;
 
       function pullAndDispatch() {
@@ -444,7 +446,18 @@ export function setupStreams(pal) {
         });
       }
 
-      function createBranch() {
+      // WHATWG tee semantics: the underlying source is only cancelled once
+      // BOTH branches have been cancelled. A single branch cancelling must
+      // leave the source intact (the other branch keeps consuming).
+      function checkCancelSource() {
+        if (sourceCanceled) return;
+        if (branch1Canceled && branch2Canceled) {
+          sourceCanceled = true;
+          source.cancel();   /* releases the source lock, invokes source cancel */
+        }
+      }
+
+      function createBranch(index) {
         return new ReadableStream({
           start: function(controller) {
             // controller will be set after construction
@@ -453,13 +466,20 @@ export function setupStreams(pal) {
             pullAndDispatch();
           },
           cancel: function() {
-            // Release lock when both branches are cancelled
+            if (index === 0) {
+              branch1Canceled = true;
+              branch1Closed = true;
+            } else {
+              branch2Canceled = true;
+              branch2Closed = true;
+            }
+            checkCancelSource();
           }
         });
       }
 
-      var branch1 = createBranch();
-      var branch2 = createBranch();
+      var branch1 = createBranch(0);
+      var branch2 = createBranch(1);
 
       // Grab controllers from the branches (they're the first reader's stream)
       branch1Controller = branch1._controller;
