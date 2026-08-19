@@ -4,7 +4,7 @@ title: "HTTPServer 性能基准（uvhttp 驱动）"
 category: decision
 status: active
 created: "2026-08-16T13:00:56"
-updated: "2026-08-19T05:37:06"
+updated: "2026-08-19T08:55:34"
 ---
 
 <!-- compiled_truth -->
@@ -38,4 +38,9 @@ updated: "2026-08-19T05:37:06"
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: brain update-truth
+  affects: [httpserver-perf-benchmark]
+
+- time: 2026-08-19T08:55:34
+  kind: decision
+  summary: "uvhttp gzip 缓存模块化重构：删除 response.c 静态全局（g_gzip_cache/g_gzip_cache_tick），改为 uvhttp_gzip_cache 模块（LRU+内存预算+TTL+同key替换），挂载到 uvhttp_server_t（server_new 创建 / server_free 释放），response 借用指针（结构体布局不变）。符合 uvhttp 全局变量替换哲学。uvhttp 97/97、qwrt e2e 8/8、offline ctest 12/12 全过；gzip 路径无回归。"
   affects: [httpserver-perf-benchmark]

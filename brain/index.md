@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-19T05:37:06.462Z._
+_Auto-generated. Last updated 2026-08-19T08:55:34.581Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
