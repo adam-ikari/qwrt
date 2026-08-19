@@ -488,14 +488,29 @@ export function setupStreams(pal) {
       return [branch1, branch2];
     }
 
-    pipeTo(dest) {
-      var reader = this.getReader();
-      var writer = dest.getWriter();
+    pipeTo(dest, options) {
+      options = options || {};
+      var preventClose = !!options.preventClose;
+      var preventAbort = !!options.preventAbort;
+      var reader, writer;
+
+      // getReader/getWriter can throw synchronously when the source is
+      // already errored or the dest is already closed. pipeTo must surface
+      // that as a rejected promise, never a synchronous throw.
+      try {
+        reader = this.getReader();
+        writer = dest.getWriter();
+      } catch (e) {
+        return Promise.reject(e);
+      }
 
       function pump() {
         return reader.read().then(function(result) {
           if (result.done) {
             reader.releaseLock();
+            if (preventClose) {
+              return Promise.resolve();
+            }
             return writer.close();
           }
           return writer.write(result.value).then(pump);
@@ -504,7 +519,9 @@ export function setupStreams(pal) {
 
       return pump().catch(function(e) {
         try { reader.releaseLock(); } catch (x) {}
-        try { writer.abort(e); } catch (x) {}
+        if (!preventAbort) {
+          try { writer.abort(e); } catch (x) {}
+        }
         throw e;
       });
     }

@@ -2810,13 +2810,24 @@
         branch2Controller = branch2._controller;
         return [branch1, branch2];
       }
-      pipeTo(dest) {
-        var reader = this.getReader();
-        var writer = dest.getWriter();
+      pipeTo(dest, options) {
+        options = options || {};
+        var preventClose = !!options.preventClose;
+        var preventAbort = !!options.preventAbort;
+        var reader, writer;
+        try {
+          reader = this.getReader();
+          writer = dest.getWriter();
+        } catch (e) {
+          return Promise.reject(e);
+        }
         function pump() {
           return reader.read().then(function(result) {
             if (result.done) {
               reader.releaseLock();
+              if (preventClose) {
+                return Promise.resolve();
+              }
               return writer.close();
             }
             return writer.write(result.value).then(pump);
@@ -2827,9 +2838,11 @@
             reader.releaseLock();
           } catch (x) {
           }
-          try {
-            writer.abort(e);
-          } catch (x) {
+          if (!preventAbort) {
+            try {
+              writer.abort(e);
+            } catch (x) {
+            }
           }
           throw e;
         });

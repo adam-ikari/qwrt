@@ -435,3 +435,68 @@ TEST_F(PolyfillTest, StreamTeeCancel) {
     /* 阶段二：两分支都取消 → 源 cancel 传播 */
     ASSERT_TRUE(host_poll_until_value(h, "_tc", "\"src\":true", &v)) << "got: " << v;
 }
+
+TEST_F(PolyfillTest, PipeToPreventAbort) {
+    std::string v;
+    /* preventAbort:true：源 errored 时 pipeTo 仍 reject，但 writer 不被 abort */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _pa = null;
+        var abortCalled = false;
+        var src = new ReadableStream({
+          start: function(c){ c.error(new Error('boom')); }
+        });
+        var dest = new WritableStream({
+          write: function(){ return Promise.resolve(); },
+          abort: function(){ abortCalled = true; }
+        });
+        var p = src.pipeTo(dest, {preventAbort: true});
+        p.then(function(){ _pa = 'resolved:' + abortCalled; },
+               function(e){ _pa = 'rejected:' + abortCalled; });
+        0)", &v));
+    /* pipeTo reject 且 abort 未被调用 */
+    ASSERT_TRUE(host_poll_until_value(h, "_pa", "rejected:false", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, PipeToPreventClose) {
+    std::string v;
+    /* preventClose:true：源读完时 pipeTo resolve，但 writer 不被 close */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _pc = null;
+        var closeCalled = false;
+        var src = new ReadableStream({
+          start: function(c){ c.enqueue(1); c.close(); }
+        });
+        var dest = new WritableStream({
+          write: function(){ return Promise.resolve(); },
+          close: function(){ closeCalled = true; }
+        });
+        var p = src.pipeTo(dest, {preventClose: true});
+        p.then(function(){ _pc = 'resolved:' + closeCalled; },
+               function(e){ _pc = 'rejected:' + closeCalled; });
+        0)", &v));
+    /* pipeTo resolve 且 close 未被调用 */
+    ASSERT_TRUE(host_poll_until_value(h, "_pc", "resolved:false", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, PipeToBackpressureSerial) {
+    std::string v;
+    /* write 返回 pending promise：pump 必须等待其完成才读下一个 chunk（串行） */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _bp = null;
+        var writes = '';
+        var src = new ReadableStream({
+          start: function(c){ c.enqueue(1); c.enqueue(2); c.enqueue(3); c.close(); }
+        });
+        var dest = new WritableStream({
+          write: function(chunk){
+            writes += String(chunk);
+            return new Promise(function(resolve){ setTimeout(resolve, 30); });
+          }
+        });
+        var p = src.pipeTo(dest);
+        p.then(function(){ _bp = writes; },
+               function(e){ _bp = 'error:' + e.message; });
+        0)", &v));
+    /* 串行写入：1、2、3 顺序到达，无并发重入 */
+    ASSERT_TRUE(host_poll_until_value(h, "_bp", "123", &v)) << "got: " << v;
+}
