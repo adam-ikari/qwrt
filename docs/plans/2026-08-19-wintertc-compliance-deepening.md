@@ -370,3 +370,19 @@ Phase 1 与 Phase 3 都改 `test/test_polyfill_gtest.cpp`，建议先后执行�
 - 产物 `dist/polyfill.{js,bytecode}` + `src/polyfill_default.c` 需 `git add -f`（.gitignore 忽略 dist/，但产物刻意跟踪）。
 - 提交时若遇 `index.lock`（gitstatusd 竞态），用 `rm -f .git/index.lock` 后立即重试，或复用 /tmp 下的重试脚本模式。
 - compress gtest 有已知 flaky（brain 记录），失败时单独重跑。
+
+---
+
+# Phase 3 覆盖审计产出（Task 3.1，2026-08-19 执行）
+
+对照 `polyfill/src/` 模块与 `test/test_*.cpp` 现有 gtest 用例的覆盖差距表：
+
+| polyfill 模块 | 源文件 | 现有 gtest 覆盖 | 覆盖差距 | 对应 Task |
+|---|---|---|---|---|
+| TextDecoder | `text-encoding.js` | 仅 crypto-subtle 间接使用 + `TextDecoderStreamMultibyte`（流式残留） | 无直接单测：fatal 非法字节、非 fatal → U+FFFD、多字节/代理对、`{stream:true}` 半字符残留、ignoreBOM、编码标签解析 | 3.2 |
+| URL / URLSearchParams | `url.js` | `Url`（仅基本解析：protocol/hostname/pathname/searchParams.get） | URLSearchParams 全 API 零覆盖：append/get/getAll/has/set/delete/sort、迭代器（entries/keys/values/forEach/for..of）、特殊字符编码（`_encode`：`! ' ( ) *` → %XX、空格 → `+`） | 3.3 |
+| streams 边界 | `streams.js` | tee/pipeTo/BYOB/TextDecoderStream 已有较多用例 | tee 双分支独立消费、BYOB reader 对 non-byte stream 抛错、`cancel()` 幂等、locked 时 `getReader` 抛错 | 3.4 |
+| EventTarget | `event-target.js` | `ErrorEventAndEvent`（仅 Event/ErrorEvent 构造器字段） | EventTarget 事件模型零覆盖：addEventListener/removeEventListener/dispatchEvent、`{once:true}` 触发一次后移除、capture 区分、重复添加去重、默认 `dispatchEvent` 返回值 | 3.5 |
+| AbortController / AbortSignal | `abort.js` | 无 | 整模块零覆盖：`aborted`/`reason`/`throwIfAborted`、abort 后 addEventListener 立即回调、`AbortSignal.abort()`/`timeout()`/`any()`、DOMException('AbortError') | 3.5 |
+
+**结论**：覆盖差距集中在 5 个任务对应的模块（TextDecoder / URLSearchParams / streams 边界 / EventTarget / Abort）。Task 3.2–3.5 按计划逐个补 gtest，测试暴露真实 bug 时再修 polyfill 源。
