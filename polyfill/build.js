@@ -34,6 +34,13 @@ const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
 
+// Pin the working directory to polyfill/ so esbuild's emitted per-module
+// comments (`// src/xxx.js`) and qjsc's bytecode are identical regardless of
+// how build.js is invoked (npm --prefix from here, or node polyfill/build.js
+// from the repo root). Without this, dist/polyfill.js + the generated
+// bytecode drift between invocations and every rebuild shows a bogus diff.
+process.chdir(__dirname);
+
 const ROOT_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
 const ENTRY_POINT = path.join(__dirname, 'src', 'index.js');
@@ -45,12 +52,35 @@ if (!fs.existsSync(DIST_DIR)) {
 
 const isWatch = process.argv.includes('--watch');
 
+// Locate qjsc (QuickJS-ng bytecode compiler). qwrt's CMake builds the
+// quickjs-ng submodule into each build dir (<build>/deps/quickjs-ng), so the
+// compiler lives at <build>/deps/quickjs-ng/qjsc — NOT at the legacy
+// standalone-checkout path ../deps/quickjs-ng/build/qjsc that older setups
+// used. Priority: $QJSC env override → build*/deps/quickjs-ng/qjsc → legacy.
+function findQjsc() {
+  if (process.env.QJSC) return process.env.QJSC;
+  const candidates = [];
+  let entries = [];
+  try { entries = fs.readdirSync(ROOT_DIR, { withFileTypes: true }); } catch (e) {}
+  for (const ent of entries) {
+    if (ent.isDirectory() && ent.name.startsWith('build')) {
+      candidates.push(path.join(ROOT_DIR, ent.name, 'deps', 'quickjs-ng', 'qjsc'));
+    }
+  }
+  candidates.push(path.join(ROOT_DIR, '..', 'deps', 'quickjs-ng', 'build', 'qjsc'));
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0]; // none found; execSync surfaces a clear failure
+}
+
 // Whether non-UTF encoding support is compiled in (matches CMake option)
 const QWRT_WITH_NONUTF_ENCODINGS = process.env.QWRT_WITH_NONUTF_ENCODINGS === '1';
 
 // Common esbuild options
 const esbuildOptions = {
   entryPoints: [ENTRY_POINT],
+  absWorkingDir: __dirname, // stable per-module comments (// src/xxx.js) regardless of how build.js is invoked
   bundle: true,
   format: 'iife',
   globalName: 'qwrt_polyfill',
@@ -127,7 +157,7 @@ if (isWatch) {
   fs.writeFileSync(polyfillJsPath, js);
 
   // Generate bytecode using qjsc, then inline as C header
-  const QJSC = process.env.QJSC || path.join(ROOT_DIR, '..', 'deps', 'quickjs-ng', 'build', 'qjsc');
+  const QJSC = findQjsc();
   const bytecodePath = path.join(DIST_DIR, 'polyfill.bytecode');
   try {
     const { execSync } = require('child_process');

@@ -698,6 +698,12 @@ endif()
 # ============================================================================
 option(QWRT_BUILD_CLI "Build the qwrt CLI" ON)
 if(QWRT_BUILD_CLI)
+    if(QWRT_BUILD_TESTS)
+        # mock_libuv has no real event loop: the CLI links against it and aborts
+        # at runtime. Build with QWRT_BUILD_TESTS=OFF (e.g. a build_cli dir) for
+        # a usable standalone 'qwrt' executable.
+        message(WARNING "QWRT_BUILD_TESTS=ON builds qwrt_cli against mock_libuv, which has no real event loop; the resulting 'qwrt' executable will abort at runtime. Use a QWRT_BUILD_TESTS=OFF build for a usable CLI.")
+    endif()
     add_executable(qwrt_cli src/cli.c)
     set_target_properties(qwrt_cli PROPERTIES OUTPUT_NAME qwrt)
     target_link_libraries(qwrt_cli PRIVATE qwrt_full)

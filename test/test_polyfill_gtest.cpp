@@ -286,6 +286,7 @@ TEST_F(PolyfillTest, ByobReadFromQueue) {
     /* source 在 start 里 enqueue 两个 Uint8Array 后 close；BYOB read 填充用户 view */
     ASSERT_TRUE(host_eval(h,
         R"(var _byob_r = null;
+        var _byob_r2 = null;
         var s = new ReadableStream({
           type: 'bytes',
           start: function(c) {
