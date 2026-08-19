@@ -656,131 +656,198 @@ export function setupFetch(pal) {
         return;
       }
 
-      // Serialize headers to JSON
-      var headersObj = {};
-      request.headers.forEach(function(value, name) {
-        headersObj[name] = value;
-      });
-      var headersJson = JSON.stringify(headersObj);
-
-      // Get body as string
-      var bodyStr = null;
-      if (request.body != null) {
-        bodyStr = typeof request.body === 'string' ? request.body : String(request.body);
-      }
-
-      // Set up abort listener
-      var aborted = false;
-      var onAbort;
-      var resolvedResponse = null;
-      var streamController = null;
-
-      if (request.signal) {
-        onAbort = function() {
-          aborted = true;
-          if (streamController) {
-            streamController.error(new DOMException('The operation was aborted.', 'AbortError'));
-          }
-          reject(new DOMException('The operation was aborted.', 'AbortError'));
-        };
-        request.signal.addEventListener('abort', onAbort);
-      }
-
-      // Fallback to non-streaming httpRequest if streaming not available.
-      // pal.httpRequest returns a Promise<string> (resolves with the body on
-      // success, rejects with an error string on failure); it does NOT provide
-      // the HTTP status or headers, so the Response is built with status 200
-      // and empty headers (the non-streaming PAL contract's limitation).
-      if (typeof pal.httpRequestStream !== 'function') {
-        if (aborted) { return; }
-        if (request.signal && onAbort) {
-          request.signal.removeEventListener('abort', onAbort);
-        }
-        var p = pal.httpRequest(request.url, request.method, headersJson, bodyStr);
-        Promise.resolve(p).then(function(data) {
-          if (aborted) return;
-          var bodyBytes = stringToUint8Array(data || '');
-          var res = new Response(bodyBytes, {
-            status: 200,
-            headers: new Headers()
-          });
-          res._url = request.url;
-          resolve(res);
-        }, function(err) {
-          if (aborted) return;
-          reject(new TypeError('fetch failed: ' + (err || 'unknown error')));
-        });
-        return;
-      }
-
-      // Create a ReadableStream that will receive chunks from PAL callbacks
-      var readableStream = new ReadableStream({
-        start: function(controller) {
-          streamController = controller;
-        }
-      });
-
-      // PAL streaming callbacks
-      function onHeaders(status, headersJsonStr) {
-        if (aborted) return;
-
-        var parsedHeaders = {};
-        if (headersJsonStr) {
-          try {
-            parsedHeaders = JSON.parse(headersJsonStr);
-          } catch (e) {
-            // If headers parse fails, use empty headers
-          }
-        }
-
-        var headers = new Headers(parsedHeaders);
-        resolvedResponse = new Response(readableStream, {
-          status: status,
-          statusText: STATUS_TEXTS[status] || '',
-          headers: headers,
-          url: request.url
-        });
-
-        resolve(resolvedResponse);
-      }
-
-      function onData(chunk) {
-        if (aborted) return;
-        if (streamController) {
-          // chunk is an ArrayBuffer from the bridge; convert to Uint8Array
-          var arr;
-          if (chunk instanceof ArrayBuffer) {
-            arr = new Uint8Array(chunk);
-          } else if (chunk instanceof Uint8Array) {
-            arr = chunk;
-          } else {
-            // String fallback
-            arr = stringToUint8Array(String(chunk));
-          }
-          streamController.enqueue(arr);
-        }
-      }
-
-      function onEnd(errorStatus) {
-        // Clean up abort listener
-        if (request.signal && onAbort) {
-          request.signal.removeEventListener('abort', onAbort);
-        }
-
-        if (aborted) return;
-
-        if (streamController) {
-          if (errorStatus !== 0) {
-            streamController.error(new TypeError('fetch failed with status: ' + errorStatus));
-          } else {
-            streamController.close();
-          }
-        }
-      }
-
-      // Call PAL streaming HTTP
-      pal.httpRequestStream(request.url, request.method, headersJson, bodyStr, onHeaders, onData, onEnd);
+      // One HTTP transfer; redirects re-enter via doRequest. redirectCount
+      // guards against infinite redirect loops (WHATWG cap is 20).
+      doRequest(request, resolve, reject, 0);
     });
+  }
+
+  // One HTTP transfer (plus redirect following). Each hop owns its own abort
+  // listener, readable stream, and cleanup; on 3xx, follow/error/manual branch
+  // before the body stream is exposed.
+  function doRequest(request, resolve, reject, redirectCount) {
+    // Serialize headers to JSON
+    var headersObj = {};
+    request.headers.forEach(function(value, name) {
+      headersObj[name] = value;
+    });
+    var headersJson = JSON.stringify(headersObj);
+
+    // Get body as string
+    var bodyStr = null;
+    if (request.body != null) {
+      bodyStr = typeof request.body === 'string' ? request.body : String(request.body);
+    }
+
+    var aborted = false;
+    var onAbort;
+    var streamController = null;
+    var abandoned = false;   /* this hop's stream was abandoned due to a redirect */
+
+    if (request.signal) {
+      onAbort = function() {
+        aborted = true;
+        if (streamController) {
+          streamController.error(new DOMException('The operation was aborted.', 'AbortError'));
+        }
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      request.signal.addEventListener('abort', onAbort);
+    }
+
+    function cleanupAbort() {
+      if (request.signal && onAbort) {
+        request.signal.removeEventListener('abort', onAbort);
+      }
+    }
+
+    // Fallback to non-streaming httpRequest if streaming not available.
+    // pal.httpRequest returns a Promise<string> (resolves with the body on
+    // success, rejects with an error string on failure); it does NOT provide
+    // the HTTP status or headers, so the Response is built with status 200
+    // and empty headers (the non-streaming PAL contract's limitation).
+    if (typeof pal.httpRequestStream !== 'function') {
+      if (aborted) { return; }
+      cleanupAbort();
+      var p = pal.httpRequest(request.url, request.method, headersJson, bodyStr);
+      Promise.resolve(p).then(function(data) {
+        if (aborted) return;
+        var bodyBytes = stringToUint8Array(data || '');
+        var res = new Response(bodyBytes, {
+          status: 200,
+          headers: new Headers()
+        });
+        res._url = request.url;
+        resolve(res);
+      }, function(err) {
+        if (aborted) return;
+        reject(new TypeError('fetch failed: ' + (err || 'unknown error')));
+      });
+      return;
+    }
+
+    // Create a ReadableStream that will receive chunks from PAL callbacks
+    var readableStream = new ReadableStream({
+      start: function(controller) {
+        streamController = controller;
+      }
+    });
+
+    // PAL streaming callbacks
+    function onHeaders(status, headersJsonStr) {
+      if (aborted) return;
+
+      var parsedHeaders = {};
+      if (headersJsonStr) {
+        try {
+          parsedHeaders = JSON.parse(headersJsonStr);
+        } catch (e) {
+          // If headers parse fails, use empty headers
+        }
+      }
+
+      // === redirect handling (3xx) ===
+      if (status >= 300 && status <= 399) {
+        if (request.redirect === 'error') {
+          cleanupAbort();
+          reject(new TypeError('fetch failed: redirect mode is "error"'));
+          return;
+        }
+        if (request.redirect === 'manual') {
+          cleanupAbort();
+          var manualRes = new Response(null, { status: 0, statusText: '' });
+          manualRes._type = 'opaqueredirect';
+          resolve(manualRes);
+          return;
+        }
+        /* redirect === 'follow' (default) */
+        if (redirectCount >= 20) {
+          cleanupAbort();
+          reject(new TypeError('fetch failed: too many redirects'));
+          return;
+        }
+        var location = parsedHeaders['location'] || parsedHeaders['Location'] || null;
+        if (location) {
+          var nextUrl;
+          try {
+            nextUrl = new URL(location, request.url).href;
+          } catch (e) {
+            cleanupAbort();
+            reject(new TypeError('fetch failed: invalid redirect location'));
+            return;
+          }
+          var nextInit = {
+            method: request.method,
+            headers: request.headers,
+            signal: request.signal,
+            redirect: request.redirect,
+            keepalive: request.keepalive,
+            cache: request.cache,
+            mode: request.mode,
+            credentials: request.credentials
+          };
+          /* 301/302 (POST→GET) and 303 drop the body; 307/308 keep method+body */
+          if (status === 303 ||
+              (status === 301 && request.method === 'POST') ||
+              (status === 302 && request.method === 'POST')) {
+            nextInit.method = 'GET';
+          } else {
+            nextInit.body = request.body;
+          }
+          var nextReq = new Request(nextUrl, nextInit);
+          cleanupAbort();
+          abandoned = true;
+          doRequest(nextReq, resolve, reject, redirectCount + 1);
+          return;
+        }
+        /* No Location header: fall through and return the response as-is */
+      }
+
+      var headers = new Headers(parsedHeaders);
+      var resp = new Response(readableStream, {
+        status: status,
+        statusText: STATUS_TEXTS[status] || '',
+        headers: headers,
+        url: request.url
+      });
+
+      resolve(resp);
+    }
+
+    function onData(chunk) {
+      if (aborted || abandoned) return;
+      if (streamController) {
+        // chunk is an ArrayBuffer from the bridge; convert to Uint8Array
+        var arr;
+        if (chunk instanceof ArrayBuffer) {
+          arr = new Uint8Array(chunk);
+        } else if (chunk instanceof Uint8Array) {
+          arr = chunk;
+        } else {
+          // String fallback
+          arr = stringToUint8Array(String(chunk));
+        }
+        streamController.enqueue(arr);
+      }
+    }
+
+    function onEnd(errorStatus) {
+      // Clean up abort listener
+      cleanupAbort();
+
+      if (aborted || abandoned) return;
+
+      if (streamController) {
+        if (errorStatus !== 0) {
+          streamController.error(new TypeError('fetch failed with status: ' + errorStatus));
+        } else {
+          streamController.close();
+        }
+      }
+    }
+
+    // Call PAL streaming HTTP
+    pal.httpRequestStream(request.url, request.method, headersJson, bodyStr, onHeaders, onData, onEnd);
   }
 
   // ================================================================

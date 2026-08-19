@@ -873,11 +873,11 @@
         return this.entries();
       }
     }
-    class URL {
+    class URL2 {
       constructor(url, base) {
         let baseUrl = null;
         if (base) {
-          baseUrl = base instanceof URL ? base : new URL(base);
+          baseUrl = base instanceof URL2 ? base : new URL2(base);
         }
         this._parse(url, baseUrl);
       }
@@ -1058,14 +1058,14 @@
       // Static method to check if a string is a valid URL
       static canParse(url, base) {
         try {
-          new URL(url, base);
+          new URL2(url, base);
           return true;
         } catch (e) {
           return false;
         }
       }
     }
-    globalThis.URL = URL;
+    globalThis.URL = URL2;
     globalThis.URLSearchParams = URLSearchParams;
   }
 
@@ -1709,104 +1709,158 @@
           reject(new DOMException("The operation was aborted.", "AbortError"));
           return;
         }
-        var headersObj = {};
-        request.headers.forEach(function(value, name) {
-          headersObj[name] = value;
-        });
-        var headersJson = JSON.stringify(headersObj);
-        var bodyStr = null;
-        if (request.body != null) {
-          bodyStr = typeof request.body === "string" ? request.body : String(request.body);
-        }
-        var aborted = false;
-        var onAbort;
-        var resolvedResponse = null;
-        var streamController = null;
-        if (request.signal) {
-          onAbort = function() {
-            aborted = true;
-            if (streamController) {
-              streamController.error(new DOMException("The operation was aborted.", "AbortError"));
-            }
-            reject(new DOMException("The operation was aborted.", "AbortError"));
-          };
-          request.signal.addEventListener("abort", onAbort);
-        }
-        if (typeof pal2.httpRequestStream !== "function") {
-          if (aborted) {
-            return;
+        doRequest(request, resolve, reject, 0);
+      });
+    }
+    function doRequest(request, resolve, reject, redirectCount) {
+      var headersObj = {};
+      request.headers.forEach(function(value, name) {
+        headersObj[name] = value;
+      });
+      var headersJson = JSON.stringify(headersObj);
+      var bodyStr = null;
+      if (request.body != null) {
+        bodyStr = typeof request.body === "string" ? request.body : String(request.body);
+      }
+      var aborted = false;
+      var onAbort;
+      var streamController = null;
+      var abandoned = false;
+      if (request.signal) {
+        onAbort = function() {
+          aborted = true;
+          if (streamController) {
+            streamController.error(new DOMException("The operation was aborted.", "AbortError"));
           }
-          if (request.signal && onAbort) {
-            request.signal.removeEventListener("abort", onAbort);
-          }
-          var p = pal2.httpRequest(request.url, request.method, headersJson, bodyStr);
-          Promise.resolve(p).then(function(data) {
-            if (aborted) return;
-            var bodyBytes = stringToUint8Array(data || "");
-            var res = new Response(bodyBytes, {
-              status: 200,
-              headers: new Headers()
-            });
-            res._url = request.url;
-            resolve(res);
-          }, function(err) {
-            if (aborted) return;
-            reject(new TypeError("fetch failed: " + (err || "unknown error")));
-          });
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        };
+        request.signal.addEventListener("abort", onAbort);
+      }
+      function cleanupAbort() {
+        if (request.signal && onAbort) {
+          request.signal.removeEventListener("abort", onAbort);
+        }
+      }
+      if (typeof pal2.httpRequestStream !== "function") {
+        if (aborted) {
           return;
         }
-        var readableStream = new ReadableStream({
-          start: function(controller) {
-            streamController = controller;
-          }
-        });
-        function onHeaders(status, headersJsonStr) {
+        cleanupAbort();
+        var p = pal2.httpRequest(request.url, request.method, headersJson, bodyStr);
+        Promise.resolve(p).then(function(data) {
           if (aborted) return;
-          var parsedHeaders = {};
-          if (headersJsonStr) {
-            try {
-              parsedHeaders = JSON.parse(headersJsonStr);
-            } catch (e) {
-            }
-          }
-          var headers = new Headers(parsedHeaders);
-          resolvedResponse = new Response(readableStream, {
-            status,
-            statusText: STATUS_TEXTS[status] || "",
-            headers,
-            url: request.url
+          var bodyBytes = stringToUint8Array(data || "");
+          var res = new Response(bodyBytes, {
+            status: 200,
+            headers: new Headers()
           });
-          resolve(resolvedResponse);
-        }
-        function onData(chunk) {
+          res._url = request.url;
+          resolve(res);
+        }, function(err) {
           if (aborted) return;
-          if (streamController) {
-            var arr;
-            if (chunk instanceof ArrayBuffer) {
-              arr = new Uint8Array(chunk);
-            } else if (chunk instanceof Uint8Array) {
-              arr = chunk;
-            } else {
-              arr = stringToUint8Array(String(chunk));
-            }
-            streamController.enqueue(arr);
-          }
+          reject(new TypeError("fetch failed: " + (err || "unknown error")));
+        });
+        return;
+      }
+      var readableStream = new ReadableStream({
+        start: function(controller) {
+          streamController = controller;
         }
-        function onEnd(errorStatus) {
-          if (request.signal && onAbort) {
-            request.signal.removeEventListener("abort", onAbort);
-          }
-          if (aborted) return;
-          if (streamController) {
-            if (errorStatus !== 0) {
-              streamController.error(new TypeError("fetch failed with status: " + errorStatus));
-            } else {
-              streamController.close();
-            }
-          }
-        }
-        pal2.httpRequestStream(request.url, request.method, headersJson, bodyStr, onHeaders, onData, onEnd);
       });
+      function onHeaders(status, headersJsonStr) {
+        if (aborted) return;
+        var parsedHeaders = {};
+        if (headersJsonStr) {
+          try {
+            parsedHeaders = JSON.parse(headersJsonStr);
+          } catch (e) {
+          }
+        }
+        if (status >= 300 && status <= 399) {
+          if (request.redirect === "error") {
+            cleanupAbort();
+            reject(new TypeError('fetch failed: redirect mode is "error"'));
+            return;
+          }
+          if (request.redirect === "manual") {
+            cleanupAbort();
+            var manualRes = new Response(null, { status: 0, statusText: "" });
+            manualRes._type = "opaqueredirect";
+            resolve(manualRes);
+            return;
+          }
+          if (redirectCount >= 20) {
+            cleanupAbort();
+            reject(new TypeError("fetch failed: too many redirects"));
+            return;
+          }
+          var location = parsedHeaders["location"] || parsedHeaders["Location"] || null;
+          if (location) {
+            var nextUrl;
+            try {
+              nextUrl = new URL(location, request.url).href;
+            } catch (e) {
+              cleanupAbort();
+              reject(new TypeError("fetch failed: invalid redirect location"));
+              return;
+            }
+            var nextInit = {
+              method: request.method,
+              headers: request.headers,
+              signal: request.signal,
+              redirect: request.redirect,
+              keepalive: request.keepalive,
+              cache: request.cache,
+              mode: request.mode,
+              credentials: request.credentials
+            };
+            if (status === 303 || status === 301 && request.method === "POST" || status === 302 && request.method === "POST") {
+              nextInit.method = "GET";
+            } else {
+              nextInit.body = request.body;
+            }
+            var nextReq = new Request(nextUrl, nextInit);
+            cleanupAbort();
+            abandoned = true;
+            doRequest(nextReq, resolve, reject, redirectCount + 1);
+            return;
+          }
+        }
+        var headers = new Headers(parsedHeaders);
+        var resp = new Response(readableStream, {
+          status,
+          statusText: STATUS_TEXTS[status] || "",
+          headers,
+          url: request.url
+        });
+        resolve(resp);
+      }
+      function onData(chunk) {
+        if (aborted || abandoned) return;
+        if (streamController) {
+          var arr;
+          if (chunk instanceof ArrayBuffer) {
+            arr = new Uint8Array(chunk);
+          } else if (chunk instanceof Uint8Array) {
+            arr = chunk;
+          } else {
+            arr = stringToUint8Array(String(chunk));
+          }
+          streamController.enqueue(arr);
+        }
+      }
+      function onEnd(errorStatus) {
+        cleanupAbort();
+        if (aborted || abandoned) return;
+        if (streamController) {
+          if (errorStatus !== 0) {
+            streamController.error(new TypeError("fetch failed with status: " + errorStatus));
+          } else {
+            streamController.close();
+          }
+        }
+      }
+      pal2.httpRequestStream(request.url, request.method, headersJson, bodyStr, onHeaders, onData, onEnd);
     }
     globalThis.Headers = Headers;
     globalThis.Request = Request;
