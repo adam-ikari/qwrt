@@ -68,7 +68,11 @@ export function setupWorker(pal) {
       for (var i = 0; i < transfer.length; i++) {
         var t = transfer[i];
         if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) {
-          ports.push({ id: t._id, peerId: t._peerId, peerThread: 'parent' });
+          /* ref.peerThread = 被转移 port 的对端所在线程（从接收方视角）。父侧对端
+           * 只可能在本线程（'local'→对端留在父，ref 用 'parent'）或某 worker
+           * （workerId→保持不变）。写死 'parent' 会在父把从 worker 收到的代理 port
+           * 再转移时路由错线程。 */
+          ports.push({ id: t._id, peerId: t._peerId, peerThread: (t._peerThread === 'local' ? 'parent' : t._peerThread) });
           t._detached = true;   /* 原 port 已转移，不再可用 */
           var peer = globalThis.__qwrt_lookup_port__(t._peerId);
           if (peer) peer._peerThread = this._id;  /* 对端现在在 worker */

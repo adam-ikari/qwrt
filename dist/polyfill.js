@@ -2363,8 +2363,16 @@
         throw new DOMException("invalid MessagePort reference", "DataCloneError");
       }
       var p = new MessagePort2(info.id, info.peerId);
-      p._peerThread = info.peerThread || "parent";
       p._detached = false;
+      var peer = lookupPort(info.peerId);
+      if (peer && peer !== p) {
+        p._peerThread = "local";
+        p._entangledPort = peer;
+        peer._peerThread = "local";
+        peer._entangledPort = p;
+      } else {
+        p._peerThread = info.peerThread || "parent";
+      }
       registerPort(p);
       return p;
     };
@@ -4889,7 +4897,7 @@
         for (var i = 0; i < transfer.length; i++) {
           var t = transfer[i];
           if (typeof MessagePort !== "undefined" && t instanceof MessagePort) {
-            ports.push({ id: t._id, peerId: t._peerId, peerThread: "parent" });
+            ports.push({ id: t._id, peerId: t._peerId, peerThread: t._peerThread === "local" ? "parent" : t._peerThread });
             t._detached = true;
             var peer = globalThis.__qwrt_lookup_port__(t._peerId);
             if (peer) peer._peerThread = this._id;

@@ -309,3 +309,51 @@ TEST(worker_, transfer_messageport_terminate_worker) {
     EXPECT_NE(std::string::npos, out.find("no-throw")) << "got: " << out;
     host_destroy(h);
 }
+
+// transferable: 多跳转移——父→worker 转移 port1（w.postMessage('init',[port1])）；
+// worker 收到后把同一 port 再 postMessage 回父（worker_multihop.js，第二跳）；父侧
+// event.ports[0] 收到经多跳回来的 port，应与其本地 port2 重建同线程纠缠（_peerThread
+// === 'local'），可同线程 echo 通信。v1 只支持单次跨线程转移（父→worker 或 worker→父），
+// 多跳（父→worker→父）依赖纠缠关系重建——boot shim 的转移 ref 必须保留原 port 的对端
+// 线程信息（而非硬编码 pal.workerId()），接收侧 __qwrt_port_from_ref__ 须重建本地纠缠。
+TEST(worker_, transfer_messageport_multihop) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var ch = new MessageChannel();\n"
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_multihop.js');\n"
+        "globalThis.p2 = ch.port2;\n"
+        "p2.onmessage = function(e){ postMessage({p2: e.data}); };\n"
+        "w.onmessage = function(e){ if (e.ports && e.ports[0]) { globalThis.p = e.ports[0]; postMessage({fwd: e.data, p1detached: ch.port1._detached}); } };\n"
+        "w.postMessage('init', [ch.port1]);\n"
+        "'started'", &out));
+
+    /* 第一条：worker 把收到的 port 转回父 → 父侧 event.ports[0] 收到多跳 port；
+       父侧原 port1 已 detached（首次转移语义） */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"fwd\"")) << "got: " << out;
+    EXPECT_NE(std::string::npos, out.find("forwarding")) << "got: " << out;
+    EXPECT_NE(std::string::npos, out.find("\"p1detached\":true")) << "got: " << out;
+
+    /* 多跳 port 与父侧 port2 同线程纠缠：p.postMessage('ping') 同步分发到
+       p2.onmessage → 宿主 {p2:'ping'}（先于 eval 响应到达 inbox） */
+    ASSERT_TRUE(host_eval(h, "p.postMessage('ping'); 'sent'", &out));
+    EXPECT_NE(std::string::npos, out.find("\"p2\":\"ping\"")) << "got: " << out;
+    /* 清掉残留的 eval 响应 {ok,v:'"sent"'} */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+
+    /* 反向：p2.postMessage('pong') → p.onmessage → 宿主 {back:'pong'} */
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.p.onmessage = function(e){ postMessage({back: e.data}); };\n"
+        "p2.postMessage('pong'); 'sent'", &out));
+    EXPECT_NE(std::string::npos, out.find("\"back\":\"pong\"")) << "got: " << out;
+    ASSERT_TRUE(host_wait_msg(h, &out));   /* 清掉 eval 响应残留 */
+
+    /* 多跳 port 应与 port2 重建同线程纠缠（_peerThread === 'local'） */
+    ASSERT_TRUE(host_value(h,
+        "p._peerThread === 'local' ? 'entangled' : String(p._peerThread)", &out));
+    EXPECT_NE(std::string::npos, out.find("entangled")) << "got: " << out;
+    host_destroy(h);
+}

@@ -40,7 +40,11 @@
            for (var i = 0; i < transfer.length; i++) {                        \
              var t = transfer[i];                                             \
              if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) { \
-               ports.push({ id: t._id, peerId: t._peerId, peerThread: pal.workerId() }); \
+               /* ref.peerThread = 被转移 port 的对端所在线程（从接收方视角）。多跳 \
+                * （worker 转发从父收到的 port）时对端在父（t._peerThread='parent'）， \
+                * 必须保留而不是写死本 workerId；对端在本 worker（'local'）才用本 \
+                * workerId（worker 侧对端只可能在本 worker 或父线程）。 */ \
+               ports.push({ id: t._id, peerId: t._peerId, peerThread: (t._peerThread === 'local' ? pal.workerId() : t._peerThread) }); \
                t._detached = true;                                            \
                var peer = globalThis.__qwrt_lookup_port__(t._peerId);          \
                if (peer) peer._peerThread = 'parent';                         \

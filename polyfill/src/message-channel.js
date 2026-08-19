@@ -227,14 +227,27 @@ export function setupMessageChannel(pal) {
   /* 反序列化 MessagePort 引用时由 structured-clone 调用：
    * info = {id, peerId, peerThread, detached} → 返回一个新的可用 MessagePort
    * 代理（转移后原对象已 detached，新引用总是新对象；同一 id 的本地表项
-   * 被覆盖为新代理）。 */
+   * 被覆盖为新代理）。
+   *
+   * 纠缠关系重建：若对端（lookupPort(info.peerId)）已在本地——多跳转移把
+   * port 送回它的出生线程时（父→worker→父）——重建同线程纠缠（双方
+   * _peerThread='local' + _entangledPort 互指），此后两 port 直接同线程分发；
+   * 否则对端在别的线程，按 info.peerThread 走远程路由（单跳路径不受影响）。 */
   globalThis.__qwrt_port_from_ref__ = function (info) {
     if (!info || info.id === undefined || info.id === null) {
       throw new DOMException('invalid MessagePort reference', 'DataCloneError');
     }
     var p = new MessagePort(info.id, info.peerId);
-    p._peerThread = info.peerThread || 'parent';
     p._detached = false;
+    var peer = lookupPort(info.peerId);
+    if (peer && peer !== p) {
+      p._peerThread = 'local';
+      p._entangledPort = peer;
+      peer._peerThread = 'local';
+      peer._entangledPort = p;
+    } else {
+      p._peerThread = info.peerThread || 'parent';
+    }
     registerPort(p);
     return p;
   };

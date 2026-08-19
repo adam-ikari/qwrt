@@ -205,6 +205,28 @@ TEST_F(WorkerTest, transfer_messageport_multihop) { /* ... */ }
 
 **Step 5:** 提交 `feat(worker): MessagePort multihop transfer (parent→worker→parent)`
 
+### 多跳转移设计（Task 2.1 产出）
+
+**`_peerThread` 语义**：记录「纠缠对端 port 所在线程」（相对当前线程）：`'local'`=对端在当前线程（同线程 `_entangledPort` 纠缠）；`'parent'`=对端在父线程；`workerId>0`=对端在那个 worker 线程。`_peerId` 在整个多跳过程中**不变**（纠缠对端的全局 id）。
+
+**转移 ref 语义**：`{id, peerId, peerThread}` 中 `peerThread` = **被转移 port 的对端所在线程（从接收方线程视角）**。对端所在线程在转移前后不变，因此：
+- 对端在当前线程（`p._peerThread === 'local'`）→ 对端留在本线程 → ref.peerThread = 本线程标签（父='parent'；worker=workerId）。
+- 对端已在别的线程（`p._peerThread` 是 `'parent'`/workerId）→ 保持不变，ref.peerThread = `p._peerThread`。
+
+**多跳数据流（父→worker→父）**：
+1. 父 `new MessageChannel()` → id1/id2，port1 对端=port2（父侧本地纠缠，`_peerThread='local'`）。
+2. 父 `w.postMessage(data, [port1])`：ref={id:id1, peerId:id2, peerThread:'parent'}（对端 port2 在父）；port1._detached=true；父侧 port2._peerThread ← workerId。
+3. worker boot shim 收到 → `__qwrt_port_from_ref__` 建 port1'（id1, peerId=id2），本地 lookupPort(id2) 无 → `_peerThread='parent'`（对端 port2 在父）。worker 经 port1' 与父侧 port2 通信已通（v1）。
+4. worker 再 `postMessage(data, [port1'])` 把 port1' 转回父：**bug**——boot shim 硬编码 `peerThread: pal.workerId()`，使父侧认为对端在 worker（实际对端 port2 在父）。
+5. 父侧收到 ref={id:id1, peerId:id2, peerThread:<值>} → `__qwrt_port_from_ref__` 建 port1''。父侧本地已有 port2（lookupPort(id2) 命中）→ **重建同线程纠缠**：port1''._peerThread='local'、port1''._entangledPort=port2；port2._peerThread='local'、port2._entangledPort=port1''。父侧 port1''↔port2 即可同线程 echo。
+
+**修改点（均为 JS 层，C 层 bridge.c 无需新增——port id 全局唯一、路由信息随 ref 流转，无需跨线程 port 表同步）**：
+1. `src/worker.c` boot shim `globalThis.postMessage`：`peerThread: pal.workerId()` → `peerThread: (t._peerThread === 'local' ? pal.workerId() : t._peerThread)`（worker 侧对端只可能在本 worker('local') 或父('parent')）。
+2. `polyfill/src/worker.js` 父侧 `Worker.prototype.postMessage`：`peerThread: 'parent'` → `peerThread: (t._peerThread === 'local' ? 'parent' : t._peerThread)`（父侧对端只可能在本线程('local') 或某 worker(workerId)）。
+3. `polyfill/src/message-channel.js` `__qwrt_port_from_ref__`：先查本地表对端，若命中则重建同线程纠缠（双方 `_peerThread='local'` + `_entangledPort` 互指）；否则维持 `_peerThread = info.peerThread` 走远程路由。
+
+**复用验证**：单跳路径不受影响（父→worker：worker 侧 lookupPort(peerId) 无 → 远程，ref.peerThread='parent' 不变；worker→父：父侧 lookupPort(peerId) 无 → 远程，ref.peerThread=workerId 不变）。多 worker 并发、terminate 后代理等边界亦不回归。
+
 ## Phase 2 结束 checkpoint
 
 ```bash
