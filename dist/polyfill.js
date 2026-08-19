@@ -2386,6 +2386,7 @@
         }
         return new Promise(function(resolve, reject) {
           stream._pendingReads.push({ resolve, reject });
+          stream._maybePull();
         });
       }
       releaseLock() {
@@ -2394,16 +2395,145 @@
         this._isClosed = true;
       }
     }
+    class ReadableStreamBYOBRequest {
+      constructor(entry) {
+        this._entry = entry;
+      }
+      get view() {
+        return this._entry ? this._entry.view : null;
+      }
+      respond(bytesWritten) {
+        var entry = this._entry;
+        if (!entry) throw new TypeError("Invalid ReadableStreamBYOBRequest");
+        this._entry = null;
+        var view = entry.view;
+        var value = new view.constructor(view.buffer, view.byteOffset, bytesWritten);
+        _removePending(entry);
+        entry.resolve({ done: false, value });
+      }
+      respondWithNewView(newView) {
+        var entry = this._entry;
+        if (!entry) throw new TypeError("Invalid ReadableStreamBYOBRequest");
+        this._entry = null;
+        _removePending(entry);
+        entry.resolve({ done: false, value: newView });
+      }
+    }
+    function _removePending(entry) {
+      var s = entry.stream;
+      var idx = s._pendingReads.indexOf(entry);
+      if (idx >= 0) s._pendingReads.splice(idx, 1);
+    }
+    class ReadableStreamBYOBReader {
+      constructor(stream) {
+        if (stream._state === "errored") {
+          throw stream._storedError;
+        }
+        if (stream._reader) {
+          throw new TypeError("ReadableStream already has a reader");
+        }
+        stream._reader = this;
+        this._stream = stream;
+        this._isClosed = false;
+        if (stream._state === "closed") {
+          this._closed = Promise.resolve();
+        } else if (stream._state === "errored") {
+          this._closed = Promise.reject(stream._storedError);
+        } else {
+          this._closed = new Promise(function(resolve, reject) {
+            this._closedResolve = resolve;
+            this._closedReject = reject;
+          }.bind(this));
+        }
+      }
+      get closed() {
+        return this._closed;
+      }
+      read(view) {
+        if (!ArrayBuffer.isView(view) || view.byteLength === 0) {
+          return Promise.reject(new TypeError("BYOB read requires a non-empty ArrayBufferView"));
+        }
+        if (this._isClosed) {
+          return Promise.resolve({ done: true, value: view });
+        }
+        var stream = this._stream;
+        if (stream._state === "errored") {
+          return Promise.reject(stream._storedError);
+        }
+        var immediate;
+        if (stream._queue.length > 0) {
+          immediate = stream._fillFromQueue(view);
+        } else if (stream._state === "closed") {
+          this._isClosed = true;
+          immediate = { done: true, value: view };
+        }
+        if (immediate) return Promise.resolve(immediate);
+        return new Promise(function(resolve, reject) {
+          stream._pendingReads.push({ resolve, reject, view, stream });
+          stream._maybePull();
+        });
+      }
+      releaseLock() {
+        if (this._stream._reader !== this) return;
+        this._stream._reader = null;
+        this._isClosed = true;
+      }
+    }
+    class ReadableByteStreamController {
+      constructor(stream) {
+        this._stream = stream;
+        this._closeRequested = false;
+      }
+      get byobRequest() {
+        var s = this._stream;
+        for (var i = 0; i < s._pendingReads.length; i++) {
+          if (s._pendingReads[i].view) {
+            return new ReadableStreamBYOBRequest(s._pendingReads[i]);
+          }
+        }
+        return null;
+      }
+      get desiredSize() {
+        return this._stream._state === "readable" ? this._stream._hwm - this._stream._queueBytes() : null;
+      }
+      close() {
+        if (this._closeRequested) return;
+        this._closeRequested = true;
+        if (this._stream._state !== "readable") return;
+        this._stream._state = "closed";
+        this._stream._notifyReaders();
+      }
+      enqueue(chunk) {
+        if (this._stream._state !== "readable") return;
+        if (chunk instanceof ArrayBuffer) {
+          chunk = new Uint8Array(chunk);
+        } else if (ArrayBuffer.isView(chunk)) {
+          chunk = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+        } else {
+          throw new TypeError("ReadableByteStreamController.enqueue requires an ArrayBufferView or ArrayBuffer");
+        }
+        this._stream._queue.push(chunk);
+        this._stream._notifyReaders();
+      }
+      error(e) {
+        if (this._stream._state !== "readable") return;
+        this._stream._state = "errored";
+        this._stream._storedError = e;
+        this._stream._notifyReaders();
+      }
+    }
     class ReadableStream {
       constructor(underlyingSource, strategy) {
         underlyingSource = underlyingSource || {};
         this._state = "readable";
         this._reader = null;
         this._queue = [];
+        this._type = underlyingSource.type === "bytes" ? "bytes" : void 0;
         this._hwm = strategy && strategy.highWaterMark || 1;
         this._storedError = null;
         this._pendingReads = [];
-        this._controller = new ReadableStreamDefaultController(this);
+        this._pulling = false;
+        this._controller = this._type === "bytes" ? new ReadableByteStreamController(this) : new ReadableStreamDefaultController(this);
         var source = underlyingSource;
         this._cancel = source.cancel || ReadableStreamUnderlyingSourceDefaultCancel;
         this._pull = source.pull || ReadableStreamUnderlyingSourceDefaultPull;
@@ -2413,15 +2543,29 @@
       }
       _notifyReaders() {
         while (this._pendingReads.length > 0) {
-          if (this._queue.length > 0) {
-            var entry = this._pendingReads.shift();
+          var entry = this._pendingReads[0];
+          if (entry.view) {
+            if (this._queue.length > 0) {
+              this._pendingReads.shift();
+              entry.resolve(this._fillFromQueue(entry.view));
+            } else if (this._state === "closed") {
+              this._pendingReads.shift();
+              entry.resolve({ done: true, value: entry.view });
+            } else if (this._state === "errored") {
+              this._pendingReads.shift();
+              entry.reject(this._storedError);
+            } else {
+              break;
+            }
+          } else if (this._queue.length > 0) {
+            this._pendingReads.shift();
             var chunk = this._queue.shift();
             entry.resolve({ done: false, value: chunk });
           } else if (this._state === "closed") {
-            var entry = this._pendingReads.shift();
+            this._pendingReads.shift();
             entry.resolve({ done: true, value: void 0 });
           } else if (this._state === "errored") {
-            var entry = this._pendingReads.shift();
+            this._pendingReads.shift();
             entry.reject(this._storedError);
           } else {
             break;
@@ -2438,25 +2582,65 @@
             this._reader._closedReject = null;
           }
         }
-        if (this._state === "readable" && this._queue.length < this._hwm && this._pull) {
-          try {
-            var result = this._pull(this._controller);
-            if (result && typeof result.catch === "function") {
-              result.catch(function(e) {
-                this._controller.error(e);
-              }.bind(this));
-            }
-          } catch (e) {
-            this._controller.error(e);
+        this._maybePull();
+      }
+      _queueBytes() {
+        var total = 0;
+        for (var i = 0; i < this._queue.length; i++) {
+          total += this._queue[i].length;
+        }
+        return total;
+      }
+      _fillFromQueue(view) {
+        var chunk = this._queue[0];
+        var n = Math.min(chunk.length, view.byteLength);
+        var dst = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+        dst.set(chunk.subarray(0, n));
+        if (n === chunk.length) {
+          this._queue.shift();
+        } else {
+          this._queue[0] = chunk.subarray(n);
+        }
+        return { done: false, value: new view.constructor(view.buffer, view.byteOffset, n) };
+      }
+      _maybePull() {
+        if (this._state !== "readable" || !this._pull || this._pulling) return;
+        var hasByobPending = false;
+        for (var i = 0; i < this._pendingReads.length; i++) {
+          if (this._pendingReads[i].view) {
+            hasByobPending = true;
+            break;
           }
+        }
+        var needsMore = this._type === "bytes" ? hasByobPending || this._queueBytes() < this._hwm : this._queue.length < this._hwm;
+        if (!needsMore) return;
+        this._pulling = true;
+        try {
+          var result = this._pull(this._controller);
+          if (result && typeof result.catch === "function") {
+            result.catch(function(e) {
+              this._controller.error(e);
+            }.bind(this));
+          }
+        } catch (e) {
+          this._controller.error(e);
+        } finally {
+          this._pulling = false;
         }
       }
       get locked() {
         return this._reader !== null;
       }
-      getReader() {
+      getReader(options) {
         if (this._reader) {
           throw new TypeError("ReadableStream already locked");
+        }
+        var mode = options && options.mode;
+        if (mode === "byob") {
+          if (this._type !== "bytes") {
+            throw new TypeError("ReadableStream is not a byte stream");
+          }
+          return new ReadableStreamBYOBReader(this);
         }
         return new ReadableStreamDefaultReader(this);
       }
@@ -2971,6 +3155,9 @@
     globalThis.ReadableStream = ReadableStream;
     globalThis.ReadableStreamDefaultController = ReadableStreamDefaultController;
     globalThis.ReadableStreamDefaultReader = ReadableStreamDefaultReader;
+    globalThis.ReadableByteStreamController = ReadableByteStreamController;
+    globalThis.ReadableStreamBYOBReader = ReadableStreamBYOBReader;
+    globalThis.ReadableStreamBYOBRequest = ReadableStreamBYOBRequest;
     globalThis.WritableStream = WritableStream;
     globalThis.WritableStreamDefaultController = WritableStreamDefaultController;
     globalThis.WritableStreamDefaultWriter = WritableStreamDefaultWriter;

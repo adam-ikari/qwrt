@@ -241,3 +241,118 @@ TEST_F(PolyfillTest, Fetch) {
         "0", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_fetchResult", "polyfill fetch works", &v));
 }
+
+// ================================================================
+// BYOB streams (ECMA-429 Streams: ReadableByteStreamController /
+// ReadableStreamBYOBReader / ReadableStreamBYOBRequest)
+// ================================================================
+
+TEST_F(PolyfillTest, ReadableByteStreamGlobals) {
+    std::string v;
+    /* 三个 BYOB 接口必须暴露为构造函数 */
+    ASSERT_TRUE(host_value(h,
+        R"(JSON.stringify([typeof ReadableByteStreamController,
+          typeof ReadableStreamBYOBReader, typeof ReadableStreamBYOBRequest]))", &v));
+    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, ByteStreamByobReaderMode) {
+    std::string v;
+    /* bytes stream + getReader({mode:'byob'}) → BYOBReader 实例 + 锁住 */
+    ASSERT_TRUE(host_value(h,
+        R"(var s = new ReadableStream({type:'bytes'});
+        var r = s.getReader({mode:'byob'});
+        JSON.stringify([r instanceof ReadableStreamBYOBReader, s.locked]))", &v));
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+
+    /* 非 bytes stream + byob mode → TypeError */
+    ASSERT_TRUE(host_value(h,
+        R"(var s2 = new ReadableStream();
+        var err = 'none';
+        try { s2.getReader({mode:'byob'}); } catch(e) { err = e.name; }
+        JSON.stringify(err))", &v));
+    EXPECT_NE(std::string::npos, v.find("\"TypeError\"")) << "got: " << v;
+
+    /* 非 bytes stream + 无参 getReader() → default reader（保持兼容） */
+    ASSERT_TRUE(host_value(h,
+        R"(var s3 = new ReadableStream();
+        var r3 = s3.getReader();
+        JSON.stringify(r3 instanceof ReadableStreamDefaultReader))", &v));
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, ByobReadFromQueue) {
+    std::string v;
+    /* source 在 start 里 enqueue 两个 Uint8Array 后 close；BYOB read 填充用户 view */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _byob_r = null;
+        var s = new ReadableStream({
+          type: 'bytes',
+          start: function(c) {
+            c.enqueue(new Uint8Array([1,2,3,4]));
+            c.enqueue(new Uint8Array([5,6]));
+            c.close();
+          }
+        });
+        var reader = s.getReader({mode:'byob'});
+        reader.read(new Uint8Array(4)).then(function(res){
+          _byob_r = JSON.stringify({d: res.done, b: Array.from(res.value)});
+        });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_byob_r", "\"b\":[1,2,3,4]", &v));
+
+    /* 第二次读剩余 chunk [5,6]：value 部分填充，长度为 2 */
+    ASSERT_TRUE(host_eval(h,
+        R"(reader.read(new Uint8Array(4)).then(function(res){
+          _byob_r2 = JSON.stringify({d: res.done, b: Array.from(res.value), l: res.value.length});
+        });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_byob_r2", "\"b\":[5,6]", &v));
+    std::string v2;
+    ASSERT_TRUE(host_value(h, "_byob_r2", &v2));
+    EXPECT_NE(std::string::npos, v2.find("\"l\":2")) << "got: " << v2;
+}
+
+TEST_F(PolyfillTest, ByobReadClosedEmpty) {
+    std::string v;
+    /* 空队列 + 已 close → read 返回 {done:true} */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _byob_d = null;
+        var s = new ReadableStream({type:'bytes', start:function(c){ c.close(); }});
+        var reader = s.getReader({mode:'byob'});
+        reader.read(new Uint8Array(4)).then(function(res){
+          _byob_d = JSON.stringify([res.done]);
+        });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_byob_d", "true", &v));
+}
+
+TEST_F(PolyfillTest, ByobRequestRespond) {
+    std::string v;
+    /* pull 里经 controller.byobRequest.view 写数据 + respond(n) 完成一次 BYOB read */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _byob_req = null;
+        var pulled = 0;
+        var s = new ReadableStream({
+          type: 'bytes',
+          pull: function(c) {
+            pulled++;
+            var req = c.byobRequest;
+            if (req && req.view) {
+              var w = new Uint8Array(req.view.buffer, req.view.byteOffset, 3);
+              w.set([7,8,9]);
+              req.respond(3);
+            }
+          }
+        });
+        var reader = s.getReader({mode:'byob'});
+        reader.read(new Uint8Array(8)).then(function(res){
+          _byob_req = JSON.stringify({d: res.done, b: Array.from(res.value), l: res.value.length});
+        });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_byob_req", "\"b\":[7,8,9]", &v));
+    std::string v2;
+    ASSERT_TRUE(host_value(h, "_byob_req", &v2));
+    EXPECT_NE(std::string::npos, v2.find("\"l\":3")) << "got: " << v2;
+    EXPECT_NE(std::string::npos, v2.find("\"d\":false")) << "got: " << v2;
+}
