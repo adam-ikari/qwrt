@@ -676,3 +676,58 @@ TEST_F(PolyfillTest, UrlSearchParamsEdgeCases) {
     EXPECT_NE(std::string::npos, v.find("r=3")) << "got: " << v;
     EXPECT_NE(std::string::npos, v.find("\"9\"")) << "got: " << v;
 }
+
+TEST_F(PolyfillTest, StreamEdgeCases) {
+    std::string v;
+
+    /* 1. tee() 双分支独立消费：同一 chunk 应同时进入两个分支，互不阻塞 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _tee2 = null;
+        var s = new ReadableStream({
+          start: function(c){ c.enqueue('a'); c.enqueue('b'); c.close(); }
+        });
+        var b = s.tee();
+        var r0 = b[0].getReader();
+        var r1 = b[1].getReader();
+        r0.read().then(function(x){
+          r1.read().then(function(y){
+            _tee2 = JSON.stringify([x.value, y.value]);
+          });
+        });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_tee2", "\"a\"", &v)) << "got: " << v;
+
+    /* 2. BYOB reader 对 non-byte stream 抛 TypeError */
+    ASSERT_TRUE(host_value(h,
+        "var s = new ReadableStream();\n"
+        "var err = null;\n"
+        "try { s.getReader({mode:'byob'}); } catch(e) { err = String(e); }\n"
+        "JSON.stringify([err !== null, /TypeError/.test(err)])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
+
+    /* 3. cancel() 多次调用幂等：第二次直接返回 resolved，不重复触发源 cancel */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _cidem = null;
+        var cancelCount = 0;
+        var s = new ReadableStream({
+          start: function(c){ c.enqueue('x'); },
+          cancel: function(){ cancelCount++; }
+        });
+        s.cancel().then(function(){
+          return s.cancel();
+        }).then(function(){
+          _cidem = JSON.stringify([cancelCount, s.locked]);
+        });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_cidem", "[1,", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_cidem", "false", &v)) << "got: " << v;
+
+    /* 4. locked 时 getReader 抛 TypeError，且 locked 为 true */
+    ASSERT_TRUE(host_value(h,
+        "var s = new ReadableStream({ start: function(c){ c.enqueue('x'); } });\n"
+        "var r = s.getReader();\n"
+        "var err = null;\n"
+        "try { s.getReader(); } catch(e) { err = String(e); }\n"
+        "JSON.stringify([err !== null, /TypeError/.test(err), s.locked])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true,true]")) << "got: " << v;
+}
