@@ -353,6 +353,113 @@ function installCryptoSubtle(pal) {
       });
     }
 
+    wrapKey(format, key, wrappingKey, wrapAlgorithm) {
+      return new Promise(function(resolve, reject) {
+        var wrapName = typeof wrapAlgorithm === 'string' ? wrapAlgorithm : wrapAlgorithm.name;
+
+        if (wrapName !== 'AES-GCM' && wrapName !== 'AES-CBC') {
+          reject(new DOMException('Unsupported wrap algorithm: ' + wrapName, 'NotSupportedError'));
+          return;
+        }
+        if (typeof pal.nativeAesEncrypt !== 'function') {
+          reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
+          return;
+        }
+
+        var plaintext;
+        try {
+          if (format === 'raw') {
+            plaintext = toUint8Array(key._data);
+          } else if (format === 'jwk') {
+            var jwk = {
+              kty: 'oct',
+              k: base64UrlEncode(key._data),
+              alg: key.algorithm.name === 'HMAC' ? 'HS' + (key.algorithm.hash ? key.algorithm.hash.replace('SHA-', '') : '256') : key.algorithm.name,
+              ext: key.extractable,
+              key_ops: key.usages,
+            };
+            plaintext = new TextEncoder().encode(JSON.stringify(jwk));
+          } else {
+            reject(new DOMException('Unsupported wrap format: ' + format, 'NotSupportedError'));
+            return;
+          }
+        } catch (e) {
+          reject(e);
+          return;
+        }
+
+        try {
+          if (wrapName === 'AES-GCM') {
+            var iv = toUint8Array(wrapAlgorithm.iv);
+            var aad = wrapAlgorithm.additionalData ? toUint8Array(wrapAlgorithm.additionalData) : undefined;
+            var tagLen = wrapAlgorithm.tagLength !== undefined ? wrapAlgorithm.tagLength / 8 : 16;
+            resolve(toArrayBuffer(pal.nativeAesEncrypt(plaintext, wrappingKey._data, iv, 'AES-GCM', aad, tagLen)));
+            return;
+          }
+          if (wrapName === 'AES-CBC') {
+            var iv = toUint8Array(wrapAlgorithm.iv);
+            resolve(toArrayBuffer(pal.nativeAesEncrypt(plaintext, wrappingKey._data, iv, 'AES-CBC')));
+            return;
+          }
+        } catch (e) {
+          reject(e);
+          return;
+        }
+      });
+    }
+
+    unwrapKey(format, wrappedKey, unwrappingKey, unwrapAlgorithm, unwrappedKeyAlgorithm, extractable, keyUsages) {
+      return new Promise(function(resolve, reject) {
+        var unwrapName = typeof unwrapAlgorithm === 'string' ? unwrapAlgorithm : unwrapAlgorithm.name;
+
+        if (unwrapName !== 'AES-GCM' && unwrapName !== 'AES-CBC') {
+          reject(new DOMException('Unsupported unwrap algorithm: ' + unwrapName, 'NotSupportedError'));
+          return;
+        }
+        if (typeof pal.nativeAesDecrypt !== 'function') {
+          reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
+          return;
+        }
+
+        var plaintext;
+        try {
+          if (unwrapName === 'AES-GCM') {
+            var iv = toUint8Array(unwrapAlgorithm.iv);
+            var aad = unwrapAlgorithm.additionalData ? toUint8Array(unwrapAlgorithm.additionalData) : undefined;
+            var tagLen = unwrapAlgorithm.tagLength !== undefined ? unwrapAlgorithm.tagLength / 8 : 16;
+            plaintext = pal.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, 'AES-GCM', aad, tagLen);
+          } else {
+            var iv = toUint8Array(unwrapAlgorithm.iv);
+            plaintext = pal.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, 'AES-CBC');
+          }
+        } catch (e) {
+          reject(e);
+          return;
+        }
+
+        try {
+          if (format === 'raw') {
+            resolve(new CryptoKey('secret', unwrappedKeyAlgorithm, extractable, keyUsages, new Uint8Array(plaintext)));
+            return;
+          }
+          if (format === 'jwk') {
+            var json = JSON.parse(new TextDecoder().decode(plaintext));
+            if (!json || !json.k) {
+              reject(new DOMException('Invalid JWK', 'DataError'));
+              return;
+            }
+            resolve(new CryptoKey('secret', unwrappedKeyAlgorithm, extractable, keyUsages, base64UrlDecode(json.k)));
+            return;
+          }
+        } catch (e) {
+          reject(e);
+          return;
+        }
+
+        reject(new DOMException('Unsupported unwrap format: ' + format, 'NotSupportedError'));
+      });
+    }
+
     deriveBits(algorithm, key, length) {
       return new Promise(function(resolve, reject) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;

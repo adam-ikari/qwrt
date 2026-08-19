@@ -1,9 +1,10 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-19T03:35:18.116Z._
+_Auto-generated. Last updated 2026-08-19T04:08:54.984Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
+- [crypto-subtle-wrapkey](pages/crypto-subtle-wrapkey.md) — category: decision | tags: [crypto, webcrypto, wrapkey] | - **背景**：crypto.subtle 此前缺 `wrapKey`/`unwrapKey`（WebCrypto 标准方法）。
 - [examples-tree](pages/examples-tree.md) — category: decision | tags: [build, examples] | - 示例程序放在根目录 examples/ 下，每个示例一个子目录（examples/hello, examples/worker），不再放根目录 example.c。
 - [httpserver-perf-benchmark](pages/httpserver-perf-benchmark.md) — category: decision | ## 实测数据（wrk -t4 -c100 -d10s，qwrt Release 2026-08-16）
 - [httpserver-ws-fixes](pages/httpserver-ws-fixes.md) — category: decision | tags: [http-server, websocket, uvhttp, llhttp] | uvhttp 在 qwrt 中共 4 处底层修复（均改 deps/uvhttp 源码）：1) HPE_PAUSED_UPGRADE 时 llhttp 暂停后未恢复、连接悬死——在 qwrt_http_router.c 分发前显式 llhttp_resume；2) WS 握手 10

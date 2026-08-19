@@ -167,3 +167,128 @@ TEST_F(CryptoSubtleTest, Pbkdf2DeriveBits) {
     std::string hex = v.substr(hexpos + 7, 32);
     EXPECT_NE(std::string(32, '0'), hex);
 }
+
+// ================================================================
+// AES encrypt/decrypt round-trips (algorithm correctness)
+// ================================================================
+
+TEST_F(CryptoSubtleTest, AesGcmRoundTrip) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_r",
+        "var _r = null;\n"
+        "crypto.subtle.generateKey({name:'AES-GCM', length:256}, false, ['encrypt','decrypt'])\n"
+        "  .then(function(k){\n"
+        "    var msg = new TextEncoder().encode('aes-gcm roundtrip payload');\n"
+        "    var iv = new Uint8Array(12);\n"
+        "    return crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, k, msg).then(function(ct){\n"
+        "      return crypto.subtle.decrypt({name:'AES-GCM', iv:iv}, k, ct).then(function(pt){\n"
+        "        _r = JSON.stringify({txt:new TextDecoder().decode(pt), ctLen:ct.byteLength});\n"
+        "      });\n"
+        "    });\n"
+        "  });\n"
+        "'go'",
+        "\"txt\":\"aes-gcm roundtrip payload\"", &v));
+    /* GCM 输出 = 明文 + 16 字节 tag */
+    EXPECT_NE(std::string::npos, v.find("\"ctLen\":41")) << "got: " << v;
+}
+
+TEST_F(CryptoSubtleTest, AesCbcRoundTrip) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_r",
+        "var _r = null;\n"
+        "crypto.subtle.generateKey({name:'AES-CBC', length:256}, false, ['encrypt','decrypt'])\n"
+        "  .then(function(k){\n"
+        "    var msg = new TextEncoder().encode('aes-cbc roundtrip payload');\n"
+        "    var iv = new Uint8Array(16);\n"
+        "    return crypto.subtle.encrypt({name:'AES-CBC', iv:iv}, k, msg).then(function(ct){\n"
+        "      return crypto.subtle.decrypt({name:'AES-CBC', iv:iv}, k, ct).then(function(pt){\n"
+        "        _r = new TextDecoder().decode(pt);\n"
+        "      });\n"
+        "    });\n"
+        "  });\n"
+        "'go'",
+        "aes-cbc roundtrip payload", &v));
+}
+
+TEST_F(CryptoSubtleTest, AesCtrRoundTrip) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_r",
+        "var _r = null;\n"
+        "crypto.subtle.generateKey({name:'AES-CTR', length:256}, false, ['encrypt','decrypt'])\n"
+        "  .then(function(k){\n"
+        "    var msg = new TextEncoder().encode('aes-ctr roundtrip payload');\n"
+        "    var counter = new Uint8Array(16);\n"
+        "    return crypto.subtle.encrypt({name:'AES-CTR', counter:counter}, k, msg).then(function(ct){\n"
+        "      return crypto.subtle.decrypt({name:'AES-CTR', counter:counter}, k, ct).then(function(pt){\n"
+        "        _r = new TextDecoder().decode(pt);\n"
+        "      });\n"
+        "    });\n"
+        "  });\n"
+        "'go'",
+        "aes-ctr roundtrip payload", &v));
+}
+
+// ================================================================
+// wrapKey / unwrapKey (raw + jwk formats, AES-GCM wrapping)
+// ================================================================
+
+TEST_F(CryptoSubtleTest, WrapUnwrapKeyRoundTrip) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_w",
+        "var _w = null;\n"
+        "var _kek = null;\n"
+        "crypto.subtle.generateKey({name:'AES-GCM', length:256}, false, ['wrapKey','unwrapKey'])\n"
+        "  .then(function(kek){\n"
+        "    _kek = kek;\n"
+        "    return crypto.subtle.generateKey({name:'AES-GCM', length:128}, true, ['encrypt','decrypt']);\n"
+        "  })\n"
+        "  .then(function(target){\n"
+        "    var iv = new Uint8Array(12);\n"
+        "    return crypto.subtle.wrapKey('raw', target, _kek, {name:'AES-GCM', iv:iv}).then(function(wrapped){\n"
+        "      return crypto.subtle.unwrapKey('raw', wrapped, _kek, {name:'AES-GCM', iv:iv},\n"
+        "        {name:'AES-GCM', length:128}, true, ['encrypt','decrypt']).then(function(unwrapped){\n"
+        "          var msg = new TextEncoder().encode('unwrapped key works');\n"
+        "          var iv2 = new Uint8Array(12);\n"
+        "          return crypto.subtle.encrypt({name:'AES-GCM', iv:iv2}, unwrapped, msg).then(function(ct){\n"
+        "            return crypto.subtle.decrypt({name:'AES-GCM', iv:iv2}, unwrapped, ct).then(function(pt){\n"
+        "              _w = JSON.stringify({wrappedLen:wrapped.byteLength, txt:new TextDecoder().decode(pt),\n"
+        "                type:unwrapped.type, extractable:unwrapped.extractable});\n"
+        "            });\n"
+        "          });\n"
+        "        });\n"
+        "    });\n"
+        "  });\n"
+        "'go'",
+        "\"txt\":\"unwrapped key works\"", &v));
+    EXPECT_NE(std::string::npos, v.find("\"type\":\"secret\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"extractable\":true")) << "got: " << v;
+    /* 128-bit key raw 16B + GCM tag 16B = 32B wrapped */
+    EXPECT_NE(std::string::npos, v.find("\"wrappedLen\":32")) << "got: " << v;
+}
+
+TEST_F(CryptoSubtleTest, WrapUnwrapJwk) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_j",
+        "var _j = null;\n"
+        "var _kek = null;\n"
+        "crypto.subtle.generateKey({name:'AES-GCM', length:256}, false, ['wrapKey','unwrapKey'])\n"
+        "  .then(function(kek){\n"
+        "    _kek = kek;\n"
+        "    return crypto.subtle.importKey('raw', new TextEncoder().encode('0123456789abcdef'),\n"
+        "      {name:'AES-GCM', length:128}, true, ['encrypt']);\n"
+        "  })\n"
+        "  .then(function(target){\n"
+        "    var iv = new Uint8Array(12);\n"
+        "    return crypto.subtle.wrapKey('jwk', target, _kek, {name:'AES-GCM', iv:iv}).then(function(wrapped){\n"
+        "      return crypto.subtle.unwrapKey('jwk', wrapped, _kek, {name:'AES-GCM', iv:iv},\n"
+        "        {name:'AES-GCM', length:128}, true, ['encrypt']).then(function(unwrapped){\n"
+        "          return crypto.subtle.exportKey('raw', unwrapped).then(function(raw){\n"
+        "            _j = JSON.stringify({txt:new TextDecoder().decode(raw), type:unwrapped.type});\n"
+        "          });\n"
+        "        });\n"
+        "    });\n"
+        "  });\n"
+        "'go'",
+        "\"txt\":\"0123456789abcdef\"", &v));
+    EXPECT_NE(std::string::npos, v.find("\"type\":\"secret\"")) << "got: " << v;
+}

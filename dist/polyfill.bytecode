@@ -1,4 +1,4 @@
-P‡¯ĞÏpalsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
+mßpalsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
 debugTrace: objoptions
 depth
 labeltimeNow
@@ -63,8 +63,8 @@ nameschmodifiergroupContent(.*)(?:([^/]*))?(.+)([^/]*){}()
 regexnavigatorreportError2lineNumbercolumnNumberlistener_onerrorHandlerhandler8_onunhandledrejectionHandler4_onrejectionhandledHandler rejectionhandled&qwrt/1.0 (WinterTC)userAgent
 en-USlanguagewintercgplatform&hardwareConcurrencyonLinemaxTouchPointsonerror(onunhandledrejection$onrejectionhandled.__installCryptoSubtle__toUint8ArraytoArrayBufferB64_CHARSbase64UrlEncodebase64UrlDecodeCryptoKeySubtleCryptoDExpected ArrayBuffer or TypedArrayu8b0b2_
 charsc0c1c2c3algorithmextractableusages_algorithm_extractable_usagesnativeDigest<Crypto extension not availablekeyDatakeyUsagesalgoNameInvalid keyDatajwk(Invalid JWK key data0Unsupported key format: secrethashAlgoHMACSHA-256nativeHmac.Unsupported algorithm: signaturecomputedsigcompdiffsignplaintextivaadtagLencounter nativeAesEncryptAES-CBCAES-GCMadditionalDatatagLengthAES-CTRciphertext nativeAesDecryptlengthBitslengthByteskeyBytesceil
-SHA-1SHA-512,Invalid AES key lengthOperationError,Key is not extractableoctktyHSSHA-algextkey_ops6Unsupported export format: saltiterations
-dkLenPBKDF2nativePbkdf2derivedKeyTypebitsLengthbitsderiveBitsdigestimportKeyverifyencryptdecryptgenerateKeyexportKeyderiveKeycloneTypedArrayTA_CTORSutf8Encodeutf8DecodeByteWriterencodeString serializeToBytesByteReader(deserializeFromBytestransferSettisPortseent2detached6transfer must be a sequence,duplicate transferable4object is not transferable_qwrtTransferCtortspeerpr0Symbols cannot be cloned4Functions cannot be clonedgetTimeVMessagePort cannot be cloned (use transfer)outcpufu32f64refswfbytesbbytesau8tu8valisIntegeris*File cannot be cloned*Blob cannot be clonedrrdtagnmmoffdvtabllmflopid
+SHA-1SHA-512,Invalid AES key lengthOperationError,Key is not extractableoctktyHSSHA-algextkey_ops6Unsupported export format: wrappingKeywrapAlgorithmwrapName8Unsupported wrap algorithm: 2Unsupported wrap format: wrappedKeyunwrappingKeyunwrapAlgorithm*unwrappedKeyAlgorithmunwrapName<Unsupported unwrap algorithm: Invalid JWKDataError6Unsupported unwrap format: saltiterations
+dkLenPBKDF2nativePbkdf2derivedKeyTypebitsLengthbitsderiveBitsdigestimportKeyverifyencryptdecryptgenerateKeyexportKeywrapKeyunwrapKeyderiveKeycloneTypedArrayTA_CTORSutf8Encodeutf8DecodeByteWriterencodeString serializeToBytesByteReader(deserializeFromBytestransferSettisPortseent2detached6transfer must be a sequence,duplicate transferable4object is not transferable_qwrtTransferCtortspeerpr0Symbols cannot be cloned4Functions cannot be clonedgetTimeVMessagePort cannot be cloned (use transfer)outcpufu32f64refswfbytesbbytesau8tu8valisIntegeris*File cannot be cloned*Blob cannot be clonedrrdtagnmmoffdvtabllmflopid
 ppeerpthportRef\MessagePort reference requires message-channel&Bad serialized dataworkersloadScriptWorkerhostDispatchfile://ZWorker: only file:// URLs are supported in v1fsReadSync_onmsg_onerrorspawnWorkerabTransferdataBytes__qwrt_ports__qwrt_payloadworkerTerminate
 innerev2h2_pristine_infra
 propsskippedreccontextSpawncontextSuspendcontextResumecontextDestroycreate(__qwrt_ctx_capture__(__qwrt_ctx_restore__qwrtContext
@@ -9500,7 +9500,7 @@ KC   $ )¨› 2: N  . 4, 3"+4, 3"+4,£function setupNavigatorReportError() 
       installCryptoSubtle(pal2);
     };
   }C
- 	 †– @„  @† @ˆ @ Š @Œ @0şp `0ş	p C
+ 	 –– @„  @† @ˆ @ Š @Œ @0şp `0ş	p C
  „    ZÜ  ×8±   ©ğ×(×8­   ©ğ8±   ×! (8­   AÈ  ×$ ğ8±   ×@¨  ×@E  ×@É  ! (8Ú   ‰  ! 0¨ù,: *0l) $=Åfunction toUint8Array(data) {
       if (data instanceof Uint8Array) return data;
       if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -9567,7 +9567,7 @@ N& & & & öclass CryptoKey {
         return this._extractable;
       }B      	  ÏË@˜  (¨­ 3get usages() {
         return this._usages;
-      }B       ş	Ï+d  ğË$  )¨² íUclass SubtleCrypto {
+      }B       ş	Ï+d  ğË$  )¨² ğxclass SubtleCrypto {
       constructor() {
       }
       digest(algorithm, data) {
@@ -9784,6 +9784,104 @@ N& & & & öclass CryptoKey {
             return;
           }
           reject(new DOMException("Unsupported export format: " + format, "NotSupportedError"));
+        });
+      }
+      wrapKey(format, key, wrappingKey, wrapAlgorithm) {
+        return new Promise(function(resolve, reject) {
+          var wrapName = typeof wrapAlgorithm === "string" ? wrapAlgorithm : wrapAlgorithm.name;
+          if (wrapName !== "AES-GCM" && wrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported wrap algorithm: " + wrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesEncrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (format === "raw") {
+              plaintext = toUint8Array(key._data);
+            } else if (format === "jwk") {
+              var jwk = {
+                kty: "oct",
+                k: base64UrlEncode(key._data),
+                alg: key.algorithm.name === "HMAC" ? "HS" + (key.algorithm.hash ? key.algorithm.hash.replace("SHA-", "") : "256") : key.algorithm.name,
+                ext: key.extractable,
+                key_ops: key.usages
+              };
+              plaintext = new TextEncoder().encode(JSON.stringify(jwk));
+            } else {
+              reject(new DOMException("Unsupported wrap format: " + format, "NotSupportedError"));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (wrapName === "AES-GCM") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              var aad = wrapAlgorithm.additionalData ? toUint8Array(wrapAlgorithm.additionalData) : void 0;
+              var tagLen = wrapAlgorithm.tagLength !== void 0 ? wrapAlgorithm.tagLength / 8 : 16;
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-GCM", aad, tagLen)));
+              return;
+            }
+            if (wrapName === "AES-CBC") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-CBC")));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+        });
+      }
+      unwrapKey(format, wrappedKey, unwrappingKey, unwrapAlgorithm, unwrappedKeyAlgorithm, extractable, keyUsages) {
+        return new Promise(function(resolve, reject) {
+          var unwrapName = typeof unwrapAlgorithm === "string" ? unwrapAlgorithm : unwrapAlgorithm.name;
+          if (unwrapName !== "AES-GCM" && unwrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported unwrap algorithm: " + unwrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesDecrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (unwrapName === "AES-GCM") {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              var aad = unwrapAlgorithm.additionalData ? toUint8Array(unwrapAlgorithm.additionalData) : void 0;
+              var tagLen = unwrapAlgorithm.tagLength !== void 0 ? unwrapAlgorithm.tagLength / 8 : 16;
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-GCM", aad, tagLen);
+            } else {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-CBC");
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (format === "raw") {
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, new Uint8Array(plaintext)));
+              return;
+            }
+            if (format === "jwk") {
+              var json = JSON.parse(new TextDecoder().decode(plaintext));
+              if (!json || !json.k) {
+                reject(new DOMException("Invalid JWK", "DataError"));
+                return;
+              }
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, base64UrlDecode(json.k)));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          reject(new DOMException("Unsupported unwrap format: " + format, "NotSupportedError"));
         });
       }
       deriveBits(algorithm, key, length) {
@@ -10246,8 +10344,206 @@ KÉ  ã@•  KÊ  Ï×Ëõ)Ø8İ   Ë  äœİ  ! õ)¨õ#1s+7xvC “R 2­
           }
           reject(new DOMException("Unsupported export format: " + format, "NotSupportedError"));
         });
+      }B  Š @² @˜ @š @ – „  Š † C
+  š
+”  –  œ   Ü  ¾  ¤ Ş  à  â  ¤ š– Š „²Š†˜256ã–L   ­ğãòã@:   Óµ  ®ğ"Ë´  ®ğØ8İ   Ï  Ëœİ  ! õ)ä@³  ûñØ8İ   š  İ  ! õ)kû   åx   ­ğæ] @a  õĞóß åŸ  ­hº   Ä  KÅ  ] ] @a  õK5  ] @“  @:   ¤  ­ğ7Æ  ] @“  @  ğ] @“  @  Aû  Ç  Æ$ òÄ œò] @“  @:   KÈ  ] @”  KÉ  ] @•  KÊ  Ñ8f  !  Ag  8§   A  Í$ $ ĞòØ8İ   Ğ  åœİ  ! õn(òÒk   ØÎõn(0k£   Ëµ  ­ğ_æã@¯  õÈã@¶  ğæã@¶  õòÈã@·  øñã@·  ÂšòÂÈ×] äA³  Ì] @a  Çµ  ÇÇ$ õõn(Ë´  ­ğ.æã@¯  õÈ×] äA³  Ì] @a  Ç´  $ õõn()Èk   ØÇõn(0¨`.b-/4+Q9\_+E 
++2I	‚ŠC §R =H*46g9V o 0]@]/F0— ,›900+ , "[×function(resolve, reject) {
+          var wrapName = typeof wrapAlgorithm === "string" ? wrapAlgorithm : wrapAlgorithm.name;
+          if (wrapName !== "AES-GCM" && wrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported wrap algorithm: " + wrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesEncrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (format === "raw") {
+              plaintext = toUint8Array(key._data);
+            } else if (format === "jwk") {
+              var jwk = {
+                kty: "oct",
+                k: base64UrlEncode(key._data),
+                alg: key.algorithm.name === "HMAC" ? "HS" + (key.algorithm.hash ? key.algorithm.hash.replace("SHA-", "") : "256") : key.algorithm.name,
+                ext: key.extractable,
+                key_ops: key.usages
+              };
+              plaintext = new TextEncoder().encode(JSON.stringify(jwk));
+            } else {
+              reject(new DOMException("Unsupported wrap format: " + format, "NotSupportedError"));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (wrapName === "AES-GCM") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              var aad = wrapAlgorithm.additionalData ? toUint8Array(wrapAlgorithm.additionalData) : void 0;
+              var tagLen = wrapAlgorithm.tagLength !== void 0 ? wrapAlgorithm.tagLength / 8 : 16;
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-GCM", aad, tagLen)));
+              return;
+            }
+            if (wrapName === "AES-CBC") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-CBC")));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+        }8Î   Å ! (¨Œ¯wrapKey(format, key, wrappingKey, wrapAlgorithm) {
+        return new Promise(function(resolve, reject) {
+          var wrapName = typeof wrapAlgorithm === "string" ? wrapAlgorithm : wrapAlgorithm.name;
+          if (wrapName !== "AES-GCM" && wrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported wrap algorithm: " + wrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesEncrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (format === "raw") {
+              plaintext = toUint8Array(key._data);
+            } else if (format === "jwk") {
+              var jwk = {
+                kty: "oct",
+                k: base64UrlEncode(key._data),
+                alg: key.algorithm.name === "HMAC" ? "HS" + (key.algorithm.hash ? key.algorithm.hash.replace("SHA-", "") : "256") : key.algorithm.name,
+                ext: key.extractable,
+                key_ops: key.usages
+              };
+              plaintext = new TextEncoder().encode(JSON.stringify(jwk));
+            } else {
+              reject(new DOMException("Unsupported wrap format: " + format, "NotSupportedError"));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (wrapName === "AES-GCM") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              var aad = wrapAlgorithm.additionalData ? toUint8Array(wrapAlgorithm.additionalData) : void 0;
+              var tagLen = wrapAlgorithm.tagLength !== void 0 ? wrapAlgorithm.tagLength / 8 : 16;
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-GCM", aad, tagLen)));
+              return;
+            }
+            if (wrapName === "AES-CBC") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-CBC")));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+        });
+      }B  Š @¢ @¤ @¦ @ ¨ @¨ @¸ @– „  Œ C
+   Ò
+”  –  ª   Ü  Ş  à  â  ¤
+ ö  ¤ ¦– „¢¤Š ¨¨¸Œã–L   ­ğãòã@:   Óµ  ®ğ"Ë´  ®ğØ8İ   Ö  Ëœİ  ! õ)ä@º  ûñØ8İ   š  İ  ! õ)k‰   Ëµ  ­ğVåã@¯  õÑã@¶  ğåã@¶  õòÒã@·  øñã@·  ÂšòÂÈäAº  åæõ] @a  Íµ  ÎÇ$ Ğò%åã@¯  õÑäAº  åæõ] @a  Í´  $ ĞòÈk   ØÇõn(0k±   ] x   ­ğ&×d ¢  ] ] ]	 8±   Ì! ! õn(] Ÿ  ­ğp8§   A{  8¡  !  A£  Ì$ $ É•ñ
+Ç@5  •ğØ8İ   ×  Ø  ! õn(×d ¢  ] ] ]	 ]
+ Ç@5  õ! õn(òÈk   ØÇõn(0Ø8İ   Ù  ] œİ  ! õ)¨À[6b1/8+Y9`_/E 
+0
+XDX/J0Ÿ D†1++ D›a +\n‹]H*|Y}k¦ Á-9Z²function(resolve, reject) {
+          var unwrapName = typeof unwrapAlgorithm === "string" ? unwrapAlgorithm : unwrapAlgorithm.name;
+          if (unwrapName !== "AES-GCM" && unwrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported unwrap algorithm: " + unwrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesDecrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (unwrapName === "AES-GCM") {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              var aad = unwrapAlgorithm.additionalData ? toUint8Array(unwrapAlgorithm.additionalData) : void 0;
+              var tagLen = unwrapAlgorithm.tagLength !== void 0 ? unwrapAlgorithm.tagLength / 8 : 16;
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-GCM", aad, tagLen);
+            } else {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-CBC");
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (format === "raw") {
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, new Uint8Array(plaintext)));
+              return;
+            }
+            if (format === "jwk") {
+              var json = JSON.parse(new TextDecoder().decode(plaintext));
+              if (!json || !json.k) {
+                reject(new DOMException("Invalid JWK", "DataError"));
+                return;
+              }
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, base64UrlDecode(json.k)));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          reject(new DOMException("Unsupported unwrap format: " + format, "NotSupportedError"));
+        }8Î   Å ! (¨¿ÆunwrapKey(format, wrappedKey, unwrappingKey, unwrapAlgorithm, unwrappedKeyAlgorithm, extractable, keyUsages) {
+        return new Promise(function(resolve, reject) {
+          var unwrapName = typeof unwrapAlgorithm === "string" ? unwrapAlgorithm : unwrapAlgorithm.name;
+          if (unwrapName !== "AES-GCM" && unwrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported unwrap algorithm: " + unwrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesDecrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (unwrapName === "AES-GCM") {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              var aad = unwrapAlgorithm.additionalData ? toUint8Array(unwrapAlgorithm.additionalData) : void 0;
+              var tagLen = unwrapAlgorithm.tagLength !== void 0 ? unwrapAlgorithm.tagLength / 8 : 16;
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-GCM", aad, tagLen);
+            } else {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-CBC");
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (format === "raw") {
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, new Uint8Array(plaintext)));
+              return;
+            }
+            if (format === "jwk") {
+              var json = JSON.parse(new TextDecoder().decode(plaintext));
+              if (!json || !json.k) {
+                reject(new DOMException("Invalid JWK", "DataError"));
+                return;
+              }
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, base64UrlDecode(json.k)));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          reject(new DOMException("Unsupported unwrap format: " + format, "NotSupportedError"));
+        });
       }B  ¦ @ ² @f @„  – † C
-   â	”  –  º   ˜  š  Æ  œ  ¦  ¤ ¦ „ –f²†ã–L   ­ğãòã@:   ÓÏ  ­h¯   äã@Ì  õĞã@Í  Ñã@  ğ%ã@  –L   ­ğ	ã@  òã@  @:   ò¿  Òå@Ğ  ûñØ8İ   š  İ  ! õ)k:   8¦   A¾  æÂš$ ÈåAĞ  ] @a  ÌÍÎÇ$ È×] Çõõ)Èk   ØÇõ)0Ø8İ   §  Ëœİ  ! õ)¨(&b%?•DÕ1= $I ]=J+ 9RÕfunction(resolve, reject) {
+   â	”  –  º   ´  ¶  Æ  ¸  ¦  ¤ ¦ „ –f²†ã–L   ­ğãòã@:   Óİ  ­h¯   äã@Ú  õĞã@Û  Ñã@  ğ%ã@  –L   ­ğ	ã@  òã@  @:   ò¿  Òå@Ş  ûñØ8İ   š  İ  ! õ)k:   8¦   A¾  æÂš$ ÈåAŞ  ] @a  ÌÍÎÇ$ È×] Çõõ)Èk   ØÇõ)0Ø8İ   §  Ëœİ  ! õ)¨ï(&b%?•DÕ1= $I ]=J+ 9RÕfunction(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "PBKDF2") {
             var salt = toUint8Array(algorithm.salt);
@@ -10267,7 +10563,7 @@ KÉ  ã@•  KÊ  Ï×Ëõ)Ø8İ   Ë  äœİ  ! õ)¨õ#1s+7xvC “R 2­
             return;
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
-        }8Î   Å ! (¨ŒŸderiveBits(algorithm, key, length) {
+        }8Î   Å ! (¨îŸderiveBits(algorithm, key, length) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           if (algoName === "PBKDF2") {
@@ -10289,23 +10585,23 @@ KÉ  ã@•  KÊ  Ï×Ëõ)Ø8İ   Ë  äœİ  ! õ)¨õ#1s+7xvC “R 2­
           }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         });
-      }B ¦ @² @¢ @ ¨ @¸ @œ
+      }B ¦ @² @¾ @ ¨ @¸ @œ
   @  C
- 7” @ –  ¤   ¢ ¨¸œ
+ 7” @ –  À   ¾ ¨¸œ
   ¦ ²C
-   :¦  Ü   º  ¢ ” ¨¸8±   ×! Ïã–L   ­ğãòã@:   Ğäd ¢  ÌK:   æ] Ë! õ)¨§<??4bQfunction(bits) {
+   :Â  Ü   º  ¾ ” ¨¸8±   ×! Ïã–L   ­ğãòã@:   Ğäd ¢  ÌK:   æ] Ë! õ)¨‰ <??4bQfunction(bits) {
             var data = new Uint8Array(bits);
             var algoName = typeof derivedKeyType === "string" ? derivedKeyType : derivedKeyType.name;
             resolve(new CryptoKey("secret", { name: algoName }, extractable, keyUsages, data));
           }ã–L   ­ğÃ ò
-ãïñÃ Ï] AÔ  ] ] Ë$ A‰   Å Ø$ )¨¥4{U* MBŞfunction(resolve, reject) {
+ãïñÃ Ï] Aâ  ] ] Ë$ A‰   Å Ø$ )¨‡ 4{U* MBŞfunction(resolve, reject) {
           var bitsLength = typeof derivedKeyType === "string" ? 256 : derivedKeyType.length || 256;
           self.deriveBits(algorithm, key, bitsLength).then(function(bits) {
             var data = new Uint8Array(bits);
             var algoName = typeof derivedKeyType === "string" ? derivedKeyType : derivedKeyType.name;
             resolve(new CryptoKey("secret", { name: algoName }, extractable, keyUsages, data));
           }, reject);
-        }ĞÌÏ8Î   Å ! (¨£àderiveKey(algorithm, key, derivedKeyType, extractable, keyUsages) {
+        }ĞÌÏ8Î   Å ! (¨… àderiveKey(algorithm, key, derivedKeyType, extractable, keyUsages) {
         var self = this;
         return new Promise(function(resolve, reject) {
           var bitsLength = typeof derivedKeyType === "string" ? 256 : derivedKeyType.length || 256;
@@ -10317,10 +10613,10 @@ KÉ  ã@•  KÊ  Ï×Ëõ)Ø8İ   Ë  äœİ  ! õ)¨õ#1s+7xvC “R 2­
         });
       }Å ÏÅĞÅÒÅÈ`
  ` T  Ñ` ` ÄU‡   ÅSY  ÅS“  ÅS”  ÅS•  ÈÉg È` `	 Ä	Uˆ   Å
-SÕ   ÅSÖ   ÅS­   ÅS×   ÅSØ   ÅSÙ   ÅSÚ   ÅSÛ   ÅSÔ   ÅSÜ   È	Ég	 È
+Sã   ÅSä   ÅS­   ÅSå   ÅSæ   ÅSç   ÅSè   ÅSé   ÅSê   ÅSë   ÅSâ   ÅSì   È	Ég	 È
 8•   @K  •ğ8•   BK  8•   @K  a
  !  B=  8•   a B‡  8•   a
- Bˆ  )¨ø Êğ;4>?=D Ãifunction installCryptoSubtle(pal2) {
+ Bˆ  )¨ø Ú´;4>?=D ÆŒfunction installCryptoSubtle(pal2) {
     function toUint8Array(data) {
       if (data instanceof Uint8Array) return data;
       if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -10596,6 +10892,104 @@ SÕ   ÅSÖ   ÅS­   ÅS×   ÅSØ   ÅSÙ   ÅSÚ   ÅSÛ   ÅSÔ   ÅSÜ   È
           reject(new DOMException("Unsupported export format: " + format, "NotSupportedError"));
         });
       }
+      wrapKey(format, key, wrappingKey, wrapAlgorithm) {
+        return new Promise(function(resolve, reject) {
+          var wrapName = typeof wrapAlgorithm === "string" ? wrapAlgorithm : wrapAlgorithm.name;
+          if (wrapName !== "AES-GCM" && wrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported wrap algorithm: " + wrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesEncrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (format === "raw") {
+              plaintext = toUint8Array(key._data);
+            } else if (format === "jwk") {
+              var jwk = {
+                kty: "oct",
+                k: base64UrlEncode(key._data),
+                alg: key.algorithm.name === "HMAC" ? "HS" + (key.algorithm.hash ? key.algorithm.hash.replace("SHA-", "") : "256") : key.algorithm.name,
+                ext: key.extractable,
+                key_ops: key.usages
+              };
+              plaintext = new TextEncoder().encode(JSON.stringify(jwk));
+            } else {
+              reject(new DOMException("Unsupported wrap format: " + format, "NotSupportedError"));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (wrapName === "AES-GCM") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              var aad = wrapAlgorithm.additionalData ? toUint8Array(wrapAlgorithm.additionalData) : void 0;
+              var tagLen = wrapAlgorithm.tagLength !== void 0 ? wrapAlgorithm.tagLength / 8 : 16;
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-GCM", aad, tagLen)));
+              return;
+            }
+            if (wrapName === "AES-CBC") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-CBC")));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+        });
+      }
+      unwrapKey(format, wrappedKey, unwrappingKey, unwrapAlgorithm, unwrappedKeyAlgorithm, extractable, keyUsages) {
+        return new Promise(function(resolve, reject) {
+          var unwrapName = typeof unwrapAlgorithm === "string" ? unwrapAlgorithm : unwrapAlgorithm.name;
+          if (unwrapName !== "AES-GCM" && unwrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported unwrap algorithm: " + unwrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesDecrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (unwrapName === "AES-GCM") {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              var aad = unwrapAlgorithm.additionalData ? toUint8Array(unwrapAlgorithm.additionalData) : void 0;
+              var tagLen = unwrapAlgorithm.tagLength !== void 0 ? unwrapAlgorithm.tagLength / 8 : 16;
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-GCM", aad, tagLen);
+            } else {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-CBC");
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (format === "raw") {
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, new Uint8Array(plaintext)));
+              return;
+            }
+            if (format === "jwk") {
+              var json = JSON.parse(new TextDecoder().decode(plaintext));
+              if (!json || !json.k) {
+                reject(new DOMException("Invalid JWK", "DataError"));
+                return;
+              }
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, base64UrlDecode(json.k)));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          reject(new DOMException("Unsupported unwrap format: " + format, "NotSupportedError"));
+        });
+      }
       deriveBits(algorithm, key, length) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
@@ -10641,17 +11035,17 @@ SÕ   ÅSÖ   ÅS­   ÅS×   ÅSØ   ÅSÙ   ÅSÚ   ÅSÛ   ÅSÔ   ÅSÜ   È
   
  	 
 “
-ô  @ º @¼ @¾ @À @Â @Ä @Æ  È @Ê 	 C
- € §ˆ  º  Ì   ¢  Î  Ğ  Ò  ¦  ô  C
-      4Ô  ×8­   ©ğ×@ë  •ğ"×A}  $  )×@m  –K   ­ğ×
-Bm  )¨Ñ
+ô  @ Ú @Ü @Ş @à @â @ä @æ  è @ê 	 C
+ € §ˆ  º  ì   ¢  î  ğ  ò  ¦  ô  C
+      4ô  ×8­   ©ğ×@û  •ğ"×A}  $  )×@m  –K   ­ğ×
+Bm  )¨³ 
  X :0A×function(t2) {
           if (t2 instanceof ArrayBuffer) {
             if (!t2.detached) t2.transfer();
           } else if (typeof t2._detached === "boolean") {
             t2._detached = true;
           }
-        }ÏØhÔ   Ø@}  øiÈ   Ø@}  ®h»   8Ÿ   AÊ  Ø@}  $ •ğ8İ   ì  ê  ! 08À   !  ÏºĞÌØ@}  ï¥ğwØ@}  ÌFÑËAk   Í$ ğ8İ   í  ê  ! 08•   @–  ûğÍ8•   @–  ©ÒÍ8­   ©•ğÎ•ğ8İ   î  ê  ! 0ËAp   Í$ ’ò€Øğ Ø–M   ­ğØ@}  K}  ËKï  Üò	ËKï  Ü8¿   !  Èã×ÇØ÷ÈËğËAW  Å $ Ç(¨¹"*J>>X[?g,D!™F 6DmDg  F0?m ,:?6! (Ÿfunction structuredClone(value, options) {
+        }ÏØhÔ   Ø@}  øiÈ   Ø@}  ®h»   8Ÿ   AÊ  Ø@}  $ •ğ8İ   ü  ê  ! 08À   !  ÏºĞÌØ@}  ï¥ğwØ@}  ÌFÑËAk   Í$ ğ8İ   ı  ê  ! 08•   @–  ûğÍ8•   @–  ©ÒÍ8­   ©•ğÎ•ğ8İ   ş  ê  ! 0ËAp   Í$ ’ò€Øğ Ø–M   ­ğØ@}  K}  ËKÿ  Üò	ËKÿ  Ü8¿   !  Èã×ÇØ÷ÈËğËAW  Å $ Ç(¨› "*J>>X[?g,D!™F 6DmDg  F0?m ,:?6! (Ÿfunction structuredClone(value, options) {
       var transferSet = null;
       if (options && options.transfer !== void 0 && options.transfer !== null) {
         if (!Array.isArray(options.transfer))
@@ -10685,16 +11079,16 @@ Bm  )¨Ñ
       }
       return result;
     }C
- ô±ˆ  Ò @º @²   à  Ğ  ¦ @ â  ä  æ  Ö  ¢  b 	 ¤C ô  º C
-     æ  ê  ¦ ô ÒºãAF   äØåæ÷ä×åæ÷$ )¨„  2bfunction(v, k) {
+ ô±ˆ  ò @º @²   €  Ğ  ¦ @ ‚  „  †  Ö  ¢  b 	 ¤C ô  Ú C
+     æ  ê  ¦ ô òºãAF   äØåæ÷ä×åæ÷$ )¨æ  2bfunction(v, k) {
           result.set(clone(k, seen, options), clone(v, seen, options));
         }C
-     æ  ¦ ô ÒºãAp   ä×åæ÷$ )¨Œ  Ffunction(v) {
+     æ  ¦ ô òºãAp   ä×åæ÷$ )¨î  Ffunction(v) {
           result.add(clone(v, seen, options));
-        }×ùñ×øğ×(×–ÓK   ­ñËJ   ­ñËL   ­ñ	Ë–   ­ğ×(ËN   ­ğ8İ   ô  ê  ! 0×–M   ­ñ×ûğØAk   ×$ ğØAE   ×% ×ûğ8İ   õ  ê  ! 0×8¨   ©ğ8¨   ×Aö  $  ! (×8¬   ©ğ8¬   ×@t   ×@u   ! (×8    ©h¾   ×@@   Ô8    ­ñ@Ì8Ú   ­ñ5Ì8×   ­ñ*Ì8Ù   ­ñÌ8Û   ­ñÌ8Ø   ­ñ	Ì8Ö   ­ğÌ×@4   ! Õ×@9   B9   Í(7İ   ûğ ×8İ   ©ğ8İ   ×@4   ×@:   ! (8    ×@4   ! Õ×@:   B:   Í×@9   B9   Í(×8¿   ©ğ%8¿   !  ÒØAF   ×Î$ ×AW  Å $ Î(×8À   ©ğ%8À   !  ÒØAF   ×Î$ ×AW  Å$ Î(8•   @–  ûhÑ   ×8•   @–  ©hÀ   ÙğÙ@ï  Éhš   ÇAk   ×$ hŠ   ÇA	   ×$ 8•   @š  ğa×@j  È×
+        }×ùñ×øğ×(×–ÓK   ­ñËJ   ­ñËL   ­ñ	Ë–   ­ğ×(ËN   ­ğ8İ     ê  ! 0×–M   ­ñ×ûğØAk   ×$ ğØAE   ×% ×ûğ8İ     ê  ! 0×8¨   ©ğ8¨   ×A  $  ! (×8¬   ©ğ8¬   ×@t   ×@u   ! (×8    ©h¾   ×@@   Ô8    ­ñ@Ì8Ú   ­ñ5Ì8×   ­ñ*Ì8Ù   ­ñÌ8Û   ­ñÌ8Ø   ­ñ	Ì8Ö   ­ğÌ×@4   ! Õ×@9   B9   Í(7İ   ûğ ×8İ   ©ğ8İ   ×@4   ×@:   ! (8    ×@4   ! Õ×@:   B:   Í×@9   B9   Í(×8¿   ©ğ%8¿   !  ÒØAF   ×Î$ ×AW  Å $ Î(×8À   ©ğ%8À   !  ÒØAF   ×Î$ ×AW  Å$ Î(8•   @–  ûhÑ   ×8•   @–  ©hÀ   ÙğÙ@ÿ  Éhš   ÇAk   ×$ hŠ   ÇA	   ×$ 8•   @š  ğa×@j  È×
 Bm  8•   Aš  ×@_  K`  ×@i  Kh  k  K  $ ÈÇğÇğ
-ÇÇBj  ØAF   ×Ç$ Ç(ØAF   ××$ ×(8İ   ÷  ê  ! 0×8­   ©ğNÙğÙ@ï  Éğ&ÇAk   ×$ ğÇA	   ×$ ×A}  $  Òò×A¨  º$ ÒØAF   ×Î$ Î(×8»   ©ğ%ã×@¨  ØÙ÷È8»   Ç×@E  ×@É  ! (×8°   ©ğä×8°   Ø# ×8±   ©ğä×8±   Ø# ×8¯   ©ğä×8¯   Ø# ×8²   ©ğä×8²   Ø# ×8³   ©ğä×8³   Ø# ×8´   ©ğä×8´   Ø# ×8µ   ©ğä×8µ   Ø# ×8¹   ©ğä×8¹   Ø# ×8º   ©ğä×8º   Ø# 7¶   úñ×8¶   ©ğä×8¶   Ø# 7·   úñ×8·   ©ğä×8·   Ø# 7;  úñ$×8;  ©ğ8;  ×& ×@Y  KY  ! (7<  úñ5×8<  ©ğ,8<  ×& ×@:   ×@Y  KY  ×@3  K3  ! (8Ÿ   AÊ  ×$ ğ9&  ÒØAF   ×Î$ ºÈÇ×ï¥ğÎÇ¯ñqã×ÇFØÙ÷qH’òŞÎ(×@@   8   ­ñ	×@@   •ğNÒØAF   ×Î$ 8   A1   ×$ È	ºÈÇÇ	ï¥ğ#ÎÇ	ÇF¯ñqã×Ç	ÇFFØÙ÷qH’ò×Î(ÒØAF   ×Î$ kD   8   A1   ×$ È	ºÈÇÇ	ï¥ğ#ÎÇ	ÇF¯ñqã×Ç	ÇFFØÙ÷qH’ò×òÈ
-k   ò0Î(¨Ûÿ  $,%9,9*9*<+m>:0E?
+ÇÇBj  ØAF   ×Ç$ Ç(ØAF   ××$ ×(8İ     ê  ! 0×8­   ©ğNÙğÙ@ÿ  Éğ&ÇAk   ×$ ğÇA	   ×$ ×A}  $  Òò×A¨  º$ ÒØAF   ×Î$ Î(×8»   ©ğ%ã×@¨  ØÙ÷È8»   Ç×@E  ×@É  ! (×8°   ©ğä×8°   Ø# ×8±   ©ğä×8±   Ø# ×8¯   ©ğä×8¯   Ø# ×8²   ©ğä×8²   Ø# ×8³   ©ğä×8³   Ø# ×8´   ©ğä×8´   Ø# ×8µ   ©ğä×8µ   Ø# ×8¹   ©ğä×8¹   Ø# ×8º   ©ğä×8º   Ø# 7¶   úñ×8¶   ©ğä×8¶   Ø# 7·   úñ×8·   ©ğä×8·   Ø# 7;  úñ$×8;  ©ğ8;  ×& ×@Y  KY  ! (7<  úñ5×8<  ©ğ,8<  ×& ×@:   ×@Y  KY  ×@3  K3  ! (8Ÿ   AÊ  ×$ ğ9&  ÒØAF   ×Î$ ºÈÇ×ï¥ğÎÇ¯ñqã×ÇFØÙ÷qH’òŞÎ(×@@   8   ­ñ	×@@   •ğNÒØAF   ×Î$ 8   A1   ×$ È	ºÈÇÇ	ï¥ğ#ÎÇ	ÇF¯ñqã×Ç	ÇFFØÙ÷qH’ò×Î(ÒØAF   ×Î$ kD   8   A1   ×$ È	ºÈÇÇ	ï¥ğ#ÎÇ	ÇF¯ñqã×Ç	ÇFFØÙ÷qH’ò×òÈ
+k   ò0Î(¨½ ÿ  $,%9,9*9*<+m>:0E?
 m+>,+w^9$9,9.909*96+‡:d4>+[rN? P&+5A !  	
 
 +5A !  
@@ -10837,13 +11231,13 @@ k   ò0Î(¨Ûÿ  $,%9,9*9*<+m>:0E?
       }
       return result;
     }C
- º   ˆ  à  Ò  ¦   Ø×! ÏÙAF   ×Ë$ Ë(¨ã &&! ‹function cloneTypedArray(value, Ctor, seen) {
+ Ú   ˆ  €  ò  ¦   Ø×! ÏÙAF   ×Ë$ Ë(¨Å!&&! ‹function cloneTypedArray(value, Ctor, seen) {
       var result = new Ctor(value);
       seen.set(value, result);
       return result;
     }C
- ¾   èŒ  ğ   ¢  ø  ¢  ò  &  ÏºĞÌ×ï¥hÛ   ×Aş  Ì$ ÕÃ€ ¥ğËAO  Í$ óµ ÍÃ ¥ğËAO  ÃÀ ÍÀŸ£Ã€ ÍÂ?¡£$ ó’ Í Ø  ¥ñ	Í à  ¨ğ'ËAO  Ãà ÍÂŸ£Ã€ ÍÀŸÂ?¡£Ã€ ÍÂ?¡£$ òW×Aş  ÌÔ$ Ò   ÍÃÿ¡Â
-œÎÃÿ¡œÈËAO  Ãğ ÇÂŸ£Ã€ ÇÂŸÂ?¡£Ã€ ÇÀŸÂ?¡£Ã€ ÇÂ?¡£$ ’ó"ÿË(¨ô R',I! 0! 
+ Ş   èŒ     ¢  ø  ¢  ’  &  ÏºĞÌ×ï¥hÛ   ×Aş  Ì$ ÕÃ€ ¥ğËAO  Í$ óµ ÍÃ ¥ğËAO  ÃÀ ÍÀŸ£Ã€ ÍÂ?¡£$ ó’ Í Ø  ¥ñ	Í à  ¨ğ'ËAO  Ãà ÍÂŸ£Ã€ ÍÀŸÂ?¡£Ã€ ÍÂ?¡£$ òW×Aş  ÌÔ$ Ò   ÍÃÿ¡Â
+œÎÃÿ¡œÈËAO  Ãğ ÇÂŸ£Ã€ ÇÂŸÂ?¡£Ã€ ÇÀŸÂ?¡£Ã€ ÇÂ?¡£$ ’ó"ÿË(¨Ö!R',I! 0! 
  ?'9+5 
 %
 %TS?&W!&
@@ -10871,8 +11265,8 @@ k   ò0Î(¨Ûÿ  $,%9,9*9*<+m>:0E?
       }
       return out;
     }C
- À   €	”  Â  Œ	  ğ   ¢  ˜  ¬  ò  ô  ÆÏØĞØÙœÑÌÍ¥hò   ×ÌFÖÃ€ ¥ğË8¢   AS  Î$ œÏ»“òÙÎÃà ¥ğ%Ë8¢   AS  ÎÂ¡À×Ì»œFÂ?¡£$ œÏ¼“ò®ÎÃğ ¥ğ2Ë8¢   AS  ÎÂ¡Â×Ì»œFÂ?¡À£×Ì¼œFÂ?¡£$ œÏ½“ówÿÎÁ¡Â×Ì»œFÂ?¡Â£×Ì¼œFÂ?¡À£×Ì½œFÂ?¡£É   ÈË8¢   AS   Ø  ÇÂ
-Ÿœ$ 8¢   AS   Ü  ÇÃÿ¡œ$ œœÏ¾“óÿË(¨‹!i>#;!96!5!!9$
+ à   €	”  Â  Œ	     ¢  ˜  ¬  ’  ”  ÆÏØĞØÙœÑÌÍ¥hò   ×ÌFÖÃ€ ¥ğË8¢   AS  Î$ œÏ»“òÙÎÃà ¥ğ%Ë8¢   AS  ÎÂ¡À×Ì»œFÂ?¡£$ œÏ¼“ò®ÎÃğ ¥ğ2Ë8¢   AS  ÎÂ¡Â×Ì»œFÂ?¡À£×Ì¼œFÂ?¡£$ œÏ½“ówÿÎÁ¡Â×Ì»œFÂ?¡Â£×Ì¼œFÂ?¡À£×Ì½œFÂ?¡£É   ÈË8¢   AS   Ø  ÇÂ
+Ÿœ$ 8¢   AS   Ü  ÇÃÿ¡œ$ œœÏ¾“óÿË(¨í!i>#;!96!5!!9$
 0m!!9$
 
 
@@ -10905,26 +11299,26 @@ k   ò0Î(¨Ûÿ  $,%9,9*9*<+m>:0E?
       }
       return out;
     }C
- Â   B°  @ C
-     ¬  °  ãAO  ×Ãÿ ¡$ )¨¥! 6function(b) {
+ â   B°  @ C
+     ¬  °  ãAO  ×Ãÿ ¡$ )¨‡" 6function(b) {
           bytes.push(b & 255);
         }C
-     'æ  °  ãAO  ×Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡$ )¨¨! 
+     'æ  °  ãAO  ×Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡×Â Ãÿ ¡$ )¨Š" 
 
 efunction(v) {
           bytes.push(v & 255, v >>> 8 & 255, v >>> 16 & 255, v >>> 24 & 255);
         }C
-    Læ  €   ö  ô  ¢  °  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑÌº¯ñq×qHºÒÎÂ¥ğãAO  ÍÎF$ ’òê)¨«!>094:}b( ¼function(v) {
+    Læ  €   –  ”  ¢  °  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑÌº¯ñq×qHºÒÎÂ¥ğãAO  ÍÎF$ ’òê)¨">094:}b( ¼function(v) {
           var ab = new ArrayBuffer(8), f = new Float64Array(ab), u = new Uint8Array(ab);
           f[0] = v;
           for (var i = 0; i < 8; i++) bytes.push(u[i]);
         }C
-    ”  ¢   °  ºÏË×ï¥ğãAO  ×ËF$ ’ òê)¨°!"  Yfunction(u8) {
+    ”  ¢   °  ºÏË×ï¥ğãAO  ×ËF$ ’ òê)¨’""  Yfunction(u8) {
           for (var i = 0; i < u8.length; i++) bytes.push(u8[i]);
         }C
-        °  8±   ã! @¨  (¨³!Efunction() {
+        °  8±   ã! @¨  (¨•"Efunction() {
           return new Uint8Array(bytes).buffer;
-        }&  ÏÅ LŠ  KŠ  ÅLü  Kü  ÅLı  Kı  ÅLx   Kx   ÅLq   Kq   (¨¢! Šfunction ByteWriter() {
+        }&  ÏÅ LŠ  KŠ  ÅL  K  ÅL  K  ÅLx   Kx   ÅLq   Kq   (¨„" Šfunction ByteWriter() {
       var bytes = [];
       return {
         u8: function(b) {
@@ -10946,23 +11340,23 @@ efunction(v) {
         }
       };
     }C
- Ä  /°  Œ  ô   ¢  ¾ ã8¢   ØõõÏ×Aü  Ëï$ ºĞÌËï¥ğ×AŠ  ÊF$ ’òë)¨¸!*3 0  function encodeString(bytes, s) {
+ ä  /°  Œ  ”   ¢  Ş ã8¢   ØõõÏ×A  Ëï$ ºĞÌËï¥ğ×AŠ  ÊF$ ’òë)¨š"*3 0  function encodeString(bytes, s) {
       var u = utf8Encode(String(s));
       bytes.u32(u.length);
       for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
     }C
- Æí
-ˆ  ú  Ì  @¢  Î  Ğ  ü @ä @° @ş @ Ä ¼ Â C
- ş å	æ  Ô   €  ‚  „  Š	  †  b  ¤6 ş ° Ä ü ä Ì  ¼      àAC
-     ˆ  ²  ş ãØõã×õ)¨§"Hfunction(val, key) {
+ æí
+ˆ  ú  ì  @¢  î  ğ  œ @ä @° @ @ ä Ü â C
+  å	æ  ô      ¢  ¤  Š	  ¦  b  ¤6  ° ä œ ä ì  Ü      àAC
+     ¨  ²   ãØõã×õ)¨‰#Hfunction(val, key) {
             w(key);
             w(val);
           }C
-     ˆ  ş ã×õ)¨±"/function(val) {
+     ¨   ã×õ)¨“#/function(val) {
             w(val);
-          }×ùğäAŠ  »$ )×øğäAŠ  ¼$ )×–ÓK   ­ğäAŠ  ×ğ½ò¾$ )ËJ   ­ğd8¡   A  ×$ ğ=8   A  ×º‹$ •ğ*×Ä ‹¨ğ#×ÿÿÿ¦ğäAŠ  ¿$ äAü  ×º $ )äAŠ  À$ äAı  ×$ )ËL   ­ğäAŠ  Á$ åä×ö)Ë–   ­ğäAŠ  Â$ åä×A;   $  ö)ËN   ­ğ8İ   ô  ê  ! 0Ë   ­ğ8İ   õ  ê  ! 0æAk   ×$ ğ!äAŠ  Â$ äAü  æAE   ×$ $ )×8¨   ©ğ2æAF   ×] ^ $ äAŠ  Â$ äAı  ×Aö  $  $ )×8¬   ©ğ3æAF   ×] ^ $ äAŠ  Â	$ åä×@t   öåä×@u   ö)×8    ©ğAæAF   ×] ^ $ äAŠ  Â
-$ åä×@:   ñ    öåä×@4   ñÆö)7<  úi›   ×8<  ©h   æAF   ×] ^ $ äAŠ  Â$ åä×@:   öåä×@Y  ñÆöäAı  ×@3  $ ×@$  ûğ×A$  $  òÔ•ğ8İ     ê  ! 0äAü  Ìï$ äAx   Ì$ )7;  úñ{×8;  ©ğræAF   ×] ^ $ äAŠ  Â$ åä×@Y  ñÆö×@$  ûğ×A$  $  òÕ•ğ8İ     ê  ! 0äAü  Íï$ äAx   Í$ )×8¿   ©ğ;æAF   ×] ^ $ äAŠ  Â$ äAü  ×@2   $ ×AW  Å$ )×8À   ©ğ;æAF   ×] ^ $ äAŠ  Â$ äAü  ×@2   $ ×AW  Å$ )8•   @–  ûh¯   ×8•   @–  ©h   ] •ñ] Ak   ×$ •ğ8İ   ÷  ê  ! 0] A	   ×$ ×
-Bm  æAF   ×] ^ $ äAŠ  Â $ äAü  ×@_  ñº$ äAü  ×@i  ñº$ åä×@l  ñk  ö)×8­   ©ğlæAF   ×] ^ $ äAŠ  Â$ 8±   ×! ÒäAü  Îï$ äAx   Î$ ] ğ&] Ak   ×$ ğ] A	   ×$ ×A}  $  )×8»   ©ğHæAF   ×] ^ $ äAŠ  Â$ ã×@¨  õäAü  ×@E  $ äAü  ×@É  $ )ºÈÇ] ï¥ğf×] ÇF©ğXæAF   ×] ^ $ äAŠ  ÂÇœ$ 8±   ×@¨  ×@E  ×@É  ! ÈäAü  Çï$ äAx   Ç$ )’ò“8Ÿ   AÊ  ×$ ğAæAF   ×] ^ $ äAŠ  Â$ äAü  ×ï$ ºÈÇ×ï¥ğã×ÇFõ’òï)æAF   ×] ^ $ äAŠ  Â$ k   8   A1   ×$ ÈòÈk   &  Èò0äAü  Çï$ ºÈÇÇï¥ğåäÇÇFöã×ÇÇFFõ’òâ)¨Ğ!Ÿ #  + A ]R"4%(+  '   + + !%#*(l'*,…'! !  2+ ? !  -+ ? !07+ ? !]d
+          }×ùğäAŠ  »$ )×øğäAŠ  ¼$ )×–ÓK   ­ğäAŠ  ×ğ½ò¾$ )ËJ   ­ğd8¡   A  ×$ ğ=8   A  ×º‹$ •ğ*×Ä ‹¨ğ#×ÿÿÿ¦ğäAŠ  ¿$ äA  ×º $ )äAŠ  À$ äA  ×$ )ËL   ­ğäAŠ  Á$ åä×ö)Ë–   ­ğäAŠ  Â$ åä×A;   $  ö)ËN   ­ğ8İ     ê  ! 0Ë   ­ğ8İ     ê  ! 0æAk   ×$ ğ!äAŠ  Â$ äA  æAE   ×$ $ )×8¨   ©ğ2æAF   ×] ^ $ äAŠ  Â$ äA  ×A  $  $ )×8¬   ©ğ3æAF   ×] ^ $ äAŠ  Â	$ åä×@t   öåä×@u   ö)×8    ©ğAæAF   ×] ^ $ äAŠ  Â
+$ åä×@:   ñ    öåä×@4   ñÆö)7<  úi›   ×8<  ©h   æAF   ×] ^ $ äAŠ  Â$ åä×@:   öåä×@Y  ñÆöäA  ×@3  $ ×@$  ûğ×A$  $  òÔ•ğ8İ     ê  ! 0äA  Ìï$ äAx   Ì$ )7;  úñ{×8;  ©ğræAF   ×] ^ $ äAŠ  Â$ åä×@Y  ñÆö×@$  ûğ×A$  $  òÕ•ğ8İ     ê  ! 0äA  Íï$ äAx   Í$ )×8¿   ©ğ;æAF   ×] ^ $ äAŠ  Â$ äA  ×@2   $ ×AW  Å$ )×8À   ©ğ;æAF   ×] ^ $ äAŠ  Â$ äA  ×@2   $ ×AW  Å$ )8•   @–  ûh¯   ×8•   @–  ©h   ] •ñ] Ak   ×$ •ğ8İ     ê  ! 0] A	   ×$ ×
+Bm  æAF   ×] ^ $ äAŠ  Â $ äA  ×@_  ñº$ äA  ×@i  ñº$ åä×@l  ñk  ö)×8­   ©ğlæAF   ×] ^ $ äAŠ  Â$ 8±   ×! ÒäA  Îï$ äAx   Î$ ] ğ&] Ak   ×$ ğ] A	   ×$ ×A}  $  )×8»   ©ğHæAF   ×] ^ $ äAŠ  Â$ ã×@¨  õäA  ×@E  $ äA  ×@É  $ )ºÈÇ] ï¥ğf×] ÇF©ğXæAF   ×] ^ $ äAŠ  ÂÇœ$ 8±   ×@¨  ×@E  ×@É  ! ÈäA  Çï$ äAx   Ç$ )’ò“8Ÿ   AÊ  ×$ ğAæAF   ×] ^ $ äAŠ  Â$ äA  ×ï$ ºÈÇ×ï¥ğã×ÇFõ’òï)æAF   ×] ^ $ äAŠ  Â$ k   8   A1   ×$ ÈòÈk   &  Èò0äA  Çï$ ºÈÇÇï¥ğåäÇÇFöã×ÇÇFFõ’òâ)¨²"Ÿ #  + A ]R"4%(+  '   + + !%#*(l'*,…'! !  2+ ? !  -+ ? !07+ ? !]d
 %8:[ ? !0I S4/57g- ! 78+[ ? !g./57g- ! #
 + ? ! 5  
 + ? ! 5  
@@ -11131,9 +11525,9 @@ Bm  æAF   ×] ^ $ äAŠ  Â $ äAü  ×@_  ñº$ äAü  ×@i  ñº$ åä×
           w(v[keys[i2]]);
         }
       }C
-      €  ×@ë  •ğ×A}  $  )¨÷"0  Cfunction(ab) {
+      €  ×@û  •ğ×A}  $  )¨Ù#0  Cfunction(ab) {
           if (!ab.detached) ab.transfer();
-        }Å ÈÏØøi´   Ø®h¬   8Ÿ   AÊ  Ø$ •ğ8İ   ì  ê  ! 08À   !  ÏºĞÌØï¥ğrØÌFÑËAk   Í$ ğ8İ   í  ê  ! 08•   @–  ûğÍ8•   @–  ©ÒÍ8­   ©•ğÎ•ğ8İ   î  ê  ! 0ËAp   Í$ ’òŠ8¿   !  ÈºÈåôÈÇ×õËğËAW  Å$ ÇAq   %  ¨½!/'&%.X%&g,DO!™F 6DmDg  2O% Ì"  ( ğ/function serializeToBytes(value, transfer) {
+        }Å ÈÏØøi´   Ø®h¬   8Ÿ   AÊ  Ø$ •ğ8İ   ü  ê  ! 08À   !  ÏºĞÌØï¥ğrØÌFÑËAk   Í$ ğ8İ   ı  ê  ! 08•   @–  ûğÍ8•   @–  ©ÒÍ8­   ©•ğÎ•ğ8İ   ş  ê  ! 0ËAp   Í$ ’òŠ8¿   !  ÈºÈåôÈÇ×õËğËAW  Å$ ÇAq   %  ¨Ÿ"/'&%.X%&g,DO!™F 6DmDg  2O% Ì"  ( ğ/function serializeToBytes(value, transfer) {
       var transferSet = null;
       if (transfer !== void 0 && transfer !== null) {
         if (!Array.isArray(transfer))
@@ -11325,35 +11719,35 @@ Bm  æAF   ×] ^ $ äAŠ  Â $ äAü  ×@_  ñº$ äAü  ×@i  ñº$ åä×
       }
       return bytes.done();
     }C
- È@” @ ¢  @À C
-        ” ¢  ãäèF(¨€# 0function() {
+ è@” @ ¢  @à C
+        ” ¢  ãäèF(¨â# 0function() {
           return u8[i++];
         }C
-      'æ   ” ¢  ãäFãä»œFÂ£ãä¼œFÂ£ãä½œFÂ£Ïä¾œèËº (¨ƒ#
+      'æ   ” ¢  ãäFãä»œFÂ£ãä¼œFÂ£ãä½œFÂ£Ïä¾œèËº (¨å#
 function() {
           var v = u8[i] | u8[i + 1] << 8 | u8[i + 2] << 16 | u8[i + 3] << 24;
           i += 4;
           return v >>> 0;
         }C
-      K€   ö  ô  Ò	  ” ¢  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑºÒÎÂ¥ğÍÎ¯ñqãäÎœFqH’òãäÂœèÌºF(¨ˆ#>094IUC:SĞfunction() {
+      K€   –  ”  Ò	  ” ¢  8­   Â! Ï8º   Ë! Ğ8±   Ë! ÑºÒÎÂ¥ğÍÎ¯ñqãäÎœFqH’òãäÂœèÌºF(¨ê#>094IUC:SĞfunction() {
           var ab = new ArrayBuffer(8), f = new Float64Array(ab), u = new Uint8Array(ab);
           for (var j = 0; j < 8; j++) u[j] = u8[i + j];
           i += 8;
           return f[0];
         }C
-      ¬   Œ    À ” ¢  ÑÍAü  $  ÏãäåË÷ĞåËœéÌ(¨#+%‚function() {
+      ¬   Œ    à ” ¢  ÑÍA  $  ÏãäåË÷ĞåËœéÌ(¨ğ#+%‚function() {
           var n = this.u32();
           var s = utf8Decode(u8, i, n);
           i += n;
           return s;
         }C
-    4¬  ğ   Ò	  ” ¢  8±   ×! ÏºĞÌ×¥ğÊ¯ñqãäÌœFqH’òåä×œèË@¨  (¨”#
+    4¬     Ò	  ” ¢  8±   ×! ÏºĞÌ×¥ğÊ¯ñqãäÌœFqH’òåä×œèË@¨  (¨ö#
 I> :W§function(n) {
           var out = new Uint8Array(n);
           for (var j = 0; j < n; j++) out[j] = u8[i + j];
           i += n;
           return out.buffer;
-        }ºÏÅ LŠ  KŠ  ÅLü  Kü  ÅLı  Kı  ÅLó  Kó  ÅL  K  (¨ı" Ìfunction ByteReader(u8) {
+        }ºÏÅ LŠ  KŠ  ÅL  K  ÅL  K  ÅLó  Kó  ÅL  K  (¨ß# Ìfunction ByteReader(u8) {
       var i = 0;
       return {
         u8: function() {
@@ -11384,15 +11778,15 @@ Bm  æAF   ×] ^ $ äAŠ  Â $ äAü  ×@_  ñº$ äAü  ×@i  ñº$ åä×
         }
       };
     }C
- ÊÖ  ’  @ ü @” @¼ È C
- ”    š–   ˜  Î  ¤  ¬  š  ¢  Œ  €  Æ 	 ¬ 
- œ  Œ	    à     ²  ¢  ¤  ¦  ª  ¨  ê  ª  ¬  ®  °  ’  ü ” ¼ ãAŠ  $  Ó»­ğ(¼­ğ)½­ğ
-(¾­ğ	(¿­ğãAü  $  º£(À­ğ
-ãAı  %  Á­ğ
-ãAó  %  Â­ğ8¨   ãAı  $  ! (Â	­ğ8¬   ãAó  $  ãAó  $  ! (Â
-­ğ3ãAó  $  ĞãAó  $  Ñ8    Í! ÖÌB:   äAO  Î$ Î(Â­ğCãAü  $  È8¿   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAF   åôåô$ ’òçÇ(Â­ğAãAü  $  È8À   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAp   åô$ ’òéÇ(Â­ğ(ãAü  $  ÈãA  Ç$ ÈäAO  Ç$ Ç(Â­ğPäïÈ	äAO  $ åôÈ
-ãAü  $  ÈãAü  $  È8»   Ç
-ÇÇ! ÈäÇ	¯ñqÇqHÇ(ËÂ¨ğ<ËÂ¦ğ6æËÂFÈãAü  $  ÈÇãA  Ç$ ! ÈäAO  Ç$ Ç(ËÂ­ğGãAó  $  ÈãAü  $  È8;  ãA  Ç$ & ÇKY  ! ÈäAO  Ç$ Ç(ËÂ­ğdãAó  $  ĞãAó  $  ÈãAı  $  ÈãAü  $  È8<  ãA  Ç$ & ÌÇKY  ÇK3  ! ÈäAO  Ç$ Ç(ËÂ­ğAãAü  $  È&  ÈäAO  Ç$ ºÈÇÇ¥ğÇÇ¯ñqåôqH’òãÇ(ËÂ­ğJãAü  $  ÈÈäAO  Ç$ ºÈÇÇ¥ğ#ãAó  $  ÈÇÇ¯ñqåôqH’òØÇ(ËÂ­ğäãAü  $  F(ËÂ­ğ8¼   ãAó  $  # ËÂ ­ğxãAü  $  ÈãAü  $  ÈãAó  $  È8•   @š  ğ(8•   Aš  ÇK`  ÇKh  ÇK  $ Èò8İ     ê  ! 0äAO  Ç$ Ç(8İ     ê  ! 0¨Ÿ#Î! *JJ 1>E>/c#45&    $:7 :% ;$:7 :% /:&!  
+ êÖ  ²  @ œ @´ @Ü è C
+ ´    š¶   ¸  Î  ¤  ¬  º  ¢  Œ  €  Æ 	 ¬ 
+ ¼  Œ	  ¾  €  À  ²  Â  Ä  Æ  ª  È  ê  Ê  Ì  Î  Ğ  ²  œ ´ Ü ãAŠ  $  Ó»­ğ(¼­ğ)½­ğ
+(¾­ğ	(¿­ğãA  $  º£(À­ğ
+ãA  %  Á­ğ
+ãAó  %  Â­ğ8¨   ãA  $  ! (Â	­ğ8¬   ãAó  $  ãAó  $  ! (Â
+­ğ3ãAó  $  ĞãAó  $  Ñ8    Í! ÖÌB:   äAO  Î$ Î(Â­ğCãA  $  È8¿   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAF   åôåô$ ’òçÇ(Â­ğAãA  $  È8À   !  ÈäAO  Ç$ ºÈÇÇ¥ğÇAp   åô$ ’òéÇ(Â­ğ(ãA  $  ÈãA  Ç$ ÈäAO  Ç$ Ç(Â­ğPäïÈ	äAO  $ åôÈ
+ãA  $  ÈãA  $  È8»   Ç
+ÇÇ! ÈäÇ	¯ñqÇqHÇ(ËÂ¨ğ<ËÂ¦ğ6æËÂFÈãA  $  ÈÇãA  Ç$ ! ÈäAO  Ç$ Ç(ËÂ­ğGãAó  $  ÈãA  $  È8;  ãA  Ç$ & ÇKY  ! ÈäAO  Ç$ Ç(ËÂ­ğdãAó  $  ĞãAó  $  ÈãA  $  ÈãA  $  È8<  ãA  Ç$ & ÌÇKY  ÇK3  ! ÈäAO  Ç$ Ç(ËÂ­ğAãA  $  È&  ÈäAO  Ç$ ºÈÇÇ¥ğÇÇ¯ñqåôqH’òãÇ(ËÂ­ğJãA  $  ÈÈäAO  Ç$ ºÈÇÇ¥ğ#ãAó  $  ÈÇÇ¯ñqåôqH’òØÇ(ËÂ­ğäãA  $  F(ËÂ­ğ8¼   ãAó  $  # ËÂ ­ğxãA  $  ÈãA  $  ÈãAó  $  È8•   @š  ğ(8•   Aš  ÇK`  ÇKh  ÇK  $ Èò8İ   )  ê  ! 0äAO  Ç$ Ç(8İ   *  ê  ! 0¨$Î! *JJ 1>E>/c#45&    $:7 :% ;$:7 :% /:&!  
  !09X  &?/53 7 :9>l5 7 :4 99Q>”5 7 : 6 :HF1: , ::H >$!#4$ &':9"9ZS5–h 2function rd() {
         var tag = r.u8();
         switch (tag) {
@@ -11505,7 +11899,7 @@ Bm  æAF   ×] ^ $ äAŠ  Â $ äAü  ×@_  ñº$ äAü  ×@i  ñº$ åä×
             throw new DOMException("Bad serialized data", "DataCloneError");
           }
         }
-      }Å Ñä8±   ×! õÏ&  ĞÍ#  ¨œ#2 æ–function deserializeFromBytes(buf) {
+      }Å Ñä8±   ×! õÏ&  ĞÍ#  ¨ş#2 æ–function deserializeFromBytes(buf) {
       var r = ByteReader(new Uint8Array(buf));
       var refs = [];
       function rd() {
@@ -11622,7 +12016,7 @@ Bm  æAF   ×] ^ $ äAŠ  Â $ äAü  ×@_  ñº$ äAü  ×@i  ñº$ åä×
         }
       }
       return rd();
-    }ÅÏÅĞÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	8•   Å B€  8°   8±   8¯   8²   8³   8´   8µ   8¹   8º   &	 Ñ7¶   úñÍAO  8¶   8·   $ 8•   ÇBw  8•   Ç	Bƒ  )¨¸¨ Bô:  ¾o? ‰ function setupStructuredClone() {
+    }ÅÏÅĞÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	8•   Å B€  8°   8±   8¯   8²   8³   8´   8µ   8¹   8º   &	 Ñ7¶   úñÍAO  8¶   8·   $ 8•   ÇBw  8•   Ç	Bƒ  )¨š ¨ Bô:  ¾o? ‰ function setupStructuredClone() {
     globalThis.structuredClone = function structuredClone(value, options) {
       var transferSet = null;
       if (options && options.transfer !== void 0 && options.transfer !== null) {
@@ -12228,28 +12622,28 @@ Bm  æAF   ×] ^ $ äAŠ  Â $ äAü  ×@_  ñº$ äAü  ×@i  ñº$ åä×
     globalThis.__qwrt_deserialize__ = deserializeFromBytes;
   }C
  ’ P– @ œ
-  @¶ @¸ @º  ¼ @C
- ¸   E˜  – ×–L   ®ñ×A¬    $ º®ğ8       ! 0ãA!  ×A¨    ï$ % ¨š$*W *.[m òfunction loadScript(url) {
+  @Ö @Ø @Ú  Ü @C
+ Ø   E˜  – ×–L   ®ñ×A¬  /  $ º®ğ8    0  ! 0ãA1  ×A¨  /  ï$ % ¨ü$*W *.[m òfunction loadScript(url) {
       if (typeof url !== "string" || url.indexOf("file://") !== 0) {
         throw new Error("Worker: only file:// URLs are supported in v1");
       }
       return pal2.fsReadSync(url.slice("file://".length));
     }C
- ºš˜      À  ş @   ¸ – ¶ C
-        ş ã@"  (¨©$ 1function() {
+ Úš˜      À   @   Ø – Ö C
+         ã@2  (¨‹% 1function() {
           return w._onmsg;
         }C
-     ä  ş ã×B"  )¨¬$1function(fn) {
+     ä   ã×B2  )¨%1function(fn) {
           w._onmsg = fn;
         }C
-        ş ã@#  (¨²$ 3function() {
+         ã@3  (¨”% 3function() {
           return w._onerror;
         }C
-     ä  ş ã×B#  )¨µ$3function(fn) {
+     ä   ã×B3  )¨—%3function(fn) {
           w._onerror = fn;
-        }Òã×õÏäA$  Ë$ ĞÎÌB_  ÎB"  ÎB#  åAF   ÌÎ$ ÎÑ8   Am   Î’  Å LE   KE   ÅLF   KF   
+        }Òã×õÏäA4  Ë$ ĞÎÌB_  ÎB2  ÎB3  åAF   ÌÎ$ ÎÑ8   Am   Î’  Å LE   KE   ÅLF   KF   
 KA   $ 8   Am   Î~  ÅLE   KE   ÅLF   KF   
-KA   $ )¨ $003& & &  ,4, )+4,function Worker(url) {
+KA   $ )¨‚%003& & &  ,4, )+4,function Worker(url) {
       var code = loadScript(url);
       var id = pal2.spawnWorker(code);
       this._id = id;
@@ -12277,8 +12671,8 @@ KA   $ )¨ $003& & &  ,4, )+4,function Worker(url) {
       });
     }C
     ô
-ˆ  ú  Ì   Ê  ¢  Î  ä  Ì  ì    – È&  ÏØhŸ   Øïh˜   &  ĞºÑÍØï¥h‚   ØÍFÒ7–  úñcÎ8–  ©ğZËAO  Î@_  K`  Î@i  Kh    K  $ Î
-Bm  8•   A˜  Î@i  $ ÉğÇÇ@_  Bl  òÌAO  Î$ ’ó{ÿÌï•ğĞ8w  ×ÌöÈËïğ+8w  ËK'  ÇK(  õÈãA{  Ç@_  Ç$ )ãA{  Ç@_  Ç$ )¨»$$& 5&(Y8+i ¼XVDAT  P'K=Y  J  Øfunction(value, transfer) {
+ˆ  ú  Ì   ê  ¢  î  „  ì  ì    – È&  ÏØhŸ   Øïh˜   &  ĞºÑÍØï¥h‚   ØÍFÒ7–  úñcÎ8–  ©ğZËAO  Î@_  K`  Î@i  Kh    K  $ Î
+Bm  8•   A˜  Î@i  $ ÉğÇÇ@_  Bl  òÌAO  Î$ ’ó{ÿÌï•ğĞ8w  ×ÌöÈËïğ+8w  ËK7  ÇK8  õÈãA{  Ç@_  Ç$ )ãA{  Ç@_  Ç$ )¨%$& 5&(Y8+i ¼XVDAT  P'K=Y  J  Øfunction(value, transfer) {
       var ports = [];
       var abTransfer;
       if (transfer && transfer.length) {
@@ -12306,14 +12700,14 @@ Bm  8•   A˜  Î@i  $ ÉğÇÇ@_  Bl  òÌAO  Î$ ’ó{ÿÌï•ğĞ8w  ×ÌöÈËïğ
         pal2.workerPost(this._id, dataBytes);
       }
     }C
-      "  – ¶ ÏãA)  Ë@_  $ äA	   Ë@_  $ )¨×$"5 *5) Xfunction() {
+      "  – Ö ÏãA9  Ë@_  $ äA	   Ë@_  $ )¨¹%"5 *5) Xfunction() {
       pal2.workerTerminate(this._id);
       workers.delete(this._id);
     }C
-    ûÜ  è  œ	   Ğ ş  Ì  ¢  Ğ Ô  Ğ Ö  Ğ Ø 	 Ğ â  ¤  Ğ" Ğ& ¼ ¶ œ
-  Øº­ğã×Øö)k   8ƒ  ×õÏòĞk   8œ  Ìõn(08•   @™  ğ8•   A™  Ë$ ğ)äAE   Ø$ Õ•ğ)Ëh!  Ë–M   ­h  Ë@'  h	  &  Òk:   ºÈÇË@'  ï¥ğ%ÎAO  8•   Aš  Ë@'  ÇF$ $ ’òÑòÈk   8œ  Çõn(0k   8ƒ  Ë@(  õÈòÈk   8œ  Çõn(0k%   8—  4   ÇK.  ÎKf  ! ÈòÈ	k   8œ  Ç	õn(0ÇğÇ@Y  7   ­ğ	Í@#  òÍ@"  É
+    ûÜ  è  œ	   Ğ   Ì  ¢  Ğ ô  Ğ ö  Ğ ø 	 Ğ â  ¤  Ğ" Ğ& Ü Ö œ
+  Øº­ğã×Øö)k   8ƒ  ×õÏòĞk   8œ  Ìõn(08•   @™  ğ8•   A™  Ë$ ğ)äAE   Ø$ Õ•ğ)Ëh!  Ë–M   ­h  Ë@7  h	  &  Òk:   ºÈÇË@7  ï¥ğ%ÎAO  8•   Aš  Ë@7  ÇF$ $ ’òÑòÈk   8œ  Çõn(0k   8ƒ  Ë@8  õÈòÈk   8œ  Çõn(0k%   8—  4   ÇK.  ÎKf  ! ÈòÈ	k   8œ  Ç	õn(0ÇğÇ@Y  7   ­ğ	Í@3  òÍ@2  É
 ğ)k   Ç
-Aª  åÇ$ )Èk   8œ  Çõ)0)ËğË@Y  7   ­ğ	Í@#  òÍ@"  É•ğ)k   8—  4   ËK.  ! ÈòÈk   8œ  Çõn(0k   ÇAª  åÇ$ )Èk   8œ  Çõ)0¨İ$$U 	
+Aª  åÇ$ )Èk   8œ  Çõ)0)ËğË@Y  7   ­ğ	Í@3  òÍ@2  É•ğ)k   8—  4   ËK.  ! ÈòÈk   8œ  Çõn(0k   ÇAª  åÇ$ )Èk   8œ  Çõ)0¨¿%$U 	
 2@1–†DyT¾5# 4D›] 
 :c9 
 Ìd& 9%T 
@@ -12380,7 +12774,7 @@ Aª  åÇ$ )Èk   8œ  Çõ)0)ËğË@Y  7   ­ğ	Í@#  òÍ@"  É•ğ)k   8— 
       } catch (err) {
         reportError(err);
       }
-    }Å ÑÅÒ8•   Ï8¿   !  ĞÎ@?   ÅBz  Î@?   ÅB  8•   ÎB  Ë@  È8•   ÅB  )¨—$@H 
+    }Å ÑÅÒ8•   Ï8¿   !  ĞÎ@?   ÅBz  Î@?   ÅB  8•   ÎB-  Ë@  È8•   ÅB  )¨ù$@H 
 DC 8   c êfunction setupWorker(pal2) {
     var self = globalThis;
     var workers = /* @__PURE__ */ new Map();
@@ -12516,9 +12910,9 @@ DC 8   c êfunction setupWorker(pal2) {
       }
     };
   }C
- ” §– @Ú  @ ²  ¢  Ü @C
-      ¡Ş   à  b  Š	  ¬  æ  ¤ ¤
- Ú  Ü Ï&  Ğ8   A1   8•   $ ÑºÒÎÍï¥ğlÍÎFÈãÇFñäÇFñUk   8•   ÇFÈòÈk   ò90k   ËÇ¯ñq8w  ÇõqHòÈk   ÌAO  Ç$ ò0’ò8w  ËK/  ÌK0  # ¨©%'U? 
+ ” §– @ú  @ ²  ¢  ü @C
+      ¡ş   €  b  Š	  ¬  æ  ¤ ¤
+ ú  ü Ï&  Ğ8   A1   8•   $ ÑºÒÎÍï¥ğlÍÎFÈãÇFñäÇFñUk   8•   ÇFÈòÈk   ò90k   ËÇ¯ñq8w  ÇõqHòÈk   ÌAO  Ç$ ò0’ò8w  ËK?  ÌK@  # ¨‹&'U? 
 # 
  W<Y; d†function() {
       var props = {};
@@ -12541,8 +12935,8 @@ DC 8   c êfunction setupWorker(pal2) {
       }
       return __qwrt_serialize__({ props, skipped });
     }C
-    ™	°  â   ˆ  b  Š	  ¬  æ  ¤ ¤
- Ü 8ƒ  ×õÓğË@/  ñĞ8   A1   Ì$ ÑºÒÎÍï¥ğXÍÎFÈãÇFñIk   8ƒ  ÌÇFõÈòÈk   ò+0k   8•   Ç¯ñqÇqHòÈk   ò0’ò¤ËğË@0  ñ&  (¨¾%'•+ 
+    ™	°  ‚   ˆ  b  Š	  ¬  æ  ¤ ¤
+ ü 8ƒ  ×õÓğË@?  ñĞ8   A1   Ì$ ÑºÒÎÍï¥ğXÍÎFÈãÇFñIk   8ƒ  ÌÇFõÈòÈk   ò+0k   8•   Ç¯ñqÇqHòÈk   ò0’ò¤ËğË@@  ñ&  (¨ &'•+ 
 #2 
 1ìfunction(bytes) {
       var rec = __qwrt_deserialize__(bytes);
@@ -12564,18 +12958,18 @@ DC 8   c êfunction setupWorker(pal2) {
       }
       return rec && rec.skipped || [];
     }C
-     Œ  – ãA2  8¢   ×õ% ¨Ó%!(Bfunction(s) {
+     Œ  – ãAB  8¢   ×õ% ¨µ&!(Bfunction(s) {
         return pal2.contextSpawn(String(s));
       }C
-     À  ˆ  – ãA3  8¡   ×õ8¢   Øõ% ¨Ö%!(%Tfunction(id, p) {
+     À  ˆ  – ãAC  8¡   ×õ8¢   Øõ% ¨¸&!(%Tfunction(id, p) {
         return pal2.contextSuspend(Number(id), String(p));
       }C
-     À  Œ  ˆ  – ãA4  8¡   ×õ8¢   Øõ8¢   Ùõ% ¨Ù%!(%%afunction(id, s, p) {
+     À  Œ  ˆ  – ãAD  8¡   ×õ8¢   Øõ8¢   Ùõ% ¨»&!(%%afunction(id, s, p) {
         return pal2.contextResume(Number(id), String(s), String(p));
       }C
-     À  – ãA5  8¡   ×õ% ¨Ü%!(Ffunction(id) {
+     À  – ãAE  8¡   ×õ% ¨¾&!(Ffunction(id) {
         return pal2.contextDestroy(Number(id));
-      }8   A6  $ Ï8   A1   8•   $ ĞºÑÍÌï¥ğÊÍF¯ñq»qH’òæ»K7  »K8  »K9  Ò8•   Å B7  8•   ÅB8  8•   ÅL:  K:  ÅL;  K;  ÅL<  K<  ÅL=  K=  B9  )¨ %5`N+?& )M *  ( ™function setupContext(pal2) {
+      }8   AF  $ Ï8   A1   8•   $ ĞºÑÍÌï¥ğÊÍF¯ñq»qH’òæ»KG  »KH  »KI  Ò8•   Å BG  8•   ÅBH  8•   ÅLJ  KJ  ÅLK  KK  ÅLL  KL  ÅLM  KM  BI  )¨‚&5`N+?& )M *  ( ™function setupContext(pal2) {
     var _pristine = /* @__PURE__ */ Object.create(null);
     var names = Object.keys(globalThis);
     for (var i = 0; i < names.length; i++) _pristine[names[i]] = 1;
@@ -12640,7 +13034,7 @@ DC 8   c êfunction setupWorker(pal2) {
       }
     };
   }C
-      *Ê  ×ûñ8Ú   >  ! 08Î   AŠ   $  A‰   ×$ )¨û%!
+      *Ê  ×ûñ8Ú   N  ! 08Î   AŠ   $  A‰   ×$ )¨İ&!
 O4*Âfunction(callback) {
       if (typeof callback !== "function") {
         throw new TypeError("queueMicrotask requires a function argument");
@@ -12649,7 +13043,7 @@ DC 8   c êfunction setupWorker(pal2) {
     }Å ÏÅĞÅÑÅÒÅÈÅÈÅÈÅÈÅÈÅ	È	Å
 È
 ÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈÅÈË×õÌ×õÍ×õÎôÇôÇôÇôÇ×õÇ×õÇ×õÇ×õÇ×õÇôÇôÇôÇ×õÇ	×õÇ
-×õÇ×õÇ×õÇôÇ×õÇ×õ8•   @?  ûñ8•   ÅB?  )¨S \ÄK"!    ('&%   $#$# D8MÅÜ	function(pal) {
+×õÇ×õÇ×õÇôÇ×õÇ×õ8•   @O  ûñ8•   ÅBO  )¨S \ˆM"!    ('&%   $#$# D8MÈÿ	function(pal) {
   // src/pal.js
 // src/console.js
   function setupConsole(pal2) {
@@ -16628,6 +17022,104 @@ DC 8   c êfunction setupWorker(pal2) {
           reject(new DOMException("Unsupported export format: " + format, "NotSupportedError"));
         });
       }
+      wrapKey(format, key, wrappingKey, wrapAlgorithm) {
+        return new Promise(function(resolve, reject) {
+          var wrapName = typeof wrapAlgorithm === "string" ? wrapAlgorithm : wrapAlgorithm.name;
+          if (wrapName !== "AES-GCM" && wrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported wrap algorithm: " + wrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesEncrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (format === "raw") {
+              plaintext = toUint8Array(key._data);
+            } else if (format === "jwk") {
+              var jwk = {
+                kty: "oct",
+                k: base64UrlEncode(key._data),
+                alg: key.algorithm.name === "HMAC" ? "HS" + (key.algorithm.hash ? key.algorithm.hash.replace("SHA-", "") : "256") : key.algorithm.name,
+                ext: key.extractable,
+                key_ops: key.usages
+              };
+              plaintext = new TextEncoder().encode(JSON.stringify(jwk));
+            } else {
+              reject(new DOMException("Unsupported wrap format: " + format, "NotSupportedError"));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (wrapName === "AES-GCM") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              var aad = wrapAlgorithm.additionalData ? toUint8Array(wrapAlgorithm.additionalData) : void 0;
+              var tagLen = wrapAlgorithm.tagLength !== void 0 ? wrapAlgorithm.tagLength / 8 : 16;
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-GCM", aad, tagLen)));
+              return;
+            }
+            if (wrapName === "AES-CBC") {
+              var iv = toUint8Array(wrapAlgorithm.iv);
+              resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-CBC")));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+        });
+      }
+      unwrapKey(format, wrappedKey, unwrappingKey, unwrapAlgorithm, unwrappedKeyAlgorithm, extractable, keyUsages) {
+        return new Promise(function(resolve, reject) {
+          var unwrapName = typeof unwrapAlgorithm === "string" ? unwrapAlgorithm : unwrapAlgorithm.name;
+          if (unwrapName !== "AES-GCM" && unwrapName !== "AES-CBC") {
+            reject(new DOMException("Unsupported unwrap algorithm: " + unwrapName, "NotSupportedError"));
+            return;
+          }
+          if (typeof pal2.nativeAesDecrypt !== "function") {
+            reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+            return;
+          }
+          var plaintext;
+          try {
+            if (unwrapName === "AES-GCM") {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              var aad = unwrapAlgorithm.additionalData ? toUint8Array(unwrapAlgorithm.additionalData) : void 0;
+              var tagLen = unwrapAlgorithm.tagLength !== void 0 ? unwrapAlgorithm.tagLength / 8 : 16;
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-GCM", aad, tagLen);
+            } else {
+              var iv = toUint8Array(unwrapAlgorithm.iv);
+              plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-CBC");
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          try {
+            if (format === "raw") {
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, new Uint8Array(plaintext)));
+              return;
+            }
+            if (format === "jwk") {
+              var json = JSON.parse(new TextDecoder().decode(plaintext));
+              if (!json || !json.k) {
+                reject(new DOMException("Invalid JWK", "DataError"));
+                return;
+              }
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, base64UrlDecode(json.k)));
+              return;
+            }
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          reject(new DOMException("Unsupported unwrap format: " + format, "NotSupportedError"));
+        });
+      }
       deriveBits(algorithm, key, length) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
@@ -17514,4 +18006,4 @@ DC 8   c êfunction setupWorker(pal2) {
       Promise.resolve().then(callback);
     };
   }
-}Å 8@  õÓ(¨ ‚L 
+}Å 8P  õÓ(¨ ÆM 
