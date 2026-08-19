@@ -231,3 +231,81 @@ TEST(worker_, transfer_messageport_worker_to_parent) {
     EXPECT_NE(std::string::npos, out.find("\"back\":\"echo:ping\"")) << "got: " << out;
     host_destroy(h);
 }
+
+// transferable: 多 worker 并发各自创建 channel 转移给父。每个 worker 转移的
+// port 在父侧形成独立代理，路由必须回到「正确的」worker（workerId 不混淆）：
+// p1 回包必须来自 w1、p2 回包必须来自 w2；且 p1/p2 的 _peerThread 应分别等于
+// w1/w2 的 workerId（1/2）。这验证 worker→父 转移的 workerId 路由在并发下的
+// 正确性。
+TEST(worker_, transfer_messageport_multi_worker) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w1 = new Worker('file://" TEST_DIR "/worker_to_parent.js');\n"
+        "globalThis.w2 = new Worker('file://" TEST_DIR "/worker_to_parent.js');\n"
+        "w1.onmessage = function(e){ if (e.ports && e.ports[0]) globalThis.p1 = e.ports[0]; };\n"
+        "w2.onmessage = function(e){ if (e.ports && e.ports[0]) globalThis.p2 = e.ports[0]; };\n"
+        "w1.postMessage('init'); w2.postMessage('init');\n"
+        "'started'", &out));
+
+    /* 轮询直到两个代理 port 都已就位（各自 worker 转移成功） */
+    ASSERT_TRUE(host_poll_until_value(h,
+        "(globalThis.p1 && globalThis.p2) ? 'both-ports-ready' : 'waiting'",
+        "both-ports-ready", &out));
+
+    /* 断言 p1/p2 路由到各自 workerId（w1=1、w2=2），不混淆 */
+    ASSERT_TRUE(host_value(h, "p1._peerThread + ':' + p2._peerThread", &out));
+    EXPECT_EQ(std::string("1:2"), out) << "got: " << out;
+
+    /* p1/p2 并发发消息，回包带来源标签 */
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.p1.onmessage = function(e){ postMessage({from:'p1', data:e.data}); };\n"
+        "globalThis.p2.onmessage = function(e){ postMessage({from:'p2', data:e.data}); };\n"
+        "p1.postMessage('ping-A'); p2.postMessage('ping-B');\n"
+        "'sent'", &out));
+
+    /* 等两条回包：p1 回 'echo:ping-A'（来自 w1），p2 回 'echo:ping-B'（来自 w2） */
+    bool got1 = false, got2 = false;
+    for (int i = 0; i < 2; i++) {
+        ASSERT_TRUE(host_wait_msg(h, &out));
+        if (out.find("\"from\":\"p1\"") != std::string::npos &&
+            out.find("echo:ping-A") != std::string::npos) got1 = true;
+        if (out.find("\"from\":\"p2\"") != std::string::npos &&
+            out.find("echo:ping-B") != std::string::npos) got2 = true;
+    }
+    EXPECT_TRUE(got1) << "p1 未收到来自 w1 的回包（路由混淆？）last: " << out;
+    EXPECT_TRUE(got2) << "p2 未收到来自 w2 的回包（路由混淆？）last: " << out;
+    host_destroy(h);
+}
+
+// transferable: worker 转移 port 给父后，terminate worker。父侧代理 port 再
+// 发消息不应抛错/崩溃——qwrt_worker_post 检查 worker shutting_down 后静默丢弃，
+// 消息不投递（优雅失败）。
+TEST(worker_, transfer_messageport_terminate_worker) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_to_parent.js');\n"
+        "w.onmessage = function(e){ if (e.ports && e.ports[0]) globalThis.p = e.ports[0]; };\n"
+        "w.postMessage('init');\n"
+        "'started'", &out));
+
+    /* 等父侧收到转移的代理 port */
+    ASSERT_TRUE(host_poll_until_value(h,
+        "globalThis.p ? 'port-ready' : 'waiting'", "port-ready", &out));
+
+    /* terminate worker */
+    ASSERT_TRUE(host_value(h, "w.terminate(); 'terminated'", &out));
+    EXPECT_NE(std::string::npos, out.find("terminated")) << "got: " << out;
+
+    /* 代理 port 发消息：不抛错（worker 已 shutting_down，静默丢弃） */
+    ASSERT_TRUE(host_value(h,
+        "try { p.postMessage('after-terminate'); 'no-throw'; } catch (e) { 'throw:' + e.message; }",
+        &out));
+    EXPECT_NE(std::string::npos, out.find("no-throw")) << "got: " << out;
+    host_destroy(h);
+}
