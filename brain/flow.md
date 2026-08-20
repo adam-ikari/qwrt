@@ -2,21 +2,35 @@
 slug: flow
 title: Key flows
 role: key flows
-updated: "2026-06-22T00:00:00"
+updated: "2026-08-20T00:11:50"
 ---
 
-## End-to-end path of a typical request
+# Key flows
 
-<!-- Describe the full path of a typical request / operation, from entry to exit. -->
+## End-to-end path of a typical request（宿主→JS 消息）
 
 ```mermaid
 sequenceDiagram
-  participant U as User
-  participant S as System
-  U->>S: placeholder: replace with a real step
-  S-->>U: placeholder: return the result
+  participant H as Host C
+  participant Q as qwrt thread
+  participant L as libuv
+  participant J as QuickJS runtime
+  H->>Q: qwrt_create(cfg) — initial_script
+  Q->>L: uv_run loop
+  Q->>J: eval initial_script
+  J->>J: postMessage({ok:true})
+  J->>L: register pending timers/io
+  Q-->>H: message_cb fired
+  H->>Q: qwrt_post_message({\"cmd\":\"eval\",\"code\":\"...\"})
+  Q->>J: __qwrt_dispatch__ → onmessage eval
+  J->>J: run code, postMessage result
+  Q-->>H: message_cb returns result
+  H->>Q: qwrt_destroy() — request stop
+  Q->>L: uv_stop + join
 ```
 
 ## Other important flows
 
-<!-- List the remaining flows worth pinning down. -->
+- Worker 生命周期：qwrt 内部新建线程 → QuickJS 独立 JSRuntime → __qwrt_dispatch__ 消息通道
+- MessagePort 跨线程：pal.portCreate() 分配全局 port id 对 → 序列化到字节通 → 接收侧 __qwrt_port_from_ref__ 重建代理
+- HTTPServer 请求：uvhttp accept → 解析 → qwrt eval JS handler（fetch 风格）→ JS 构造 Response → 回写 uvhttp 响应
