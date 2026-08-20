@@ -787,3 +787,50 @@ TEST_F(PolyfillTest, EventTargetEdgeCases) {
         "0", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_et5", "[true,true]", &v)) << "got: " << v;
 }
+
+TEST_F(PolyfillTest, BlobEdgeCases) {
+    std::string v;
+
+    /* 1. blobParts 非对象/无 @@iterator → TypeError；undefined → 空 Blob */
+    ASSERT_TRUE(host_value(h,
+        "function t(x){ try { new Blob(x); return false; } catch(e){ return /TypeError/.test(String(e)); } }\n"
+        "var r = [t(null), t(true), t(0), t('fail'), t({}), t(new Date())];\n"
+        "var empty = new Blob(undefined);\n"
+        "r.push([empty.size, empty.type]);\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true,true,true,true,true,[0,\"\"]]")) << "got: " << v;
+
+    /* 2. type 规范化：只去 0x09/0x0A/0x0D，保留空格；`' image/gif '` 保留空格 */
+    ASSERT_TRUE(host_value(h,
+        "var a = new Blob(['x'], {type: ' Image/GIF '});\n"
+        "var b = new Blob(['x'], {type: '\\timage/gif\\t'});\n"
+        "JSON.stringify([a.type, b.type])", &v));
+    EXPECT_NE(std::string::npos, v.find("\" image/gif \"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"image/gif\"")) << "got: " << v;
+
+    /* 3. 字符串元素 UTF-8 编码：非 ASCII 内容 text() 应正确 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _bt = null;
+        var b = new Blob(['€']);
+        b.text().then(function(s){ _bt = JSON.stringify([s.length, s.charCodeAt(0)]); });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_bt", "[1,8364]", &v)) << "got: " << v;
+
+    /* 4. slice 负值/小数 + contentType */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _bs = null;
+        var b = new Blob(['0123456789']);
+        var s = b.slice(-3, -1, 'text/plain');
+        s.text().then(function(t){ _bs = JSON.stringify([t, s.type, s.size]); });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_bs", "\"78\"", &v)) << "got: " << v;
+
+    /* 5. arrayBuffer() + json() */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _bj = null;
+        var b = new Blob(['{"k":1}']);
+        b.json().then(function(o){ _bj = JSON.stringify([o.k, b.size]); });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_bj", "[1,", &v)) << "got: " << v;
+}
+

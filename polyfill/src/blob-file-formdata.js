@@ -17,35 +17,41 @@ export function setupBlobFileFormData() {
     constructor(blobParts, options) {
       options = options || {};
 
-      // Flatten blobParts into a single byte array
+      // WebIDL sequence<BlobPart>: blobParts must be undefined or an object
+      // with an @@iterator (Arrays, String objects, typed arrays, and any
+      // custom iterable). null/booleans/numbers/strings/plain objects/Dates
+      // must throw TypeError.
+      if (blobParts !== undefined) {
+        if (blobParts === null || typeof blobParts !== 'object') {
+          throw new TypeError('Blob: blobParts must be an iterable object');
+        }
+        if (!(Symbol && Symbol.iterator && typeof blobParts[Symbol.iterator] === 'function')) {
+          throw new TypeError('Blob: blobParts must be iterable');
+        }
+      }
+
+      var parts = blobParts === undefined ? [] : blobParts;
       var buffers = [];
       var totalSize = 0;
 
-      if (blobParts) {
-        for (var i = 0; i < blobParts.length; i++) {
-          var part = blobParts[i];
-          var bytes;
-          if (part instanceof Blob) {
-            bytes = part._getBytes();
-          } else if (part instanceof ArrayBuffer) {
-            bytes = new Uint8Array(part);
-          } else if (ArrayBuffer.isView(part)) {
-            bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
-          } else if (typeof part === 'string') {
-            bytes = new Uint8Array(part.length);
-            for (var j = 0; j < part.length; j++) {
-              bytes[j] = part.charCodeAt(j);
-            }
-          } else {
-            var str = String(part);
-            bytes = new Uint8Array(str.length);
-            for (var j = 0; j < str.length; j++) {
-              bytes[j] = str.charCodeAt(j);
-            }
-          }
-          buffers.push(bytes);
-          totalSize += bytes.length;
+      var iter = parts[Symbol.iterator]();
+      for (;;) {
+        var next = iter.next();
+        if (next.done) break;
+        var part = next.value;
+        var bytes;
+        if (part instanceof Blob) {
+          bytes = part._getBytes();
+        } else if (part instanceof ArrayBuffer) {
+          bytes = new Uint8Array(part);
+        } else if (ArrayBuffer.isView(part)) {
+          bytes = new Uint8Array(part.buffer, part.byteOffset, part.byteLength);
+        } else {
+          var str = String(part);
+          bytes = new TextEncoder().encode(str);
         }
+        buffers.push(bytes);
+        totalSize += bytes.length;
       }
 
       this._buffers = buffers;
@@ -251,10 +257,10 @@ export function setupBlobFileFormData() {
   function normalizeType(type) {
     /* Per WHATWG File API: convert to ASCII lowercase, then remove
      * HTTP tab (0x09) and newline (0x0A LF, 0x0D CR) bytes.
-     * Empty string stays empty. The spec does NOT validate MIME format. */
+     * Empty string stays empty. The spec does NOT validate MIME format
+     * and does NOT trim surrounding whitespace. */
     var s = String(type).toLowerCase();
-    s = s.replace(/[\x09\x0A\x0D]/g, '');
-    return s.trim();
+    return s.replace(/[\x09\x0A\x0D]/g, '');
   }
 
   // Helper: decode Uint8Array to string (UTF-8)
