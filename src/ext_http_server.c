@@ -40,6 +40,7 @@ typedef struct {
      * Set at serve() time, freed on server_close / ext destroy. */
     JSValue handler;
     JSValue request_cls;
+    JSValue headers_cls;
 } http_server_state_t;
 
 static http_server_state_t g_state;
@@ -536,16 +537,70 @@ static JSValue build_request_object(JSContext *ctx, uvhttp_request_t *req) {
     JS_SetPropertyStr(ctx, init, "method",
                       JS_NewString(ctx, method ? method : "GET"));
 
-    JSValue headers_obj = JS_NewObject(ctx);
-    size_t hcount = uvhttp_request_get_header_count(req);
-    for (size_t i = 0; i < hcount; i++) {
-        uvhttp_header_t *h = uvhttp_request_get_header_at(req, i);
-        if (h && h->name[0] && h->value[0]) {
-            JS_SetPropertyStr(ctx, headers_obj, h->name,
-                              JS_NewString(ctx, h->value));
-        }
+    /* Build a real Headers instance and write its _map directly (bypassing
+     * normalizeName/normalizeValue regex — the per-request bottleneck).
+     * new Request(init) then copies the _map via the instanceof-Headers
+     * branch, which does no regex normalization. */
+    JSValue headers;
+    if (JS_IsFunction(ctx, g_state.headers_cls)) {
+        headers = JS_CallConstructor(ctx, g_state.headers_cls, 0, NULL);
+    } else {
+        JSValue global = JS_GetGlobalObject(ctx);
+        JSValue hcls = JS_GetPropertyStr(ctx, global, "Headers");
+        JS_FreeValue(ctx, global);
+        headers = JS_IsFunction(ctx, hcls)
+            ? JS_CallConstructor(ctx, hcls, 0, NULL)
+            : JS_NULL;
+        JS_FreeValue(ctx, hcls);
     }
-    JS_SetPropertyStr(ctx, init, "headers", headers_obj);
+    if (!JS_IsException(headers) && !JS_IsNull(headers)) {
+        JSValue map = JS_GetPropertyStr(ctx, headers, "_map");
+        if (JS_IsObject(map)) {
+            JSValue set_fn = JS_GetPropertyStr(ctx, map, "set");
+            if (JS_IsFunction(ctx, set_fn)) {
+                size_t hcount = uvhttp_request_get_header_count(req);
+                for (size_t i = 0; i < hcount; i++) {
+                    uvhttp_header_t *h = uvhttp_request_get_header_at(req, i);
+                    if (h && h->name[0] && h->value[0]) {
+                        /* uvhttp keeps header names as-is (e.g.
+                         * "Content-Type"); the plain-object path lowercased
+                         * them via normalizeName in Headers#append. Do the
+                         * same ASCII tolower here so Map keys stay
+                         * case-insensitive. */
+                        char lname[UVHTTP_MAX_HEADER_NAME_SIZE];
+                        size_t nl = strlen(h->name);
+                        if (nl >= sizeof(lname)) nl = sizeof(lname) - 1;
+                        for (size_t k = 0; k < nl; k++) {
+                            char c = h->name[k];
+                            lname[k] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+                        }
+                        lname[nl] = '\0';
+                        JSValue name = JS_NewString(ctx, lname);
+                        JSValue val = JS_NewString(ctx, h->value);
+                        JSValue argv2[2] = {name, val};
+                        JS_Call(ctx, set_fn, map, 2, argv2);
+                        JS_FreeValue(ctx, name);
+                        JS_FreeValue(ctx, val);
+                    }
+                }
+            }
+            JS_FreeValue(ctx, set_fn);
+        }
+        JS_FreeValue(ctx, map);
+        JS_SetPropertyStr(ctx, init, "headers", headers);
+    } else {
+        JS_FreeValue(ctx, headers);
+        JSValue headers_obj = JS_NewObject(ctx);
+        size_t hcount = uvhttp_request_get_header_count(req);
+        for (size_t i = 0; i < hcount; i++) {
+            uvhttp_header_t *h = uvhttp_request_get_header_at(req, i);
+            if (h && h->name[0] && h->value[0]) {
+                JS_SetPropertyStr(ctx, headers_obj, h->name,
+                                  JS_NewString(ctx, h->value));
+            }
+        }
+        JS_SetPropertyStr(ctx, init, "headers", headers_obj);
+    }
 
     size_t blen = uvhttp_request_get_body_length(req);
     const char *body = uvhttp_request_get_body(req);
@@ -662,6 +717,8 @@ static JSValue js_server_close(JSContext *ctx, JSValueConst this_val, int argc,
     g_state.handler = JS_UNDEFINED;
     if (JS_IsFunction(ctx, g_state.request_cls)) JS_FreeValue(ctx, g_state.request_cls);
     g_state.request_cls = JS_UNDEFINED;
+    if (JS_IsFunction(ctx, g_state.headers_cls)) JS_FreeValue(ctx, g_state.headers_cls);
+    g_state.headers_cls = JS_UNDEFINED;
     g_state.running = 0;
     return JS_UNDEFINED;
 }
@@ -857,6 +914,8 @@ JSValue opts = (JSValue)argv[0];
     g_state.handler = JS_DupValue(ctx, argv[1]);
     if (JS_IsFunction(ctx, g_state.request_cls)) JS_FreeValue(ctx, g_state.request_cls);
     g_state.request_cls = JS_GetPropertyStr(ctx, global, "Request");
+    if (JS_IsFunction(ctx, g_state.headers_cls)) JS_FreeValue(ctx, g_state.headers_cls);
+    g_state.headers_cls = JS_GetPropertyStr(ctx, global, "Headers");
     JS_FreeValue(ctx, global);
 
     g_state.running = 1;
@@ -879,6 +938,7 @@ static int http_server_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
     g_state.running = 0;
     g_state.handler = JS_UNDEFINED;
     g_state.request_cls = JS_UNDEFINED;
+    g_state.headers_cls = JS_UNDEFINED;
     JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
     JSValue global = JS_GetGlobalObject(ctx);
@@ -916,9 +976,11 @@ static void http_server_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt) {
     if (ctx) {
         if (JS_IsFunction(ctx, g_state.handler)) JS_FreeValue(ctx, g_state.handler);
         if (JS_IsFunction(ctx, g_state.request_cls)) JS_FreeValue(ctx, g_state.request_cls);
+        if (JS_IsFunction(ctx, g_state.headers_cls)) JS_FreeValue(ctx, g_state.headers_cls);
     }
     g_state.handler = JS_UNDEFINED;
     g_state.request_cls = JS_UNDEFINED;
+    g_state.headers_cls = JS_UNDEFINED;
     if (g_state.tls_ctx) {
         uvhttp_tls_context_free(g_state.tls_ctx);
         g_state.tls_ctx = NULL;
