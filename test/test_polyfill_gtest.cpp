@@ -834,3 +834,65 @@ TEST_F(PolyfillTest, BlobEdgeCases) {
     ASSERT_TRUE(host_poll_until_value(h, "_bj", "[1,", &v)) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, HeadersEdgeCases) {
+    std::string v;
+
+    /* 1. 构造：undefined/空对象/序列/record/拷贝 */
+    ASSERT_TRUE(host_value(h,
+        "var h1 = new Headers();\n"
+        "var h2 = new Headers(undefined);\n"
+        "var h3 = new Headers({});\n"
+        "var h4 = new Headers([['a','1'],['b','2']]);\n"
+        "var h5 = new Headers({x:'3'});\n"
+        "var h6 = new Headers(h4);\n"
+        "JSON.stringify([h1.get('a'), h4.get('a'), h4.get('b'), h5.get('x'), h6.get('a')])", &v));
+    EXPECT_NE(std::string::npos, v.find("[null,\"1\",\"2\",\"3\",\"1\"]")) << "got: " << v;
+
+    /* 2. append/set/get/has/delete + 大小写不敏感 + 逗号合并 */
+    ASSERT_TRUE(host_value(h,
+        "var h = new Headers();\n"
+        "h.append('X-Key', 'a');\n"
+        "h.append('x-key', 'b');\n"
+        "var g = h.get('x-key');\n"
+        "h.set('X-Key', 'c');\n"
+        "var afterSet = h.get('x-key');\n"
+        "var has = h.has('X-KEY');\n"
+        "h.delete('x-key');\n"
+        "var afterDel = h.get('x-key');\n"
+        "JSON.stringify([g, afterSet, has, afterDel])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"a, b\",\"c\",true,null]")) << "got: " << v;
+
+    /* 3. 迭代器：keys/values/entries/Symbol.iterator/forEach */
+    ASSERT_TRUE(host_value(h,
+        "var h = new Headers([['a','1'],['b','2']]);\n"
+        "var ks = [], vs = [], es = [];\n"
+        "for (var k of h.keys()) ks.push(k);\n"
+        "for (var vv of h.values()) vs.push(vv);\n"
+        "for (var e of h.entries()) es.push(e.join(':'));\n"
+        "var f = []; h.forEach(function(v,k){ f.push(k+'='+v); });\n"
+        "var it = h[Symbol.iterator]();\n"
+        "JSON.stringify([ks.join(','), vs.join(','), es.join(';'), f.join(';'), it.next().value.join(':')])", &v));
+    EXPECT_NE(std::string::npos, v.find("a,b")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("1,2")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("a:1;b:2")) << "got: " << v;
+
+    /* 4. new Headers(null) 抛 TypeError；3 元素 pair 抛 TypeError */
+    ASSERT_TRUE(host_value(h,
+        "function t(f){ try { f(); return false; } catch(e){ return /TypeError/.test(String(e)); } }\n"
+        "var r = [t(function(){ new Headers(null); }),\n"
+        "         t(function(){ new Headers([['a','b','c']]); }),\n"
+        "         t(function(){ new Headers([['name']]); })];\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true,true]")) << "got: " << v;
+
+    /* 5. 非法 name/value 抛 TypeError */
+    ASSERT_TRUE(host_value(h,
+        "function t(f){ try { f(); return false; } catch(e){ return /TypeError/.test(String(e)); } }\n"
+        "var h = new Headers();\n"
+        "var r = [t(function(){ h.set('bad name', 'v'); }),\n"
+        "         t(function(){ h.set('ok', '\\x00'); })];\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
+}
+
+

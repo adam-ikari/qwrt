@@ -116,7 +116,10 @@ export function setupFetch(pal) {
   function Headers(init) {
     this._map = new Map();
 
-    if (init !== undefined && init !== null) {
+    if (init === null) {
+      throw new TypeError('Headers init must not be null');
+    }
+    if (init !== undefined) {
       if (init instanceof Headers) {
         init._map.forEach(function(value, key) {
           this._map.set(key, value);
@@ -127,7 +130,7 @@ export function setupFetch(pal) {
           var items = Array.from(init);
           for (var i = 0; i < items.length; i++) {
             var pair = items[i];
-            if (!Array.isArray(pair) || pair.length < 2) {
+            if (!Array.isArray(pair) || pair.length !== 2) {
               throw new TypeError('Headers init: each header must be a [name, value] pair');
             }
             this.append(pair[0], pair[1]);
