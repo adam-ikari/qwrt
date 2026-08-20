@@ -2,6 +2,16 @@
 
 All notable changes to Qwrt.js.
 
+## [Unreleased]
+
+### Added
+- HTTPServer perf：缓存 handler + Request 构造器引用，Headers._map 直写（绕过正则 normalize），wrk -t4 -c100 /hello +37% /gzip +49% /big +13%
+
+### Fixed
+- Blob：blobParts 非迭代对象抛 TypeError、type 规范化只去 0x09/0x0A/0x0D、字符串元素 UTF-8 编码
+- Headers：new Headers(null) 与 3+ 元素 pair 抛 TypeError
+- TextEncoder.encodeInto：代理对感知增量编码 + read/written 精确语义 + 非法目标类型抛错
+
 ## [0.2.0] — 2026-08-19
 
 ### Added
