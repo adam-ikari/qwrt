@@ -35,6 +35,11 @@ typedef struct {
     uvhttp_static_context_t *static_ctx;
     int static_enabled;
     int running;
+    /* Cached, rooted JS references to avoid per-request global property
+     * lookups (JS_GetGlobalObject + JS_GetPropertyStr on every request).
+     * Set at serve() time, freed on server_close / ext destroy. */
+    JSValue handler;
+    JSValue request_cls;
 } http_server_state_t;
 
 static http_server_state_t g_state;
@@ -499,12 +504,20 @@ static JSValue on_response_rejected(JSContext *ctx, JSValueConst this_val,
 
 /* ============ Request building ============ */
 static JSValue build_request_object(JSContext *ctx, uvhttp_request_t *req) {
-    JSValue global = JS_GetGlobalObject(ctx);
-    JSValue req_cls = JS_GetPropertyStr(ctx, global, "Request");
-    JS_FreeValue(ctx, global);
-    if (!JS_IsFunction(ctx, req_cls)) {
-        JS_FreeValue(ctx, req_cls);
-        return JS_NULL;
+    JSValue req_cls;
+    if (JS_IsFunction(ctx, g_state.request_cls)) {
+        /* Cached, rooted reference — dup so the trailing JS_FreeValue
+         * releases our own ref, not the cached one. */
+        req_cls = JS_DupValue(ctx, g_state.request_cls);
+    } else {
+        /* Fallback: look up the Request constructor from globalThis. */
+        JSValue global = JS_GetGlobalObject(ctx);
+        req_cls = JS_GetPropertyStr(ctx, global, "Request");
+        JS_FreeValue(ctx, global);
+        if (!JS_IsFunction(ctx, req_cls)) {
+            JS_FreeValue(ctx, req_cls);
+            return JS_NULL;
+        }
     }
 
     const char *path = uvhttp_request_get_url(req);
@@ -567,9 +580,14 @@ static int qwrt_http_on_request(uvhttp_request_t *req,
         }
     }
 
-    JSValue global = JS_GetGlobalObject(ctx);
-    JSValue handler = JS_GetPropertyStr(ctx, global, HTTP_SERVER_HANDLER_KEY);
-    JS_FreeValue(ctx, global);
+    JSValue handler;
+    if (JS_IsFunction(ctx, g_state.handler)) {
+        handler = JS_DupValue(ctx, g_state.handler);
+    } else {
+        JSValue global = JS_GetGlobalObject(ctx);
+        handler = JS_GetPropertyStr(ctx, global, HTTP_SERVER_HANDLER_KEY);
+        JS_FreeValue(ctx, global);
+    }
     if (!JS_IsFunction(ctx, handler)) {
         JS_FreeValue(ctx, handler);
         send_text(res, 404, "Not Found");
@@ -640,6 +658,10 @@ static JSValue js_server_close(JSContext *ctx, JSValueConst this_val, int argc,
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, HTTP_SERVER_HANDLER_KEY, JS_UNDEFINED);
     JS_FreeValue(ctx, global);
+    if (JS_IsFunction(ctx, g_state.handler)) JS_FreeValue(ctx, g_state.handler);
+    g_state.handler = JS_UNDEFINED;
+    if (JS_IsFunction(ctx, g_state.request_cls)) JS_FreeValue(ctx, g_state.request_cls);
+    g_state.request_cls = JS_UNDEFINED;
     g_state.running = 0;
     return JS_UNDEFINED;
 }
@@ -830,6 +852,11 @@ JSValue opts = (JSValue)argv[0];
     /* Keep handler rooted */
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, HTTP_SERVER_HANDLER_KEY, JS_DupValue(ctx, argv[1]));
+    /* Cache rooted refs to avoid per-request global property lookups. */
+    if (JS_IsFunction(ctx, g_state.handler)) JS_FreeValue(ctx, g_state.handler);
+    g_state.handler = JS_DupValue(ctx, argv[1]);
+    if (JS_IsFunction(ctx, g_state.request_cls)) JS_FreeValue(ctx, g_state.request_cls);
+    g_state.request_cls = JS_GetPropertyStr(ctx, global, "Request");
     JS_FreeValue(ctx, global);
 
     g_state.running = 1;
@@ -850,6 +877,8 @@ static int http_server_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
     g_state.static_ctx = NULL;
     g_state.static_enabled = 0;
     g_state.running = 0;
+    g_state.handler = JS_UNDEFINED;
+    g_state.request_cls = JS_UNDEFINED;
     JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
     JSValue global = JS_GetGlobalObject(ctx);
@@ -884,6 +913,12 @@ static void http_server_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt) {
         uvhttp_server_free(g_state.server);
         g_state.server = NULL;
     }
+    if (ctx) {
+        if (JS_IsFunction(ctx, g_state.handler)) JS_FreeValue(ctx, g_state.handler);
+        if (JS_IsFunction(ctx, g_state.request_cls)) JS_FreeValue(ctx, g_state.request_cls);
+    }
+    g_state.handler = JS_UNDEFINED;
+    g_state.request_cls = JS_UNDEFINED;
     if (g_state.tls_ctx) {
         uvhttp_tls_context_free(g_state.tls_ctx);
         g_state.tls_ctx = NULL;
