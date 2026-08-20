@@ -942,5 +942,27 @@ TEST_F(PolyfillTest, EncodeIntoEdgeCases) {
     EXPECT_NE(std::string::npos, v.find("[1,1,[65,0,0]]")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, RandomUuidAndNavigator) {
+    std::string v;
+
+    /* 1. crypto.randomUUID() 返回 v4 UUID 格式 */
+    ASSERT_TRUE(host_value(h,
+        "var u = crypto.randomUUID();\n"
+        "JSON.stringify([typeof u, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(u), u.length])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"string\",true,36]")) << "got: " << v;
+
+    /* 2. 多次调用不同 */
+    ASSERT_TRUE(host_value(h,
+        "var a = crypto.randomUUID(); var b = crypto.randomUUID();\n"
+        "JSON.stringify(a !== b)", &v));
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+
+    /* 3. navigator.userAgent 非空 string */
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify([typeof navigator, typeof navigator.userAgent, navigator.userAgent.length > 0])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"object\",\"string\",true]")) << "got: " << v;
+}
+
+
 
 
