@@ -895,4 +895,52 @@ TEST_F(PolyfillTest, HeadersEdgeCases) {
     EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, EncodeIntoEdgeCases) {
+    std::string v;
+    /* read/written 精确语义（对齐 WPT encodeInto.any.js 数据向量） */
+    ASSERT_TRUE(host_value(h,
+        "function enc(s, len) {\n"
+        "  var buf = new ArrayBuffer(64);\n"
+        "  var view = new Uint8Array(buf, 0, len);\n"
+        "  var r = new TextEncoder().encodeInto(s, view);\n"
+        "  return JSON.stringify([r.read, r.written, Array.from(view.subarray(0, r.written))]);\n"
+        "}\n"
+        "JSON.stringify([enc('Hi', 0), enc('A', 10), enc('\\u{1D306}', 4), enc('\\u{1D306}A', 3)])", &v));
+    EXPECT_NE(std::string::npos, v.find("[0,0,[]]")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("[1,1,[65]]")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("[2,4,[240,157,140,134]]")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("[0,0,[]]")) << "got: " << v;
+
+    /* 孤立代理对 → U+FFFD (EF BF BD)；有效代理对完整 4 字节 */
+    ASSERT_TRUE(host_value(h,
+        "function enc(s, len) {\n"
+        "  var view = new Uint8Array(new ArrayBuffer(64), 0, len);\n"
+        "  var r = new TextEncoder().encodeInto(s, view);\n"
+        "  return JSON.stringify([r.read, r.written, Array.from(view.subarray(0, r.written))]);\n"
+        "}\n"
+        "var loneHi = enc('\\uD834A', 10);\n"
+        "var loneLo = enc('A\\uDF06', 4);\n"
+        "JSON.stringify([loneHi, loneLo])", &v));
+    EXPECT_NE(std::string::npos, v.find("[2,4,[239,191,189,65]]")) << "got: " << v;  /* U+FFFD + 'A' */
+    EXPECT_NE(std::string::npos, v.find("[2,4,[65,239,191,189]]")) << "got: " << v;  /* 'A' + U+FFFD */
+
+    /* 非 Uint8Array 目标（DataView/Int8Array/ArrayBuffer）抛 TypeError */
+    ASSERT_TRUE(host_value(h,
+        "function t(f){ try { f(); return false; } catch(e){ return /TypeError/.test(String(e)); } }\n"
+        "var te = new TextEncoder();\n"
+        "var r = [t(function(){ te.encodeInto('x', new DataView(new ArrayBuffer(4))); }),\n"
+        "         t(function(){ te.encodeInto('x', new Int8Array(4)); }),\n"
+        "         t(function(){ te.encodeInto('x', new ArrayBuffer(4)); })];\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true,true]")) << "got: " << v;
+
+    /* 多字节字符无法完整放入剩余空间时不部分写入（read 停在前一个完整字符） */
+    ASSERT_TRUE(host_value(h,
+        "var view = new Uint8Array(new ArrayBuffer(3), 0, 3);\n"
+        "var r = new TextEncoder().encodeInto('A\\u{1D306}', view);\n"
+        "JSON.stringify([r.read, r.written, Array.from(view)])", &v));
+    EXPECT_NE(std::string::npos, v.find("[1,1,[65,0,0]]")) << "got: " << v;
+}
+
+
 

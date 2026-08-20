@@ -1975,10 +1975,78 @@
       return new Uint8Array(bytes);
     };
     TextEncoder2.prototype.encodeInto = function encodeInto(src, dst) {
-      var encoded = this.encode(src);
-      var len = Math.min(encoded.length, dst.length);
-      for (var i = 0; i < len; i++) dst[i] = encoded[i];
-      return { read: src.length, written: len };
+      if (!(dst instanceof Uint8Array)) {
+        throw new TypeError("encodeInto: destination must be a Uint8Array");
+      }
+      var srcLen = src.length;
+      var dstLen = dst.length;
+      var read = 0;
+      var written = 0;
+      var i = 0;
+      var o = 0;
+      while (i < srcLen && o < dstLen) {
+        var code = src.charCodeAt(i);
+        if (code < 128) {
+          if (o + 1 > dstLen) break;
+          dst[o] = code;
+          o += 1;
+          i += 1;
+          written += 1;
+          read += 1;
+        } else if (code >= 55296 && code <= 56319) {
+          if (i + 1 < srcLen) {
+            var lo = src.charCodeAt(i + 1);
+            if (lo >= 56320 && lo <= 57343) {
+              if (o + 4 > dstLen) break;
+              var cp = (code - 55296 << 10) + (lo - 56320) + 65536;
+              dst[o] = 240 | cp >> 18;
+              dst[o + 1] = 128 | cp >> 12 & 63;
+              dst[o + 2] = 128 | cp >> 6 & 63;
+              dst[o + 3] = 128 | cp & 63;
+              o += 4;
+              i += 2;
+              written += 4;
+              read += 2;
+              continue;
+            }
+          }
+          if (o + 3 > dstLen) break;
+          dst[o] = 239;
+          dst[o + 1] = 191;
+          dst[o + 2] = 189;
+          o += 3;
+          i += 1;
+          written += 3;
+          read += 1;
+        } else if (code >= 56320 && code <= 57343) {
+          if (o + 3 > dstLen) break;
+          dst[o] = 239;
+          dst[o + 1] = 191;
+          dst[o + 2] = 189;
+          o += 3;
+          i += 1;
+          written += 3;
+          read += 1;
+        } else if (code < 2048) {
+          if (o + 2 > dstLen) break;
+          dst[o] = 192 | code >> 6;
+          dst[o + 1] = 128 | code & 63;
+          o += 2;
+          i += 1;
+          written += 2;
+          read += 1;
+        } else {
+          if (o + 3 > dstLen) break;
+          dst[o] = 224 | code >> 12;
+          dst[o + 1] = 128 | code >> 6 & 63;
+          dst[o + 2] = 128 | code & 63;
+          o += 3;
+          i += 1;
+          written += 3;
+          read += 1;
+        }
+      }
+      return { read, written };
     };
     function TextDecoder2(encoding, options) {
       var label = (encoding || "utf-8").toLowerCase();
