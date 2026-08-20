@@ -56,7 +56,7 @@ Run `qwrt` with no arguments for an interactive session:
 
 ```text
 $ qwrt
-qwrt 0.1.0 (WinterTC runtime) — type JS, Ctrl-D to exit
+qwrt 0.2.0 (WinterTC runtime) — type JS, Ctrl-D to exit
 1 + 2
 3
 ```

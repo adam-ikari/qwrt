@@ -13,7 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define QWRT_CLI_VERSION "qwrt 0.1.0"
+#define QWRT_CLI_VERSION "qwrt 0.2.0"
 
 static void usage(FILE *out) {
     fprintf(out,
