@@ -1170,6 +1170,46 @@ TEST_F(PolyfillTest, BtoaAtobEdgeCases) {
     EXPECT_NE(std::string::npos, v.find("[\"\",\"\"]")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, StructuredCloneDeepTypes) {
+    std::string v;
+    /* 1. Date 深拷贝：新对象，值相等 */
+    ASSERT_TRUE(host_value(h,
+        "var d = new Date(1234567890); var c = structuredClone(d);\n"
+        "JSON.stringify([c instanceof Date, c.getTime() === d.getTime(), c !== d])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true,true]")) << "got: " << v;
+
+    /* 2. Map 深拷贝：键值深拷贝 */
+    ASSERT_TRUE(host_value(h,
+        "var m = new Map([['k', {v: 1}]]); var c = structuredClone(m);\n"
+        "JSON.stringify([c instanceof Map, c.size, c.get('k').v])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,1,1]")) << "got: " << v;
+
+    /* 3. Set 深拷贝 */
+    ASSERT_TRUE(host_value(h,
+        "var s = new Set([1, 2, 3]); var c = structuredClone(s);\n"
+        "JSON.stringify([c instanceof Set, c.size, c.has(2)])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,3,true]")) << "got: " << v;
+
+    /* 4. RegExp 深拷贝 */
+    ASSERT_TRUE(host_value(h,
+        "var r = /test/gi; var c = structuredClone(r);\n"
+        "JSON.stringify([c instanceof RegExp, c.source, c.flags, c !== r])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,\"test\",\"gi\",true]")) << "got: " << v;
+
+    /* 5. 循环引用：不无限递归，保持自引用 */
+    ASSERT_TRUE(host_value(h,
+        "var a = {x: 1}; a.self = a; var c = structuredClone(a);\n"
+        "JSON.stringify([c.x, c.self === c, c.self !== a])", &v));
+    EXPECT_NE(std::string::npos, v.find("[1,true,true]")) << "got: " << v;
+
+    /* 6. 嵌套对象深拷贝：修改副本不影响原 */
+    ASSERT_TRUE(host_value(h,
+        "var orig = {nested: {val: 10}}; var c = structuredClone(orig);\n"
+        "c.nested.val = 99;\n"
+        "JSON.stringify([orig.nested.val, c.nested.val])", &v));
+    EXPECT_NE(std::string::npos, v.find("[10,99]")) << "got: " << v;
+}
+
 
 
 
