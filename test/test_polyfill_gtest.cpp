@@ -1329,6 +1329,28 @@ TEST_F(PolyfillTest, CacheStorageEdgeCases) {
     ASSERT_TRUE(host_poll_until_value(h, "_cs", "\"body\"", &v, 3000)) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, EventSource) {
+    std::string v;
+    /* 1. EventSource 存在（HTTP 流式需要 pal.httpRequestStream，mock_libuv 可能无） */
+    ASSERT_TRUE(host_value(h, "JSON.stringify(typeof EventSource)", &v));
+    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available (no httpRequestStream)"; }
+    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
+
+    /* 2. 构造器 + 基本属性 */
+    ASSERT_TRUE(host_value(h,
+        "var es = new EventSource('http://localhost:9999/sse');\n"
+        "JSON.stringify([es.readyState, es.url, es.CONNECTING, es.OPEN, es.CLOSED, typeof es.close])", &v));
+    EXPECT_NE(std::string::npos, v.find("0")) << "got: " << v;  /* CONNECTING */
+    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
+
+    /* 3. close() 后状态 CLOSED */
+    ASSERT_TRUE(host_value(h,
+        "var es = new EventSource('http://localhost:9999/sse');\n"
+        "es.close();\n"
+        "JSON.stringify(es.readyState)", &v));
+    EXPECT_NE(std::string::npos, v.find("2")) << "got: " << v;
+}
+
 
 
 
