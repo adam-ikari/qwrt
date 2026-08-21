@@ -970,6 +970,119 @@ TEST_F(PolyfillTest, RandomUuidAndNavigator) {
     EXPECT_NE(std::string::npos, v.find("[\"object\",\"string\",true]")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, EventTargetAdvanced) {
+    std::string v;
+
+    /* 1. composedPath 返回数组含 target */
+    ASSERT_TRUE(host_value(h,
+        "var et = new EventTarget(); var ev = new Event('x');\n"
+        "var p = et.dispatchEvent(ev) || 1;\n"
+        "var cp = ev.composedPath();\n"
+        "JSON.stringify([Array.isArray(cp), cp.length >= 0])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
+
+    /* 2. stopImmediatePropagation：后续监听器不触发 */
+    ASSERT_TRUE(host_value(h,
+        "var et = new EventTarget(); var order = [];\n"
+        "et.addEventListener('x', function(e){ order.push('a'); e.stopImmediatePropagation(); });\n"
+        "et.addEventListener('x', function(e){ order.push('b'); });\n"
+        "et.dispatchEvent(new Event('x'));\n"
+        "JSON.stringify(order)", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"a\"]")) << "got: " << v;
+
+    /* 3. capture 监听器先于 bubble 触发 */
+    ASSERT_TRUE(host_value(h,
+        "var et = new EventTarget(); var order = [];\n"
+        "et.addEventListener('x', function(){ order.push('bubble'); });\n"
+        "et.addEventListener('x', function(){ order.push('capture'); }, {capture:true});\n"
+        "et.dispatchEvent(new Event('x'));\n"
+        "JSON.stringify(order)", &v));
+    EXPECT_NE(std::string::npos, v.find("\"capture\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("[\"capture\",\"bubble\"]")) << "got: " << v;
+
+    /* 4. 子类化：class extends EventTarget */
+    ASSERT_TRUE(host_value(h,
+        "var Cls = class extends EventTarget { constructor(){ super(); } };\n"
+        "var o = new Cls(); var hit = false;\n"
+        "o.addEventListener('y', function(){ hit = true; });\n"
+        "o.dispatchEvent(new Event('y'));\n"
+        "JSON.stringify([o instanceof EventTarget, hit])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, PerformanceApi) {
+    std::string v;
+
+    /* 1. now() 返回 number，单调递增 */
+    ASSERT_TRUE(host_value(h,
+        "var t1 = performance.now(); var t2 = performance.now();\n"
+        "JSON.stringify([typeof t1, t1 >= 0, t2 >= t1])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"number\",true,true]")) << "got: " << v;
+
+    /* 2. mark() + getEntries/getEntriesByType('mark') */
+    ASSERT_TRUE(host_value(h,
+        "performance.mark('a'); performance.mark('b');\n"
+        "var marks = performance.getEntriesByType('mark');\n"
+        "JSON.stringify([marks.length >= 2, marks[0].name, marks[0].entryType])", &v));
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"mark\"")) << "got: " << v;
+
+    /* 3. measure() + getEntriesByType('measure') */
+    ASSERT_TRUE(host_value(h,
+        "performance.mark('start'); performance.mark('end');\n"
+        "performance.measure('dur', 'start', 'end');\n"
+        "var ms = performance.getEntriesByType('measure');\n"
+        "JSON.stringify([ms.length >= 1, ms[0].name, ms[0].entryType, ms[0].duration >= 0])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"dur\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"measure\"")) << "got: " << v;
+
+    /* 4. clearMarks() 清除 mark 条目 */
+    ASSERT_TRUE(host_value(h,
+        "performance.mark('x'); performance.clearMarks('x');\n"
+        "JSON.stringify(performance.getEntriesByType('mark').filter(function(e){ return e.name === 'x'; }).length)", &v));
+    EXPECT_NE(std::string::npos, v.find("0")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, AbortSignalStatic) {
+    std::string v;
+
+    /* 1. AbortSignal.abort() 返回已 aborted 的 signal */
+    ASSERT_TRUE(host_value(h,
+        "var s = AbortSignal.abort('boom');\n"
+        "JSON.stringify([s.aborted, s.reason])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"boom\"")) << "got: " << v;
+
+    /* 2. throwIfAborted：未 aborted 不抛，aborted 抛 */
+    ASSERT_TRUE(host_value(h,
+        "var s1 = new AbortController().signal;\n"
+        "var s2 = AbortSignal.abort('err');\n"
+        "var r1 = false, r2 = false;\n"
+        "try { s1.throwIfAborted(); r1 = true; } catch(e) {}\n"
+        "try { s2.throwIfAborted(); } catch(e) { r2 = true; }\n"
+        "JSON.stringify([r1, r2])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
+
+    /* 3. AbortSignal.any([signal])：任一 abort 则组合 signal abort */
+    ASSERT_TRUE(host_value(h,
+        "var ac = new AbortController();\n"
+        "var combined = AbortSignal.any([ac.signal]);\n"
+        "var before = combined.aborted;\n"
+        "ac.abort('reason1');\n"
+        "JSON.stringify([before, combined.aborted, combined.reason])", &v));
+    EXPECT_NE(std::string::npos, v.find("[false,true,")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"reason1\"")) << "got: " << v;
+
+    /* 4. AbortSignal.timeout(ms)：超时后 signal abort（异步轮询） */
+    ASSERT_TRUE(host_eval(h,
+        "var _at = null;\n"
+        "var s = AbortSignal.timeout(50);\n"
+        "s.addEventListener('abort', function(){ _at = JSON.stringify([s.aborted, s.reason instanceof DOMException]); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_at", "[true,true]", &v, 3000)) << "got: " << v;
+}
+
+
 
 
 
