@@ -46,7 +46,10 @@ export function setupTextEncoding(pal) {
   };
 
   TextEncoder.prototype.encodeInto = function encodeInto(src, dst) {
-    // Per spec, dst must be a Uint8Array; other typed array views, DataView,
+    // Per spec: input is a DOMString, convert to string first so
+    // primitive coercion (e.g. undefined → 'undefined') is applied.
+    src = String(src);
+    // dst must be a Uint8Array; other typed array views, DataView,
     // and ArrayBuffer throw TypeError. Write only bytes that fit; never
     // partially write a multi-byte character (read stops before it).
     if (!(dst instanceof Uint8Array)) {

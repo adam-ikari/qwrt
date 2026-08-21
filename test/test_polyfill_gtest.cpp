@@ -940,6 +940,13 @@ TEST_F(PolyfillTest, EncodeIntoEdgeCases) {
         "var r = new TextEncoder().encodeInto('A\\u{1D306}', view);\n"
         "JSON.stringify([r.read, r.written, Array.from(view)])", &v));
     EXPECT_NE(std::string::npos, v.find("[1,1,[65,0,0]]")) << "got: " << v;
+
+    /* 6. DOMString 转换：非字符串输入应 String() 后编码（undefined→'undefined'） */
+    ASSERT_TRUE(host_value(h,
+        "var view = new Uint8Array(new ArrayBuffer(64), 0, 64);\n"
+        "var r = new TextEncoder().encodeInto(123, view);\n"
+        "JSON.stringify([r.read, r.written, Array.from(view.subarray(0, r.written))])", &v));
+    EXPECT_NE(std::string::npos, v.find("[3,3,[49,50,51]]")) << "got: " << v;  /* '1','2','3' */
 }
 
 TEST_F(PolyfillTest, RandomUuidAndNavigator) {

@@ -578,9 +578,17 @@ static JSValue build_request_object(JSContext *ctx, uvhttp_request_t *req) {
                         JSValue name = JS_NewString(ctx, lname);
                         JSValue val = JS_NewString(ctx, h->value);
                         JSValue argv2[2] = {name, val};
-                        JS_Call(ctx, set_fn, map, 2, argv2);
+                        /* Map.prototype.set returns the map itself (a caller-
+                         * owned JSValue): capture and release it, and stop
+                         * iterating if the call throws. */
+                        JSValue r = JS_Call(ctx, set_fn, map, 2, argv2);
                         JS_FreeValue(ctx, name);
                         JS_FreeValue(ctx, val);
+                        if (JS_IsException(r)) {
+                            JS_FreeValue(ctx, r);
+                            break;
+                        }
+                        JS_FreeValue(ctx, r);
                     }
                 }
             }

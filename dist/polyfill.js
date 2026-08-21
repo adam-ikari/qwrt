@@ -1975,6 +1975,7 @@
       return new Uint8Array(bytes);
     };
     TextEncoder2.prototype.encodeInto = function encodeInto(src, dst) {
+      src = String(src);
       if (!(dst instanceof Uint8Array)) {
         throw new TypeError("encodeInto: destination must be a Uint8Array");
       }
