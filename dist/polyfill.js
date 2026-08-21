@@ -2478,6 +2478,63 @@
     };
   }
 
+  // src/broadcast-channel.js
+  function setupBroadcastChannel() {
+    var channels = /* @__PURE__ */ new Map();
+    class BroadcastChannel extends EventTarget {
+      constructor(name) {
+        super();
+        if (typeof name !== "string") name = String(name);
+        this._name = name;
+        this._closed = false;
+        this._onmessage = null;
+        if (!channels.has(name)) channels.set(name, /* @__PURE__ */ new Set());
+        channels.get(name).add(this);
+      }
+      get name() {
+        return this._name;
+      }
+      get onmessage() {
+        return this._onmessage;
+      }
+      set onmessage(fn) {
+        if (this._onmessage) this.removeEventListener("message", this._onmessage);
+        this._onmessage = fn;
+        if (typeof fn === "function") this.addEventListener("message", fn);
+      }
+      postMessage(message) {
+        if (this._closed) return;
+        var peers = channels.get(this._name);
+        if (!peers) return;
+        var data;
+        try {
+          data = typeof structuredClone === "function" ? structuredClone(message) : message;
+        } catch (e) {
+          data = message;
+        }
+        peers.forEach(function(peer) {
+          if (peer !== this && !peer._closed) {
+            peer.dispatchEvent(new MessageEvent("message", { data }));
+          }
+        }, this);
+      }
+      close() {
+        if (this._closed) return;
+        this._closed = true;
+        var peers = channels.get(this._name);
+        if (peers) {
+          peers.delete(this);
+          if (peers.size === 0) channels.delete(this._name);
+        }
+        if (this._onmessage) {
+          this.removeEventListener("message", this._onmessage);
+          this._onmessage = null;
+        }
+      }
+    }
+    globalThis.BroadcastChannel = BroadcastChannel;
+  }
+
   // src/host-messaging.js
   function setupHostMessaging(pal2) {
     var self = globalThis;
@@ -4355,7 +4412,7 @@
 
   // src/structured-clone.js
   function setupStructuredClone() {
-    globalThis.structuredClone = function structuredClone(value, options) {
+    globalThis.structuredClone = function structuredClone2(value, options) {
       var transferSet = null;
       if (options && options.transfer !== void 0 && options.transfer !== null) {
         if (!Array.isArray(options.transfer))
@@ -5175,6 +5232,7 @@
   setupEncoding(pal);
   setupFetch(pal);
   setupMessageChannel(pal);
+  setupBroadcastChannel();
   setupHostMessaging(pal);
   setupStreams(pal);
   setupBlobFileFormData();

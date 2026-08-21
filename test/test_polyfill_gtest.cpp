@@ -1234,6 +1234,42 @@ TEST_F(PolyfillTest, DomException) {
     EXPECT_NE(std::string::npos, v.find("[9,11,18]")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, BroadcastChannel) {
+    std::string v;
+    /* 1. 存在 + name 属性 */
+    ASSERT_TRUE(host_value(h,
+        "var bc = new BroadcastChannel('test-ch');\n"
+        "JSON.stringify([typeof BroadcastChannel, bc.name])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"test-ch\"")) << "got: " << v;
+
+    /* 2. postMessage：同名 channel 收到 message 事件（同步 dispatch） */
+    ASSERT_TRUE(host_value(h,
+        "var rcv = new BroadcastChannel('ch2'); var got = null;\n"
+        "rcv.onmessage = function(e){ got = [e.data, e.type]; };\n"
+        "var snd = new BroadcastChannel('ch2');\n"
+        "snd.postMessage({hello: 'world'});\n"
+        "JSON.stringify([got !== null, got[0] && got[0].hello, got[1]])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,\"world\",\"message\"]")) << "got: " << v;
+
+    /* 3. 不同名 channel 不收到 */
+    ASSERT_TRUE(host_value(h,
+        "var rcv = new BroadcastChannel('chA'); var got = false;\n"
+        "rcv.onmessage = function(){ got = true; };\n"
+        "new BroadcastChannel('chB').postMessage('x');\n"
+        "JSON.stringify(got)", &v));
+    EXPECT_NE(std::string::npos, v.find("false")) << "got: " << v;
+
+    /* 4. close()：关闭后不收到消息 */
+    ASSERT_TRUE(host_value(h,
+        "var rcv = new BroadcastChannel('ch3'); var got = false;\n"
+        "rcv.onmessage = function(){ got = true; };\n"
+        "rcv.close();\n"
+        "new BroadcastChannel('ch3').postMessage('x');\n"
+        "JSON.stringify(got)", &v));
+    EXPECT_NE(std::string::npos, v.find("false")) << "got: " << v;
+}
+
 
 
 

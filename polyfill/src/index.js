@@ -40,6 +40,7 @@ import { setupTextEncoding } from './text-encoding.js';
 import { setupCrypto } from './crypto.js';
 import { setupErrorEvents } from './error-events.js';
 import { setupMessageChannel } from './message-channel.js';
+import { setupBroadcastChannel } from './broadcast-channel.js';
 import { setupHostMessaging } from './host-messaging.js';
 import { setupStreams } from './streams.js';
 import { setupBlobFileFormData } from './blob-file-formdata.js';
@@ -69,6 +70,7 @@ setupEncoding(pal);
 
 setupFetch(pal);
 setupMessageChannel(pal);
+setupBroadcastChannel();
 setupHostMessaging(pal);
 setupStreams(pal);
 setupBlobFileFormData();
