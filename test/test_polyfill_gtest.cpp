@@ -1142,6 +1142,34 @@ TEST_F(PolyfillTest, QueueMicrotask) {
     ASSERT_TRUE(host_poll_until_value(h, "_qm", "\"b\"", &v)) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, BtoaAtobEdgeCases) {
+    std::string v;
+    /* 1. btoa 非 Latin1 字符抛错（> 0xFF） */
+    ASSERT_TRUE(host_value(h,
+        "var err = null; try { btoa('\\u0100'); } catch(e) { err = String(e); }\n"
+        "JSON.stringify([err !== null, err.length > 0])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
+
+    /* 2. atob 非法 base64 抛错 */
+    ASSERT_TRUE(host_value(h,
+        "var err = null; try { atob('!!!invalid'); } catch(e) { err = String(e); }\n"
+        "JSON.stringify([err !== null, err.length > 0])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true]")) << "got: " << v;
+
+    /* 3. 往返一致性：btoa → atob 还原原串 */
+    ASSERT_TRUE(host_value(h,
+        "var s = 'Hello, World!';\n"
+        "var encoded = btoa(s); var decoded = atob(encoded);\n"
+        "JSON.stringify([decoded, decoded === s])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"Hello, World!\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
+
+    /* 4. 空串往返 */
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify([btoa(''), atob('')])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"\",\"\"]")) << "got: " << v;
+}
+
 
 
 
