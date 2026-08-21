@@ -325,3 +325,27 @@ TEST_F(CryptoSubtleTest, DigestShaVariants) {
         "});\n'go'",
         "cf83e1357eefb8bdf1542850d66d8007", &v));
 }
+
+// importKey('jwk') + exportKey('jwk') direct round-trip (existing tests only
+// cover raw import/export and jwk via wrapKey/unwrapKey).
+TEST_F(CryptoSubtleTest, JwkImportExportRoundTrip) {
+    std::string v;
+    // importKey('raw', 'test-key') -> exportKey('jwk') -> importKey('jwk')
+    // -> exportKey('raw') must yield the original key bytes.
+    // 'test-key' hex = 746573742d6b6579
+    ASSERT_TRUE(poll_until(h, "_j",
+        "var _j = null;\n"
+        "crypto.subtle.importKey('raw', new TextEncoder().encode('test-key'),\n"
+        "  {name:'HMAC',hash:'SHA-256'}, true, ['sign']).then(function(k){\n"
+        "  return crypto.subtle.exportKey('jwk', k);\n"
+        "}).then(function(jwk){\n"
+        "  return crypto.subtle.importKey('jwk', jwk, {name:'HMAC',hash:'SHA-256'}, true, ['sign']);\n"
+        "}).then(function(k2){\n"
+        "  return crypto.subtle.exportKey('raw', k2);\n"
+        "}).then(function(raw){\n"
+        "  var s=''; var u=new Uint8Array(raw);\n"
+        "  for(var i=0;i<u.length;i++) s+=u[i].toString(16).padStart(2,'0');\n"
+        "  _j = s;\n"
+        "});\n'go'",
+        "746573742d6b6579", &v));
+}
