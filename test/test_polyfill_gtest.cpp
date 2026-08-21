@@ -1302,6 +1302,33 @@ TEST_F(PolyfillTest, PerformanceObserver) {
     EXPECT_NE(std::string::npos, v.find("none")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, CacheStorageEdgeCases) {
+    std::string v;
+    /* 1. caches 全局存在 */
+    ASSERT_TRUE(host_value(h, "JSON.stringify(typeof caches)", &v));
+    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "CacheStorage not implemented"; }
+    EXPECT_NE(std::string::npos, v.find("\"object\"")) << "got: " << v;
+
+    /* 2. open → put → match → text */
+    ASSERT_TRUE(host_eval(h,
+        "var _cs = null;\n"
+        "caches.open('v1').then(function(cache){\n"
+        "  return cache.put(\"https://x.com/a\", new Response('body'));\n"
+        "}).then(function(){\n"
+        "  return caches.open('v1');\n"
+        "}).then(function(cache){\n"
+        "  return cache.match(\"https://x.com/a\");\n"
+        "}).then(function(resp){\n"
+        "  return resp.text().then(function(t){ return [t, resp.status]; });\n"
+        "}).then(function(arr){\n"
+        "  _cs = JSON.stringify(arr);\n"
+        "}).catch(function(e){\n"
+        "  _cs = 'err:' + String(e);\n"
+        "});\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_cs", "\"body\"", &v, 3000)) << "got: " << v;
+}
+
 
 
 

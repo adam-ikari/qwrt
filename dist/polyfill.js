@@ -1400,9 +1400,9 @@
       }
       return String(body);
     }
-    function Request(input, init) {
+    function Request2(input, init) {
       init = init || {};
-      if (input instanceof Request) {
+      if (input instanceof Request2) {
         this._method = init.method || input.method;
         this._url = input.url;
         this._headers = new Headers(init.headers || input.headers);
@@ -1430,85 +1430,85 @@
         throw new TypeError("Invalid HTTP method: " + this._method);
       }
     }
-    Object.defineProperty(Request.prototype, "method", {
+    Object.defineProperty(Request2.prototype, "method", {
       get: function() {
         return this._method;
       }
     });
-    Object.defineProperty(Request.prototype, "url", {
+    Object.defineProperty(Request2.prototype, "url", {
       get: function() {
         return this._url;
       }
     });
-    Object.defineProperty(Request.prototype, "headers", {
+    Object.defineProperty(Request2.prototype, "headers", {
       get: function() {
         return this._headers;
       }
     });
-    Object.defineProperty(Request.prototype, "body", {
+    Object.defineProperty(Request2.prototype, "body", {
       get: function() {
         return this._body;
       }
     });
-    Object.defineProperty(Request.prototype, "bodyUsed", {
+    Object.defineProperty(Request2.prototype, "bodyUsed", {
       get: function() {
         return this._bodyUsed;
       }
     });
-    Object.defineProperty(Request.prototype, "signal", {
+    Object.defineProperty(Request2.prototype, "signal", {
       get: function() {
         return this._signal;
       }
     });
-    Object.defineProperty(Request.prototype, "redirect", {
+    Object.defineProperty(Request2.prototype, "redirect", {
       get: function() {
         return this._redirect;
       }
     });
-    Object.defineProperty(Request.prototype, "keepalive", {
+    Object.defineProperty(Request2.prototype, "keepalive", {
       get: function() {
         return this._keepalive;
       }
     });
-    Object.defineProperty(Request.prototype, "cache", {
+    Object.defineProperty(Request2.prototype, "cache", {
       get: function() {
         return this._cache;
       }
     });
-    Object.defineProperty(Request.prototype, "mode", {
+    Object.defineProperty(Request2.prototype, "mode", {
       get: function() {
         return this._mode;
       }
     });
-    Object.defineProperty(Request.prototype, "credentials", {
+    Object.defineProperty(Request2.prototype, "credentials", {
       get: function() {
         return this._credentials;
       }
     });
-    Request.prototype.clone = function() {
+    Request2.prototype.clone = function() {
       if (this._bodyUsed) {
         throw new TypeError("Cannot clone a Request whose body has been used");
       }
-      return new Request(this);
+      return new Request2(this);
     };
-    Request.prototype.text = function() {
+    Request2.prototype.text = function() {
       if (this._bodyUsed) {
         throw new TypeError("Body has already been used");
       }
       this._bodyUsed = true;
       return Promise.resolve(consumeBody(this._body));
     };
-    Request.prototype.json = function() {
+    Request2.prototype.json = function() {
       return this.text().then(function(text) {
         return JSON.parse(text);
       });
     };
-    Request.prototype.arrayBuffer = function() {
+    Request2.prototype.arrayBuffer = function() {
       return this.text().then(function(text) {
         return stringToUint8Array(text);
       });
     };
-    Request.prototype.blob = function() {
+    Request2.prototype.blob = function() {
       return this.text();
     };
     function ReadableStream(underlyingSource) {
@@ -1594,7 +1594,7 @@
       this._stream._reader = null;
       this._closed = true;
     };
-    function Response(body, init) {
+    function Response2(body, init) {
       init = init || {};
       this._status = init.status !== void 0 ? Number(init.status) : 200;
       this._statusText = init.statusText || STATUS_TEXTS[this._status] || "";
@@ -1611,27 +1611,27 @@
         this._body = body !== void 0 ? body : null;
       }
     }
-    Object.defineProperty(Response.prototype, "status", {
+    Object.defineProperty(Response2.prototype, "status", {
       get: function() {
         return this._status;
       }
     });
-    Object.defineProperty(Response.prototype, "statusText", {
+    Object.defineProperty(Response2.prototype, "statusText", {
       get: function() {
         return this._statusText;
       }
     });
-    Object.defineProperty(Response.prototype, "ok", {
+    Object.defineProperty(Response2.prototype, "ok", {
       get: function() {
         return this._status >= 200 && this._status <= 299;
       }
     });
-    Object.defineProperty(Response.prototype, "headers", {
+    Object.defineProperty(Response2.prototype, "headers", {
       get: function() {
         return this._headers;
       }
     });
-    Object.defineProperty(Response.prototype, "body", {
+    Object.defineProperty(Response2.prototype, "body", {
       get: function() {
         if (this._bodyStream) return this._bodyStream;
         if (this._body == null) return null;
@@ -1645,34 +1645,34 @@
         });
       }
     });
-    Object.defineProperty(Response.prototype, "bodyUsed", {
+    Object.defineProperty(Response2.prototype, "bodyUsed", {
       get: function() {
         return this._bodyUsed;
       }
     });
-    Object.defineProperty(Response.prototype, "type", {
+    Object.defineProperty(Response2.prototype, "type", {
       get: function() {
         return this._type;
       }
     });
-    Object.defineProperty(Response.prototype, "url", {
+    Object.defineProperty(Response2.prototype, "url", {
       get: function() {
         return this._url;
       }
     });
-    Object.defineProperty(Response.prototype, "redirected", {
+    Object.defineProperty(Response2.prototype, "redirected", {
       get: function() {
         return this._redirected;
       }
     });
-    Response.prototype.clone = function() {
+    Response2.prototype.clone = function() {
       if (this._bodyUsed) {
         throw new TypeError("Cannot clone a Response whose body has been used");
       }
       if (this._bodyStream) {
         throw new TypeError("Cannot clone a streaming Response");
       }
-      var cloned = new Response(this._body, {
+      var cloned = new Response2(this._body, {
         status: this._status,
         statusText: this._statusText,
         headers: this._headers,
@@ -1682,7 +1682,7 @@
       cloned._type = this._type;
       return cloned;
     };
-    Response.prototype.text = function() {
+    Response2.prototype.text = function() {
       var self = this;
       if (self._bodyUsed) {
         throw new TypeError("Body has already been used");
@@ -1705,7 +1705,7 @@
       }
       return Promise.resolve(consumeBody(self._body));
     };
-    Response.prototype._readStreamFully = function() {
+    Response2.prototype._readStreamFully = function() {
       var reader = this._bodyStream.getReader();
       var chunks = [];
       function pump() {
@@ -1721,12 +1721,12 @@
       }
       return pump();
     };
-    Response.prototype.json = function() {
+    Response2.prototype.json = function() {
       return this.text().then(function(text) {
         return JSON.parse(text);
       });
     };
-    Response.prototype.arrayBuffer = function() {
+    Response2.prototype.arrayBuffer = function() {
       var self = this;
       if (self._bodyUsed) {
         throw new TypeError("Body has already been used");
@@ -1749,37 +1749,37 @@
       }
       return Promise.resolve(stringToUint8Array(consumeBody(self._body)));
     };
-    Response.prototype.blob = function() {
+    Response2.prototype.blob = function() {
       return this.text();
     };
-    Response.error = function() {
-      var response = new Response(null, {
+    Response2.error = function() {
+      var response = new Response2(null, {
         status: 0,
         statusText: ""
       });
       response._type = "error";
       return response;
     };
-    Response.redirect = function(url, status) {
+    Response2.redirect = function(url, status) {
       if (status === void 0) status = 302;
       if (status < 300 || status > 399) {
         throw new RangeError("Invalid redirect status: " + status);
       }
-      var response = new Response(null, {
+      var response = new Response2(null, {
         status,
         headers: { location: url }
       });
       response._type = "opaqueredirect";
       return response;
     };
-    Response.json = function(data, init) {
+    Response2.json = function(data, init) {
       init = init || {};
       var body = JSON.stringify(data);
       var headers = new Headers(init.headers);
       if (!headers.has("content-type")) {
         headers.set("content-type", "application/json");
       }
-      return new Response(body, {
+      return new Response2(body, {
         status: init.status !== void 0 ? init.status : 200,
         statusText: init.statusText || "",
         headers
@@ -1789,7 +1789,7 @@
       return new Promise(function(resolve, reject) {
         var request;
         try {
-          request = new Request(input, init);
+          request = new Request2(input, init);
         } catch (e) {
           reject(e);
           return;
@@ -1839,7 +1839,7 @@
         Promise.resolve(p).then(function(data) {
           if (aborted) return;
           var bodyBytes = stringToUint8Array(data || "");
-          var res = new Response(bodyBytes, {
+          var res = new Response2(bodyBytes, {
             status: 200,
             headers: new Headers()
           });
@@ -1873,7 +1873,7 @@
           }
           if (request.redirect === "manual") {
             cleanupAbort();
-            var manualRes = new Response(null, { status: 0, statusText: "" });
+            var manualRes = new Response2(null, { status: 0, statusText: "" });
             manualRes._type = "opaqueredirect";
             resolve(manualRes);
             return;
@@ -1908,7 +1908,7 @@
             } else {
               nextInit.body = request.body;
             }
-            var nextReq = new Request(nextUrl, nextInit);
+            var nextReq = new Request2(nextUrl, nextInit);
             cleanupAbort();
             abandoned = true;
             doRequest(nextReq, resolve, reject, redirectCount + 1);
@@ -1916,7 +1916,7 @@
           }
         }
         var headers = new Headers(parsedHeaders);
-        var resp = new Response(readableStream, {
+        var resp = new Response2(readableStream, {
           status,
           statusText: STATUS_TEXTS[status] || "",
           headers,
@@ -1952,8 +1952,8 @@
       pal2.httpRequestStream(request.url, request.method, headersJson, bodyStr, onHeaders, onData, onEnd);
     }
     globalThis.Headers = Headers;
-    globalThis.Request = Request;
-    globalThis.Response = Response;
+    globalThis.Request = Request2;
+    globalThis.Response = Response2;
     globalThis.fetch = fetch;
   }
 
@@ -2602,6 +2602,77 @@
       }
     }
     globalThis.BroadcastChannel = BroadcastChannel;
+  }
+
+  // src/cache-storage.js
+  function setupCacheStorage() {
+    function urlKey(request) {
+      if (typeof request === "string") return request;
+      if (request instanceof Request) return request.url;
+      return String(request);
+    }
+    class Cache {
+      constructor(name) {
+        this._name = name;
+        this._map = /* @__PURE__ */ new Map();
+      }
+      put(request, response) {
+        if (!(response instanceof Response)) {
+          return Promise.reject(new TypeError("Cache.put: response must be a Response"));
+        }
+        var key = urlKey(request);
+        this._map.set(key, response);
+        return Promise.resolve();
+      }
+      match(request) {
+        var key = urlKey(request);
+        var r = this._map.get(key);
+        return Promise.resolve(r ? r.clone() : void 0);
+      }
+      matchAll(request) {
+        var key = request ? urlKey(request) : null;
+        var results = [];
+        this._map.forEach(function(v, k) {
+          if (!key || k === key) results.push(v.clone());
+        });
+        return Promise.resolve(results);
+      }
+      delete(request) {
+        var key = urlKey(request);
+        return Promise.resolve(this._map.delete(key));
+      }
+      keys(request) {
+        var key = request ? urlKey(request) : null;
+        var results = [];
+        this._map.forEach(function(v, k) {
+          if (!key || k === key) results.push(k);
+        });
+        return Promise.resolve(results);
+      }
+    }
+    class CacheStorage {
+      constructor() {
+        this._caches = /* @__PURE__ */ new Map();
+      }
+      open(name) {
+        if (!this._caches.has(name)) {
+          this._caches.set(name, new Cache(name));
+        }
+        return Promise.resolve(this._caches.get(name));
+      }
+      has(name) {
+        return Promise.resolve(this._caches.has(name));
+      }
+      delete(name) {
+        return Promise.resolve(this._caches.delete(name));
+      }
+      keys() {
+        return Promise.resolve(Array.from(this._caches.keys()));
+      }
+    }
+    globalThis.Cache = Cache;
+    globalThis.CacheStorage = CacheStorage;
+    globalThis.caches = new CacheStorage();
   }
 
   // src/host-messaging.js
@@ -5302,6 +5373,7 @@
   setupFetch(pal);
   setupMessageChannel(pal);
   setupBroadcastChannel();
+  setupCacheStorage();
   setupHostMessaging(pal);
   setupStreams(pal);
   setupBlobFileFormData();
