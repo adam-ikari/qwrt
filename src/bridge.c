@@ -59,6 +59,10 @@ static JSValue js_pal_context_suspend(JSContext *ctx, JSValueConst this_val, int
 static JSValue js_pal_context_resume(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_context_destroy(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 
+#if QWRT_WITH_HTTPSERVER
+JSValue js_pal_ws_connect(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+#endif
+
 /* ================================================================
  * Helper: get qwrt_t from JSContext / JSRuntime.
  * qwrt_get_rt_from_ctx is also used by extensions (declared in qwrt_internal.h).
@@ -1508,6 +1512,9 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "contextSuspend", JS_NewCFunction(jsctx, js_pal_context_suspend, "contextSuspend", 2));
         JS_SetPropertyStr(jsctx, pal, "contextResume", JS_NewCFunction(jsctx, js_pal_context_resume, "contextResume", 3));
         JS_SetPropertyStr(jsctx, pal, "contextDestroy", JS_NewCFunction(jsctx, js_pal_context_destroy, "contextDestroy", 1));
+#if QWRT_WITH_HTTPSERVER
+        JS_SetPropertyStr(jsctx, pal, "wsConnect", JS_NewCFunction(jsctx, js_pal_ws_connect, "wsConnect", 2));
+#endif
     }
 
     return pal;

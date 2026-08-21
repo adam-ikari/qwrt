@@ -2675,6 +2675,256 @@
     globalThis.caches = new CacheStorage();
   }
 
+  // src/event-source.js
+  function setupEventSource(pal2) {
+    if (typeof pal2.httpRequestStream !== "function") return;
+    class EventSource {
+      constructor(url, eventSourceInitDict) {
+        this._url = url;
+        this._reconnectDelay = 3e3;
+        this._lastEventId = "";
+        this._readyState = 0;
+        this._closed = false;
+        this._buffer = "";
+        this.onopen = null;
+        this.onmessage = null;
+        this.onerror = null;
+        this._connect();
+      }
+      get CONNECTING() {
+        return 0;
+      }
+      get OPEN() {
+        return 1;
+      }
+      get CLOSED() {
+        return 2;
+      }
+      get url() {
+        return this._url;
+      }
+      get readyState() {
+        return this._readyState;
+      }
+      get withCredentials() {
+        return false;
+      }
+      _connect() {
+        if (this._closed) return;
+        this._readyState = 0;
+        this._buffer = "";
+        var self = this;
+        var headersJson = JSON.stringify({
+          "Accept": "text/event-stream",
+          "Cache-Control": "no-cache"
+        });
+        function onHeaders(status) {
+          if (status === 200) {
+            self._readyState = 1;
+            if (typeof self.onopen === "function") {
+              try {
+                self.onopen(new Event("open"));
+              } catch (e) {
+              }
+            }
+          }
+        }
+        function onData(chunk) {
+          if (self._readyState !== 1) return;
+          var uint8 = new Uint8Array(chunk);
+          var text = "";
+          for (var i = 0; i < uint8.length; i++) {
+            text += String.fromCharCode(uint8[i]);
+          }
+          self._buffer += text;
+          self._processBuffer();
+        }
+        function onEnd(errorStatus) {
+          if (self._closed) return;
+          self._readyState = 2;
+          var ev = new Event("error");
+          if (typeof self.onerror === "function") {
+            try {
+              self.onerror(ev);
+            } catch (e) {
+            }
+          }
+          if (!self._closed) {
+            setTimeout(function() {
+              self._connect();
+            }, self._reconnectDelay);
+          }
+        }
+        pal2.httpRequestStream(this._url, "GET", headersJson, "", onHeaders, onData, onEnd);
+      }
+      _processBuffer() {
+        var lines = this._buffer.split("\n");
+        this._buffer = lines.pop() || "";
+        var eventType = null;
+        var data = [];
+        var id = null;
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          if (line === "") {
+            if (data.length > 0) {
+              var msgEvent = new MessageEvent(eventType || "message", {
+                data: data.join("\n"),
+                lastEventId: id || this._lastEventId
+              });
+              if (typeof this.onmessage === "function") {
+                try {
+                  this.onmessage(msgEvent);
+                } catch (e) {
+                }
+              }
+              this._lastEventId = id || this._lastEventId;
+            }
+            eventType = null;
+            data = [];
+            id = null;
+          } else if (line.startsWith("data:")) {
+            data.push(line.slice(5).trim());
+          } else if (line.startsWith("event:")) {
+            eventType = line.slice(6).trim();
+          } else if (line.startsWith("id:")) {
+            id = line.slice(3).trim();
+          } else if (line.startsWith("retry:")) {
+            var ms = parseInt(line.slice(6).trim(), 10);
+            if (!isNaN(ms) && ms > 0) this._reconnectDelay = ms;
+          }
+        }
+      }
+      close() {
+        this._closed = true;
+        this._readyState = 2;
+        this._buffer = "";
+      }
+    }
+    globalThis.EventSource = EventSource;
+  }
+
+  // src/websocket.js
+  function setupWebSocket(pal2) {
+    if (typeof pal2.wsConnect !== "function") return;
+    var CONNECTING = 0;
+    var OPEN = 1;
+    var CLOSING = 2;
+    var CLOSED = 3;
+    class WebSocket {
+      constructor(url, protocols) {
+        this._url = url;
+        this._readyState = CONNECTING;
+        this._onopen = null;
+        this._onmessage = null;
+        this._onerror = null;
+        this._onclose = null;
+        this._conn = null;
+        this._protocol = "";
+        var self = this;
+        this._conn = pal2.wsConnect(url, {
+          onopen: function() {
+            self._readyState = OPEN;
+            if (typeof self._onopen === "function") {
+              try {
+                self._onopen(new Event("open"));
+              } catch (e) {
+              }
+            }
+          },
+          onmessage: function(data) {
+            if (typeof self._onmessage === "function") {
+              var ev = new MessageEvent("message", { data });
+              try {
+                self._onmessage(ev);
+              } catch (e) {
+              }
+            }
+          },
+          onerror: function(err) {
+            self._readyState = CLOSED;
+            if (typeof self._onerror === "function") {
+              try {
+                self._onerror(new Event("error"));
+              } catch (e) {
+              }
+            }
+          },
+          onclose: function(code, reason) {
+            self._readyState = CLOSED;
+            if (typeof self._onclose === "function") {
+              var ev = new CloseEvent("close", { code, reason, wasClean: true });
+              try {
+                self._onclose(ev);
+              } catch (e) {
+              }
+            }
+          }
+        });
+      }
+      get url() {
+        return this._url;
+      }
+      get readyState() {
+        return this._readyState;
+      }
+      get protocol() {
+        return this._protocol;
+      }
+      get CONNECTING() {
+        return CONNECTING;
+      }
+      get OPEN() {
+        return OPEN;
+      }
+      get CLOSING() {
+        return CLOSING;
+      }
+      get CLOSED() {
+        return CLOSED;
+      }
+      get onopen() {
+        return this._onopen;
+      }
+      set onopen(fn) {
+        this._onopen = fn;
+      }
+      get onmessage() {
+        return this._onmessage;
+      }
+      set onmessage(fn) {
+        this._onmessage = fn;
+      }
+      get onerror() {
+        return this._onerror;
+      }
+      set onerror(fn) {
+        this._onerror = fn;
+      }
+      get onclose() {
+        return this._onclose;
+      }
+      set onclose(fn) {
+        this._onclose = fn;
+      }
+      send(data) {
+        if (this._readyState !== OPEN) return;
+      }
+      close(code, reason) {
+        if (this._readyState === CLOSING || this._readyState === CLOSED) return;
+        this._readyState = CLOSING;
+      }
+    }
+    globalThis.WebSocket = WebSocket;
+    globalThis.CloseEvent = globalThis.CloseEvent || class CloseEvent extends Event {
+      constructor(type, init) {
+        super(type, init);
+        this.code = init && init.code || 1e3;
+        this.reason = init && init.reason || "";
+        this.wasClean = init && init.wasClean || false;
+      }
+    };
+  }
+
   // src/host-messaging.js
   function setupHostMessaging(pal2) {
     var self = globalThis;
@@ -5374,6 +5624,8 @@
   setupMessageChannel(pal);
   setupBroadcastChannel();
   setupCacheStorage();
+  setupEventSource(pal);
+  setupWebSocket(pal);
   setupHostMessaging(pal);
   setupStreams(pal);
   setupBlobFileFormData();
