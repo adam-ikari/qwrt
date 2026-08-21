@@ -1270,6 +1270,38 @@ TEST_F(PolyfillTest, BroadcastChannel) {
     EXPECT_NE(std::string::npos, v.find("false")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, PerformanceObserver) {
+    std::string v;
+    /* 1. 存在 */
+    ASSERT_TRUE(host_value(h, "JSON.stringify(typeof PerformanceObserver)", &v));
+    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
+
+    /* 2. observe + mark → callback 收到 entry（微任务） */
+    ASSERT_TRUE(host_eval(h,
+        "var _po = null;\n"
+        "var obs = new PerformanceObserver(function(list){\n"
+        "  var entries = list.getEntries();\n"
+        "  _po = JSON.stringify([entries.length, entries[0].name, entries[0].entryType]);\n"
+        "});\n"
+        "obs.observe({entryTypes:['mark']});\n"
+        "performance.mark('test-mark');\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_po", "\"test-mark\"", &v, 3000)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_po", "\"mark\"", &v, 3000)) << "got: " << v;
+
+    /* 3. disconnect 后不收到 */
+    ASSERT_TRUE(host_eval(h,
+        "var _po2 = 'none';\n"
+        "var obs2 = new PerformanceObserver(function(){ _po2 = 'received'; });\n"
+        "obs2.observe({entryTypes:['mark']});\n"
+        "obs2.disconnect();\n"
+        "performance.mark('after-disconnect');\n"
+        "JSON.stringify(_po2)", &v));
+    /* host_eval 返回 JSON 包装的字符串，v 形如 "\"none\""（JSON 串内嵌 JSON 串）
+     * 但实际内容包含 "none" 子串（无引号），所以查找 none 即可。 */
+    EXPECT_NE(std::string::npos, v.find("none")) << "got: " << v;
+}
+
 
 
 

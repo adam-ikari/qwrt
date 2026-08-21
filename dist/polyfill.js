@@ -105,6 +105,25 @@
   function setupPerformance(pal2) {
     const marks = /* @__PURE__ */ new Map();
     const measures = [];
+    const observers = [];
+    function notifyEntry(entry) {
+      observers.forEach(function(obs) {
+        if (obs._connected && obs._entryTypes.indexOf(entry.entryType) >= 0) {
+          obs._buffer.push(entry);
+          if (!obs._scheduled) {
+            obs._scheduled = true;
+            obs._scheduled = false;
+            if (obs._connected && obs._buffer.length > 0) {
+              var entries = obs.takeRecords();
+              try {
+                obs.callback(new PerformanceObserverEntryList(entries), obs);
+              } catch (e) {
+              }
+            }
+          }
+        }
+      });
+    }
     const hasHrtime = typeof pal2.hrtime === "function";
     let _hrtimeOrigin = 0;
     if (hasHrtime) {
@@ -145,6 +164,7 @@
           startTime: nowMs(),
           duration: 0
         });
+        notifyEntry(marks.get(name));
       }
       /**
        * Create a named performance measure between two marks.
@@ -184,6 +204,7 @@
           startTime,
           duration: endTime - startTime
         });
+        notifyEntry(measures[measures.length - 1]);
       }
       /**
        * Remove a mark by name.
@@ -235,6 +256,54 @@
     }
     globalThis.performance = new Performance();
     globalThis.Performance = Performance;
+    class PerformanceObserverEntryList {
+      constructor(entries) {
+        this._entries = entries;
+      }
+      getEntries() {
+        return this._entries;
+      }
+      getEntriesByType(type) {
+        return this._entries.filter(function(e) {
+          return e.entryType === type;
+        });
+      }
+      getEntriesByName(name, type) {
+        return this._entries.filter(function(e) {
+          return e.name === name && (!type || e.entryType === type);
+        });
+      }
+    }
+    class PerformanceObserver {
+      constructor(callback) {
+        this.callback = callback;
+        this._buffer = [];
+        this._entryTypes = [];
+        this._connected = false;
+        this._scheduled = false;
+      }
+      observe(options) {
+        if (!options || !options.entryTypes) {
+          throw new TypeError("PerformanceObserver.observe: entryTypes required");
+        }
+        this._connected = true;
+        this._entryTypes = options.entryTypes;
+        observers.push(this);
+      }
+      disconnect() {
+        this._connected = false;
+        this._buffer = [];
+        var idx = observers.indexOf(this);
+        if (idx >= 0) observers.splice(idx, 1);
+      }
+      takeRecords() {
+        var r = this._buffer;
+        this._buffer = [];
+        return r;
+      }
+    }
+    globalThis.PerformanceObserver = PerformanceObserver;
+    globalThis.PerformanceObserverEntryList = PerformanceObserverEntryList;
   }
 
   // src/timers.js
