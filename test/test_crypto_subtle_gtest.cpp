@@ -292,3 +292,36 @@ TEST_F(CryptoSubtleTest, WrapUnwrapJwk) {
         "\"txt\":\"0123456789abcdef\"", &v));
     EXPECT_NE(std::string::npos, v.find("\"type\":\"secret\"")) << "got: " << v;
 }
+
+// SHA-1/SHA-384/SHA-512 of empty input — verify all four SHA variants work
+// (existing DigestSHA256Empty/Hello only covered SHA-256).
+TEST_F(CryptoSubtleTest, DigestShaVariants) {
+    std::string v;
+    // SHA-1("") = da39a3ee5e6b4b0d3255bfef95601890afd80709
+    ASSERT_TRUE(poll_until(h, "_d1",
+        "var _d1=null;\n"
+        "crypto.subtle.digest('SHA-1', new Uint8Array(0)).then(function(buf){\n"
+        "  var s=''; var u=new Uint8Array(buf);\n"
+        "  for(var i=0;i<u.length;i++) s+=u[i].toString(16).padStart(2,'0');\n"
+        "  _d1=s;\n"
+        "});\n'go'",
+        "da39a3ee5e6b4b0d3255bfef95601890afd80709", &v));
+    // SHA-384("") = 38b060a751ac96384cd9327eb1b1e36a21fdb71114bebe43...
+    ASSERT_TRUE(poll_until(h, "_d2",
+        "var _d2=null;\n"
+        "crypto.subtle.digest('SHA-384', new Uint8Array(0)).then(function(buf){\n"
+        "  var s=''; var u=new Uint8Array(buf);\n"
+        "  for(var i=0;i<u.length;i++) s+=u[i].toString(16).padStart(2,'0');\n"
+        "  _d2=s;\n"
+        "});\n'go'",
+        "38b060a751ac96384cd9327eb1b1e36a", &v));
+    // SHA-512("") = cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc...
+    ASSERT_TRUE(poll_until(h, "_d3",
+        "var _d3=null;\n"
+        "crypto.subtle.digest('SHA-512', new Uint8Array(0)).then(function(buf){\n"
+        "  var s=''; var u=new Uint8Array(buf);\n"
+        "  for(var i=0;i<u.length;i++) s+=u[i].toString(16).padStart(2,'0');\n"
+        "  _d3=s;\n"
+        "});\n'go'",
+        "cf83e1357eefb8bdf1542850d66d8007", &v));
+}
