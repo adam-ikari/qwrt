@@ -1210,6 +1210,30 @@ TEST_F(PolyfillTest, StructuredCloneDeepTypes) {
     EXPECT_NE(std::string::npos, v.find("[10,99]")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, DomException) {
+    std::string v;
+    /* 1. 构造器 + name/code 映射 + 继承 Error */
+    ASSERT_TRUE(host_value(h,
+        "var e = new DOMException('aborted', 'AbortError');\n"
+        "JSON.stringify([e.message, e.name, e.code, e instanceof Error])", &v));
+    EXPECT_NE(std::string::npos, v.find("\"aborted\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"AbortError\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find(",20,true]")) << "got: " << v;
+
+    /* 2. 默认 name='Error', code=0 */
+    ASSERT_TRUE(host_value(h,
+        "var e = new DOMException('oops');\n"
+        "JSON.stringify([e.name, e.code])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"Error\",0]")) << "got: " << v;
+
+    /* 3. 常见 code 映射 */
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify([new DOMException('','NotSupportedError').code,\n"
+        "  new DOMException('','InvalidStateError').code,\n"
+        "  new DOMException('','SecurityError').code])", &v));
+    EXPECT_NE(std::string::npos, v.find("[9,11,18]")) << "got: " << v;
+}
+
 
 
 
