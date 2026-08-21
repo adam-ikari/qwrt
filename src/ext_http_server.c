@@ -25,7 +25,6 @@
 #if QWRT_WITH_HTTPSERVER
 
 #define HTTP_SERVER_HANDLER_KEY "__qwrt_http_server_handler"
-#define HTTP_SERVER_STATE_KEY  "__qwrt_http_server_state"
 
 /* ============ pending async responses ============ */
 typedef struct pending_entry {
@@ -98,31 +97,23 @@ static void ws_global_set(JSContext *ctx, const char *key, JSValue v) {
 
 /* ---- state lifecycle helpers ---- */
 
-/* Store/retrieve the active per-server state pointer on the global JS object
- * (as an int64). This replaces the file-scope static pointer that previously
- * held g_state, enabling zero file-scope mutable globals: the only mutable
- * state lives in the per-server http_server_state_t hung off
- * server->user_data. */
-static http_server_state_t *state_from_global(JSContext *ctx) {
-    JSValue global = JS_GetGlobalObject(ctx);
-    JSValue v = JS_GetPropertyStr(ctx, global, HTTP_SERVER_STATE_KEY);
-    JS_FreeValue(ctx, global);
-    if (!JS_IsNumber(v)) {
-        JS_FreeValue(ctx, v);
-        return NULL;
-    }
-    int64_t p = 0;
-    JS_ToInt64(ctx, &p, v);
-    JS_FreeValue(ctx, v);
-    return (http_server_state_t *)(uintptr_t)p;
-}
+/* Extension-level state: hung off ext->user_data (set in ext_init). Holds
+ * the runtime pointer and a pointer to the single active per-server state,
+ * so ext_destroy can tear it down without a file-scope static or a JS global
+ * property. This is the uvhttp PHILOSOPHY.md "zero global variables" path:
+ * all mutable state flows through data pointers (ext->user_data,
+ * server->user_data), never through file-scope statics or globalThis keys. */
+typedef struct {
+    qwrt_t *rt;
+    http_server_state_t *active;
+} qwrt_http_ext_state_t;
 
-static void state_to_global(JSContext *ctx, http_server_state_t *st) {
-    JSValue global = JS_GetGlobalObject(ctx);
-    JS_SetPropertyStr(ctx, global, HTTP_SERVER_STATE_KEY,
-                      st ? JS_NewInt64(ctx, (int64_t)(uintptr_t)st)
-                         : JS_UNDEFINED);
-    JS_FreeValue(ctx, global);
+/* Recover the http_server extension's ext-level state from a JSContext.
+ * Path: ctx -> qwrt_t -> rt->http_server_state. Called only at
+ * serve()/close() time (not per-request), so the lookup is negligible. */
+static qwrt_http_ext_state_t *get_ext_state(JSContext *ctx) {
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    return rt ? (qwrt_http_ext_state_t *)rt->http_server_state : NULL;
 }
 
 static http_server_state_t *state_new(qwrt_t *rt) {
@@ -889,8 +880,9 @@ static JSValue js_server_close(JSContext *ctx, JSValueConst this_val, int argc,
     if (JS_IsFunction(ctx, st->headers_cls)) JS_FreeValue(ctx, st->headers_cls);
     st->headers_cls = JS_UNDEFINED;
     st->running = 0;
-    /* Drop the global state pointer so a subsequent serve() can proceed. */
-    state_to_global(ctx, NULL);
+    /* Drop the ext-level active pointer so a subsequent serve() can proceed. */
+    qwrt_http_ext_state_t *es = get_ext_state(ctx);
+    if (es) es->active = NULL;
     return JS_UNDEFINED;
 }
 
@@ -899,8 +891,9 @@ static JSValue js_serve(JSContext *ctx, JSValueConst this_val, int argc,
                         JSValueConst *argv) {
     (void)this_val;
 
-    /* Check for an already-running server via the global state pointer. */
-    http_server_state_t *old = state_from_global(ctx);
+    /* Check for an already-running server via the ext-level active pointer. */
+    qwrt_http_ext_state_t *es = get_ext_state(ctx);
+    http_server_state_t *old = es ? es->active : NULL;
     if (old && old->running) {
         JS_ThrowTypeError(ctx, "serve: a server is already running");
         return JS_EXCEPTION;
@@ -909,7 +902,7 @@ static JSValue js_serve(JSContext *ctx, JSValueConst this_val, int argc,
      * not been torn down yet, free it now. */
     if (old) {
         state_free(ctx, old);
-        state_to_global(ctx, NULL);
+        if (es) es->active = NULL;
     }
 
     if (argc < 2 || !JS_IsObject(argv[0]) || !JS_IsFunction(ctx, argv[1])) {
@@ -1113,9 +1106,9 @@ static JSValue js_serve(JSContext *ctx, JSValueConst this_val, int argc,
     JS_FreeValue(ctx, global);
 
     st->running = 1;
-    /* Publish the state pointer so ext_destroy and a subsequent serve() can
-     * find it without a file-scope static. */
-    state_to_global(ctx, st);
+    /* Record the active state on the ext-level state so ext_destroy and a
+     * subsequent serve() can find it via ext->user_data (no JS global). */
+    if (es) es->active = st;
 
     /* Return server handle with close() */
     JSValue obj = JS_NewObject(ctx);
@@ -1130,8 +1123,16 @@ static JSValue js_serve(JSContext *ctx, JSValueConst this_val, int argc,
 /* ============ extension lifecycle ============ */
 static int http_server_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
     (void)ext;
+    /* Allocate ext-level state (active-server pointer for ext_destroy
+     * teardown). Hung off rt->http_server_state — the zero-global-variables
+     * path, mirroring rt->wasm3_env etc. */
+    qwrt_http_ext_state_t *es = calloc(1, sizeof(*es));
+    if (!es) return -1;
+    es->rt = rt;
+    es->active = NULL;
+    rt->http_server_state = es;
     JSContext *ctx = qwrt_get_active_jsctx(rt);
-    if (!ctx) return -1;
+    if (!ctx) { free(es); rt->http_server_state = NULL; return -1; }
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "serve",
                       JS_NewCFunction(ctx, js_serve, "serve", 2));
@@ -1141,12 +1142,16 @@ static int http_server_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
 
 static void http_server_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt) {
     (void)ext;
-    JSContext *ctx = qwrt_get_active_jsctx(rt);
-    if (ctx) {
-        http_server_state_t *st = state_from_global(ctx);
-        state_free(ctx, st);
-        state_to_global(ctx, NULL);
+    qwrt_http_ext_state_t *es = (qwrt_http_ext_state_t *)rt->http_server_state;
+    if (!es) return;
+    /* Tear down any still-active server (app forgot to call close()). */
+    if (es->active) {
+        JSContext *ctx = qwrt_get_active_jsctx(rt);
+        state_free(ctx, es->active);
+        es->active = NULL;
     }
+    free(es);
+    rt->http_server_state = NULL;
 }
 
 const qwrt_ext_t qwrt_http_server_ext = {
