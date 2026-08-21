@@ -1117,6 +1117,31 @@ TEST_F(PolyfillTest, UrlSearchParamsBoundary) {
     EXPECT_NE(std::string::npos, v.find("q=hello+world")) << "got: " << v;
 }
 
+TEST_F(PolyfillTest, QueueMicrotask) {
+    std::string v;
+    /* 1. 存在 + 类型校验：非函数参数抛 TypeError */
+    ASSERT_TRUE(host_value(h,
+        "var r = [typeof queueMicrotask];\n"
+        "var err = null;\n"
+        "try { queueMicrotask(123); } catch(e) { err = String(e); }\n"
+        "r.push(err !== null, /TypeError/.test(err));\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"function\",true,true]")) << "got: " << v;
+
+    /* 2. 微任务在同步代码之后、按注册顺序执行 */
+    ASSERT_TRUE(host_eval(h,
+        "var _qm = null;\n"
+        "var order = [];\n"
+        "queueMicrotask(function(){ order.push('a'); });\n"
+        "queueMicrotask(function(){ order.push('b'); });\n"
+        "order.push('sync');\n"
+        "queueMicrotask(function(){ _qm = JSON.stringify(order); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_qm", "\"sync\"", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_qm", "\"a\"", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_qm", "\"b\"", &v)) << "got: " << v;
+}
+
 
 
 
