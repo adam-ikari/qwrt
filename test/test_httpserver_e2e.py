@@ -435,6 +435,36 @@ def test_websocket_echo(qwrt_bin):
     finally:
         srv.stop()
 
+@test
+def test_websocket_client(qwrt_bin):
+    """JS WebSocket client → qwrt server /echo: connect, echo round-trip
+    (small + large frame), clean close handshake with code+reason."""
+    p = free_port()
+    # Single qwrt process: serves /echo AND runs a JS WebSocket client to
+    # itself. The client sends 3 messages (incl. a >126-byte frame), expects
+    # echoes, then closes with code 1000 + reason; srv.close() drains the loop.
+    js = (
+        "const srv = serve({port: %d, ws: {'/echo': (ws) => "
+        "{ ws.onmessage = (e) => ws.send('echo:' + e.data); }}}, "
+        "() => new Response('ok'));"
+        "const ws = new WebSocket('ws://127.0.0.1:%d/echo');"
+        "let n = 0;"
+        "ws.onopen = () => { ws.send('ping'); ws.send('C'.repeat(300)); };"
+        "ws.onmessage = (ev) => { console.log('GOT:' + ev.data.length);"
+        "  n++; if (n === 2) ws.close(1000, 'bye'); };"
+        "ws.onerror = () => console.log('ERR');"
+        "ws.onclose = (ev) => {"
+        "  console.log('WS-CLIENT-OK:' + ev.code + ':' + ev.reason);"
+        "  srv.close(); };"
+        % (p, p))
+    proc = subprocess.Popen([qwrt_bin, "-e", js],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out, _ = proc.communicate(timeout=15)
+    text = out.decode(errors="replace")
+    assert proc.returncode == 0, "exit=%d out=%s" % (proc.returncode, text[-400:])
+    assert "GOT:9" in text and "GOT:305" in text, text[-400:]
+    assert "WS-CLIENT-OK:1000:bye" in text, text[-400:]
+
 # ---------------------------------------------------------------------------
 # lifecycle / errors
 # ---------------------------------------------------------------------------

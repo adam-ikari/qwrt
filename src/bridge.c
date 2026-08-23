@@ -61,6 +61,8 @@ static JSValue js_pal_context_destroy(JSContext *ctx, JSValueConst this_val, int
 
 #if QWRT_WITH_HTTPSERVER
 JSValue js_pal_ws_connect(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+JSValue js_pal_ws_send(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+JSValue js_pal_ws_close(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 #endif
 
 /* ================================================================
@@ -1514,6 +1516,8 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "contextDestroy", JS_NewCFunction(jsctx, js_pal_context_destroy, "contextDestroy", 1));
 #if QWRT_WITH_HTTPSERVER
         JS_SetPropertyStr(jsctx, pal, "wsConnect", JS_NewCFunction(jsctx, js_pal_ws_connect, "wsConnect", 2));
+        JS_SetPropertyStr(jsctx, pal, "wsSend", JS_NewCFunction(jsctx, js_pal_ws_send, "wsSend", 2));
+        JS_SetPropertyStr(jsctx, pal, "wsClose", JS_NewCFunction(jsctx, js_pal_ws_close, "wsClose", 3));
 #endif
     }
 

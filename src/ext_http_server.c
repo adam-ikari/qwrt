@@ -16,6 +16,7 @@
 #include "qwrt_internal.h"
 #include "qwrt/ext_http_server.h"
 #include <uvhttp.h>
+#include <uvhttp_context.h>
 #include <uv.h>
 
 #include <stdio.h>
@@ -48,6 +49,7 @@ typedef struct {
     uvhttp_server_t *server;
     uvhttp_tls_context_t *tls_ctx;
     uvhttp_static_context_t *static_ctx;
+    uvhttp_context_t *ws_ctx;   /* server context: required for WS close-frame echo */
     int static_enabled;
     int running;
     /* Cached, rooted JS references to avoid per-request global property
@@ -172,6 +174,9 @@ static void state_free(JSContext *ctx, http_server_state_t *st) {
         uvhttp_static_free(st->static_ctx);
         st->static_ctx = NULL;
     }
+    /* st->ws_ctx is owned by the server: uvhttp_server_free() above already
+     * destroys it (server->context). Do NOT destroy it here — double free. */
+    st->ws_ctx = NULL;
     while (st->pending) {
         pending_entry_t *e = st->pending;
         st->pending = e->next;
@@ -951,6 +956,24 @@ static JSValue js_serve(JSContext *ctx, JSValueConst this_val, int argc,
     }
     st->server = server;
     server->user_data = st;
+
+    /* Server context: uvhttp's WS close-frame echo (RFC 6455 §5.5.1) only
+     * fires when server->context is set. Without it the server never
+     * answers a client-initiated close handshake and the peer's onclose
+     * never fires. */
+    uvhttp_context_t *ws_ctx = NULL;
+    err = uvhttp_context_create(&rt->loop, &ws_ctx);
+    if (err != UVHTTP_OK || !ws_ctx) {
+        uvhttp_server_free(server);
+        st->server = NULL;
+        if (JS_IsString(hv)) JS_FreeCString(ctx, host);
+        state_free(ctx, st);
+        JS_ThrowTypeError(ctx, "serve: ws context create failed (%d)", err);
+        return JS_EXCEPTION;
+    }
+    uvhttp_context_init_websocket(ws_ctx);
+    uvhttp_server_set_context(server, ws_ctx);
+    st->ws_ctx = ws_ctx;
 
     /* Create router if needed */
     if (!server->router) {

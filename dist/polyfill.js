@@ -2811,7 +2811,7 @@
     var CLOSING = 2;
     var CLOSED = 3;
     class WebSocket {
-      constructor(url, protocols) {
+      constructor(url) {
         this._url = url;
         this._readyState = CONNECTING;
         this._onopen = null;
@@ -2833,14 +2833,13 @@
           },
           onmessage: function(data) {
             if (typeof self._onmessage === "function") {
-              var ev = new MessageEvent("message", { data });
               try {
-                self._onmessage(ev);
+                self._onmessage(new MessageEvent("message", { data }));
               } catch (e) {
               }
             }
           },
-          onerror: function(err) {
+          onerror: function() {
             self._readyState = CLOSED;
             if (typeof self._onerror === "function") {
               try {
@@ -2852,9 +2851,8 @@
           onclose: function(code, reason) {
             self._readyState = CLOSED;
             if (typeof self._onclose === "function") {
-              var ev = new CloseEvent("close", { code, reason, wasClean: true });
               try {
-                self._onclose(ev);
+                self._onclose(new CloseEvent("close", { code, reason, wasClean: true }));
               } catch (e) {
               }
             }
@@ -2908,10 +2906,16 @@
       }
       send(data) {
         if (this._readyState !== OPEN) return;
+        if (typeof pal2.wsSend === "function" && this._conn) {
+          pal2.wsSend(this._conn, String(data));
+        }
       }
       close(code, reason) {
         if (this._readyState === CLOSING || this._readyState === CLOSED) return;
         this._readyState = CLOSING;
+        if (typeof pal2.wsClose === "function" && this._conn) {
+          pal2.wsClose(this._conn, code || 1e3, reason || "");
+        }
       }
     }
     globalThis.WebSocket = WebSocket;

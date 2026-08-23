@@ -2,7 +2,8 @@
  * qwrt polyfill: WebSocket (client)
  *
  * WHATWG WebSocket API for client-side connections.
- * Uses pal.wsConnect for the C-level TCP + WebSocket handshake.
+ * Uses pal.wsConnect for the C-level TCP + WebSocket handshake,
+ * pal.wsSend for sending text frames, pal.wsClose for closing.
  */
 
 export function setupWebSocket(pal) {
@@ -14,7 +15,7 @@ export function setupWebSocket(pal) {
   var CLOSED = 3;
 
   class WebSocket {
-    constructor(url, protocols) {
+    constructor(url) {
       this._url = url;
       this._readyState = CONNECTING;
       this._onopen = null;
@@ -34,11 +35,10 @@ export function setupWebSocket(pal) {
         },
         onmessage: function(data) {
           if (typeof self._onmessage === 'function') {
-            var ev = new MessageEvent('message', { data: data });
-            try { self._onmessage(ev); } catch(e) {}
+            try { self._onmessage(new MessageEvent('message', { data: data })); } catch(e) {}
           }
         },
-        onerror: function(err) {
+        onerror: function() {
           self._readyState = CLOSED;
           if (typeof self._onerror === 'function') {
             try { self._onerror(new Event('error')); } catch(e) {}
@@ -47,8 +47,7 @@ export function setupWebSocket(pal) {
         onclose: function(code, reason) {
           self._readyState = CLOSED;
           if (typeof self._onclose === 'function') {
-            var ev = new CloseEvent('close', { code: code, reason: reason, wasClean: true });
-            try { self._onclose(ev); } catch(e) {}
+            try { self._onclose(new CloseEvent('close', { code: code, reason: reason, wasClean: true })); } catch(e) {}
           }
         }
       });
@@ -73,13 +72,17 @@ export function setupWebSocket(pal) {
 
     send(data) {
       if (this._readyState !== OPEN) return;
-      // TODO: implement actual send via pal
+      if (typeof pal.wsSend === 'function' && this._conn) {
+        pal.wsSend(this._conn, String(data));
+      }
     }
 
     close(code, reason) {
       if (this._readyState === CLOSING || this._readyState === CLOSED) return;
       this._readyState = CLOSING;
-      // TODO: implement actual close via pal
+      if (typeof pal.wsClose === 'function' && this._conn) {
+        pal.wsClose(this._conn, code || 1000, reason || '');
+      }
     }
   }
 
