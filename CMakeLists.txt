@@ -410,8 +410,9 @@ endif()
 if(QWRT_WITH_TEXTCODEC)
     list(APPEND _qwrt_core_sources src/ext_textcodec.c)
 endif()
+
 if(QWRT_WITH_HTTPSERVER)
-    list(APPEND _qwrt_core_sources src/ext_http_server.c src/ws_client.c)
+    list(APPEND _qwrt_core_sources src/ext_http_server.c src/tcp_io.c)
     # uvhttp — compiled from source into qwrt (single copy, no ExternalProject)
     foreach(_uvhttp_src
         uvhttp_config uvhttp_connection uvhttp_context uvhttp_error

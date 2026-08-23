@@ -2805,11 +2805,59 @@
 
   // src/websocket.js
   function setupWebSocket(pal2) {
-    if (typeof pal2.wsConnect !== "function") return;
+    if (typeof pal2.tcpConnect !== "function") return;
     var CONNECTING = 0;
     var OPEN = 1;
     var CLOSING = 2;
     var CLOSED = 3;
+    var OPCODE_CONT = 0;
+    var OPCODE_TEXT = 1;
+    var OPCODE_BINARY = 2;
+    var OPCODE_CLOSE = 8;
+    var OPCODE_PING = 9;
+    var OPCODE_PONG = 10;
+    function makeKey() {
+      var key = new Uint8Array(16);
+      crypto.getRandomValues(key);
+      return btoa(String.fromCharCode.apply(null, key));
+    }
+    function computeAccept(key) {
+      var MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+      var s = key + MAGIC;
+      return crypto.subtle.digest("SHA-1", new TextEncoder().encode(s)).then(function(hash) {
+        return btoa(String.fromCharCode.apply(null, new Uint8Array(hash)));
+      });
+    }
+    function buildFrame(opcode, payload, mask) {
+      var len = payload.length;
+      var headerSize = 2;
+      if (len >= 126) headerSize += len < 65536 ? 2 : 8;
+      var maskLen = mask ? 4 : 0;
+      var frame = new Uint8Array(headerSize + maskLen + len);
+      var pos = 0;
+      frame[pos++] = 128 | opcode;
+      if (len < 126) {
+        frame[pos++] = (mask ? 128 : 0) | len;
+      } else if (len < 65536) {
+        frame[pos++] = (mask ? 128 : 0) | 126;
+        frame[pos++] = len >> 8 & 255;
+        frame[pos++] = len & 255;
+      } else {
+        frame[pos++] = (mask ? 128 : 0) | 127;
+        for (var i = 7; i >= 0; i--) frame[pos++] = len >> i * 8 & 255;
+      }
+      if (mask) {
+        var maskKey = new Uint8Array(4);
+        crypto.getRandomValues(maskKey);
+        frame.set(maskKey, pos);
+        pos += 4;
+        for (var i = 0; i < len; i++)
+          frame[pos + i] = payload[i] ^ maskKey[i % 4];
+      } else {
+        frame.set(payload, pos);
+      }
+      return frame.buffer;
+    }
     class WebSocket {
       constructor(url) {
         this._url = url;
@@ -2818,47 +2866,239 @@
         this._onmessage = null;
         this._onerror = null;
         this._onclose = null;
-        this._conn = null;
         this._protocol = "";
+        this._tcp = null;
+        this._buf = null;
+        this._bufView = null;
+        this._handshakeDone = false;
+        this._closeSent = false;
+        this._closeCode = 1e3;
+        this._closeReason = "";
+        var isSecure = url.indexOf("wss://") === 0;
+        if (isSecure) throw new Error("wss:// not supported yet");
+        if (url.indexOf("ws://") !== 0) throw new Error("invalid WebSocket URL: " + url);
+        var rest = url.slice(5);
+        var slashIdx = rest.indexOf("/");
+        var hostPort = slashIdx >= 0 ? rest.slice(0, slashIdx) : rest;
+        var path = slashIdx >= 0 ? rest.slice(slashIdx) : "/";
+        var colonIdx = hostPort.indexOf(":");
+        var host = colonIdx >= 0 ? hostPort.slice(0, colonIdx) : hostPort;
+        var port = colonIdx >= 0 ? parseInt(hostPort.slice(colonIdx + 1), 10) : 80;
+        if (!port || port < 1) port = 80;
         var self = this;
-        this._conn = pal2.wsConnect(url, {
-          onopen: function() {
-            self._readyState = OPEN;
-            if (typeof self._onopen === "function") {
-              try {
-                self._onopen(new Event("open"));
-              } catch (e) {
-              }
-            }
+        this._key = makeKey();
+        this._host = host;
+        this._port = port;
+        this._path = path;
+        this._tcp = pal2.tcpConnect(host, port, {
+          onconnect: function() {
+            self._onConnect();
           },
-          onmessage: function(data) {
-            if (typeof self._onmessage === "function") {
-              try {
-                self._onmessage(new MessageEvent("message", { data }));
-              } catch (e) {
-              }
-            }
+          ondata: function(data) {
+            self._onData(data);
           },
-          onerror: function() {
-            self._readyState = CLOSED;
-            if (typeof self._onerror === "function") {
-              try {
-                self._onerror(new Event("error"));
-              } catch (e) {
-              }
-            }
+          onerror: function(msg) {
+            self._onError(msg);
           },
-          onclose: function(code, reason) {
-            self._readyState = CLOSED;
-            if (typeof self._onclose === "function") {
-              try {
-                self._onclose(new CloseEvent("close", { code, reason, wasClean: true }));
-              } catch (e) {
-              }
-            }
+          onclose: function() {
+            self._onTcpClose();
           }
         });
       }
+      // ── Data accumulation ──
+      _appendData(data) {
+        var incoming = new Uint8Array(data);
+        if (!this._buf) {
+          this._buf = data;
+          this._bufView = incoming;
+          this._bufPos = 0;
+        } else {
+          var merged = new Uint8Array(this._buf.byteLength + incoming.length);
+          merged.set(this._bufView, 0);
+          merged.set(incoming, this._bufView.length);
+          this._buf = merged.buffer;
+          this._bufView = merged;
+        }
+      }
+      _consume(n) {
+        if (n >= this._bufView.length) {
+          this._buf = null;
+          this._bufView = null;
+          return;
+        }
+        this._bufView = this._bufView.subarray(n);
+        this._buf = this._bufView.buffer;
+      }
+      // ── Incoming data handler ──
+      _onConnect() {
+        var req = "GET " + this._path + " HTTP/1.1\r\nHost: " + this._host + ":" + this._port + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + this._key + "\r\nSec-WebSocket-Version: 13\r\n\r\n";
+        pal2.tcpWrite(this._tcp, req);
+      }
+      _onData(data) {
+        try {
+          this._appendData(data);
+          if (this._handshakeDone) {
+            this._parseFrames();
+          } else {
+            this._parseHandshake();
+          }
+        } catch (e) {
+          this._fail(e.message);
+        }
+      }
+      // ── Handshake ──
+      _parseHandshake() {
+        var view = this._bufView;
+        var headerEnd = -1;
+        for (var i = 0; i + 3 < view.length; i++) {
+          if (view[i] === 13 && view[i + 1] === 10 && view[i + 2] === 13 && view[i + 3] === 10) {
+            headerEnd = i + 4;
+            break;
+          }
+        }
+        if (headerEnd < 0) return;
+        var headerStr = new TextDecoder().decode(view.subarray(0, headerEnd));
+        var lines = headerStr.split("\r\n");
+        if (lines[0].indexOf("101") < 0) {
+          this._fail("unexpected HTTP status: " + lines[0]);
+          return;
+        }
+        var accept = null;
+        for (var j = 1; j < lines.length; j++) {
+          var l = lines[j].toLowerCase();
+          if (l.indexOf("sec-websocket-accept:") === 0) {
+            accept = lines[j].split(":")[1].trim();
+            break;
+          }
+        }
+        var self = this;
+        computeAccept(this._key).then(function(expected) {
+          if (accept !== expected) {
+            self._fail("invalid Sec-WebSocket-Accept");
+            return;
+          }
+          self._consume(headerEnd);
+          self._handshakeDone = true;
+          self._readyState = OPEN;
+          if (typeof self._onopen === "function") {
+            try {
+              self._onopen(new Event("open"));
+            } catch (e) {
+            }
+          }
+          if (self._bufView) self._parseFrames();
+        }).catch(function(e) {
+          self._fail("SHA-1 failed: " + (e && e.message ? e.message : String(e)));
+        });
+      }
+      // ── Frame parsing ──
+      _parseFrames() {
+        while (this._bufView && this._bufView.length >= 2) {
+          var view = this._bufView;
+          var b0 = view[0];
+          var b1 = view[1];
+          var fin = (b0 & 128) !== 0;
+          var opcode = b0 & 15;
+          var masked = (b1 & 128) !== 0;
+          var len = b1 & 127;
+          var offset = 2;
+          if (len === 126) {
+            if (view.length < 4) break;
+            len = view[2] << 8 | view[3];
+            offset = 4;
+          } else if (len === 127) {
+            if (view.length < 10) break;
+            len = 0;
+            for (var i = 0; i < 8; i++) len = len << 8 | view[2 + i];
+            offset = 10;
+          }
+          var maskKey = null;
+          if (masked) {
+            if (view.length < offset + 4) break;
+            maskKey = view.subarray(offset, offset + 4);
+            offset += 4;
+          }
+          if (view.length < offset + len) break;
+          var payload = view.subarray(offset, offset + len);
+          if (masked && maskKey) {
+            for (var i = 0; i < len; i++) payload[i] ^= maskKey[i % 4];
+          }
+          this._consume(offset + len);
+          this._handleFrame(fin, opcode, payload);
+        }
+      }
+      _handleFrame(fin, opcode, payload) {
+        if (opcode === OPCODE_TEXT || opcode === OPCODE_BINARY) {
+          var text = new TextDecoder().decode(payload);
+          if (typeof this._onmessage === "function") {
+            try {
+              this._onmessage(new MessageEvent("message", { data: text }));
+            } catch (e) {
+            }
+          }
+        } else if (opcode === OPCODE_CLOSE) {
+          var code = 1e3;
+          var reason = "";
+          if (payload.length >= 2) {
+            code = payload[0] << 8 | payload[1];
+            if (payload.length > 2)
+              reason = new TextDecoder().decode(payload.subarray(2));
+          }
+          if (!this._closeSent) {
+            var closePayload = new Uint8Array(2 + reason.length);
+            closePayload[0] = code >> 8 & 255;
+            closePayload[1] = code & 255;
+            for (var i = 0; i < reason.length; i++)
+              closePayload[2 + i] = reason.charCodeAt(i);
+            var frame = buildFrame(OPCODE_CLOSE, closePayload, true);
+            pal2.tcpWrite(this._tcp, frame);
+          }
+          this._readyState = CLOSED;
+          if (typeof this._onclose === "function") {
+            try {
+              this._onclose(new CloseEvent("close", { code, reason, wasClean: true }));
+            } catch (e) {
+            }
+          }
+          pal2.tcpClose(this._tcp);
+        } else if (opcode === OPCODE_PING) {
+          var pong = buildFrame(OPCODE_PONG, payload, true);
+          pal2.tcpWrite(this._tcp, pong);
+        } else if (opcode === OPCODE_PONG) {
+        } else if (opcode === OPCODE_CONT) {
+        }
+      }
+      // ── Error handling ──
+      _onError(msg) {
+        if (this._readyState === CLOSED) return;
+        this._readyState = CLOSED;
+        if (typeof this._onerror === "function") {
+          try {
+            this._onerror(new Event("error"));
+          } catch (e) {
+          }
+        }
+      }
+      _fail(msg) {
+        this._readyState = CLOSED;
+        if (typeof this._onerror === "function") {
+          try {
+            this._onerror(new Event("error"));
+          } catch (e) {
+          }
+        }
+      }
+      _onTcpClose() {
+        if (this._readyState === CLOSED) return;
+        this._readyState = CLOSED;
+        if (typeof this._onclose === "function") {
+          try {
+            this._onclose(new CloseEvent("close", { code: 1006, reason: "connection closed", wasClean: false }));
+          } catch (e) {
+          }
+        }
+      }
+      // ── Public API ──
       get url() {
         return this._url;
       }
@@ -2906,16 +3146,23 @@
       }
       send(data) {
         if (this._readyState !== OPEN) return;
-        if (typeof pal2.wsSend === "function" && this._conn) {
-          pal2.wsSend(this._conn, String(data));
-        }
+        var encoded = new TextEncoder().encode(String(data));
+        var frame = buildFrame(OPCODE_TEXT, encoded, true);
+        pal2.tcpWrite(this._tcp, frame);
       }
       close(code, reason) {
         if (this._readyState === CLOSING || this._readyState === CLOSED) return;
         this._readyState = CLOSING;
-        if (typeof pal2.wsClose === "function" && this._conn) {
-          pal2.wsClose(this._conn, code || 1e3, reason || "");
-        }
+        this._closeSent = true;
+        this._closeCode = code || 1e3;
+        this._closeReason = reason || "";
+        var reasonBytes = new TextEncoder().encode(this._closeReason);
+        var payload = new Uint8Array(2 + reasonBytes.length);
+        payload[0] = this._closeCode >> 8 & 255;
+        payload[1] = this._closeCode & 255;
+        if (reasonBytes.length > 0) payload.set(reasonBytes, 2);
+        var frame = buildFrame(OPCODE_CLOSE, payload, true);
+        pal2.tcpWrite(this._tcp, frame);
       }
     }
     globalThis.WebSocket = WebSocket;
