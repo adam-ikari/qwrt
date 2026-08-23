@@ -120,15 +120,17 @@ static void on_handshake_write(uv_write_t *req, int status) {
 static void ws_read_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
     qwrt_ws_client_t *c = (qwrt_ws_client_t *)handle->data;
     buf->base = (char *)js_malloc(c->jsctx, suggested_size);
-    buf->len = suggested_size;
+    buf->len = buf->base ? suggested_size : 0;
 }
 
-/* Response buffer (per-connection, stored in ws_client) */
-#define WS_RESP_BUF_SIZE 4096
+/* Response buffer size (handshake response parsing) */
 
 static void ws_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     qwrt_ws_client_t *c = (qwrt_ws_client_t *)(((uv_tcp_t *)stream)->data);
-    if (!c) { free(buf->base); return; }  /* no owner ctx: plain free */
+    if (!c) { free(buf->base); return; }  /* handle->data should never be NULL;
+                                          * if it is, js_free is unreachable
+                                          * so plain free is the best we can do
+                                          * (allocator mismatch is survivable). */
     if (c->freed) { js_free(c->jsctx, buf->base); return; }  /* teardown in flight */
 
     if (nread < 0) {
@@ -147,8 +149,18 @@ static void ws_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) 
             /* process_data may synchronously fire on_close/on_error (which only
              * set c->closed — teardown is deferred), so it is safe to touch c
              * again after it returns. */
-            uvhttp_ws_process_data(c->ws_conn, (const uint8_t *)buf->base,
+            uvhttp_error_t perr = uvhttp_ws_process_data(c->ws_conn, (const uint8_t *)buf->base,
                                    (size_t)nread);
+            if (perr != UVHTTP_OK) {
+                /* Protocol error (bad frame, oversized, etc.) — fire onerror
+                 * and teardown. The deferred check below handles the free. */
+                if (!c->closed && JS_IsFunction(c->jsctx, c->onerror)) {
+                    JSValue err = JS_NewString(c->jsctx, uvhttp_error_string(perr));
+                    JS_Call(c->jsctx, c->onerror, c->ws_obj, 1, (JSValueConst[]){err});
+                    JS_FreeValue(c->jsctx, err);
+                }
+                c->closed = 1;
+            }
         }
         js_free(c->jsctx, buf->base);
         /* Deferred teardown: frees ws_conn/wctx (process_data is done with
@@ -208,8 +220,14 @@ static void ws_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) 
     /* If the server pipelined frame bytes after the headers, process them.
      * process_data may synchronously fire onclose/on_error (deferred teardown),
      * so buf must stay alive until it returns. */
-    if (frame_len > 0)
-        uvhttp_ws_process_data(c->ws_conn, (const uint8_t *)header_end, frame_len);
+    if (frame_len > 0) {
+        uvhttp_error_t perr = uvhttp_ws_process_data(c->ws_conn, (const uint8_t *)header_end, frame_len);
+        if (perr != UVHTTP_OK) {
+            if (!c->closed && JS_IsFunction(c->jsctx, c->onerror))
+                JS_Call(c->jsctx, c->onerror, c->ws_obj, 0, NULL);
+            c->closed = 1;
+        }
+    }
     js_free(c->jsctx, buf->base);
     if (c->closed && !c->freed)
         ws_client_free(c);
@@ -427,7 +445,10 @@ JSValue js_pal_ws_connect(JSContext *ctx, JSValueConst this_val,
     c->tcp.data = c;  /* read/close callbacks recover the client state via handle->data */
 
     struct sockaddr_in dest;
-    uv_ip4_addr(host_buf, port, &dest);
+    if (uv_ip4_addr(host_buf, port, &dest) != 0) {
+        ws_client_free(c);
+        return JS_ThrowTypeError(ctx, "wsConnect: cannot resolve host '%s' — only IPv4 literals supported (use uv_getaddrinfo for DNS)", host_buf);
+    }
 
     uv_connect_t *connect_req = js_mallocz(ctx, sizeof(uv_connect_t));
     if (!connect_req) { ws_client_free(c); return JS_ThrowTypeError(ctx, "wsConnect: OOM"); }
@@ -456,7 +477,7 @@ JSValue js_pal_ws_send(JSContext *ctx, JSValueConst this_val,
     JS_ToInt64(ctx, &ptr, pv);
     JS_FreeValue(ctx, pv);
     qwrt_ws_client_t *c = (qwrt_ws_client_t *)(uintptr_t)ptr;
-    if (!c || c->closed || !c->ws_conn || !c->wctx)
+    if (!c || c->closed || c->close_sent || !c->ws_conn || !c->wctx)
         return JS_UNDEFINED;
 
     const char *text = JS_ToCString(ctx, argv[1]);
@@ -479,7 +500,7 @@ JSValue js_pal_ws_close(JSContext *ctx, JSValueConst this_val,
     JS_ToInt64(ctx, &ptr, pv);
     JS_FreeValue(ctx, pv);
     qwrt_ws_client_t *c = (qwrt_ws_client_t *)(uintptr_t)ptr;
-    if (!c || c->closed || !c->ws_conn || !c->wctx)
+    if (!c || c->closed || c->close_sent || !c->ws_conn || !c->wctx)
         return JS_UNDEFINED;
 
     int code = 1000;
