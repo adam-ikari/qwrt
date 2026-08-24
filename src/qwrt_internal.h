@@ -213,12 +213,8 @@ struct qwrt_t {
     JSClassID wamr_global_class_id;
 #endif
 
-#if QWRT_WITH_HTTPSERVER
-    /* ext_http_server.c: ext-level state (active-server pointer for
-     * ext_destroy teardown). Hung off the runtime, not a file-scope static
-     * or a JS global property — uvhttp PHILOSOPHY.md zero-global-variables. */
+    /* http-server ext-level state (serve() teardown) */
     void *http_server_state;
-#endif
 
 #ifdef QWRT_DEBUG_SUPPORT
     /* DAP debugger session (NULL when no debugger attached). Opaque here to

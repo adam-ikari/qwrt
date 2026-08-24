@@ -328,6 +328,13 @@ JSValue js_pal_tcp_write(JSContext *ctx, JSValueConst this_val,
         if (!data) { return JS_ThrowTypeError(ctx, "tcpWrite: OOM"); }
         memcpy(data, src, ab_len);
         len = ab_len;
+    } else if (JS_GetUint8Array(ctx, &len, argv[1])) {
+        /* Uint8Array / TypedArray view (e.g. from TextEncoder) */
+        uint8_t *src = JS_GetUint8Array(ctx, &len, argv[1]);
+        if (!src) return JS_ThrowTypeError(ctx, "tcpWrite: invalid Uint8Array");
+        data = js_malloc(ctx, len);
+        if (!data) return JS_ThrowTypeError(ctx, "tcpWrite: OOM");
+        memcpy(data, src, len);
     } else {
         return JS_ThrowTypeError(ctx, "tcpWrite: data must be string or ArrayBuffer");
     }
@@ -374,9 +381,174 @@ JSValue js_pal_tcp_close(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
+/* ── TCP listener state ── */
+typedef struct qwrt_tcp_listener qwrt_tcp_listener_t;
+
+struct qwrt_tcp_listener {
+    qwrt_t *rt;
+    JSContext *jsctx;
+    uv_tcp_t tcp;               /* listening socket; closed async */
+    int closed;
+    JSValue handle_obj;          /* rooted JS handle */
+    JSValue onconnection;        /* JS callback: onconnection(conn_handle) */
+};
+
+/* ── Listener close callback (libuv) ── */
+static void tcp_listener_close_cb(uv_handle_t *handle) {
+    qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)handle->data;
+    if (l) {
+        if (l->jsctx) {
+            JS_FreeValue(l->jsctx, l->handle_obj);
+            JS_FreeValue(l->jsctx, l->onconnection);
+        }
+        js_free(l->jsctx, l);
+    }
+}
+
+/* ── Accept callback: new connection arrived ── */
+static void tcp_listen_on_connection(uv_stream_t *server, int status) {
+    if (status < 0) return;
+    qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)server->data;
+    if (!l || l->closed) return;
+
+    qwrt_t *rt = l->rt;
+
+    /* Create client for the accepted connection */
+    qwrt_tcp_client_t *c = js_mallocz(l->jsctx, sizeof(*c));
+    if (!c) return;
+
+    c->rt = rt;
+    c->jsctx = l->jsctx;
+    c->ondata = JS_UNDEFINED;
+    c->onerror = JS_UNDEFINED;
+    c->onclose = JS_UNDEFINED;
+    c->onconnect = JS_UNDEFINED;
+
+    uv_tcp_init(&rt->loop, &c->tcp);
+    c->tcp_active = 1;
+    c->tcp.data = c;
+
+    if (uv_accept(server, (uv_stream_t *)&c->tcp) != 0) {
+        tcp_client_free(c);
+        return;
+    }
+
+    /* Create JS handle object */
+    JSContext *ctx = l->jsctx;
+    JSValue obj = JS_NewObject(ctx);
+    if (JS_IsException(obj)) { tcp_client_free(c); return; }
+
+    JSValue ptr_val = JS_NewInt64(ctx, (int64_t)(uintptr_t)c);
+    JS_SetPropertyStr(ctx, obj, "_tcpClient", ptr_val);
+    c->handle_obj = JS_DupValue(ctx, obj);
+
+    /* Start reading */
+    uv_read_start((uv_stream_t *)&c->tcp, tcp_alloc_cb, tcp_read_cb);
+
+    /* Notify JS */
+    if (JS_IsFunction(ctx, l->onconnection)) {
+        JSValue ret = JS_Call(ctx, l->onconnection, JS_UNDEFINED, 1, (JSValueConst[]){obj});
+        JS_FreeValue(ctx, ret);
+    }
+    /* Read callbacks that JS attached to the conn object (ondata/onerror/onclose) */
+    {
+        JSValue fn = JS_GetPropertyStr(ctx, obj, "ondata");
+        if (JS_IsFunction(ctx, fn)) { c->ondata = fn; } else JS_FreeValue(ctx, fn);
+        fn = JS_GetPropertyStr(ctx, obj, "onerror");
+        if (JS_IsFunction(ctx, fn)) { c->onerror = fn; } else JS_FreeValue(ctx, fn);
+        fn = JS_GetPropertyStr(ctx, obj, "onclose");
+        if (JS_IsFunction(ctx, fn)) { c->onclose = fn; } else JS_FreeValue(ctx, fn);
+    }
+    JS_FreeValue(ctx, obj);
+}
+
+/* ── PAL: tcpListen(port, hostname, backlog, onconnection) ── */
+JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
+                          int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 4 || !JS_IsNumber(argv[0]) || !JS_IsString(argv[1]) ||
+        !JS_IsNumber(argv[2]) || !JS_IsFunction(ctx, argv[3]))
+        return JS_ThrowTypeError(ctx, "tcpListen(port, hostname, backlog, onconnection) required");
+
+    uint32_t port = 0;
+    JS_ToUint32(ctx, &port, argv[0]);
+    if (port == 0 || port > 65535)
+        return JS_ThrowTypeError(ctx, "tcpListen: invalid port");
+
+    const char *hostname = JS_ToCString(ctx, argv[1]);
+    if (!hostname) return JS_EXCEPTION;
+
+    uint32_t backlog = 0;
+    JS_ToUint32(ctx, &backlog, argv[2]);
+    if (backlog == 0) backlog = 128;
+
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) { JS_FreeCString(ctx, hostname); return JS_ThrowTypeError(ctx, "tcpListen: no runtime"); }
+
+    qwrt_tcp_listener_t *l = js_mallocz(ctx, sizeof(*l));
+    if (!l) { JS_FreeCString(ctx, hostname); return JS_ThrowTypeError(ctx, "tcpListen: OOM"); }
+
+    l->rt = rt;
+    l->jsctx = ctx;
+    l->onconnection = JS_DupValue(ctx, argv[3]);
+
+    /* Create JS handle with close method */
+    JSValue obj = JS_NewObject(ctx);
+    if (JS_IsException(obj)) {
+        JS_FreeCString(ctx, hostname);
+        JS_FreeValue(ctx, l->onconnection);
+        js_free(ctx, l);
+        return JS_EXCEPTION;
+    }
+    JSValue ptr_val = JS_NewInt64(ctx, (int64_t)(uintptr_t)l);
+    JS_SetPropertyStr(ctx, obj, "_tcpListener", ptr_val);
+    l->handle_obj = JS_DupValue(ctx, obj);
+
+    /* Init TCP, bind, listen */
+    uv_tcp_init(&rt->loop, &l->tcp);
+    l->tcp.data = l;
+
+    struct sockaddr_in addr;
+    uv_ip4_addr(hostname, port, &addr);
+
+    uv_tcp_bind(&l->tcp, (const struct sockaddr *)&addr, 0);
+    int r = uv_listen((uv_stream_t *)&l->tcp, (int)backlog, tcp_listen_on_connection);
+    JS_FreeCString(ctx, hostname);
+
+    if (r != 0) {
+        uv_close((uv_handle_t *)&l->tcp, tcp_listener_close_cb);
+        JS_FreeValue(ctx, obj);
+        return JS_ThrowTypeError(ctx, "tcpListen: listen failed (%s)", uv_strerror(r));
+    }
+
+    return obj;
+}
+
+/* ── PAL: tcpCloseListener(handle) ── */
+JSValue js_pal_tcp_close_listener(JSContext *ctx, JSValueConst this_val,
+                                  int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 1 || !JS_IsObject(argv[0]))
+        return JS_ThrowTypeError(ctx, "tcpCloseListener(handle) required");
+
+    JSValue pv = JS_GetPropertyStr(ctx, argv[0], "_tcpListener");
+    if (!JS_IsNumber(pv)) { JS_FreeValue(ctx, pv); return JS_UNDEFINED; }
+    int64_t ptr = 0;
+    JS_ToInt64(ctx, &ptr, pv);
+    JS_FreeValue(ctx, pv);
+    qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)(uintptr_t)ptr;
+    if (!l || l->closed) return JS_UNDEFINED;
+
+    l->closed = 1;
+    uv_close((uv_handle_t *)&l->tcp, tcp_listener_close_cb);
+    return JS_UNDEFINED;
+}
+
 /* ── Module init ── */
 void qwrt_tcp_io_init(JSContext *ctx, JSValue pal) {
     JS_SetPropertyStr(ctx, pal, "tcpConnect", JS_NewCFunction(ctx, js_pal_tcp_connect, "tcpConnect", 3));
     JS_SetPropertyStr(ctx, pal, "tcpWrite", JS_NewCFunction(ctx, js_pal_tcp_write, "tcpWrite", 2));
     JS_SetPropertyStr(ctx, pal, "tcpClose", JS_NewCFunction(ctx, js_pal_tcp_close, "tcpClose", 1));
+    JS_SetPropertyStr(ctx, pal, "tcpListen", JS_NewCFunction(ctx, js_pal_tcp_listen, "tcpListen", 4));
+    JS_SetPropertyStr(ctx, pal, "tcpCloseListener", JS_NewCFunction(ctx, js_pal_tcp_close_listener, "tcpCloseListener", 1));
 }

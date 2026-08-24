@@ -14,7 +14,6 @@ set(CMAKE_C_EXTENSIONS OFF)   # pure -std=c99, no GNU extensions (deps use their
 # Options
 # ============================================================================
 option(QWRT_BUILD_TESTS "Build tests" OFF)
-option(QWRT_BUILD_HTTPSERVER_TESTS "Build the HTTPServer e2e integration suite (Python; needs a real-libuv build — incompatible with QWRT_BUILD_TESTS mock loop)" OFF)
 option(QWRT_BUILD_DEBUGGER "Build the DAP step-debugger (applies the QuickJS-ng debugger patch; adds src/debugger.c + src/debugger_dap.c to libqwrt)" OFF)
 
 option(QWRT_WITH_WAMR "Link WAMR WASM engine (default; enables real WebAssembly via WAMR with Fast Interp + AOT)" ON)
@@ -24,8 +23,6 @@ option(QWRT_WITH_COMPRESS "Enable native compression via miniz" ON)
 option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
 option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
-option(QWRT_WITH_HTTPSERVER "Build the uvhttp-based HTTP/HTTPS/WebSocket server extension" ON)
-set(UVHTTP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/uvhttp" CACHE PATH "Path to the uvhttp source tree (git submodule)")
 option(QWRT_BUILD_EXAMPLES "Build example programs" OFF)
 
 # WAMR and wasm3 are mutually exclusive (both register the WebAssembly global)
@@ -44,24 +41,6 @@ endif()
 if(QWRT_WITH_TLS AND NOT QWRT_WITH_CRYPTO_EXT)
     message(STATUS "QWRT_WITH_TLS=ON forces QWRT_WITH_CRYPTO_EXT=ON (TLS requires crypto)")
     set(QWRT_WITH_CRYPTO_EXT ON CACHE BOOL "Enable native crypto.subtle via mbedTLS" FORCE)
-endif()
-
-# HTTPServer (uvhttp) needs mbedTLS for HTTPS/WebSocket (SHA1/Base64), so
-# QWRT_WITH_HTTPSERVER=ON forces QWRT_WITH_TLS=ON. uvhttp is linked against
-# qwrt's vendored mbedTLS — never its own copy.
-if(QWRT_WITH_HTTPSERVER AND NOT QWRT_WITH_TLS)
-    message(STATUS "QWRT_WITH_HTTPSERVER=ON forces QWRT_WITH_TLS=ON (HTTPS/WS need mbedTLS)")
-    set(QWRT_WITH_TLS ON CACHE BOOL "Build with mbedTLS for HTTPS support" FORCE)
-endif()
-
-# Test builds compile the core against mock_libuv (see below); uvhttp pulls in
-# real libuv headers that clash with the mock. Mirror the TLS force: a
-# QWRT_BUILD_TESTS=ON build can never include the HTTPServer extension.
-# (HTTPServer e2e tests use QWRT_BUILD_HTTPSERVER_TESTS against a real-libuv
-# build with QWRT_BUILD_TESTS=OFF.)
-if(QWRT_BUILD_TESTS AND QWRT_WITH_HTTPSERVER)
-    message(STATUS "QWRT_BUILD_TESTS=ON forces QWRT_WITH_HTTPSERVER=OFF (mock loop is incompatible with uvhttp's real libuv)")
-    set(QWRT_WITH_HTTPSERVER OFF CACHE BOOL "Build the uvhttp-based HTTP/HTTPS/WebSocket server extension" FORCE)
 endif()
 
 if(QWRT_WITH_TLS)
@@ -411,45 +390,11 @@ if(QWRT_WITH_TEXTCODEC)
     list(APPEND _qwrt_core_sources src/ext_textcodec.c)
 endif()
 
-if(QWRT_WITH_HTTPSERVER)
-    list(APPEND _qwrt_core_sources src/ext_http_server.c src/tcp_io.c)
-    # uvhttp — compiled from source into qwrt (single copy, no ExternalProject)
-    foreach(_uvhttp_src
-        uvhttp_config uvhttp_connection uvhttp_context uvhttp_error
-        uvhttp_error_helpers uvhttp_lru_cache uvhttp_protocol_upgrade
-        uvhttp_request uvhttp_response uvhttp_router uvhttp_router_cache
-        uvhttp_gzip_cache uvhttp_server uvhttp_static uvhttp_tls uvhttp_utils
-        uvhttp_version uvhttp_websocket)
-        list(APPEND _qwrt_core_sources ${UVHTTP_DIR}/src/${_uvhttp_src}.c)
-    endforeach()
-    # uvhttp deps without a qwrt counterpart (llhttp/xxhash/cJSON; uthash is header-only)
-    list(APPEND _qwrt_core_sources
-        ${UVHTTP_DIR}/deps/llhttp/src/llhttp.c
-        ${UVHTTP_DIR}/deps/llhttp/src/http.c
-        ${UVHTTP_DIR}/deps/llhttp/src/api.c
-        ${UVHTTP_DIR}/deps/xxhash/xxhash.c
-        ${UVHTTP_DIR}/deps/cjson/cJSON.c)
-
-    # uvhttp + its deps are third-party code: qwrt's -Wall -Wextra -Werror
-    # hardening (PRIVATE on the qwrt target) applies to them too, so relax the
-    # error severity for these files only.
-    set(_uvhttp_all_sources
-        ${UVHTTP_DIR}/src/uvhttp_config.c ${UVHTTP_DIR}/src/uvhttp_connection.c
-        ${UVHTTP_DIR}/src/uvhttp_context.c ${UVHTTP_DIR}/src/uvhttp_error.c
-        ${UVHTTP_DIR}/src/uvhttp_error_helpers.c ${UVHTTP_DIR}/src/uvhttp_lru_cache.c
-        ${UVHTTP_DIR}/src/uvhttp_gzip_cache.c
-        ${UVHTTP_DIR}/src/uvhttp_protocol_upgrade.c ${UVHTTP_DIR}/src/uvhttp_request.c
-        ${UVHTTP_DIR}/src/uvhttp_response.c ${UVHTTP_DIR}/src/uvhttp_router.c
-        ${UVHTTP_DIR}/src/uvhttp_router_cache.c ${UVHTTP_DIR}/src/uvhttp_server.c
-        ${UVHTTP_DIR}/src/uvhttp_static.c ${UVHTTP_DIR}/src/uvhttp_tls.c
-        ${UVHTTP_DIR}/src/uvhttp_utils.c ${UVHTTP_DIR}/src/uvhttp_version.c
-        ${UVHTTP_DIR}/src/uvhttp_websocket.c
-        ${UVHTTP_DIR}/deps/llhttp/src/llhttp.c ${UVHTTP_DIR}/deps/llhttp/src/http.c
-        ${UVHTTP_DIR}/deps/llhttp/src/api.c ${UVHTTP_DIR}/deps/xxhash/xxhash.c
-        ${UVHTTP_DIR}/deps/cjson/cJSON.c)
-    set_source_files_properties(${_uvhttp_all_sources} PROPERTIES
-        COMPILE_OPTIONS "-Wno-error")
+# TCP socket PAL — always available (excluded from mock-libuv test builds)
+if(NOT QWRT_BUILD_TESTS)
+    list(APPEND _qwrt_core_sources src/tcp_io.c)
 endif()
+
 if(QWRT_BUILD_DEBUGGER)
     list(APPEND _qwrt_core_sources src/debugger.c src/debugger_dap.c)
 endif()
@@ -526,7 +471,6 @@ target_compile_definitions(qwrt PUBLIC
     QWRT_WITH_TEXTCODEC=$<BOOL:${QWRT_WITH_TEXTCODEC}>
     QWRT_WITH_TLS=$<BOOL:${QWRT_WITH_TLS}>
     QWRT_WITH_NONUTF_ENCODINGS=$<BOOL:${QWRT_WITH_NONUTF_ENCODINGS}>
-    QWRT_WITH_HTTPSERVER=$<BOOL:${QWRT_WITH_HTTPSERVER}>
 )
 if(QWRT_WITH_WAMR)
     target_include_directories(qwrt PUBLIC
@@ -542,29 +486,6 @@ if(QWRT_WITH_CRYPTO_EXT)
         ${MBEDCRYPTO_INCLUDE_DIR}
     )
     target_compile_definitions(qwrt PUBLIC QWRT_HAS_CRYPTO_EXT=1)
-endif()
-if(QWRT_WITH_HTTPSERVER)
-    target_include_directories(qwrt PUBLIC
-        ${UVHTTP_DIR}/include
-        ${UVHTTP_DIR}/deps
-        ${UVHTTP_DIR}/deps/llhttp/include
-        ${UVHTTP_DIR}/deps/uthash/src
-        ${UVHTTP_DIR}/deps/xxhash
-        ${UVHTTP_DIR}/deps/cjson
-    )
-    # uvhttp feature knobs: TLS/WebSocket/compression/static/LRU on;
-    # router cache off (unfinished upstream — duplicate-case bug fixed but the
-    # feature is not part of the supported path). Allocator: system.
-    target_compile_definitions(qwrt PUBLIC
-        UVHTTP_FEATURE_TLS=1
-        UVHTTP_FEATURE_WEBSOCKET=1
-        UVHTTP_FEATURE_COMPRESSION=1
-        UVHTTP_FEATURE_STATIC_FILES=1
-        UVHTTP_FEATURE_LRU_CACHE=1
-        UVHTTP_FEATURE_ROUTER_CACHE=0
-        UVHTTP_ALLOCATOR_TYPE=0
-        QWRT_HAS_HTTPSERVER=1
-    )
 endif()
 
 # Core link libraries — qjs (QuickJS-ng) and libm are always needed.
@@ -720,37 +641,6 @@ if(QWRT_BUILD_TESTS)
     add_subdirectory(test)
 endif()
 
-# HTTPServer e2e suite — drives the real CLI against uvhttp listeners over
-# localhost (Python stdlib: http.client/ssl/raw sockets). Needs a build with
-# REAL libuv (QWRT_BUILD_TESTS=OFF, QWRT_WITH_HTTPSERVER=ON — the mock loop
-# has no uv_tcp_bind/uv_listen), hence the separate option.
-if(QWRT_BUILD_HTTPSERVER_TESTS)
-    enable_testing()
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
-    set(_hts_qwrt_bin $<TARGET_FILE:qwrt_cli>)
-    add_test(NAME httpserver_e2e
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/test/test_httpserver_e2e.py
-            --qwrt-bin ${_hts_qwrt_bin}
-    )
-    set_tests_properties(httpserver_e2e PROPERTIES
-        LABELS "httpserver" TIMEOUT 120)
-
-    # CLI end-to-end: forks the real qwrt executable and asserts on
-    # stdout/stderr/exit code. Requires a REAL-libuv CLI (the mock loop used by
-    # QWRT_BUILD_TESTS=ON builds has no real event loop, so the CLI aborts),
-    # which is why it lives here alongside the httpserver e2e suite.
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/deps/googletest ${CMAKE_CURRENT_BINARY_DIR}/googletest)
-    add_executable(test_cli_gtest test/test_cli_gtest.cpp)
-    target_include_directories(test_cli_gtest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
-    target_compile_definitions(test_cli_gtest PRIVATE
-        QWRT_CLI_BIN="${_hts_qwrt_bin}"
-        CLI_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/cli_scripts")
-    target_link_libraries(test_cli_gtest GTest::gtest_main pthread)
-    add_test(NAME test_cli_gtest COMMAND test_cli_gtest)
-    set_tests_properties(test_cli_gtest PROPERTIES LABELS "offline")
-endif()
 if(QWRT_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()

@@ -1511,8 +1511,8 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "contextSuspend", JS_NewCFunction(jsctx, js_pal_context_suspend, "contextSuspend", 2));
         JS_SetPropertyStr(jsctx, pal, "contextResume", JS_NewCFunction(jsctx, js_pal_context_resume, "contextResume", 3));
         JS_SetPropertyStr(jsctx, pal, "contextDestroy", JS_NewCFunction(jsctx, js_pal_context_destroy, "contextDestroy", 1));
-#if QWRT_WITH_HTTPSERVER
-        /* TCP socket PAL (requires real libuv, not mock) */
+#ifndef QWRT_USE_MOCK_LIBUV
+        /* TCP socket PAL — excluded from mock-libuv test builds */
         qwrt_tcp_io_init(jsctx, pal);
 #endif
     }

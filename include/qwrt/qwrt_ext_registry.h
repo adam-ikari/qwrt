@@ -29,7 +29,6 @@
 #include <qwrt/ext_textcodec.h>
 #include <qwrt/ext_wamr.h>
 #include <qwrt/ext_wasm3.h>
-#include <qwrt/ext_http_server.h>
 
 /* QWRT_EXT_IF_WITH(FEATURE, ptr): when QWRT_WITH_<FEATURE> == 1, expands to
  * "ptr,"; when 0, expands to "NULL," (a disabled-slot placeholder). It always
@@ -56,8 +55,7 @@
     QWRT_EXT_IF_WITH(COMPRESS,   &qwrt_compress_ext) \
     QWRT_EXT_IF_WITH(CRYPTO_EXT, &qwrt_crypto_ext)   \
     QWRT_EXT_IF_WITH(TEXTCODEC,  &qwrt_textcodec_ext) \
-    QWRT_EXT_IF_WITH(WAMR,       &qwrt_wamr_ext) \
-    QWRT_EXT_IF_WITH(HTTPSERVER, &qwrt_http_server_ext)
+    QWRT_EXT_IF_WITH(WAMR,       &qwrt_wamr_ext)
 
 /* The effective extension set. Overridable by:
  *   (a) parent-project CMake variable (recommended, non-invasive);

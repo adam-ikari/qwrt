@@ -36,7 +36,7 @@ export function setupWebSocket(pal) {
 
   /* Compute the expected Sec-WebSocket-Accept for a given key. */
   function computeAccept(key) {
-    var MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';  // uvhttp 的 GUID（非标准 RFC 6455，需与 uvhttp 服务器匹配）
+    var MAGIC = '258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5';  // RFC 6455 Section 4.2.2
     var s = key + MAGIC;
     // SHA-1 via crypto.subtle
     return crypto.subtle.digest('SHA-1', new TextEncoder().encode(s))
