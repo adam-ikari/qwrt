@@ -215,10 +215,15 @@ def gen_server_script(port, static_root=None, tls=False):
     if static_root:
         opts += ', static: {root: %r, index: "index.html"}' % static_root
     if tls:
-        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                            "deps", "uvhttp", "test", "certs")
-        cert = os.path.join(base, "server.crt")
-        key = os.path.join(base, "server.key")
+        # Generate self-signed certs on the fly (openssl required)
+        cert = os.path.join(tempfile.gettempdir(), "qwrt_e2e_cert.pem")
+        key = os.path.join(tempfile.gettempdir(), "qwrt_e2e_key.pem")
+        if not (os.path.exists(cert) and os.path.exists(key)):
+            subprocess.run(
+                ["openssl", "req", "-x509", "-newkey", "rsa:2048",
+                 "-keyout", key, "-out", cert, "-days", "365", "-nodes",
+                 "-subj", "/CN=localhost"],
+                check=True, capture_output=True)
         opts += ', tls: {cert: %r, key: %r}' % (cert, key)
     # ws endpoints live on port+1 — single serve() call (a second one throws)
     opts += ', ws: {"/echo": (ws) => { ws.onmessage = (e) => ws.send("echo:" + e.data); }}'
@@ -383,7 +388,6 @@ def test_static_files(qwrt_bin):
 # ---------------------------------------------------------------------------
 
 @test
-@unittest.skip("TLS/HTTPS removed with uvhttp")
 def test_https(qwrt_bin):
     p = free_port()
     srv = QwrtServer(gen_server_script(p, tls=True), qwrt_bin)

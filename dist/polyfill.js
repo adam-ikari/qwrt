@@ -3604,7 +3604,12 @@
           "Connection": "close"
         }, new Uint8Array(0)));
       }
-      var listener = pal2.tcpListen(port, hostname, 128, handleConnection);
+      var listener;
+      var tls = options.tls;
+      if (tls && tls.cert && tls.key)
+        listener = pal2.tcpListen(port, hostname, 128, handleConnection, { cert: tls.cert, key: tls.key });
+      else
+        listener = pal2.tcpListen(port, hostname, 128, handleConnection);
       var conns = [];
       activeServer.close = function() {
         activeServer.closed = true;

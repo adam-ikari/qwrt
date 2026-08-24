@@ -421,7 +421,12 @@ export function setupHttpServer(pal) {
       }, new Uint8Array(0)));
     }
 
-    var listener = pal.tcpListen(port, hostname, 128, handleConnection);
+    var listener;
+    var tls = options.tls;
+    if (tls && tls.cert && tls.key)
+      listener = pal.tcpListen(port, hostname, 128, handleConnection, {cert: tls.cert, key: tls.key});
+    else
+      listener = pal.tcpListen(port, hostname, 128, handleConnection);
     var conns = [];
     activeServer.close = function() {
       activeServer.closed = true;

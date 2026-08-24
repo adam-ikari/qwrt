@@ -16,6 +16,27 @@
 #include <string.h>
 #include <stdlib.h>
 
+#if QWRT_WITH_TLS
+#include <mbedtls/ssl.h>
+#include <mbedtls/net_sockets.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/error.h>
+#include <mbedtls/x509_crt.h>
+#include <mbedtls/pk.h>
+#endif
+
+/* TLS server context (shared across connections from one listener) */
+#if QWRT_WITH_TLS
+typedef struct {
+    mbedtls_ssl_config ssl_conf;
+    mbedtls_x509_crt cert;
+    mbedtls_pk_context key;
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+} qwrt_tls_server_ctx_t;
+#endif
+
 /* ── Per-connection state ── */
 typedef struct qwrt_tcp_client qwrt_tcp_client_t;
 
@@ -44,6 +65,15 @@ struct qwrt_tcp_client {
     char host[256];
     int port;
     struct qwrt_tcp_client *next;
+#if QWRT_WITH_TLS
+    int use_tls;
+    mbedtls_ssl_context ssl;
+    unsigned char *tls_read_buf;
+    size_t tls_read_buf_len;
+    size_t tls_read_consumed;
+    int tls_handshake_done;
+    qwrt_tls_server_ctx_t *tls_server_ctx;
+#endif
 };
 
 /* ── Forward declarations ── */
@@ -68,6 +98,15 @@ static void tcp_client_free(qwrt_tcp_client_t *c) {
         JS_FreeValue(c->jsctx, c->onclose);
         JS_FreeValue(c->jsctx, c->onconnect);
     }
+#if QWRT_WITH_TLS
+    if (c->use_tls) {
+        mbedtls_ssl_free(&c->ssl);
+        free(c->tls_read_buf);
+        c->tls_read_buf = NULL;
+        c->tls_read_buf_len = 0;
+        c->tls_read_consumed = 0;
+    }
+#endif
     if (c->tcp_active) {
         c->tcp_active = 0;
         uv_read_stop((uv_stream_t *)&c->tcp);
@@ -131,10 +170,64 @@ static void tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
+#if QWRT_WITH_TLS
+    if (c->use_tls) {
+        if (nread > 0) {
+            unsigned char *nb = realloc(c->tls_read_buf, c->tls_read_buf_len + (size_t)nread);
+            if (!nb) {
+                if (buf->base) js_free(c->jsctx, buf->base);
+                tcp_error(c, "TLS OOM");
+                return;
+            }
+            c->tls_read_buf = nb;
+            memcpy(c->tls_read_buf + c->tls_read_buf_len, buf->base, (size_t)nread);
+            c->tls_read_buf_len += (size_t)nread;
+        }
+        if (buf->base) js_free(c->jsctx, buf->base);
+
+        int ret;
+        if (!c->tls_handshake_done) {
+            ret = mbedtls_ssl_handshake(&c->ssl);
+            if (ret == 0) {
+                c->tls_handshake_done = 1;
+            } else if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+                return;
+            } else {
+                tcp_error(c, "TLS handshake failed");
+                return;
+            }
+        }
+
+        if (c->tls_handshake_done) {
+            unsigned char dc[4096];
+            while ((ret = mbedtls_ssl_read(&c->ssl, dc, sizeof(dc))) > 0) {
+                JSValue ab = JS_NewArrayBufferCopy(c->jsctx, dc, (size_t)ret);
+                if (!JS_IsException(ab) && JS_IsFunction(c->jsctx, c->ondata))
+                    JS_Call(c->jsctx, c->ondata, c->handle_obj, 1, (JSValueConst[]){ab});
+                JS_FreeValue(c->jsctx, ab);
+            }
+            if (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+                c->closed = 1;
+                if (JS_IsFunction(c->jsctx, c->onclose))
+                    JS_Call(c->jsctx, c->onclose, c->handle_obj, 0, NULL);
+                tcp_client_free(c);
+                return;
+            }
+        }
+
+        if (c->tls_read_consumed > 0) {
+            size_t rem = c->tls_read_buf_len - c->tls_read_consumed;
+            if (rem > 0) memmove(c->tls_read_buf, c->tls_read_buf + c->tls_read_consumed, rem);
+            c->tls_read_buf_len = rem;
+            c->tls_read_consumed = 0;
+        }
+        return;
+    }
+#endif
+
     if (nread > 0 && !c->closed) {
-        /* Copy data into a JS-owned ArrayBuffer and deliver to ondata. */
         JSValue ab = JS_NewArrayBufferCopy(c->jsctx, (const uint8_t *)buf->base, (size_t)nread);
-        js_free(c->jsctx, buf->base);  /* our copy is no longer needed */
+        js_free(c->jsctx, buf->base);
         if (JS_IsException(ab)) {
             tcp_error(c, "OOM in ondata");
             return;
@@ -348,6 +441,26 @@ JSValue js_pal_tcp_write(JSContext *ctx, JSValueConst this_val,
     wr->client = c;
     wr->data = data;
 
+#if QWRT_WITH_TLS
+    if (c->use_tls) {
+        /* TLS path: encrypt via mbedtls_ssl_write → tls_send_cb → uv_write */
+        js_free(ctx, wr);  /* not needed — mbedTLS handles I/O */
+        unsigned char *buf = (unsigned char *)data;
+        size_t remaining = len;
+        while (remaining > 0) {
+            int ret = mbedtls_ssl_write(&c->ssl, buf, (unsigned int)remaining);
+            if (ret > 0) {
+                buf += ret;
+                remaining -= (size_t)ret;
+            } else if (ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+                break;
+            }
+        }
+        js_free(ctx, data);
+        return JS_UNDEFINED;
+    }
+#endif
+
     uv_buf_t wbuf = uv_buf_init((char *)data, (unsigned int)len);
     int r = uv_write(&wr->req, (uv_stream_t *)&c->tcp, &wbuf, 1, tcp_write_cb);
     if (r != 0) {
@@ -391,6 +504,9 @@ struct qwrt_tcp_listener {
     int closed;
     JSValue handle_obj;          /* rooted JS handle */
     JSValue onconnection;        /* JS callback: onconnection(conn_handle) */
+#if QWRT_WITH_TLS
+    qwrt_tls_server_ctx_t *tls_ctx;  /* NULL for plain TCP */
+#endif
 };
 
 /* ── Listener close callback (libuv) ── */
@@ -401,9 +517,54 @@ static void tcp_listener_close_cb(uv_handle_t *handle) {
             JS_FreeValue(l->jsctx, l->handle_obj);
             JS_FreeValue(l->jsctx, l->onconnection);
         }
+#if QWRT_WITH_TLS
+        if (l->tls_ctx) {
+            mbedtls_ssl_config_free(&l->tls_ctx->ssl_conf);
+            mbedtls_x509_crt_free(&l->tls_ctx->cert);
+            mbedtls_pk_free(&l->tls_ctx->key);
+            mbedtls_ctr_drbg_free(&l->tls_ctx->ctr_drbg);
+            mbedtls_entropy_free(&l->tls_ctx->entropy);
+            free(l->tls_ctx);
+        }
+#endif
         js_free(l->jsctx, l);
     }
 }
+
+#if QWRT_WITH_TLS
+/* ── TLS write callback: free the copied buffer ── */
+static void tls_write_cb(uv_write_t *req, int status) {
+    (void)status;
+    free(req->data);
+    free(req);
+}
+
+/* ── TLS send callback: mbedTLS writes encrypted data to the TCP socket ── */
+static int tls_send_cb(void *ctx, const unsigned char *buf, size_t len) {
+    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)ctx;
+    char *copy = malloc(len);
+    if (!copy) return MBEDTLS_ERR_NET_SEND_FAILED;
+    memcpy(copy, buf, len);
+    uv_write_t *req = malloc(sizeof(uv_write_t));
+    if (!req) { free(copy); return MBEDTLS_ERR_NET_SEND_FAILED; }
+    req->data = copy;
+    uv_buf_t wbuf = uv_buf_init(copy, (unsigned int)len);
+    int ret = uv_write(req, (uv_stream_t *)&c->tcp, &wbuf, 1, tls_write_cb);
+    if (ret != 0) { free(copy); free(req); return MBEDTLS_ERR_NET_SEND_FAILED; }
+    return (int)len;
+}
+
+/* ── TLS recv callback: mbedTLS reads from the pre-buffered data ── */
+static int tls_recv_cb(void *ctx, unsigned char *buf, size_t len) {
+    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)ctx;
+    size_t avail = c->tls_read_buf_len - c->tls_read_consumed;
+    if (avail == 0) return MBEDTLS_ERR_SSL_WANT_READ;
+    size_t n = len < avail ? len : avail;
+    memcpy(buf, c->tls_read_buf + c->tls_read_consumed, n);
+    c->tls_read_consumed += n;
+    return (int)n;
+}
+#endif
 
 /* ── Accept callback: new connection arrived ── */
 static void tcp_listen_on_connection(uv_stream_t *server, int status) {
@@ -432,6 +593,24 @@ static void tcp_listen_on_connection(uv_stream_t *server, int status) {
         tcp_client_free(c);
         return;
     }
+
+#if QWRT_WITH_TLS
+    if (l->tls_ctx) {
+        c->use_tls = 1;
+        c->tls_server_ctx = l->tls_ctx;
+        c->tls_handshake_done = 0;
+        c->tls_read_buf = NULL;
+        c->tls_read_buf_len = 0;
+        c->tls_read_consumed = 0;
+        mbedtls_ssl_init(&c->ssl);
+        int ret = mbedtls_ssl_setup(&c->ssl, &l->tls_ctx->ssl_conf);
+        if (ret != 0) {
+            tcp_client_free(c);
+            return;
+        }
+        mbedtls_ssl_set_bio(&c->ssl, c, tls_send_cb, tls_recv_cb, NULL);
+    }
+#endif
 
     /* Create JS handle object */
     JSContext *ctx = l->jsctx;
@@ -491,6 +670,57 @@ JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
     l->rt = rt;
     l->jsctx = ctx;
     l->onconnection = JS_DupValue(ctx, argv[3]);
+
+#if QWRT_WITH_TLS
+    /* Optional 5th arg: tls = { cert: path, key: path } */
+    if (argc >= 5 && !JS_IsUndefined(argv[4]) && !JS_IsNull(argv[4]) && JS_IsObject(argv[4])) {
+        JSValue cv = JS_GetPropertyStr(ctx, argv[4], "cert");
+        JSValue kv = JS_GetPropertyStr(ctx, argv[4], "key");
+        const char *cert_path = JS_ToCString(ctx, cv);
+        const char *key_path = JS_ToCString(ctx, kv);
+        if (cert_path && key_path) {
+            qwrt_tls_server_ctx_t *tc = calloc(1, sizeof(*tc));
+            int ok = 0;
+            do {
+                mbedtls_ssl_config_init(&tc->ssl_conf);
+                mbedtls_x509_crt_init(&tc->cert);
+                mbedtls_pk_init(&tc->key);
+                mbedtls_entropy_init(&tc->entropy);
+                mbedtls_ctr_drbg_init(&tc->ctr_drbg);
+                if (mbedtls_ctr_drbg_seed(&tc->ctr_drbg, mbedtls_entropy_func,
+                                          &tc->entropy, NULL, 0) != 0) break;
+                if (mbedtls_x509_crt_parse_file(&tc->cert, cert_path) != 0) break;
+                if (mbedtls_pk_parse_keyfile(&tc->key, key_path, NULL,
+                                              mbedtls_ctr_drbg_random, &tc->ctr_drbg) != 0) break;
+                if (mbedtls_ssl_config_defaults(&tc->ssl_conf, MBEDTLS_SSL_IS_SERVER,
+                                                MBEDTLS_SSL_TRANSPORT_STREAM,
+                                                MBEDTLS_SSL_PRESET_DEFAULT) != 0) break;
+                mbedtls_ssl_conf_rng(&tc->ssl_conf, mbedtls_ctr_drbg_random, &tc->ctr_drbg);
+                if (mbedtls_ssl_conf_own_cert(&tc->ssl_conf, &tc->cert, &tc->key) != 0) break;
+                ok = 1;
+            } while (0);
+            if (!ok) {
+                mbedtls_ssl_config_free(&tc->ssl_conf);
+                mbedtls_x509_crt_free(&tc->cert);
+                mbedtls_pk_free(&tc->key);
+                mbedtls_ctr_drbg_free(&tc->ctr_drbg);
+                mbedtls_entropy_free(&tc->entropy);
+                free(tc);
+                JS_FreeCString(ctx, cert_path);
+                JS_FreeCString(ctx, key_path);
+                JS_FreeValue(ctx, cv);
+                JS_FreeValue(ctx, kv);
+                JS_FreeCString(ctx, hostname);
+                return JS_ThrowTypeError(ctx, "tcpListen: TLS setup failed (bad cert/key?)");
+            }
+            l->tls_ctx = tc;
+        }
+        if (cert_path) JS_FreeCString(ctx, cert_path);
+        if (key_path) JS_FreeCString(ctx, key_path);
+        JS_FreeValue(ctx, cv);
+        JS_FreeValue(ctx, kv);
+    }
+#endif
 
     /* Create JS handle with close method */
     JSValue obj = JS_NewObject(ctx);
