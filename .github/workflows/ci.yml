@@ -264,8 +264,77 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Test (offline)
-        run: ctest -L offline --output-on-failure
+        run: |
+          ctest -L offline --output-on-failure
         working-directory: build
+
+  # ============================================================================
+  # HTTPServer performance: wrk against the pure-JS serve() implementation.
+  # Baseline (2026-08-24, I7-class container): tiny 12.6k rps / small 3.1k /
+  # medium-16KB 256 / post 10.5k. Thresholds are 50% of baseline to catch
+  # regressions without being flaky on shared CI runners.
+  # ============================================================================
+  httpserver-perf:
+    runs-on: ubuntu-latest
+    name: httpserver perf (wrk)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build wrk
+
+      - name: Install Node (polyfill build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Rebuild polyfill (ensure dist in sync)
+        run: |
+          npm --prefix polyfill run build
+
+      - name: Configure (Release, real-libuv CLI)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQWRT_BUILD_TESTS=OFF \
+            -DQWRT_WITH_TLS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Benchmark serve() with wrk
+        run: |
+          python3 test/bench_httpserver.py --qwrt-bin ./build/qwrt --duration 5 \
+            | tee /tmp/perf.out
+          python3 - <<'EOF'
+          import json, re, sys
+          txt = open('/tmp/perf.out').read()
+          # last line holds the JSON summary
+          data = json.loads(txt.strip().splitlines()[-1])
+          thresholds = {
+              'tiny':   6300,   # 50% of 12601
+              'small':  1570,   # 50% of 3141
+              'medium': 128,    # 50% of 256
+              'post':   5265,   # 50% of 10530
+          }
+          failed = []
+          for name, thr in thresholds.items():
+              rps = data.get(name, {}).get('rps') or 0
+              print('%s rps=%.0f (threshold %.0f) %s' % (
+                  name, rps, thr, 'OK' if rps >= thr else 'LOW'))
+              if rps < thr:
+                  failed.append('%s=%.0f<thr=%.0f' % (name, rps, thr))
+              if data.get(name, {}).get('errors', 0) > 0:
+                  failed.append('%s-errors=%d' % (name, data[name]['errors']))
+          if failed:
+              print('PERF-REGRESSION: ' + ', '.join(failed))
+              sys.exit(1)
+          print('PERF-OK')
+          EOF
 
   # ============================================================================
   # Coverage: gcov with WAMR default engine.
