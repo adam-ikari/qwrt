@@ -97,7 +97,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| F1 | CI 全绿 | 消除 SKIP（gzip）；feature-matrix 覆盖新能力；ASan/UBSan 重点跑 fs/ws/tls。 | CI 状态 |
+| F1 | CI 全绿 ✅(本地) | 消除 SKIP（gzip）✅；feature-matrix / ASan / UBSan 待 push 后 CI 确认。 | CI 状态 |
 | F2 | 覆盖率 | fs / tls / ws / worker 路径补测。 | coverage 报告 |
 | F3 | 启动/内存 | 引擎预热、上下文复用、大文件零拷贝评估。 | 基准 |
 | F4 | 安全审计 | 路径穿越、消息边界、TLS 证书校验、原型链污染。 | 专项 |
@@ -114,7 +114,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | 里程碑 | 内容 | 节奏 |
 |--------|------|------|
-| M1 | **异步 I/O 回归 + gzip 恢复 + fs 全路径测试**（A1/B1 完成，剩余 F1 收尾） | 1 周 |
+| M1 ✅ | **异步 I/O 回归 + gzip 恢复 + fs 全路径测试**（A1/B1/F1本地完成；CI 待 push 确认） | 1 周 |
 | M2 | HTTP/1.1 细节 + WS 增强 + 流式 body（D1–D4） | 2–4 周 |
 | M3 | fetch 完善 + streams 覆盖 + WASM 流式（B2–B3, C1） | 1–2 月 |
 | M4 | 质量与性能（F 全项）+ 大响应优化（D5） | 持续 |
