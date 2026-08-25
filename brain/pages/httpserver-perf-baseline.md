@@ -5,21 +5,20 @@ category: decision
 status: active
 tags: [httpserver, perf, serve]
 created: "2026-08-24T15:29:31"
-updated: "2026-08-25T05:17:32"
+updated: "2026-08-25T08:16:29"
 ---
 
 <!-- compiled_truth -->
-ROADMAP.md 已从仅 http server 方向扩展为 qwrt 整体项目路线图，覆盖：
-A 运行时核心（异步 IO 回归为 M1 重点）
-B WinterTC 标准合规（21 模块 + gzip e2e 恢复）
-C 原生扩展（WASM AOT/流式、TLS SNI、压缩缓存）
-D 服务端能力（HTTP/1.1 细节、WS 增强、大响应性能）
-E 工具链（CLI、REPL）
-F 质量与性能（CI 全绿、覆盖率、安全审计）
-G 生态与文档（API 参考、examples 扩充、打包）
+文件 IO 异步化（M1-A1）完成：
+- fsRead/fsReadBinary 改回异步 uv_io_fs_read；根因修复：uv_fs_read 直接写入 iov 目标缓冲（op->buf），删除多余 memcpy（realloc 后 UAF）
+- 验证：单连接文本/二进制 roundtrip OK；5MB 文件读 + /fast 并发不阻塞；e2e 8 PASS; ctest offline 13/13
 
-架构原则新增：异步优先（所有 I/O 必须异步，阻塞式 fopen 被否决）。
-M1（1 周）：异步文件 I/O 回归 + gzip 恢复 + fs 全路径测试。
+网络 IO 异步确认：
+- libuv uv_read/uv_write 天然异步（listen/accept/read/write 不阻塞事件循环）
+- 验证：2MB 大响应 + /fast 并发，fast 不被阻塞（0.85s 内完成）
+- 边界：TLS 加密（mbedtls_ssl_write）在事件循环线程同步做 CPU AES，但不阻塞等待网络；严格异步化（移线程池）列入 M2
+
+教训：compress gtest 曾有 2 FAILED，干净重建后 13/13 全过——为构建状态不一致假象，非代码回归。
 
 
 ## Timeline
@@ -52,4 +51,10 @@ M1（1 周）：异步文件 I/O 回归 + gzip 恢复 + fs 全路径测试。
   kind: decision
   summary: "ROADMAP.md 重写为整体项目路线图（7 领域 A-G）"
   source: 0289991b
+  affects: [httpserver-perf-baseline]
+
+- time: 2026-08-25T08:16:29
+  kind: decision
+  summary: "M1-A1 文件IO异步化回归完成 + 网络IO异步确认"
+  source: "638810fe + 并发验证"
   affects: [httpserver-perf-baseline]
