@@ -742,10 +742,10 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
         return;
     }
 
-    /* success: copy the bytes BEFORE uv_fs_req_cleanup frees req->bufs[0].base */
-    const char *read_base = req->bufs[0].base;
+    /* success: uv_fs_read wrote the bytes directly into op->buf + op->buf_len
+     * (the iov we passed to libuv). Just advance buf_len — no copy needed;
+     * realloc below preserves the accumulated bytes. */
     uv_fs_req_cleanup(req);
-    /* Append data to buffer */
     size_t new_len = op->buf_len + (size_t)result;
     if (new_len > op->buf_cap) {
         size_t new_cap = op->buf_cap * 2;
@@ -763,7 +763,6 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
         op->buf = new_buf;
         op->buf_cap = new_cap;
     }
-    memcpy(op->buf + op->buf_len, read_base, (size_t)result);
     op->buf_len = new_len;
 
     /* Read more */
