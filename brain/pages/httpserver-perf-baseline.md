@@ -5,21 +5,17 @@ category: decision
 status: active
 tags: [httpserver, perf, serve]
 created: "2026-08-24T15:29:31"
-updated: "2026-08-24T15:39:03"
+updated: "2026-08-25T03:27:40"
 ---
 
 <!-- compiled_truth -->
-纯JS serve() 性能基线 (wrk, 2026-08-24 容器, -c64 -t2, 5s):
-- tiny(8B): 12601 rps / 5.07ms
-- small(1KB): 3141 rps / 20.25ms
-- medium(16KB): 256 rps / 238.27ms ← JS序列化+tcpWrite是瓶颈
-- post(echo): 10530 rps / 13.24ms
+现状: pal.fsRead / pal.fsReadBinary 均改为同步fopen/fread/fclose（返回Promise），完全绕过uv_io_fs_read的UAF/bug。uv_io_fs_read_cb的UAF已修复但仍未使用（死代码保留）。
 
-对比 uvhttp C实现旧数据: 100KB响应3378 rps。纯JS在16KB已掉到256 rps——大响应场景JS层开销显著，但serve()定位是WinterCG合规便利API非性能服务。
+binary响应: http-server.js sendResponse 中 ArrayBuffer/Uint8Array body 直写buildHTTPResponse（不走string round-trip），二进制字节完整。
 
-TLS: pal.tcpListen第5参数{cert,key}走mbedTLS服务器端握手 (6e9c36b3)，test_https已恢复。
+e2e: test_file_response 替代 test_static_files，handler用qwrt.fs.readFileBinary读HTML+二进制文件。8/9 PASS, 1 skip(gzip)。
 
-CI回归守卫: .github/workflows/ci.yml httpserver-perf job, 阈值=基线50%。
+todo: 文本版pal.fsExists/fsList/fsRemove/fsWrite仍用uv_io_*异步路径（未测试；若有bug可同样改为sync）。
 
 
 ## Timeline
@@ -34,4 +30,10 @@ CI回归守卫: .github/workflows/ci.yml httpserver-perf job, 阈值=基线50%�
   kind: decision
   summary: "纯JS serve() 性能基线与CI回归守卫"
   source: "test/bench_httpserver.py + ci.yml e1d6e2fa"
+  affects: [httpserver-perf-baseline]
+
+- time: 2026-08-25T03:27:40
+  kind: decision
+  summary: "fsReadBinary + HTML文件支持（同步路径绕过uv_io_fs_read bug）"
+  source: 2aa39130
   affects: [httpserver-perf-baseline]
