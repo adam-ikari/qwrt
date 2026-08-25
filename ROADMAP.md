@@ -41,7 +41,9 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 1. **能力原语 vs 协议策略**：C 层只给监听/回复、文件、压缩、加密等原语；
    路由、缓存、压缩策略、静态映射一律在应用层（JS）实现。
 2. **异步优先**：所有 I/O（文件、网络、定时器）必须异步，绝不在事件循环上
-   做阻塞式 fopen/fread。这是硬约束（文件 I/O 回归异步是当前待办）。
+   做阻塞式 fopen/fread。这是硬约束（文件 I/O 回归异步已完成；网络 I/O 基于
+   libuv 的 uv_read/uv_write 天然异步，2MB 大响应与快速请求并发验证不互相
+   阻塞。TLS 加密为 mbedTLS 同步 CPU 操作（不阻塞等网络），需严格异步化列入 M2）。
 3. **质量门槛**：任何提交必须 gtest + e2e 全绿；性能改动附基准；asan/ubsan 清零。
 4. **可回滚**：大方向变更走独立分支，验证后合入 master。
 5. **决策入脑**：取舍写入 `brain/`（Project Brain）。
@@ -52,7 +54,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| A1 | **异步文件 I/O 回归** | `fsRead/fsReadBinary` 曾为绕开 bug 改同步 fopen——**必须改回异步**。修复 `uv_io_fs_read` 根因（数据已由 `uv_fs_read` 写入 iov 目标缓冲，删除多余 memcpy / UAF）。`fsExists/fsList/fsRemove/fsWrite` 同步化验证或改异步。 | 多连接并发读文件不阻塞事件循环；e2e fs 往返；ASan |
+| A1 | **异步文件 I/O 回归** ✅ | `fsRead/fsReadBinary` 已改回异步（`uv_io_fs_read`），修复根因（`uv_fs_read` 直接写入 iov 目标缓冲，删除多余 memcpy / UAF）。`fsExists/fsList/fsRemove/fsWrite` 走 `uv_io_*` 异步原语，补测试即可。 | 多连接并发读文件不阻塞事件循环；e2e fs 往返；ctest offline 13/13 |
 | A2 | 多上下文 / Worker 健壮性 | 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖。 | gtest + 压力 |
 | A3 | 引擎升级跟进 | QuickJS-ng 上游合并策略（小补丁 diff 管理）。 | test262 通过率 |
 | A4 | DAP 调试器完善 | `debugger_dap.c` TODO：uv_run 轮询超时驱动；多上下文断点。 | 集成测试 |
