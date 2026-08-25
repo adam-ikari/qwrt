@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>qwrt HTTP Server Example</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="card">
+  <h1>qwrt HTTP Server</h1>
+  <p class="sub">基于 qwrt 能力搭建的完整 HTTP 服务器（应用层实现）</p>
+
+  <section>
+    <h2>功能演示</h2>
+    <ul>
+      <li><b>路由</b>：<code>/api/hello</code>、<code>/api/echo</code>（POST）、<code>/api/cache</code></li>
+      <li><b>静态文件</b>：本页面 + <code>/style.css</code> + <code>/app.js</code></li>
+      <li><b>缓存</b>：内存 LRU + ETag 协商（刷新看 304）</li>
+      <li><b>压缩</b>：本 HTML 超过 1KB，接受 gzip 的客户端会收到 <code>Content-Encoding: gzip</code></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>API 测试</h2>
+    <div class="row">
+      <button id="btn-hello">GET /api/hello</button>
+      <button id="btn-echo">POST /api/echo</button>
+      <button id="btn-cache">GET /api/cache</button>
+    </div>
+    <pre id="out">点击按钮查看响应…</pre>
+  </section>
+
+  <p class="foot">
+    服务器由 qwrt 运行时托管：<code>serve()</code> 提供监听/回复，
+    路由、缓存、压缩逻辑全部在本仓库 <code>examples/httpserver/server.js</code> 中。
+  </p>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
+<!-- padding to exceed GZIP_MIN (1024) so this page gets gzip-compressed -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+<!-- qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt qwrt -->
+</html>
