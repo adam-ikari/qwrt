@@ -1968,6 +1968,10 @@
         }
         return data;
       },
+      /* Binary-safe read: resolves with an ArrayBuffer of the raw bytes. */
+      async readFileBinary(path) {
+        return await pal2.fsReadBinary(path);
+      },
       async writeFile(path, data, options) {
         await pal2.fsWrite(path, typeof data === "string" ? data : String(data));
       },
@@ -3573,26 +3577,28 @@
                 hdrs[k] = String(val.headers[k]);
             }
           }
-          var bodyStr = "";
           var b = val._body;
-          if (typeof b === "string") bodyStr = b;
-          else if (b instanceof ArrayBuffer) bodyStr = new TextDecoder().decode(new Uint8Array(b));
-          else if (b && typeof b === "object" && !(b instanceof Uint8Array)) {
+          var b2;
+          if (b instanceof ArrayBuffer) {
+            b2 = new Uint8Array(b);
+          } else if (typeof b === "string") {
+            b2 = enc.encode(b);
+          } else if (b instanceof Uint8Array) {
+            b2 = b;
+          } else if (b && typeof b === "object" && !(b instanceof Uint8Array)) {
             try {
-              bodyStr = String(b);
+              b2 = enc.encode(String(b));
             } catch (e) {
             }
-          } else if (b instanceof Uint8Array) {
-            bodyStr = new TextDecoder().decode(b);
           }
-          if (!bodyStr && typeof val.text === "function") {
+          if (!b2 && typeof val.text === "function") {
             try {
               var t = val.text();
-              if (typeof t === "string") bodyStr = t;
+              if (typeof t === "string") b2 = enc.encode(t);
             } catch (e) {
             }
           }
-          var b2 = enc.encode(bodyStr);
+          if (!b2) b2 = enc.encode("");
           hdrs["Content-Length"] = "" + b2.length;
           if (!hdrs["Connection"]) hdrs["Connection"] = "keep-alive";
           pal2.tcpWrite(conn, buildHTTPResponse(st, stText, hdrs, b2));

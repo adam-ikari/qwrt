@@ -38,6 +38,7 @@ static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int arg
 static JSValue js_pal_http_request(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_fs_read_binary(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_write(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_exists(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
@@ -709,14 +710,6 @@ static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
-    if (!rt) {
-        return JS_ThrowTypeError(ctx, "pal.fs_read not available");
-    }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
-    if (!cctx) {
-        return JS_ThrowTypeError(ctx, "pal.fs_read not available");
-    }
     if (argc < 1) {
         return JS_ThrowTypeError(ctx, "fs_read requires path argument");
     }
@@ -737,17 +730,133 @@ static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, J
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
-    if (!cbd) {
-        JS_FreeValue(ctx, resolving_funcs[0]);
-        JS_FreeValue(ctx, resolving_funcs[1]);
+    /* Synchronous fopen/fread/fclose — the async uv_io_fs_read path has
+     * UAF/cleanup bugs (uv_fs_read offset=-1 interplay). Resolve the
+     * promise synchronously; the .then microtask runs on the next
+     * qwrt_flush_microtasks cycle. */
+    FILE *f = fopen(path, "rb");
+    if (!f) {
         JS_FreeCString(ctx, path);
-        return JS_ThrowOutOfMemory(ctx);
+        JSValue err = JS_NewString(ctx, "fs_read: open failed");
+        JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &err);
+        JS_FreeValue(ctx, err);
+        return promise;
+    }
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    if (len < 0) {
+        fclose(f);
+        JS_FreeCString(ctx, path);
+        JSValue err = JS_NewString(ctx, "fs_read: ftell failed");
+        JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &err);
+        JS_FreeValue(ctx, err);
+        return promise;
+    }
+    rewind(f);
+
+    char *buf = (char *)malloc((size_t)len > 0 ? (size_t)len : 1);
+    if (!buf) {
+        fclose(f);
+        JS_FreeCString(ctx, path);
+        JSValue err = JS_NewString(ctx, "fs_read: OOM");
+        JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &err);
+        JS_FreeValue(ctx, err);
+        return promise;
     }
 
-    uv_io_fs_read(rt, path, bridge_io_done, cbd);
-
+    size_t got = fread(buf, 1, (size_t)len, f);
+    fclose(f);
     JS_FreeCString(ctx, path);
+
+    JSValue result = JS_NewStringLen(ctx, buf, got);
+    free(buf);
+
+    if (!JS_IsException(result)) {
+        JS_Call(ctx, resolving_funcs[0], JS_UNDEFINED, 1, &result);
+        JS_FreeValue(ctx, result);
+    } else {
+        JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &result);
+        JS_FreeValue(ctx, result);
+    }
+
+    return promise;
+}
+
+/* fsReadBinary(path) -> Promise<ArrayBuffer>
+ * Synchronous fopen/fread/fclose in the C callback — avoids the
+ * uv_io_fs_read async path which has UAF / cleanup bugs (the uv_fs_read
+ * offset=-1 and uv_fs_req_cleanup interplay is fragile).
+ * The promise is resolved synchronously; microtask (.then) runs in the
+ * next qwrt_flush_microtasks cycle. */
+static JSValue js_pal_fs_read_binary(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    if (argc < 1) {
+        return JS_ThrowTypeError(ctx, "fs_read_binary requires path argument");
+    }
+
+    const char *path = JS_ToCString(ctx, argv[0]);
+    if (!path) {
+        return JS_EXCEPTION;
+    }
+    if (!bridge_validate_path(path)) {
+        JS_FreeCString(ctx, path);
+        return JS_ThrowTypeError(ctx, "Path traversal detected");
+    }
+
+    JSValue resolving_funcs[2];
+    JSValue promise = JS_NewPromiseCapability(ctx, resolving_funcs);
+    if (JS_IsException(promise)) {
+        JS_FreeCString(ctx, path);
+        return JS_EXCEPTION;
+    }
+
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        JS_FreeCString(ctx, path);
+        JSValue err = JS_NewString(ctx, "fs_read_binary: open failed");
+        JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &err);
+        JS_FreeValue(ctx, err);
+        return promise;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    if (len < 0) {
+        fclose(f);
+        JS_FreeCString(ctx, path);
+        JSValue err = JS_NewString(ctx, "fs_read_binary: ftell failed");
+        JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &err);
+        JS_FreeValue(ctx, err);
+        return promise;
+    }
+    rewind(f);
+
+    char *buf = (char *)malloc((size_t)len > 0 ? (size_t)len : 1);
+    if (!buf) {
+        fclose(f);
+        JS_FreeCString(ctx, path);
+        JSValue err = JS_NewString(ctx, "fs_read_binary: OOM");
+        JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &err);
+        JS_FreeValue(ctx, err);
+        return promise;
+    }
+
+    size_t got = fread(buf, 1, (size_t)len, f);
+    fclose(f);
+    JS_FreeCString(ctx, path);
+
+    JSValue result = JS_NewArrayBufferCopy(ctx, (const uint8_t *)buf, got);
+    free(buf);
+
+    if (!JS_IsException(result)) {
+        JS_Call(ctx, resolving_funcs[0], JS_UNDEFINED, 1, &result);
+        JS_FreeValue(ctx, result);
+    } else {
+        JS_Call(ctx, resolving_funcs[1], JS_UNDEFINED, 1, &result);
+        JS_FreeValue(ctx, result);
+    }
+
     return promise;
 }
 
@@ -1478,6 +1587,7 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
     JS_SetPropertyStr(jsctx, pal, "httpRequest", JS_NewCFunction(jsctx, js_pal_http_request, "httpRequest", 4));
     JS_SetPropertyStr(jsctx, pal, "httpRequestStream", JS_NewCFunction(jsctx, js_pal_http_request_stream, "httpRequestStream", 7));
     JS_SetPropertyStr(jsctx, pal, "fsRead", JS_NewCFunction(jsctx, js_pal_fs_read, "fsRead", 1));
+    JS_SetPropertyStr(jsctx, pal, "fsReadBinary", JS_NewCFunction(jsctx, js_pal_fs_read_binary, "fsReadBinary", 1));
     JS_SetPropertyStr(jsctx, pal, "fsReadSync", JS_NewCFunction(jsctx, js_pal_fs_read_sync, "fsReadSync", 1));
     JS_SetPropertyStr(jsctx, pal, "fsWrite", JS_NewCFunction(jsctx, js_pal_fs_write, "fsWrite", 2));
     JS_SetPropertyStr(jsctx, pal, "fsExists", JS_NewCFunction(jsctx, js_pal_fs_exists, "fsExists", 1));

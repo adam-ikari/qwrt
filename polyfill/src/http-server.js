@@ -392,21 +392,25 @@ export function setupHttpServer(pal) {
               hdrs[k] = String(val.headers[k]);
           }
         }
-        /* Body: _body (string/ArrayBuffer) or text() sync fallback */
-        var bodyStr = '';
+        /* Body: _body (string/ArrayBuffer/Uint8Array) or text() sync fallback.
+         * ArrayBuffer and Uint8Array go straight to buildHTTPResponse as raw bytes
+         * (binary-safe). Strings go through TextEncoder for the rest. */
         var b = val._body;
-        if (typeof b === 'string') bodyStr = b;
-        else if (b instanceof ArrayBuffer) bodyStr = new TextDecoder().decode(new Uint8Array(b));
-        else if (b && typeof b === 'object' && !(b instanceof Uint8Array)) {
-          /* Blob/FormData/URLSearchParams-like: stringify */
-          try { bodyStr = String(b); } catch (e) {}
+        var b2;
+        if (b instanceof ArrayBuffer) {
+          b2 = new Uint8Array(b);
+        } else if (typeof b === 'string') {
+          b2 = enc.encode(b);
         } else if (b instanceof Uint8Array) {
-          bodyStr = new TextDecoder().decode(b);
+          b2 = b;
+        } else if (b && typeof b === 'object' && !(b instanceof Uint8Array)) {
+          /* Blob/FormData/URLSearchParams-like: stringify */
+          try { b2 = enc.encode(String(b)); } catch (e) {}
         }
-        if (!bodyStr && typeof val.text === 'function') {
-          try { var t = val.text(); if (typeof t === 'string') bodyStr = t; } catch (e) {}
+        if (!b2 && typeof val.text === 'function') {
+          try { var t = val.text(); if (typeof t === 'string') b2 = enc.encode(t); } catch (e) {}
         }
-        var b2 = enc.encode(bodyStr);
+        if (!b2) b2 = enc.encode('');
         hdrs['Content-Length'] = '' + b2.length;
         if (!hdrs['Connection']) hdrs['Connection'] = 'keep-alive';
         pal.tcpWrite(conn, buildHTTPResponse(st, stText, hdrs, b2));

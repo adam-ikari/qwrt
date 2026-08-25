@@ -717,9 +717,9 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
 {
     uv_io_fs_op_t *op = (uv_io_fs_op_t *)req->data;
     ssize_t result = req->result;
-    uv_fs_req_cleanup(req);
 
     if (result < 0) {
+        uv_fs_req_cleanup(req);
         /* Read error */
         uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                      uv_io_fs_read_close_cb);
@@ -735,12 +735,16 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
     }
 
     if (result == 0) {
+        uv_fs_req_cleanup(req);
         /* EOF — close file and deliver data */
         uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                      uv_io_fs_read_close_cb);
         return;
     }
 
+    /* success: copy the bytes BEFORE uv_fs_req_cleanup frees req->bufs[0].base */
+    const char *read_base = req->bufs[0].base;
+    uv_fs_req_cleanup(req);
     /* Append data to buffer */
     size_t new_len = op->buf_len + (size_t)result;
     if (new_len > op->buf_cap) {
@@ -759,7 +763,7 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
         op->buf = new_buf;
         op->buf_cap = new_cap;
     }
-    memcpy(op->buf + op->buf_len, op->fs_req.bufs[0].base, (size_t)result);
+    memcpy(op->buf + op->buf_len, read_base, (size_t)result);
     op->buf_len = new_len;
 
     /* Read more */

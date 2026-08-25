@@ -20,6 +20,11 @@ export function setupFS(pal) {
       return data;  // for now, always returns string
     },
 
+    /* Binary-safe read: resolves with an ArrayBuffer of the raw bytes. */
+    async readFileBinary(path) {
+      return await pal.fsReadBinary(path);
+    },
+
     async writeFile(path, data, options) {
       await pal.fsWrite(path, typeof data === 'string' ? data : String(data));
     },

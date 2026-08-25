@@ -190,9 +190,9 @@ class WSClient:
 # ---------------------------------------------------------------------------
 
 SERVER_SCRIPT = r"""
-const srv = serve({%(opts)s}, (req) => {
+const srv = serve({%(opts)s}, async (req) => {
   const u = new URL(req.url, 'http://x');
-  if (u.pathname === '/hello') return 'plain string';
+%(file_routes)s  if (u.pathname === '/hello') return 'plain string';
   if (u.pathname === '/json')
     return new Response(JSON.stringify({ok: 1}), {status: 201,
       headers: {'Content-Type': 'application/json'}});
@@ -210,8 +210,21 @@ const srv = serve({%(opts)s}, (req) => {
 });
 """
 
-def gen_server_script(port, static_root=None, tls=False):
+def gen_server_script(port, static_root=None, tls=False, file_root=None):
     opts = "port: %d" % port
+    file_routes = ""
+    if file_root:
+        # app-layer file serving: handler reads files via qwrt.fs.readFileBinary
+        file_routes = (
+            "  if (req.url === '/' || req.url === '/index.html') {"
+            "    return new Response(await qwrt.fs.readFileBinary(%r),"
+            "      {headers: {'Content-Type': 'text/html'}});}\n"
+            "  if (req.url === '/data.bin') {"
+            "    return new Response(await qwrt.fs.readFileBinary(%r),"
+            "      {headers: {'Content-Type': 'application/octet-stream'}});}\n"
+            % (os.path.join(file_root, "index.html"),
+               os.path.join(file_root, "data.bin"))
+        )
     if static_root:
         opts += ', static: {root: %r, index: "index.html"}' % static_root
     if tls:
@@ -227,7 +240,7 @@ def gen_server_script(port, static_root=None, tls=False):
         opts += ', tls: {cert: %r, key: %r}' % (cert, key)
     # ws endpoints live on port+1 — single serve() call (a second one throws)
     opts += ', ws: {"/echo": (ws) => { ws.onmessage = (e) => ws.send("echo:" + e.data); }}'
-    return SERVER_SCRIPT % {"opts": opts}
+    return SERVER_SCRIPT % {"opts": opts, "file_routes": file_routes}
 
 class QwrtServer:
     """Starts the qwrt CLI hosting serve(); kills it on exit."""
@@ -359,27 +372,27 @@ def test_gzip_compression(qwrt_bin):
         srv.stop()
 
 # ---------------------------------------------------------------------------
-# static files
+# file response (app-layer: handler reads files via qwrt.fs.readFileBinary)
 # ---------------------------------------------------------------------------
 
 @test
-@unittest.skip("static file serving removed with uvhttp")
-def test_static_files(qwrt_bin):
+def test_file_response(qwrt_bin):
     with tempfile.TemporaryDirectory() as root:
         with open(os.path.join(root, "index.html"), "w") as f:
             f.write("<h1>static ok</h1>")
         with open(os.path.join(root, "data.bin"), "wb") as f:
             f.write(b"\x00\x01\x02binary")
         p = free_port()
-        srv = QwrtServer(gen_server_script(p, static_root=root), qwrt_bin)
+        srv = QwrtServer(gen_server_script(p, file_root=root), qwrt_bin)
         try:
             srv.wait_port(p)
             st, hdrs, body = raw_request(p, "GET", "/")
             assert st == 200 and body == b"<h1>static ok</h1>", (st, body)
+            assert raw_http_headers(hdrs, "Content-Type") == "text/html"
             st, hdrs, body = raw_request(p, "GET", "/data.bin")
             assert st == 200 and body == b"\x00\x01\x02binary", (st, body)
             st, _, _ = raw_request(p, "GET", "/missing.bin")
-            assert st in (404, 500), st
+            assert st == 404, st
         finally:
             srv.stop()
 
