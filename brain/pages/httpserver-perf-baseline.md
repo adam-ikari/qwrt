@@ -5,20 +5,20 @@ category: decision
 status: active
 tags: [httpserver, perf, serve]
 created: "2026-08-24T15:29:31"
-updated: "2026-08-25T08:16:29"
+updated: "2026-08-25T08:50:05"
 ---
 
 <!-- compiled_truth -->
-文件 IO 异步化（M1-A1）完成：
-- fsRead/fsReadBinary 改回异步 uv_io_fs_read；根因修复：uv_fs_read 直接写入 iov 目标缓冲（op->buf），删除多余 memcpy（realloc 后 UAF）
-- 验证：单连接文本/二进制 roundtrip OK；5MB 文件读 + /fast 并发不阻塞；e2e 8 PASS; ctest offline 13/13
+M1（稳定性夯实）完成：
+- A1 异步文件IO回归 ✅（638810fe）
+- B1 gzip e2e恢复 ✅：改为应用层（handler 用 CompressionStream 压缩 + Content-Encoding: gzip；serve 不自动压缩——符合架构边界）
+- fs 全路径测试 ✅：test_fs_ops（writeFile/exists/readFile/readdir/unlink 异步往返）
+- e2e 10/10 PASS（0 SKIP）；ctest offline 13/13
 
-网络 IO 异步确认：
-- libuv uv_read/uv_write 天然异步（listen/accept/read/write 不阻塞事件循环）
-- 验证：2MB 大响应 + /fast 并发，fast 不被阻塞（0.85s 内完成）
-- 边界：TLS 加密（mbedtls_ssl_write）在事件循环线程同步做 CPU AES，但不阻塞等待网络；严格异步化（移线程池）列入 M2
-
-教训：compress gtest 曾有 2 FAILED，干净重建后 13/13 全过——为构建状态不一致假象，非代码回归。
+重要洞察：test_compress_gtest 曾误判为代码回归（2 FAILED），根因是：
+1) 另一 worktree(phase4-httpserver-perf) 残留 test_compress_gtest 进程占 CPU
+2) 系统 load >10 导致 host_poll 5s 预算耗尽
+清理残留进程后 18/18 稳定通过——非代码问题。
 
 
 ## Timeline
@@ -57,4 +57,10 @@ updated: "2026-08-25T08:16:29"
   kind: decision
   summary: "M1-A1 文件IO异步化回归完成 + 网络IO异步确认"
   source: "638810fe + 并发验证"
+  affects: [httpserver-perf-baseline]
+
+- time: 2026-08-25T08:50:05
+  kind: decision
+  summary: "M1 完成：gzip e2e恢复 + fs全路径测试"
+  source: "4a95fc0b + ROADMAP"
   affects: [httpserver-perf-baseline]
