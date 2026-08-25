@@ -190,9 +190,28 @@ class WSClient:
 # ---------------------------------------------------------------------------
 
 SERVER_SCRIPT = r"""
+/* app-layer gzip helper (compression strategy belongs to the application) */
+function gzipBytes(data) {
+  return new Promise(function(resolve, reject) {
+    var cs = new CompressionStream('gzip');
+    var writer = cs.writable.getWriter();
+    var reader = cs.readable.getReader();
+    var chunks = []; var total = 0;
+    reader.read().then(function pump(r) {
+      if (r.done) {
+        var out = new Uint8Array(total); var off = 0;
+        for (var i = 0; i < chunks.length; i++) { out.set(chunks[i], off); off += chunks[i].length; }
+        resolve(out); return;
+      }
+      chunks.push(r.value); total += r.value.length;
+      return reader.read().then(pump);
+    }).catch(reject);
+    writer.write(data).then(function(){ return writer.close(); }).catch(reject);
+  });
+}
 const srv = serve({%(opts)s}, async (req) => {
   const u = new URL(req.url, 'http://x');
-%(file_routes)s  if (u.pathname === '/hello') return 'plain string';
+%(file_routes)s%(fs_routes)s  if (u.pathname === '/hello') return 'plain string';
   if (u.pathname === '/json')
     return new Response(JSON.stringify({ok: 1}), {status: 201,
       headers: {'Content-Type': 'application/json'}});
@@ -202,6 +221,10 @@ const srv = serve({%(opts)s}, async (req) => {
     return new Promise((r, j) => setTimeout(() => j(new Error('boom')), 20));
   if (u.pathname === '/badtype') return 42;
   if (u.pathname === '/big') return 'x'.repeat(5000);
+  if (u.pathname === '/gzip')
+    return gzipBytes(new TextEncoder().encode('x'.repeat(5000))).then(function(gz) {
+      return new Response(gz, {headers: {'Content-Encoding': 'gzip'}});
+    });
   if (u.pathname === '/bigresp')
     return new Response('y'.repeat(5000), {headers: {'Content-Type': 'text/html'}});
   if (u.pathname === '/method') return req.method + ':' + (req.body || '');
@@ -210,7 +233,8 @@ const srv = serve({%(opts)s}, async (req) => {
 });
 """
 
-def gen_server_script(port, static_root=None, tls=False, file_root=None):
+def gen_server_script(port, static_root=None, tls=False, file_root=None,
+                     fs_root=None):
     opts = "port: %d" % port
     file_routes = ""
     if file_root:
@@ -227,6 +251,25 @@ def gen_server_script(port, static_root=None, tls=False, file_root=None):
         )
     if static_root:
         opts += ', static: {root: %r, index: "index.html"}' % static_root
+    fs_routes = ""
+    if fs_root:
+        # app-layer fs ops (write/exists/read/readdir/unlink roundtrip)
+        f = os.path.join(fs_root, "f.txt")
+        fs_routes = (
+            "  if (u.pathname === '/fs/write') {"
+            "    return qwrt.fs.writeFile(%r, req.body || '')"
+            "      .then(function(){ return 'written'; });}\n"
+            "  if (u.pathname === '/fs/exists') {"
+            "    return qwrt.fs.exists(%r).then(function(e){ return 'exists:' + e; });}\n"
+            "  if (u.pathname === '/fs/read') {"
+            "    return qwrt.fs.readFile(%r).then(function(d){ return 'read:' + d; });}\n"
+            "  if (u.pathname === '/fs/readdir') {"
+            "    return qwrt.fs.readdir(%r).then(function(list)"
+            "      { return 'list:' + JSON.stringify(list); });}\n"
+            "  if (u.pathname === '/fs/unlink') {"
+            "    return qwrt.fs.unlink(%r).then(function(){ return 'unlinked'; });}\n"
+            % (f, f, f, fs_root, f)
+        )
     if tls:
         # Generate self-signed certs on the fly (openssl required)
         cert = os.path.join(tempfile.gettempdir(), "qwrt_e2e_cert.pem")
@@ -240,7 +283,8 @@ def gen_server_script(port, static_root=None, tls=False, file_root=None):
         opts += ', tls: {cert: %r, key: %r}' % (cert, key)
     # ws endpoints live on port+1 — single serve() call (a second one throws)
     opts += ', ws: {"/echo": (ws) => { ws.onmessage = (e) => ws.send("echo:" + e.data); }}'
-    return SERVER_SCRIPT % {"opts": opts, "file_routes": file_routes}
+    return SERVER_SCRIPT % {"opts": opts, "file_routes": file_routes,
+                           "fs_routes": fs_routes}
 
 class QwrtServer:
     """Starts the qwrt CLI hosting serve(); kills it on exit."""
@@ -346,30 +390,62 @@ def test_methods_roundtrip(qwrt_bin):
         srv.stop()
 
 @test
-@unittest.skip("gzip compression removed with uvhttp")
 def test_gzip_compression(qwrt_bin):
+    """App-layer gzip: handler compresses via CompressionStream and sets
+    Content-Encoding; serve() itself must NOT auto-compress (compression
+    strategy belongs to the application)."""
     p = free_port()
     srv = QwrtServer(gen_server_script(p), qwrt_bin)
     try:
         srv.wait_port(p)
-        st, hdrs, body = raw_request(p, "GET", "/big",
-                                     headers={"Accept-Encoding": "gzip"})
+        # app-layer gzip route: /gzip returns gzip-compressed 5000 x's
+        st, hdrs, body = raw_request(p, "GET", "/gzip")
         assert st == 200
         assert raw_http_headers(hdrs, "Content-Encoding") == "gzip", hdrs
         import gzip
         assert gzip.decompress(body) == b"x" * 5000
 
-        st, hdrs, body = raw_request(p, "GET", "/bigresp",
+        # serve() must NOT auto-compress: /big (no Accept-Encoding handling
+        # built-in) returns the raw body with no Content-Encoding
+        st, hdrs, body = raw_request(p, "GET", "/big",
                                      headers={"Accept-Encoding": "gzip"})
-        assert raw_http_headers(hdrs, "Content-Encoding") == "gzip", hdrs
-        assert gzip.decompress(body) == b"y" * 5000
-
-        # without Accept-Encoding: no gzip
-        st, hdrs, body = raw_request(p, "GET", "/big")
-        assert raw_http_headers(hdrs, "Content-Encoding") is None
+        assert st == 200
+        assert raw_http_headers(hdrs, "Content-Encoding") is None, hdrs
         assert body == b"x" * 5000
     finally:
         srv.stop()
+
+# ---------------------------------------------------------------------------
+# fs ops (app-layer async file system roundtrip: write/exists/read/readdir/unlink)
+# ---------------------------------------------------------------------------
+
+@test
+def test_fs_ops(qwrt_bin):
+    with tempfile.TemporaryDirectory() as root:
+        p = free_port()
+        srv = QwrtServer(gen_server_script(p, fs_root=root), qwrt_bin)
+        try:
+            srv.wait_port(p)
+            # write
+            st, _, body = raw_request(p, "POST", "/fs/write", body="hello fs")
+            assert st == 200 and body == b"written", (st, body)
+            # exists -> true
+            st, _, body = raw_request(p, "GET", "/fs/exists")
+            assert st == 200 and body == b"exists:true", (st, body)
+            # read back
+            st, _, body = raw_request(p, "GET", "/fs/read")
+            assert st == 200 and body == b"read:hello fs", (st, body)
+            # readdir
+            st, _, body = raw_request(p, "GET", "/fs/readdir")
+            assert st == 200 and b"f.txt" in body, (st, body)
+            # unlink
+            st, _, body = raw_request(p, "GET", "/fs/unlink")
+            assert st == 200 and body == b"unlinked", (st, body)
+            # exists -> false
+            st, _, body = raw_request(p, "GET", "/fs/exists")
+            assert st == 200 and body == b"exists:false", (st, body)
+        finally:
+            srv.stop()
 
 # ---------------------------------------------------------------------------
 # file response (app-layer: handler reads files via qwrt.fs.readFileBinary)
