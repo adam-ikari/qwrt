@@ -31,7 +31,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 - mbedTLS（TLS + crypto.subtle）、miniz（compress）、textcodec（UTF-8/Base64）
 
 ### 质量
-- gtest 10 套件 80 绿（mock_libuv 离线确定性）；e2e 8 PASS + 1 SKIP（gzip）
+- gtest（mock_libuv 离线确定性）ctest offline 13/13 全绿；e2e 10 PASS + 0 SKIP
 - CI 12 job：minimal / feature-matrix / wamr / wasm3 / asan / ubsan / release /
   coverage / debugger / test262 / clang-tidy / httpserver-perf
 - 服务端性能基线（wrk，阈值=基线 50%）：tiny 12.6k / small 3.1k / medium(16K) 256 / post 10.5k
@@ -63,7 +63,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| B1 | **恢复 gzip e2e** | `CompressionStream` 已可用，`test_gzip_compression` 取消 SKIP（魔数 + gunzip 往返 + Content-Encoding/Vary）。 | e2e 9/9 |
+| B1 | **恢复 gzip e2e** ✅ | `test_gzip_compression` 已恢复（应用层 handler 用 CompressionStream 压缩 + Content-Encoding；serve 不自动压缩）。 | e2e 10/10 |
 | B2 | fetch 完善 | 重定向、流式 body、上传、代理、AbortSignal 全路径。 | gtest + 集成 |
 | B3 | streams 覆盖 | BYOB 已补齐；补充 backpressure、tee、pipeThrough 边界。 | gtest + WPT 样例 |
 | B4 | 标准缺口盘点 | 对照 WinterCG spec 逐模块勾选；缺项入 gtest。 | 覆盖矩阵 |
@@ -114,7 +114,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | 里程碑 | 内容 | 节奏 |
 |--------|------|------|
-| M1 | **异步 I/O 回归 + gzip 恢复 + fs 全路径测试**（A1, B1, F1 起点） | 1 周 |
+| M1 | **异步 I/O 回归 + gzip 恢复 + fs 全路径测试**（A1/B1 完成，剩余 F1 收尾） | 1 周 |
 | M2 | HTTP/1.1 细节 + WS 增强 + 流式 body（D1–D4） | 2–4 周 |
 | M3 | fetch 完善 + streams 覆盖 + WASM 流式（B2–B3, C1） | 1–2 月 |
 | M4 | 质量与性能（F 全项）+ 大响应优化（D5） | 持续 |
@@ -124,7 +124,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | 里程碑 | gtest | e2e | 额外门槛 |
 |--------|-------|-----|----------|
-| M1 | 全绿 | 9/9 | fs 多连接并发不阻塞；ASan 无 fs 崩溃 |
+| M1 ✅ | 13/13 | 10/10 | fs 多连接并发不阻塞（已验）；ASan 无 fs 崩溃 |
 | M2 | 全绿 | HTTP/1.1+WS 全绿 | wrk 无回退 |
 | M3 | 全绿 | 全绿 | test262 通过率不降 |
 | M4 | 全绿 | 全绿 | asan/ubsan 清零；wrk 大响应显著提升 |
