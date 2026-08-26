@@ -3276,7 +3276,7 @@
       var reqLine = raw.substring(0, idx);
       var parts = reqLine.split(" ");
       if (parts.length < 3) return null;
-      var method = parts[0], path = parts[1];
+      var method = parts[0], path = parts[1], version = parts[2];
       var hdrEnd = raw.indexOf("\r\n\r\n");
       if (hdrEnd < 0) return null;
       var hdrSection = raw.substring(idx + 2, hdrEnd);
@@ -3285,10 +3285,20 @@
         var ci = l.indexOf(":");
         if (ci > 0) headers[l.substring(0, ci).toLowerCase()] = l.substring(ci + 1).trim();
       });
-      var body = raw.substring(hdrEnd + 4);
+      var bodyStart = hdrEnd + 4;
+      var body = raw.substring(bodyStart);
       var cl = parseInt(headers["content-length"], 10);
-      if (!isNaN(cl) && body.length < cl) return null;
-      return { method, path, headers, body };
+      var consumed = 0;
+      if (!isNaN(cl)) {
+        if (body.length < cl) return null;
+        body = body.substring(0, cl);
+        consumed = bodyStart + cl;
+      } else {
+        consumed = bodyStart + body.length;
+      }
+      var conn = (headers["connection"] || "").toLowerCase();
+      var keepAlive = version !== "HTTP/1.0" && conn !== "close";
+      return { method, path, version, headers, body, keepAlive, consumed };
     }
     function parseWSFrame(buf) {
       if (buf.length < 2) return null;
@@ -3362,6 +3372,7 @@
       if (activeInstance && !activeInstance.closed)
         throw new Error("serve: a server is already running (call srv.close() first)");
       activeInstance = activeServer;
+      var currentKeepAlive = true;
       function WSConnection(conn) {
         this.conn = conn;
         this.state = 0;
@@ -3443,7 +3454,8 @@
           var req = parseRequest(buf);
           if (!req) return;
           var raw = buf;
-          buf = "";
+          buf = raw.substring(req.consumed);
+          currentKeepAlive = req.keepAlive;
           var upgrade = (req.headers["upgrade"] || "").toLowerCase();
           if (upgrade === "websocket") {
             var wsKey = req.headers["sec-websocket-key"];
@@ -3503,7 +3515,8 @@
             pathname,
             search,
             headers: req.headers,
-            body: req.body || ""
+            body: req.body || "",
+            keepAlive: req.keepAlive
           };
           try {
             var result = handler(requestObj);
@@ -3559,8 +3572,9 @@
           pal2.tcpWrite(conn, buildHTTPResponse(200, "OK", {
             "Content-Type": "text/plain; charset=utf-8",
             "Content-Length": "" + b.length,
-            "Connection": "keep-alive"
+            "Connection": currentKeepAlive ? "keep-alive" : "close"
           }, b));
+          if (!currentKeepAlive) pal2.tcpClose(conn);
           return;
         }
         if (typeof val === "object" && val !== null) {
@@ -3600,15 +3614,16 @@
           }
           if (!b2) b2 = enc.encode("");
           hdrs["Content-Length"] = "" + b2.length;
-          if (!hdrs["Connection"]) hdrs["Connection"] = "keep-alive";
+          if (!hdrs["Connection"]) hdrs["Connection"] = currentKeepAlive ? "keep-alive" : "close";
           pal2.tcpWrite(conn, buildHTTPResponse(st, stText, hdrs, b2));
-          return;
+          if (!currentKeepAlive) pal2.tcpClose(conn);
         }
         pal2.tcpWrite(conn, buildHTTPResponse(500, "Internal Server Error", {
           "Content-Type": "text/plain",
           "Content-Length": "0",
           "Connection": "close"
         }, new Uint8Array(0)));
+        pal2.tcpClose(conn);
       }
       var listener;
       var tls = options.tls;

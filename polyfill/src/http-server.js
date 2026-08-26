@@ -96,7 +96,7 @@ export function setupHttpServer(pal) {
     var reqLine = raw.substring(0, idx);
     var parts = reqLine.split(' ');
     if (parts.length < 3) return null;
-    var method = parts[0], path = parts[1];
+    var method = parts[0], path = parts[1], version = parts[2];
     var hdrEnd = raw.indexOf('\r\n\r\n');
     if (hdrEnd < 0) return null;
     var hdrSection = raw.substring(idx + 2, hdrEnd);
@@ -105,10 +105,20 @@ export function setupHttpServer(pal) {
       var ci = l.indexOf(':');
       if (ci > 0) headers[l.substring(0, ci).toLowerCase()] = l.substring(ci + 1).trim();
     });
-    var body = raw.substring(hdrEnd + 4);
+    var bodyStart = hdrEnd + 4;
+    var body = raw.substring(bodyStart);
     var cl = parseInt(headers['content-length'], 10);
-    if (!isNaN(cl) && body.length < cl) return null;  // incomplete
-    return { method: method, path: path, headers: headers, body: body };
+    var consumed = 0;
+    if (!isNaN(cl)) {
+      if (body.length < cl) return null;  // incomplete — wait for more
+      body = body.substring(0, cl);
+      consumed = bodyStart + cl;
+    } else {
+      consumed = bodyStart + body.length;
+    }
+    var conn = (headers['connection'] || '').toLowerCase();
+    var keepAlive = version !== 'HTTP/1.0' && conn !== 'close';
+    return { method: method, path: path, version: version, headers: headers, body: body, keepAlive: keepAlive, consumed: consumed };
   }
 
   /* ── WS frame parser (server side: client→server frames are MASKED) ── */
@@ -193,6 +203,7 @@ export function setupHttpServer(pal) {
     activeInstance = activeServer;
 
     /* ── WS connection ── */
+    var currentKeepAlive = true;
     function WSConnection(conn) {
       this.conn = conn;
       this.state = 0;  // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
@@ -278,7 +289,9 @@ export function setupHttpServer(pal) {
         var req = parseRequest(buf);
         if (!req) return;  // wait for more data
         var raw = buf;
-        buf = '';
+        /* keep any pipelined remainder for the next request (keep-alive) */
+        buf = raw.substring(req.consumed);
+        currentKeepAlive = req.keepAlive;
 
         /* ── WebSocket upgrade ── */
         var upgrade = (req.headers['upgrade'] || '').toLowerCase();
@@ -328,7 +341,8 @@ export function setupHttpServer(pal) {
           pathname: pathname,
           search: search,
           headers: req.headers,
-          body: req.body || ''
+          body: req.body || '',
+          keepAlive: req.keepAlive
         };
 
         try {
@@ -375,8 +389,9 @@ export function setupHttpServer(pal) {
         pal.tcpWrite(conn, buildHTTPResponse(200, 'OK', {
           'Content-Type': 'text/plain; charset=utf-8',
           'Content-Length': '' + b.length,
-          'Connection': 'keep-alive'
+          'Connection': currentKeepAlive ? 'keep-alive' : 'close'
         }, b));
+        if (!currentKeepAlive) pal.tcpClose(conn);
         return;
       }
 
@@ -412,9 +427,9 @@ export function setupHttpServer(pal) {
         }
         if (!b2) b2 = enc.encode('');
         hdrs['Content-Length'] = '' + b2.length;
-        if (!hdrs['Connection']) hdrs['Connection'] = 'keep-alive';
+        if (!hdrs['Connection']) hdrs['Connection'] = currentKeepAlive ? 'keep-alive' : 'close';
         pal.tcpWrite(conn, buildHTTPResponse(st, stText, hdrs, b2));
-        return;
+        if (!currentKeepAlive) pal.tcpClose(conn);
       }
 
       /* Numbers, booleans, etc. are invalid handler results */
@@ -423,6 +438,7 @@ export function setupHttpServer(pal) {
         'Content-Length': '0',
         'Connection': 'close'
       }, new Uint8Array(0)));
+      pal.tcpClose(conn);
     }
 
     var listener;

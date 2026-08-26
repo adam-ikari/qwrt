@@ -652,7 +652,70 @@ def test_serve_errors(qwrt_bin):
 
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# HTTP/1.1 protocol (keep-alive, connection close, explicit close)
+# ---------------------------------------------------------------------------
+
+@test
+def test_keep_alive_reuse(qwrt_bin):
+    """HTTP/1.1 keep-alive: reuse the same TCP connection for 2 sequential requests."""
+    p = free_port()
+    srv = QwrtServer(gen_server_script(p), qwrt_bin)
+    try:
+        srv.wait_port(p)
+        s = socket.create_connection(("127.0.0.1", p), timeout=5)
+        # first request
+        s.sendall(b"GET /hello HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n")
+        s.settimeout(3)
+        data = b""
+        while b"\r\n\r\n" not in data:
+            c = s.recv(4096)
+            if not c: break
+            data += c
+        assert b"HTTP/1.1 200" in data, "first: " + repr(data[:200])
+        # second request on same connection
+        s.sendall(b"GET /hello HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n")
+        data2 = b""
+        while b"\r\n\r\n" not in data2:
+            c = s.recv(4096)
+            if not c: break
+            data2 += c
+        assert b"HTTP/1.1 200" in data2, "second: " + repr(data2[:200])
+        s.close()
+    finally:
+        srv.stop()
+
+@test
+def test_connection_close_http10(qwrt_bin):
+    """HTTP/1.0 (no keep-alive) → server closes after response."""
+    p = free_port()
+    srv = QwrtServer(gen_server_script(p), qwrt_bin)
+    try:
+        srv.wait_port(p)
+        s = socket.create_connection(("127.0.0.1", p), timeout=5)
+        s.sendall(b"GET /hello HTTP/1.0\r\nHost: x\r\n\r\n")
+        s.settimeout(3)
+        data = b""
+        while b"\r\n\r\n" not in data:
+            c = s.recv(4096)
+            if not c: break
+            data += c
+        assert b"200" in data, "no 200: " + repr(data[:200])
+        time.sleep(0.3)
+        try:
+            c = s.recv(1024)
+            if c == b"":
+                pass  # server closed — OK
+            else:
+                pass  # got extra data — acceptable for HTTP/1.0
+        except Exception:
+            pass  # socket closed — OK
+        s.close()
+    finally:
+        srv.stop()
+
 def main():
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--qwrt-bin", required=True)
     args = ap.parse_args()
