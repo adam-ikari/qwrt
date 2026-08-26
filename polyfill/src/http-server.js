@@ -89,36 +89,66 @@ export function setupHttpServer(pal) {
     return b64encode(sha1Bytes(raw));
   }
 
-  /* ── HTTP request parser ── */
-  function parseRequest(raw) {
-    var idx = raw.indexOf('\r\n');
+  /* ── HTTP request parser (header-only; body delivered as a stream) ──
+   * headerStr is the decoded header section WITHOUT the trailing \r\n\r\n.
+   * The body never round-trips through a string: raw bytes are fed straight
+   * into the body ReadableStream, so binary bodies are preserved. */
+  function parseRequest(headerStr) {
+    var idx = headerStr.indexOf('\r\n');
     if (idx < 0) return null;
-    var reqLine = raw.substring(0, idx);
+    var reqLine = headerStr.substring(0, idx);
     var parts = reqLine.split(' ');
     if (parts.length < 3) return null;
     var method = parts[0], path = parts[1], version = parts[2];
-    var hdrEnd = raw.indexOf('\r\n\r\n');
-    if (hdrEnd < 0) return null;
-    var hdrSection = raw.substring(idx + 2, hdrEnd);
     var headers = {};
-    hdrSection.split('\r\n').forEach(function(l) {
+    headerStr.substring(idx + 2).split('\r\n').forEach(function(l) {
       var ci = l.indexOf(':');
       if (ci > 0) headers[l.substring(0, ci).toLowerCase()] = l.substring(ci + 1).trim();
     });
-    var bodyStart = hdrEnd + 4;
-    var body = raw.substring(bodyStart);
     var cl = parseInt(headers['content-length'], 10);
-    var consumed = 0;
-    if (!isNaN(cl)) {
-      if (body.length < cl) return null;  // incomplete — wait for more
-      body = body.substring(0, cl);
-      consumed = bodyStart + cl;
-    } else {
-      consumed = bodyStart + body.length;
-    }
+    var contentLength = isNaN(cl) ? 0 : cl;
     var conn = (headers['connection'] || '').toLowerCase();
     var keepAlive = version !== 'HTTP/1.0' && conn !== 'close';
-    return { method: method, path: path, version: version, headers: headers, body: body, keepAlive: keepAlive, consumed: consumed };
+    return {
+      method: method, path: path, version: version, headers: headers,
+      keepAlive: keepAlive,
+      contentLength: contentLength
+    };
+  }
+
+  function concatBytes(a, b) {
+    var out = new Uint8Array(a.length + b.length);
+    out.set(a, 0);
+    out.set(b, a.length);
+    return out;
+  }
+
+  /* index of the \r\n\r\n header terminator in raw bytes, or -1 */
+  function indexOfHdrEnd(bytes) {
+    for (var i = 0; i + 3 < bytes.length; i++)
+      if (bytes[i] === 13 && bytes[i + 1] === 10 &&
+          bytes[i + 2] === 13 && bytes[i + 3] === 10) return i;
+    return -1;
+  }
+
+  /* Read a ReadableStream to completion, returning all bytes as one Uint8Array. */
+  function streamToBytes(stream) {
+    if (!stream) return Promise.resolve(new Uint8Array(0));
+    var reader = stream.getReader();
+    var chunks = [];
+    var total = 0;
+    function pump(r) {
+      if (r.done) {
+        var out = new Uint8Array(total);
+        var off = 0;
+        for (var i = 0; i < chunks.length; i++) { out.set(chunks[i], off); off += chunks[i].length; }
+        return out;
+      }
+      chunks.push(r.value);
+      total += r.value.length;
+      return reader.read().then(pump);
+    }
+    return reader.read().then(pump);
   }
 
   /* ── WS frame parser (server side: client→server frames are MASKED) ── */
@@ -308,13 +338,14 @@ export function setupHttpServer(pal) {
     }
 
     function handleConnection(conn) {
-      var buf = '';
+      var raw = new Uint8Array(0);  // unparsed raw bytes (header + leftover body/requests)
       var ws = null;
       var idleTimer = null;
+      var bodyState = null;  // {controller, remaining, received} of the in-flight request body
       conns.push(conn);
 
       function resetIdle() {
-        if (idleTimer) clearTimeout(idleTimer);
+        clearTimeout(idleTimer);
         if (idleTimeout > 0 && !ws) {
           idleTimer = setTimeout(function() {
             pal.tcpClose(conn);
@@ -327,110 +358,174 @@ export function setupHttpServer(pal) {
           ws._processWSData(data);
           return;
         }
+        data = data instanceof Uint8Array ? data : new Uint8Array(data);
         resetIdle();
 
-        buf += new TextDecoder().decode(data);
-        var req = parseRequest(buf);
-        if (!req) return;  // wait for more data
-        var raw = buf;
-        /* keep any pipelined remainder for the next request (keep-alive) */
-        buf = raw.substring(req.consumed);
-        currentKeepAlive = req.keepAlive;
+        if (bodyState) {
+          /* pure body bytes — feed the stream directly (no string round-trip) */
+          var take = Math.min(bodyState.remaining - bodyState.received, data.length);
+          if (take > 0) {
+            bodyState.controller.enqueue(data.subarray(0, take));
+            bodyState.received += take;
+          }
+          if (take < data.length) {
+            /* bytes beyond this body belong to the next request */
+            raw = concatBytes(raw, data.subarray(take));
+          }
+          if (bodyState.received < bodyState.remaining) {
+            return;  // body still streaming — wait for more data
+          }
+          bodyState.controller.close();
+          bodyState = null;
+          /* fall through: body complete — parse any buffered next request */
+        } else {
+          raw = concatBytes(raw, data);
+        }
 
-        /* ── WebSocket upgrade ── */
-        var upgrade = (req.headers['upgrade'] || '').toLowerCase();
-        if (upgrade === 'websocket') {
-          var wsKey = req.headers['sec-websocket-key'];
-          if (!wsKey) {
-            pal.tcpWrite(conn, buildHTTPResponse(400, 'Bad Request',
-              { 'Content-Length': '0', 'Connection': 'close' }, new Uint8Array(0)));
-            return;
-          }
-          var wsHandler = wsRoutes[req.path];
-          if (!wsHandler) {
-            pal.tcpWrite(conn, buildHTTPResponse(404, 'Not Found',
-              { 'Content-Length': '0', 'Connection': 'close' }, new Uint8Array(0)));
-            return;
-          }
+        while (true) {
+          var hdrEnd = indexOfHdrEnd(raw);
+          if (hdrEnd < 0) return;  // header incomplete — wait for more data
+          var headerStr = new TextDecoder().decode(raw.subarray(0, hdrEnd));
+          var req = parseRequest(headerStr);
+          if (!req) return;
+          raw = raw.subarray(hdrEnd + 4);
+          currentKeepAlive = req.keepAlive;
 
-          var accept = wsAccept(wsKey);
-          var respHdrs = {
-            'Upgrade': 'websocket',
-            'Connection': 'Upgrade',
-            'Sec-WebSocket-Accept': accept,
-            'Content-Type': 'text/plain',
-            'Content-Length': '0'
-          };
-          /* subprotocol negotiation: echo the first supported protocol */
-          var reqProtocols = (req.headers['sec-websocket-protocol'] || '')
-            .split(',').map(function(s) { return s.trim(); });
-          var supportedProtocols = null;
-          if (wsHandler && typeof wsHandler === 'object' &&
-              Array.isArray(wsHandler.protocols)) {
-            supportedProtocols = wsHandler.protocols;
-          }
-          if (supportedProtocols && reqProtocols.length) {
-            for (var i = 0; i < reqProtocols.length; i++) {
-              if (supportedProtocols.indexOf(reqProtocols[i]) >= 0) {
-                respHdrs['Sec-WebSocket-Protocol'] = reqProtocols[i];
-                break;
+          /* ── WebSocket upgrade (no body) ── */
+          var upgrade = (req.headers['upgrade'] || '').toLowerCase();
+          if (upgrade === 'websocket') {
+            var wsKey = req.headers['sec-websocket-key'];
+            if (!wsKey) {
+              pal.tcpWrite(conn, buildHTTPResponse(400, 'Bad Request',
+                { 'Content-Length': '0', 'Connection': 'close' }, new Uint8Array(0)));
+              return;
+            }
+            var wsHandler = wsRoutes[req.path];
+            if (!wsHandler) {
+              pal.tcpWrite(conn, buildHTTPResponse(404, 'Not Found',
+                { 'Content-Length': '0', 'Connection': 'close' }, new Uint8Array(0)));
+              return;
+            }
+
+            var accept = wsAccept(wsKey);
+            var respHdrs = {
+              'Upgrade': 'websocket',
+              'Connection': 'Upgrade',
+              'Sec-WebSocket-Accept': accept,
+              'Content-Type': 'text/plain',
+              'Content-Length': '0'
+            };
+            /* subprotocol negotiation: echo the first supported protocol */
+            var reqProtocols = (req.headers['sec-websocket-protocol'] || '')
+              .split(',').map(function(s) { return s.trim(); });
+            var supportedProtocols = null;
+            if (wsHandler && typeof wsHandler === 'object' &&
+                Array.isArray(wsHandler.protocols)) {
+              supportedProtocols = wsHandler.protocols;
+            }
+            if (supportedProtocols && reqProtocols.length) {
+              for (var i = 0; i < reqProtocols.length; i++) {
+                if (supportedProtocols.indexOf(reqProtocols[i]) >= 0) {
+                  respHdrs['Sec-WebSocket-Protocol'] = reqProtocols[i];
+                  break;
+                }
               }
             }
+            pal.tcpWrite(conn, buildHTTPResponse(101, 'Switching Protocols', respHdrs, new Uint8Array(0)));
+
+            var wsRouteFn = typeof wsHandler === 'function' ? wsHandler : wsHandler.handler;
+            ws = new WSConnection(conn);
+            ws.state = 1;
+            clearTimeout(idleTimer);
+            if (typeof wsRouteFn === 'function') {
+              try { wsRouteFn(ws); } catch (e) {}
+            }
+            if (ws.onopen) { try { ws.onopen({}); } catch (e) {} }
+            return;
           }
-          pal.tcpWrite(conn, buildHTTPResponse(101, 'Switching Protocols', respHdrs, new Uint8Array(0)));
 
-          var wsRouteFn = typeof wsHandler === 'function' ? wsHandler : wsHandler.handler;
-          ws = new WSConnection(conn);
-          ws.state = 1;
-          clearTimeout(idleTimer);
-          if (typeof wsRouteFn === 'function') {
-            try { wsRouteFn(ws); } catch (e) {}
+          /* ── Regular HTTP request ── */
+          var pathname = req.path;
+          var qm = pathname.indexOf('?');
+          var search = '';
+          if (qm >= 0) {
+            search = pathname.substring(qm);
+            pathname = pathname.substring(0, qm);
           }
-          if (ws.onopen) { try { ws.onopen({}); } catch (e) {} }
-          return;
-        }
 
-        /* ── Regular HTTP request ── */
-        var pathname = req.path;
-        var qm = pathname.indexOf('?');
-        var search = '';
-        if (qm >= 0) {
-          search = pathname.substring(qm);
-          pathname = pathname.substring(0, qm);
-        }
-        var requestObj = {
-          method: req.method,
-          url: req.path,
-          pathname: pathname,
-          search: search,
-          headers: req.headers,
-          body: req.body || '',
-          keepAlive: req.keepAlive
-        };
-
-        currentResetIdle = resetIdle;
-
-        try {
-          var result = handler(requestObj);
-          if (result && typeof result.then === 'function') {
-            result.then(function(val) { sendResponse(conn, val); },
-                        function() { sendResponse(conn, null, 500, 'Internal Server Error'); });
-          } else {
-            sendResponse(conn, result);
+          /* body: ReadableStream fed from raw bytes (binary-safe) */
+          var bodyStream = null;
+          if (req.contentLength > 0) {
+            var controller;
+            bodyStream = new ReadableStream({ start: function(c) { controller = c; } });
+            bodyState = { controller: controller, remaining: req.contentLength, received: 0 };
+            /* feed body bytes already buffered in raw */
+            var btake = Math.min(bodyState.remaining, raw.length);
+            if (btake > 0) {
+              bodyState.controller.enqueue(raw.subarray(0, btake));
+              raw = raw.subarray(btake);
+              bodyState.received += btake;
+            }
+            if (bodyState.received >= bodyState.remaining) {
+              bodyState.controller.close();
+              bodyState = null;
+            }
           }
-        } catch (e) {
-          sendResponse(conn, null, 500, 'Internal Server Error');
+          var requestObj = {
+            method: req.method,
+            url: req.path,
+            pathname: pathname,
+            search: search,
+            headers: req.headers,
+            body: bodyStream,
+            keepAlive: req.keepAlive
+          };
+          requestObj.text = function() {
+            return streamToBytes(bodyStream).then(function(bytes) {
+              return new TextDecoder().decode(bytes);
+            });
+          };
+          requestObj.arrayBuffer = function() {
+            return streamToBytes(bodyStream).then(function(bytes) {
+              return bytes.buffer;
+            });
+          };
+
+          currentResetIdle = resetIdle;
+
+          try {
+            var result = handler(requestObj);
+            if (result && typeof result.then === 'function') {
+              result.then(function(val) { sendResponse(conn, val); },
+                          function() { sendResponse(conn, null, 500, 'Internal Server Error'); });
+            } else {
+              sendResponse(conn, result);
+            }
+          } catch (e) {
+            sendResponse(conn, null, 500, 'Internal Server Error');
+          }
+
+          if (bodyState) return;  // body still streaming — wait for the remaining data
+          /* no body / body complete — continue parsing buffered requests (pipelining) */
         }
       };
 
       conn.onerror = function(msg) {
         if (ws && ws.onerror) { try { ws.onerror(msg); } catch (e) {} }
+        if (bodyState) {
+          try { bodyState.controller.error(msg); } catch (e) {}
+          bodyState = null;
+        }
       };
 
       conn.onclose = function(code) {
-        if (idleTimer) clearTimeout(idleTimer);
+        clearTimeout(idleTimer);
         var idx = conns.indexOf(conn);
         if (idx >= 0) conns.splice(idx, 1);
+        if (bodyState) {
+          try { bodyState.controller.error(new Error('connection closed')); } catch (e) {}
+          bodyState = null;
+        }
         if (ws && ws.onclose && ws.state < 3) {
           ws.state = 3;
           var ev = { code: code || 1006, reason: '', wasClean: false };

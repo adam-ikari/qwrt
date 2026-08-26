@@ -1513,7 +1513,7 @@
     Request2.prototype.blob = function() {
       return this.text();
     };
-    function ReadableStream(underlyingSource) {
+    function ReadableStream2(underlyingSource) {
       this._reader = null;
       this._locked = false;
       this._controller = {
@@ -1566,7 +1566,7 @@
       this._error = null;
       stream._reader = this;
     }
-    ReadableStream.prototype.getReader = function() {
+    ReadableStream2.prototype.getReader = function() {
       if (this._locked) throw new TypeError("ReadableStream already locked");
       return new ReadableStreamDefaultReader(this);
     };
@@ -1639,7 +1639,7 @@
         if (this._body == null) return null;
         var bodyStr = consumeBody(this._body);
         var arr = stringToUint8Array(bodyStr);
-        return new ReadableStream({
+        return new ReadableStream2({
           start: function(controller) {
             controller.enqueue(arr);
             controller.close();
@@ -1853,7 +1853,7 @@
         });
         return;
       }
-      var readableStream = new ReadableStream({
+      var readableStream = new ReadableStream2({
         start: function(controller) {
           streamController = controller;
         }
@@ -3272,35 +3272,62 @@
       for (var i = 0; i < WS_GUID.length; i++) raw[key.length + i] = WS_GUID.charCodeAt(i);
       return b64encode(sha1Bytes(raw));
     }
-    function parseRequest(raw) {
-      var idx = raw.indexOf("\r\n");
+    function parseRequest(headerStr) {
+      var idx = headerStr.indexOf("\r\n");
       if (idx < 0) return null;
-      var reqLine = raw.substring(0, idx);
+      var reqLine = headerStr.substring(0, idx);
       var parts = reqLine.split(" ");
       if (parts.length < 3) return null;
       var method = parts[0], path = parts[1], version = parts[2];
-      var hdrEnd = raw.indexOf("\r\n\r\n");
-      if (hdrEnd < 0) return null;
-      var hdrSection = raw.substring(idx + 2, hdrEnd);
       var headers = {};
-      hdrSection.split("\r\n").forEach(function(l) {
+      headerStr.substring(idx + 2).split("\r\n").forEach(function(l) {
         var ci = l.indexOf(":");
         if (ci > 0) headers[l.substring(0, ci).toLowerCase()] = l.substring(ci + 1).trim();
       });
-      var bodyStart = hdrEnd + 4;
-      var body = raw.substring(bodyStart);
       var cl = parseInt(headers["content-length"], 10);
-      var consumed = 0;
-      if (!isNaN(cl)) {
-        if (body.length < cl) return null;
-        body = body.substring(0, cl);
-        consumed = bodyStart + cl;
-      } else {
-        consumed = bodyStart + body.length;
-      }
+      var contentLength = isNaN(cl) ? 0 : cl;
       var conn = (headers["connection"] || "").toLowerCase();
       var keepAlive = version !== "HTTP/1.0" && conn !== "close";
-      return { method, path, version, headers, body, keepAlive, consumed };
+      return {
+        method,
+        path,
+        version,
+        headers,
+        keepAlive,
+        contentLength
+      };
+    }
+    function concatBytes(a, b) {
+      var out = new Uint8Array(a.length + b.length);
+      out.set(a, 0);
+      out.set(b, a.length);
+      return out;
+    }
+    function indexOfHdrEnd(bytes) {
+      for (var i = 0; i + 3 < bytes.length; i++)
+        if (bytes[i] === 13 && bytes[i + 1] === 10 && bytes[i + 2] === 13 && bytes[i + 3] === 10) return i;
+      return -1;
+    }
+    function streamToBytes(stream) {
+      if (!stream) return Promise.resolve(new Uint8Array(0));
+      var reader = stream.getReader();
+      var chunks = [];
+      var total = 0;
+      function pump(r) {
+        if (r.done) {
+          var out = new Uint8Array(total);
+          var off = 0;
+          for (var i = 0; i < chunks.length; i++) {
+            out.set(chunks[i], off);
+            off += chunks[i].length;
+          }
+          return out;
+        }
+        chunks.push(r.value);
+        total += r.value.length;
+        return reader.read().then(pump);
+      }
+      return reader.read().then(pump);
     }
     function parseWSFrame(buf) {
       if (buf.length < 2) return null;
@@ -3477,12 +3504,13 @@
         }
       }
       function handleConnection(conn) {
-        var buf = "";
+        var raw = new Uint8Array(0);
         var ws = null;
         var idleTimer = null;
+        var bodyState = null;
         conns.push(conn);
         function resetIdle() {
-          if (idleTimer) clearTimeout(idleTimer);
+          clearTimeout(idleTimer);
           if (idleTimeout > 0 && !ws) {
             idleTimer = setTimeout(function() {
               pal2.tcpClose(conn);
@@ -3494,110 +3522,160 @@
             ws._processWSData(data);
             return;
           }
+          data = data instanceof Uint8Array ? data : new Uint8Array(data);
           resetIdle();
-          buf += new TextDecoder().decode(data);
-          var req = parseRequest(buf);
-          if (!req) return;
-          var raw = buf;
-          buf = raw.substring(req.consumed);
-          currentKeepAlive = req.keepAlive;
-          var upgrade = (req.headers["upgrade"] || "").toLowerCase();
-          if (upgrade === "websocket") {
-            var wsKey = req.headers["sec-websocket-key"];
-            if (!wsKey) {
-              pal2.tcpWrite(conn, buildHTTPResponse(
-                400,
-                "Bad Request",
-                { "Content-Length": "0", "Connection": "close" },
-                new Uint8Array(0)
-              ));
+          if (bodyState) {
+            var take = Math.min(bodyState.remaining - bodyState.received, data.length);
+            if (take > 0) {
+              bodyState.controller.enqueue(data.subarray(0, take));
+              bodyState.received += take;
+            }
+            if (take < data.length) {
+              raw = concatBytes(raw, data.subarray(take));
+            }
+            if (bodyState.received < bodyState.remaining) {
               return;
             }
-            var wsHandler = wsRoutes[req.path];
-            if (!wsHandler) {
-              pal2.tcpWrite(conn, buildHTTPResponse(
-                404,
-                "Not Found",
-                { "Content-Length": "0", "Connection": "close" },
-                new Uint8Array(0)
-              ));
+            bodyState.controller.close();
+            bodyState = null;
+          } else {
+            raw = concatBytes(raw, data);
+          }
+          while (true) {
+            var hdrEnd = indexOfHdrEnd(raw);
+            if (hdrEnd < 0) return;
+            var headerStr = new TextDecoder().decode(raw.subarray(0, hdrEnd));
+            var req = parseRequest(headerStr);
+            if (!req) return;
+            raw = raw.subarray(hdrEnd + 4);
+            currentKeepAlive = req.keepAlive;
+            var upgrade = (req.headers["upgrade"] || "").toLowerCase();
+            if (upgrade === "websocket") {
+              var wsKey = req.headers["sec-websocket-key"];
+              if (!wsKey) {
+                pal2.tcpWrite(conn, buildHTTPResponse(
+                  400,
+                  "Bad Request",
+                  { "Content-Length": "0", "Connection": "close" },
+                  new Uint8Array(0)
+                ));
+                return;
+              }
+              var wsHandler = wsRoutes[req.path];
+              if (!wsHandler) {
+                pal2.tcpWrite(conn, buildHTTPResponse(
+                  404,
+                  "Not Found",
+                  { "Content-Length": "0", "Connection": "close" },
+                  new Uint8Array(0)
+                ));
+                return;
+              }
+              var accept = wsAccept(wsKey);
+              var respHdrs = {
+                "Upgrade": "websocket",
+                "Connection": "Upgrade",
+                "Sec-WebSocket-Accept": accept,
+                "Content-Type": "text/plain",
+                "Content-Length": "0"
+              };
+              var reqProtocols = (req.headers["sec-websocket-protocol"] || "").split(",").map(function(s) {
+                return s.trim();
+              });
+              var supportedProtocols = null;
+              if (wsHandler && typeof wsHandler === "object" && Array.isArray(wsHandler.protocols)) {
+                supportedProtocols = wsHandler.protocols;
+              }
+              if (supportedProtocols && reqProtocols.length) {
+                for (var i = 0; i < reqProtocols.length; i++) {
+                  if (supportedProtocols.indexOf(reqProtocols[i]) >= 0) {
+                    respHdrs["Sec-WebSocket-Protocol"] = reqProtocols[i];
+                    break;
+                  }
+                }
+              }
+              pal2.tcpWrite(conn, buildHTTPResponse(101, "Switching Protocols", respHdrs, new Uint8Array(0)));
+              var wsRouteFn = typeof wsHandler === "function" ? wsHandler : wsHandler.handler;
+              ws = new WSConnection(conn);
+              ws.state = 1;
+              clearTimeout(idleTimer);
+              if (typeof wsRouteFn === "function") {
+                try {
+                  wsRouteFn(ws);
+                } catch (e) {
+                }
+              }
+              if (ws.onopen) {
+                try {
+                  ws.onopen({});
+                } catch (e) {
+                }
+              }
               return;
             }
-            var accept = wsAccept(wsKey);
-            var respHdrs = {
-              "Upgrade": "websocket",
-              "Connection": "Upgrade",
-              "Sec-WebSocket-Accept": accept,
-              "Content-Type": "text/plain",
-              "Content-Length": "0"
+            var pathname = req.path;
+            var qm = pathname.indexOf("?");
+            var search = "";
+            if (qm >= 0) {
+              search = pathname.substring(qm);
+              pathname = pathname.substring(0, qm);
+            }
+            var bodyStream = null;
+            if (req.contentLength > 0) {
+              var controller;
+              bodyStream = new ReadableStream({ start: function(c) {
+                controller = c;
+              } });
+              bodyState = { controller, remaining: req.contentLength, received: 0 };
+              var btake = Math.min(bodyState.remaining, raw.length);
+              if (btake > 0) {
+                bodyState.controller.enqueue(raw.subarray(0, btake));
+                raw = raw.subarray(btake);
+                bodyState.received += btake;
+              }
+              if (bodyState.received >= bodyState.remaining) {
+                bodyState.controller.close();
+                bodyState = null;
+              }
+            }
+            var requestObj = {
+              method: req.method,
+              url: req.path,
+              pathname,
+              search,
+              headers: req.headers,
+              body: bodyStream,
+              keepAlive: req.keepAlive
             };
-            var reqProtocols = (req.headers["sec-websocket-protocol"] || "").split(",").map(function(s) {
-              return s.trim();
-            });
-            var supportedProtocols = null;
-            if (wsHandler && typeof wsHandler === "object" && Array.isArray(wsHandler.protocols)) {
-              supportedProtocols = wsHandler.protocols;
-            }
-            if (supportedProtocols && reqProtocols.length) {
-              for (var i = 0; i < reqProtocols.length; i++) {
-                if (supportedProtocols.indexOf(reqProtocols[i]) >= 0) {
-                  respHdrs["Sec-WebSocket-Protocol"] = reqProtocols[i];
-                  break;
-                }
+            requestObj.text = function() {
+              return streamToBytes(bodyStream).then(function(bytes) {
+                return new TextDecoder().decode(bytes);
+              });
+            };
+            requestObj.arrayBuffer = function() {
+              return streamToBytes(bodyStream).then(function(bytes) {
+                return bytes.buffer;
+              });
+            };
+            currentResetIdle = resetIdle;
+            try {
+              var result = handler(requestObj);
+              if (result && typeof result.then === "function") {
+                result.then(
+                  function(val) {
+                    sendResponse(conn, val);
+                  },
+                  function() {
+                    sendResponse(conn, null, 500, "Internal Server Error");
+                  }
+                );
+              } else {
+                sendResponse(conn, result);
               }
+            } catch (e) {
+              sendResponse(conn, null, 500, "Internal Server Error");
             }
-            pal2.tcpWrite(conn, buildHTTPResponse(101, "Switching Protocols", respHdrs, new Uint8Array(0)));
-            var wsRouteFn = typeof wsHandler === "function" ? wsHandler : wsHandler.handler;
-            ws = new WSConnection(conn);
-            ws.state = 1;
-            clearTimeout(idleTimer);
-            if (typeof wsRouteFn === "function") {
-              try {
-                wsRouteFn(ws);
-              } catch (e) {
-              }
-            }
-            if (ws.onopen) {
-              try {
-                ws.onopen({});
-              } catch (e) {
-              }
-            }
-            return;
-          }
-          var pathname = req.path;
-          var qm = pathname.indexOf("?");
-          var search = "";
-          if (qm >= 0) {
-            search = pathname.substring(qm);
-            pathname = pathname.substring(0, qm);
-          }
-          var requestObj = {
-            method: req.method,
-            url: req.path,
-            pathname,
-            search,
-            headers: req.headers,
-            body: req.body || "",
-            keepAlive: req.keepAlive
-          };
-          currentResetIdle = resetIdle;
-          try {
-            var result = handler(requestObj);
-            if (result && typeof result.then === "function") {
-              result.then(
-                function(val) {
-                  sendResponse(conn, val);
-                },
-                function() {
-                  sendResponse(conn, null, 500, "Internal Server Error");
-                }
-              );
-            } else {
-              sendResponse(conn, result);
-            }
-          } catch (e) {
-            sendResponse(conn, null, 500, "Internal Server Error");
+            if (bodyState) return;
           }
         };
         conn.onerror = function(msg) {
@@ -3607,11 +3685,25 @@
             } catch (e) {
             }
           }
+          if (bodyState) {
+            try {
+              bodyState.controller.error(msg);
+            } catch (e) {
+            }
+            bodyState = null;
+          }
         };
         conn.onclose = function(code) {
-          if (idleTimer) clearTimeout(idleTimer);
+          clearTimeout(idleTimer);
           var idx = conns.indexOf(conn);
           if (idx >= 0) conns.splice(idx, 1);
+          if (bodyState) {
+            try {
+              bodyState.controller.error(new Error("connection closed"));
+            } catch (e) {
+            }
+            bodyState = null;
+          }
           if (ws && ws.onclose && ws.state < 3) {
             ws.state = 3;
             var ev = { code: code || 1006, reason: "", wasClean: false };
@@ -3961,7 +4053,7 @@
         this._stream._notifyReaders();
       }
     }
-    class ReadableStream {
+    class ReadableStream2 {
       constructor(underlyingSource, strategy) {
         underlyingSource = underlyingSource || {};
         this._state = "readable";
@@ -4124,7 +4216,7 @@
           });
         }
         function createBranch(which) {
-          return new ReadableStream({
+          return new ReadableStream2({
             start: function(controller) {
             },
             pull: function(controller) {
@@ -4200,7 +4292,7 @@
     }
     try {
       if (Symbol.asyncIterator) {
-        ReadableStream.prototype[Symbol.asyncIterator] = function() {
+        ReadableStream2.prototype[Symbol.asyncIterator] = function() {
           var reader = this.getReader();
           return {
             next: function() {
@@ -4381,7 +4473,7 @@
         var self = this;
         var readableController;
         var tsController = new TransformStreamDefaultController();
-        self._readable = new ReadableStream({
+        self._readable = new ReadableStream2({
           start: function(c) {
             readableController = c;
             tsController._readableController = c;
@@ -4427,7 +4519,7 @@
         }
         this._format = format;
         var self = this;
-        self._readable = new ReadableStream({
+        self._readable = new ReadableStream2({
           start: function() {
           },
           pull: function() {
@@ -4482,7 +4574,7 @@
         this._format = format;
         var self = this;
         var chunks = [];
-        self._readable = new ReadableStream({
+        self._readable = new ReadableStream2({
           start: function() {
           },
           pull: function() {
@@ -4553,7 +4645,7 @@
       constructor() {
         this.encoding = "utf-8";
         var self = this;
-        self._readable = new ReadableStream({
+        self._readable = new ReadableStream2({
           start: function() {
           },
           pull: function() {
@@ -4591,7 +4683,7 @@
         this.ignoreBOM = options.ignoreBOM || false;
         var decoder = new TextDecoder(label, { fatal: this.fatal, ignoreBOM: this.ignoreBOM });
         var self = this;
-        self._readable = new ReadableStream({
+        self._readable = new ReadableStream2({
           start: function() {
           },
           pull: function() {
@@ -4622,7 +4714,7 @@
         return this._writable;
       }
     }
-    globalThis.ReadableStream = ReadableStream;
+    globalThis.ReadableStream = ReadableStream2;
     globalThis.ReadableStreamDefaultController = ReadableStreamDefaultController;
     globalThis.ReadableStreamDefaultReader = ReadableStreamDefaultReader;
     globalThis.ReadableByteStreamController = ReadableByteStreamController;

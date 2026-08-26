@@ -212,7 +212,7 @@ console.log('  try:  curl http://127.0.0.1:' + PORT + '/');
 console.log('        curl http://127.0.0.1:' + PORT + '/api/hello');
 console.log('        curl -X POST -d "hi" http://127.0.0.1:' + PORT + '/api/echo');
 
-var srv = serve({ port: PORT }, function(req) {
+var srv = serve({ port: PORT }, async function(req) {
   var u = new URL(req.url, 'http://x');
   var pathname = decodeURIComponent(u.pathname);
 
@@ -222,7 +222,7 @@ var srv = serve({ port: PORT }, function(req) {
   }
 
   if (pathname === '/api/echo') {
-    return jsonResponse({ method: req.method, echo: req.body || '' });
+    return jsonResponse({ method: req.method, echo: await req.text() });
   }
 
   if (pathname === '/api/cache') {

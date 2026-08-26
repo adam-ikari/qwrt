@@ -250,7 +250,10 @@ const srv = serve({%(opts)s}, async (req) => {
     });
   if (u.pathname === '/bigresp')
     return new Response('y'.repeat(5000), {headers: {'Content-Type': 'text/html'}});
-  if (u.pathname === '/method') return req.method + ':' + (req.body || '');
+  if (u.pathname === '/method') return req.method + ':' + (await req.text());
+  if (u.pathname === '/bodytype') return 'stream:' + (req.body && typeof req.body.getReader === 'function');
+  if (u.pathname === '/bigbody') return req.text().then(function(t) { return 'len:' + t.length; });
+  if (u.pathname === '/bodybytes') return req.arrayBuffer().then(function(b) { return 'bytes:' + b.byteLength; });
   if (u.pathname === '/close') { srv.close(); return 'closed'; }
   return new Response('nope', {status: 404});
 });
@@ -280,7 +283,7 @@ def gen_server_script(port, static_root=None, tls=False, file_root=None,
         f = os.path.join(fs_root, "f.txt")
         fs_routes = (
             "  if (u.pathname === '/fs/write') {"
-            "    return qwrt.fs.writeFile(%r, req.body || '')"
+            "    return req.text().then(function(t){ return qwrt.fs.writeFile(%r, t); })"
             "      .then(function(){ return 'written'; });}\n"
             "  if (u.pathname === '/fs/exists') {"
             "    return qwrt.fs.exists(%r).then(function(e){ return 'exists:' + e; });}\n"
@@ -414,6 +417,47 @@ def test_methods_roundtrip(qwrt_bin):
             st, _, body = raw_request(p, m, "/method", body=payload)
             assert st == 200, (m, st)
             assert body == ("%s:%s" % (m, payload)).encode(), (m, body)
+    finally:
+        srv.stop()
+
+@test
+def test_streaming_body(qwrt_bin):
+    """D2: request body streams in as ReadableStream (req.body); text()/
+    arrayBuffer() reassemble; handler runs before the body fully arrives."""
+    p = free_port()
+    srv = QwrtServer(gen_server_script(p), qwrt_bin)
+    try:
+        srv.wait_port(p)
+        # req.body is a ReadableStream when a body is present (POST)
+        st, _, body = raw_request(p, "POST", "/bodytype", body="hello")
+        assert st == 200 and b"stream:true" in body, body
+
+        # large body sent in chunks: header first, then 3 TCP segments with
+        # delays — server must feed the body stream incrementally and the
+        # handler must still see the complete text
+        payload = ("y" * 300000) + "TAIL"
+        s = socket.create_connection(("127.0.0.1", p), timeout=5)
+        req = ("POST /bigbody HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n"
+               "Connection: close\r\nContent-Length: %d\r\n\r\n"
+               % (p, len(payload)))
+        s.sendall(req.encode())
+        time.sleep(0.05)  # header reaches the server before any body byte
+        data = payload.encode()
+        for start in range(0, len(data), 100000):
+            s.sendall(data[start:start + 100000])
+            time.sleep(0.02)
+        resp = b""
+        while b"len:" not in resp and len(resp) < 1 << 20:
+            c = s.recv(4096)
+            if not c:
+                break
+            resp += c
+        assert b"len:" + str(len(payload)).encode() in resp, resp[:300]
+
+        # binary body via arrayBuffer()
+        payload = bytes(range(256)) * 100  # 25600 bytes
+        st, _, body = raw_request(p, "POST", "/bodybytes", body=payload)
+        assert st == 200 and b"bytes:25600" in body, body[:200]
     finally:
         srv.stop()
 

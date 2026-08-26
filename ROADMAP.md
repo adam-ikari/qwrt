@@ -81,9 +81,9 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
 | D1 | **HTTP/1.1 细节** ✅ | keep-alive 管理、Connection 头尊重、pipelining 支持、Content-Length 严格消费、HTTP/1.0 兼容（默认 close）。 | e2e 12/12；ctest 13/13 |
-| D2 | 请求体流式 | 现在 `req.body` 一次性读入；改流式（大 body 上传）。 | e2e 大 body |
+| D2 | **请求体流式** ✅ | `req.body` 变 ReadableStream,header 一到即调 handler,body 字节经流式 enqueue 增量交付(不经字符串往返,二进制安全);`req.text()`/`req.arrayBuffer()` 便捷读取;字节缓冲 + 字节级 header 扫描,支持 header+body 同包。 | e2e 15/15(含 test_streaming_body:分块大 body + 二进制) |
 | D3 | **连接生命周期** ✅ | 空闲超时（serve idleTimeout，默认30s，0禁用）、Connection: close 排空、优雅停止（onclose 清理 conns）。 | e2e 12/12；ctest 13/13 |
-| D4 | WS server 增强 | 分片、permessage-deflate、Ping/Pong 保活、子协议协商。 | e2e WS |
+| D4 | WS server 增强 | 分片 ✅、子协议协商 ✅(e2e 15/15);剩余 permessage-deflate、Ping/Pong 保活。 | e2e WS |
 | D5 | 大响应性能 | 基线 medium(16K) 256 rps；C 层直发 / Body 复用 / 减 JS↔C 往返。 | wrk 提升 |
 
 ### E. 工具链
