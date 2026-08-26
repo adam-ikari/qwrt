@@ -612,6 +612,297 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 }
 
 /* ================================================================
+ * Streaming DEFLATE / inflate contexts
+ *
+ * Raw-DEFLATE streams whose zlib state is retained across pushes —
+ * used by the WebSocket permessage-deflate extension (RFC 7692),
+ * which needs one shared deflate/inflate context per connection.
+ * Exposed on pal as deflateCreate/deflatePush/deflateFree and
+ * inflateCreate/inflatePush/inflateFree. Handles are JS objects that
+ * own a mz_stream; the GC finalizer tears the stream down, so a
+ * handle that goes out of scope cannot leak.
+ * ================================================================ */
+
+typedef struct {
+    mz_stream strm;
+    int inited;
+    int finished;
+} compress_stream_ctx;
+
+static void compress_stream_free(JSContext *ctx, compress_stream_ctx *c, int is_inflate)
+{
+    if (!c) return;
+    if (c->inited) {
+        if (is_inflate) mz_inflateEnd(&c->strm);
+        else mz_deflateEnd(&c->strm);
+        c->inited = 0;
+    }
+    js_free(ctx, c);
+}
+
+static void compress_deflate_finalizer(JSRuntime *jsrt, JSValue val)
+{
+    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    if (!rt) return;
+    compress_stream_ctx *c = JS_GetOpaque(val, rt->compress_deflate_class_id);
+    if (c) {
+        if (c->inited) mz_deflateEnd(&c->strm);
+        js_free_rt(jsrt, c);
+    }
+}
+
+static void compress_inflate_finalizer(JSRuntime *jsrt, JSValue val)
+{
+    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    if (!rt) return;
+    compress_stream_ctx *c = JS_GetOpaque(val, rt->compress_inflate_class_id);
+    if (c) {
+        if (c->inited) mz_inflateEnd(&c->strm);
+        js_free_rt(jsrt, c);
+    }
+}
+
+static void compress_register_classes(qwrt_t *rt, JSContext *ctx)
+{
+    JSRuntime *jsrt = JS_GetRuntime(ctx);
+
+    JS_NewClassID(jsrt, &rt->compress_deflate_class_id);
+    JSClassDef deflate_class = {
+        .class_name = "DeflateContext",
+        .finalizer = compress_deflate_finalizer,
+    };
+    JS_NewClass(jsrt, rt->compress_deflate_class_id, &deflate_class);
+
+    JS_NewClassID(jsrt, &rt->compress_inflate_class_id);
+    JSClassDef inflate_class = {
+        .class_name = "InflateContext",
+        .finalizer = compress_inflate_finalizer,
+    };
+    JS_NewClass(jsrt, rt->compress_inflate_class_id, &inflate_class);
+}
+
+static int compress_get_handle(JSContext *ctx, JSValueConst val, JSClassID cid,
+                               compress_stream_ctx **out)
+{
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return -1;
+    compress_stream_ctx *c = JS_GetOpaque(val, cid);
+    if (!c || !c->inited) return -1;
+    *out = c;
+    return 0;
+}
+
+static JSValue js_pal_deflate_create(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv)
+{
+    (void)this_val; (void)argc; (void)argv;
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    compress_stream_ctx *c = js_malloc(ctx, sizeof(*c));
+    if (!c) return JS_ThrowOutOfMemory(ctx);
+    memset(c, 0, sizeof(*c));
+    int ret = mz_deflateInit2(&c->strm, MZ_DEFAULT_COMPRESSION, MZ_DEFLATED,
+                              -MAX_WBITS, MAX_MEM_LEVEL, MZ_DEFAULT_STRATEGY);
+    if (ret != MZ_OK) {
+        js_free(ctx, c);
+        return JS_ThrowInternalError(ctx, "deflateCreate: deflateInit2 failed");
+    }
+    c->inited = 1;
+    JSValue obj = JS_NewObjectClass(ctx, rt->compress_deflate_class_id);
+    if (JS_IsException(obj)) {
+        mz_deflateEnd(&c->strm);
+        js_free(ctx, c);
+        return obj;
+    }
+    JS_SetOpaque(obj, c);
+    return obj;
+}
+
+static JSValue js_pal_deflate_push(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
+{
+    (void)this_val;
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    compress_stream_ctx *c = NULL;
+    if (argc < 2 || compress_get_handle(ctx, argv[0], rt->compress_deflate_class_id, &c) < 0)
+        return JS_ThrowTypeError(ctx, "deflatePush: invalid deflate handle");
+
+    const uint8_t *in;
+    size_t in_len;
+    if (compress_extract_buffer(ctx, argv[1], &in, &in_len) < 0)
+        return JS_ThrowTypeError(ctx, "deflatePush: data must be ArrayBuffer or Uint8Array");
+    if (in_len > UINT_MAX)
+        return JS_ThrowRangeError(ctx, "deflatePush: input too large (max 4GB)");
+
+    int flush = MZ_NO_FLUSH;
+    if (argc > 2 && !JS_IsUndefined(argv[2]) && JS_ToBool(ctx, argv[2]))
+        flush = MZ_SYNC_FLUSH;
+
+    c->strm.next_in = in;
+    c->strm.avail_in = (mz_uint)in_len;
+
+    size_t cap = in_len + in_len / 2 + 64;
+    if (cap < 4096) cap = 4096;
+    uint8_t *out = js_malloc(ctx, cap);
+    if (!out) return JS_ThrowOutOfMemory(ctx);
+    size_t out_len = 0;
+
+    int guard = 0;
+    for (;;) {
+        if (++guard > 100000) {
+            return JS_ThrowInternalError(ctx,
+                "deflatePush: loop guard (in=%u out=%zu)", c->strm.avail_in, out_len);
+        }
+        if (out_len >= cap) {
+            size_t ncap = cap * 2;
+            uint8_t *nout = js_realloc(ctx, out, ncap);
+            if (!nout) { js_free(ctx, out); return JS_ThrowOutOfMemory(ctx); }
+            out = nout;
+            cap = ncap;
+        }
+        c->strm.next_out = out + out_len;
+        c->strm.avail_out = (mz_uint)(cap - out_len);
+        size_t before_out = c->strm.avail_out;
+        int ret = mz_deflate(&c->strm, flush);
+        out_len += before_out - c->strm.avail_out;
+        if (ret != MZ_OK && ret != MZ_STREAM_END) {
+            js_free(ctx, out);
+            return JS_ThrowInternalError(ctx, "deflatePush: deflate failed (%d)", ret);
+        }
+        if (ret == MZ_STREAM_END) break;
+        /* All input consumed. mz_deflate(MZ_SYNC_FLUSH) flushes everything in a
+         * single call, and MZ_NO_FLUSH buffers the rest — either way there is no
+         * more output to pull once avail_in hits 0. (Calling again with SYNC_FLUSH
+         * and no input would emit empty 00 00 ff ff blocks forever.) */
+        if (c->strm.avail_in == 0) break;
+    }
+    JSValue result = JS_NewUint8ArrayCopy(ctx, out, out_len);
+    js_free(ctx, out);
+    return result;
+}
+
+static JSValue js_pal_deflate_free(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
+{
+    (void)this_val;
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    if (argc < 1) return JS_UNDEFINED;
+    compress_stream_ctx *c = JS_GetOpaque(argv[0], rt->compress_deflate_class_id);
+    if (c) {
+        if (c->inited) mz_deflateEnd(&c->strm);
+        c->inited = 0;
+        js_free(ctx, c);
+        JS_SetOpaque(argv[0], NULL);
+    }
+    return JS_UNDEFINED;
+}
+
+static JSValue js_pal_inflate_create(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv)
+{
+    (void)this_val; (void)argc; (void)argv;
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    compress_stream_ctx *c = js_malloc(ctx, sizeof(*c));
+    if (!c) return JS_ThrowOutOfMemory(ctx);
+    memset(c, 0, sizeof(*c));
+    int ret = mz_inflateInit2(&c->strm, -MAX_WBITS);
+    if (ret != MZ_OK) {
+        js_free(ctx, c);
+        return JS_ThrowInternalError(ctx, "inflateCreate: inflateInit2 failed");
+    }
+    c->inited = 1;
+    JSValue obj = JS_NewObjectClass(ctx, rt->compress_inflate_class_id);
+    if (JS_IsException(obj)) {
+        mz_inflateEnd(&c->strm);
+        js_free(ctx, c);
+        return obj;
+    }
+    JS_SetOpaque(obj, c);
+    return obj;
+}
+
+static JSValue js_pal_inflate_push(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
+{
+    (void)this_val;
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    compress_stream_ctx *c = NULL;
+    if (argc < 2 || compress_get_handle(ctx, argv[0], rt->compress_inflate_class_id, &c) < 0)
+        return JS_ThrowTypeError(ctx, "inflatePush: invalid inflate handle");
+
+    const uint8_t *in;
+    size_t in_len;
+    if (compress_extract_buffer(ctx, argv[1], &in, &in_len) < 0)
+        return JS_ThrowTypeError(ctx, "inflatePush: data must be ArrayBuffer or Uint8Array");
+    if (in_len > UINT_MAX)
+        return JS_ThrowRangeError(ctx, "inflatePush: input too large (max 4GB)");
+
+    c->strm.next_in = in;
+    c->strm.avail_in = (mz_uint)in_len;
+
+    size_t cap = in_len * 4 + 64;
+    if (cap < 4096) cap = 4096;
+    uint8_t *out = js_malloc(ctx, cap);
+    if (!out) return JS_ThrowOutOfMemory(ctx);
+    size_t out_len = 0;
+
+    int guard = 0;
+    for (;;) {
+        if (++guard > 100000) {
+            js_free(ctx, out);
+            return JS_ThrowInternalError(ctx,
+                "inflatePush: loop guard (in=%u out=%zu)", c->strm.avail_in, out_len);
+        }
+        if (out_len >= cap) {
+            size_t ncap = cap * 2;
+            uint8_t *nout = js_realloc(ctx, out, ncap);
+            if (!nout) { js_free(ctx, out); return JS_ThrowOutOfMemory(ctx); }
+            out = nout;
+            cap = ncap;
+        }
+        c->strm.next_out = out + out_len;
+        c->strm.avail_out = (mz_uint)(cap - out_len);
+        size_t before_out = c->strm.avail_out;
+        int ret = mz_inflate(&c->strm, MZ_NO_FLUSH);
+        out_len += before_out - c->strm.avail_out;
+        if (ret == MZ_STREAM_END) break;
+        if (ret != MZ_OK) {
+            if (ret == MZ_BUF_ERROR && c->strm.avail_in == 0)
+                break;  /* needs more input — normal for streaming inflate */
+            js_free(ctx, out);
+            return JS_ThrowInternalError(ctx, "inflatePush: inflate failed (%d)", ret);
+        }
+        if (c->strm.avail_in == 0 && before_out == c->strm.avail_out)
+            break;  /* all input consumed, no more output pending */
+    }
+
+    JSValue result = JS_NewUint8ArrayCopy(ctx, out, out_len);
+    js_free(ctx, out);
+    return result;
+}
+
+static JSValue js_pal_inflate_free(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
+{
+    (void)this_val;
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    if (argc < 1) return JS_UNDEFINED;
+    compress_stream_ctx *c = JS_GetOpaque(argv[0], rt->compress_inflate_class_id);
+    if (c) {
+        if (c->inited) mz_inflateEnd(&c->strm);
+        c->inited = 0;
+        js_free(ctx, c);
+        JS_SetOpaque(argv[0], NULL);
+    }
+    return JS_UNDEFINED;
+}
+
+/* ================================================================
  * Extension hooks
  * ================================================================ */
 
@@ -634,10 +925,24 @@ static int compress_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
         return -1;
     }
 
+    compress_register_classes(rt, ctx);
+
     JS_SetPropertyStr(ctx, pal, "nativeCompress",
         JS_NewCFunction(ctx, js_pal_native_compress, "nativeCompress", 2));
     JS_SetPropertyStr(ctx, pal, "nativeDecompress",
         JS_NewCFunction(ctx, js_pal_native_decompress, "nativeDecompress", 2));
+    JS_SetPropertyStr(ctx, pal, "deflateCreate",
+        JS_NewCFunction(ctx, js_pal_deflate_create, "deflateCreate", 0));
+    JS_SetPropertyStr(ctx, pal, "deflatePush",
+        JS_NewCFunction(ctx, js_pal_deflate_push, "deflatePush", 3));
+    JS_SetPropertyStr(ctx, pal, "deflateFree",
+        JS_NewCFunction(ctx, js_pal_deflate_free, "deflateFree", 1));
+    JS_SetPropertyStr(ctx, pal, "inflateCreate",
+        JS_NewCFunction(ctx, js_pal_inflate_create, "inflateCreate", 0));
+    JS_SetPropertyStr(ctx, pal, "inflatePush",
+        JS_NewCFunction(ctx, js_pal_inflate_push, "inflatePush", 2));
+    JS_SetPropertyStr(ctx, pal, "inflateFree",
+        JS_NewCFunction(ctx, js_pal_inflate_free, "inflateFree", 1));
 
     JS_FreeValue(ctx, pal);
     JS_FreeValue(ctx, global);

@@ -13,6 +13,7 @@ export function setupHttpServer(pal) {
   if (typeof pal.tcpListen !== 'function') return;
 
   var WS_GUID = '258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5';  // RFC 6455
+  var PMD_TAIL = new Uint8Array([0, 0, 0xFF, 0xFF]);  // RFC 7692 §7.2.2 inflate tail
 
   /* Single-server enforcement: only one serve() instance at a time */
   var activeInstance = null;
@@ -156,6 +157,7 @@ export function setupHttpServer(pal) {
     if (buf.length < 2) return null;
     var first = buf[0], second = buf[1];
     var fin = (first >> 7) & 1;
+    var rsv1 = (first >> 6) & 1;
     var opcode = first & 0x0F;
     var masked = (second >> 7) & 1;
     var len = second & 0x7F;
@@ -181,13 +183,13 @@ export function setupHttpServer(pal) {
     if (buf.length < offset + len) return null;
     var payload = buf.slice(offset, offset + len);
     if (mask) for (var i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
-    return { fin: fin, opcode: opcode, payload: payload, totalLen: offset + len };
+    return { fin: fin, rsv1: rsv1, opcode: opcode, payload: payload, totalLen: offset + len };
   }
 
   /* ── Build WS frame (server→client: NOT masked) ── */
-  function buildWSFrame(opcode, payload, fin) {
+  function buildWSFrame(opcode, payload, fin, rsv1) {
     var len = payload.length;
-    var header = [(fin ? 0x80 : 0) | opcode];
+    var header = [(fin ? 0x80 : 0) | (rsv1 ? 0x40 : 0) | opcode];
     if (len < 126) {
       header.push(len);
     } else if (len < 65536) {
@@ -247,13 +249,25 @@ export function setupHttpServer(pal) {
       /* fragmentation state */
       this._fragOpcode = 0;    // 0x1 (text) or 0x2 (binary) of a fragmented message
       this._fragParts = [];    // payload chunks of the current fragmented message
+      this._msgRsv1 = false;   // RSV1 of the current incoming message (permessage-deflate)
     }
 
     WSConnection.prototype.send = function(data) {
       if (this.state !== 1) return;
       var payload = typeof data === 'string' ?
         new TextEncoder().encode(data) : (data || new Uint8Array(0));
-      pal.tcpWrite(this.conn, buildWSFrame(0x1, payload, 1));
+      var rsv1 = false;
+      if (this._deflate) {
+        try {
+          var comp = pal.deflatePush(this._deflate, payload, true);
+          /* strip the trailing 00 00 ff ff SYNC-FLUSH marker (RFC 7692 §7.2.1) */
+          if (comp.length >= 5) {
+            payload = comp.subarray(0, comp.length - 4);
+            rsv1 = true;
+          }
+        } catch (e) {}
+      }
+      pal.tcpWrite(this.conn, buildWSFrame(0x1, payload, 1, rsv1));
     };
 
     WSConnection.prototype.close = function(code, reason) {
@@ -295,8 +309,6 @@ export function setupHttpServer(pal) {
             var ev = { code: closeCode, reason: closeReason, wasClean: true };
             try { this.onclose(ev); } catch (e) {}
           }
-        } else if (frame.opcode === 0x9) {  // Ping
-          pal.tcpWrite(this.conn, buildWSFrame(0xA, frame.payload, 1));
         } else if (frame.opcode === 0x0) {  // Continuation
           this._fragParts.push(frame.payload);
           if (frame.fin) {
@@ -307,6 +319,7 @@ export function setupHttpServer(pal) {
             deliverWS(this, fragOp, combined);
           }
         } else if (frame.opcode === 0x1 || frame.opcode === 0x2) {  // Text/Binary
+          this._msgRsv1 = frame.rsv1 ? true : false;
           if (frame.fin) {
             deliverWS(this, frame.opcode, frame.payload);
           } else {
@@ -328,6 +341,19 @@ export function setupHttpServer(pal) {
     }
 
     function deliverWS(ws, opcode, payload) {
+      if (ws._msgRsv1 && ws._inflate) {
+        /* permessage-deflate: inflate the message, appending the RFC 7692
+         * tail so the SYNC-FLUSH-terminated stream reaches a block boundary. */
+        try {
+          var out = pal.inflatePush(ws._inflate, payload, false);
+          var tail = pal.inflatePush(ws._inflate, PMD_TAIL, false);
+          var merged = new Uint8Array(out.length + tail.length);
+          merged.set(out, 0);
+          merged.set(tail, out.length);
+          payload = merged;
+        } catch (e) {}
+      }
+      ws._msgRsv1 = false;
       var msg = null;
       if (opcode === 0x1) msg = new TextDecoder().decode(payload);
       else msg = payload;
@@ -407,6 +433,7 @@ export function setupHttpServer(pal) {
               return;
             }
 
+            var wsRouteFn = typeof wsHandler === 'function' ? wsHandler : wsHandler.handler;
             var accept = wsAccept(wsKey);
             var respHdrs = {
               'Upgrade': 'websocket',
@@ -431,11 +458,22 @@ export function setupHttpServer(pal) {
                 }
               }
             }
+            /* permessage-deflate (RFC 7692): echo the extension when the client
+             * offers it and the native streaming deflate primitives exist. */
+            var reqExt = (req.headers['sec-websocket-extensions'] || '').toLowerCase();
+            var pmd = typeof pal.deflateCreate === 'function' &&
+                      reqExt.indexOf('permessage-deflate') >= 0;
+            if (pmd) respHdrs['Sec-WebSocket-Extensions'] = 'permessage-deflate';
             pal.tcpWrite(conn, buildHTTPResponse(101, 'Switching Protocols', respHdrs, new Uint8Array(0)));
 
-            var wsRouteFn = typeof wsHandler === 'function' ? wsHandler : wsHandler.handler;
             ws = new WSConnection(conn);
             ws.state = 1;
+            if (pmd) {
+              try {
+                ws._inflate = pal.inflateCreate();
+                ws._deflate = pal.deflateCreate();
+              } catch (e) {}
+            }
             clearTimeout(idleTimer);
             if (typeof wsRouteFn === 'function') {
               try { wsRouteFn(ws); } catch (e) {}
@@ -522,6 +560,10 @@ export function setupHttpServer(pal) {
         clearTimeout(idleTimer);
         var idx = conns.indexOf(conn);
         if (idx >= 0) conns.splice(idx, 1);
+        if (ws) {
+          if (ws._deflate) { try { pal.deflateFree(ws._deflate); } catch (e) {} ws._deflate = null; }
+          if (ws._inflate) { try { pal.inflateFree(ws._inflate); } catch (e) {} ws._inflate = null; }
+        }
         if (bodyState) {
           try { bodyState.controller.error(new Error('connection closed')); } catch (e) {}
           bodyState = null;

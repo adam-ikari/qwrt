@@ -8,11 +8,13 @@ All notable changes to Qwrt.js.
 - HTTPServer perf：缓存 handler + Request 构造器引用，Headers._map 直写（绕过正则 normalize），wrk -t4 -c100 /hello +37% /gzip +49% /big +13%
 - HTTPServer WebSocket：服务端消息分片重组（FIN=0 + Continuation 帧拼为完整消息）+ 子协议协商（ws 路由支持 `{handler, protocols}` 对象形式，回显首个双方支持的 `Sec-WebSocket-Protocol`）
 - HTTPServer 请求体流式：`req.body` 变 ReadableStream（header 一到即调 handler，body 增量 enqueue，二进制安全），新增 `req.text()`/`req.arrayBuffer()`；连接缓冲改字节级（修复二进制 body 经字符串往返膨胀的存量 bug）
+- HTTPServer WebSocket：permessage-deflate（RFC 7692）——协商、RSV1 收发、上下文 takeover；C 层新增流式 deflate/inflate 原语（`pal.deflateCreate/Push/Free`、`inflateCreate/Push/Free`，miniz 流式上下文）
 
 ### Fixed
 - Blob：blobParts 非迭代对象抛 TypeError、type 规范化只去 0x09/0x0A/0x0D、字符串元素 UTF-8 编码
 - Headers：new Headers(null) 与 3+ 元素 pair 抛 TypeError
 - TextEncoder.encodeInto：代理对感知增量编码 + read/written 精确语义 + 非法目标类型抛错
+- CLI/运行时内存泄漏：run_code 的 `json_escape` 返回值未 free；`qwrt_free` 未释放 `config.initial_script`（ASan 回归触发，e2e 16/16 + ASan 0 泄漏）
 
 ## [0.2.0] — 2026-08-19
 

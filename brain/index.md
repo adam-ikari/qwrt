@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-26T10:10:47.109Z._
+_Auto-generated. Last updated 2026-08-26T12:27:17.557Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
@@ -10,7 +10,7 @@ _Auto-generated. Last updated 2026-08-26T10:10:47.109Z._
 - [httpserver-perf-benchmark](pages/httpserver-perf-benchmark.md) — category: decision | ### Phase 4 优化（2026-08-19，分支 phase4-httpserver-perf）
 - [httpserver-streaming-body](pages/httpserver-streaming-body.md) — category: decision | tags: [http-server, streaming, serve] | D2 请求体流式（破坏性 API 变更）：serve() 的 req.body 从同步字符串改为 ReadableStream（Web 标准语义），新增 req.text()/req.arrayBuffer() 异步读取。
 - [httpserver-ws-fixes](pages/httpserver-ws-fixes.md) — category: decision | tags: [http-server, websocket, uvhttp, llhttp] | uvhttp 在 qwrt 中的底层修复（均改 deps/uvhttp 源码）：1) HPE_PAUSED_UPGRADE 时 llhttp 暂停未恢复——分发前显式 llhttp_resume；2) WS 握手 101 后 uvhttp 仍尝试 HTTP 解析导致状态错乱——升
-- [httpserver-ws-protocol](pages/httpserver-ws-protocol.md) — category: decision | tags: [http-server, websocket, protocol] | polyfill/src/http-server.js（纯 JS 层，uvhttp C 层之上的 WS 协议增强）：1) 消息分片重组——收到 FIN=0 数据帧（0x1/0x2）时暂存 opcode+payload 于 WSConnection._fragOpcode/_fra
+- [httpserver-ws-protocol](pages/httpserver-ws-protocol.md) — category: decision | tags: [http-server, websocket, protocol] | polyfill/src/http-server.js（纯 JS 层 WS 协议）：
 - [libuv-io-uring-workaround](pages/libuv-io-uring-workaround.md) — category: decision | tags: [libuv, io-uring, linux, workaround] | deps/libuv/src/unix/linux.c 有一处本地补丁（未提交到上游）：让 `UV_USE_IO_URING=0` 真正禁用 io_uring。
 - [test262-ctest-fix](pages/test262-ctest-fix.md) — category: decision | tags: [test262, ctest, cmake] | ## 现象
 - [urlpattern-modifier-fix](pages/urlpattern-modifier-fix.md) — category: decision | tags: [urlpattern, wintertc, ecma429, polyfill] | ## 问题

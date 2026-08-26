@@ -83,7 +83,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | D1 | **HTTP/1.1 细节** ✅ | keep-alive 管理、Connection 头尊重、pipelining 支持、Content-Length 严格消费、HTTP/1.0 兼容（默认 close）。 | e2e 12/12；ctest 13/13 |
 | D2 | **请求体流式** ✅ | `req.body` 变 ReadableStream,header 一到即调 handler,body 字节经流式 enqueue 增量交付(不经字符串往返,二进制安全);`req.text()`/`req.arrayBuffer()` 便捷读取;字节缓冲 + 字节级 header 扫描,支持 header+body 同包。 | e2e 15/15(含 test_streaming_body:分块大 body + 二进制) |
 | D3 | **连接生命周期** ✅ | 空闲超时（serve idleTimeout，默认30s，0禁用）、Connection: close 排空、优雅停止（onclose 清理 conns）。 | e2e 12/12；ctest 13/13 |
-| D4 | WS server 增强 | 分片 ✅、子协议协商 ✅(e2e 15/15);剩余 permessage-deflate、Ping/Pong 保活。 | e2e WS |
+| D4 | **WS server 增强** ✅ | 分片 ✅、子协议协商 ✅、permessage-deflate ✅（RFC 7692：协商、RSV1 收发、上下文 takeover；C 层流式 deflate/inflate 原语 `pal.deflate*/inflate*`）。Ping/Pong 保活不做（应用层策略）。 | e2e 16/16；ASan 0 泄漏 |
 | D5 | 大响应性能 | 基线 medium(16K) 256 rps；C 层直发 / Body 复用 / 减 JS↔C 往返。 | wrk 提升 |
 
 ### E. 工具链
@@ -115,7 +115,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | 里程碑 | 内容 | 节奏 |
 |--------|------|------|
 | M1 ✅ | **异步 I/O 回归 + gzip 恢复 + fs 全路径测试**（A1/B1/F1本地完成；CI 待 push 确认） | 1 周 |
-| M2 | HTTP/1.1 细节 + WS 增强 + 流式 body（D1–D4） | 2–4 周 |
+| M2 ✅ | **HTTP/1.1 细节 + WS 增强 + 流式 body**（D1–D4 全部完成） | 2–4 周 |
 | M3 | fetch 完善 + streams 覆盖 + WASM 流式（B2–B3, C1） | 1–2 月 |
 | M4 | 质量与性能（F 全项）+ 大响应优化（D5） | 持续 |
 | M5 | 生态与文档（G）+ 安全审计（F4） | 持续 |

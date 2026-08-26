@@ -212,6 +212,10 @@ struct qwrt_t {
     JSClassID wamr_instance_class_id;
     JSClassID wamr_global_class_id;
 #endif
+#ifdef QWRT_WITH_COMPRESS
+    JSClassID compress_deflate_class_id;
+    JSClassID compress_inflate_class_id;
+#endif
 
     /* http-server ext-level state (serve() teardown) */
     void *http_server_state;

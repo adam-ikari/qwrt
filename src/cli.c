@@ -257,8 +257,10 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     }
     qwrt_set_runtime_data(rt, &host);
 
+    char *cmd_json = json_escape(code);
     char *cmd = malloc(strlen(code) * 2 + 64);
-    sprintf(cmd, "{\"cmd\":\"eval\",\"code\":%s}", json_escape(code));
+    sprintf(cmd, "{\"cmd\":\"eval\",\"code\":%s}", cmd_json);
+    free(cmd_json);
     qwrt_post_message(rt, cmd, strlen(cmd));
     free(cmd);
 

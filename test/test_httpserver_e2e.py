@@ -121,16 +121,22 @@ def raw_request(port, method, path, body=None, headers=None, tls_ctx=None,
 
 # WebSocket client (RFC 6455) — server frames are unmasked, client frames masked.
 class WSClient:
-    def __init__(self, port, path="/"):
+    def __init__(self, port, path="/", extensions=None):
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        self._last_rsv1 = 0
+        self._inflate_ctx = None
         key = base64.b64encode(os.urandom(16)).decode()
         handshake = (
             "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n"
             "Upgrade: websocket\r\nConnection: Upgrade\r\n"
-            "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n"
+            "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n"
             % (path, port, key))
+        if extensions:
+            handshake += "Sec-WebSocket-Extensions: %s\r\n" % extensions
+        handshake += "\r\n"
         self.sock.sendall(handshake.encode())
         resp = self._read_until(b"\r\n\r\n")
+        self.handshake = resp
         self.status = int(resp.split(b" ", 2)[1])
         expected = base64.b64encode(
             __import__("hashlib").sha1(
@@ -185,12 +191,43 @@ class WSClient:
                 hdr += bytes([0x80 | 127]) + struct.pack(">Q", n)
             self.sock.sendall(hdr + mask + masked)
 
+    def send_compressed_text(self, payload):
+        """Send a permessage-deflate text message (RSV1 set, raw deflate with
+        SYNC_FLUSH, trailing 00 00 ff ff stripped per RFC 7692 §7.2.1)."""
+        import zlib
+        data = payload.encode() if isinstance(payload, str) else payload
+        co = zlib.compressobj(wbits=-15)
+        comp = co.compress(data) + co.flush(zlib.Z_SYNC_FLUSH)
+        comp = comp[:-4]
+        mask = os.urandom(4)
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(comp))
+        hdr = bytes([0xC1])  # FIN + RSV1 + text opcode
+        n = len(comp)
+        if n < 126:
+            hdr += bytes([0x80 | n])
+        elif n < 65536:
+            hdr += bytes([0x80 | 126]) + struct.pack(">H", n)
+        else:
+            hdr += bytes([0x80 | 127]) + struct.pack(">Q", n)
+        self.sock.sendall(hdr + mask + masked)
+
+    def inflate_payload(self, comp):
+        """Inflate a permessage-deflate payload. A persistent decompressobj
+        preserves the context-takeover dictionary across messages (RFC 7692)."""
+        import zlib
+        if self._inflate_ctx is None:
+            self._inflate_ctx = zlib.decompressobj(wbits=-15)
+        out = self._inflate_ctx.decompress(comp + b"\x00\x00\xff\xff")
+        out += self._inflate_ctx.flush()
+        return out
+
     def recv_frame(self, timeout=5.0):
         self.sock.settimeout(timeout)
         b0 = self.sock.recv(1)
         if not b0:
             return None
         b1 = self.sock.recv(1)
+        self._last_rsv1 = (b0[0] >> 6) & 1
         opcode = b0[0] & 0x0F
         n = b1[0] & 0x7F
         if n == 126:
@@ -678,6 +715,47 @@ def test_websocket_subprotocol(qwrt_bin):
         # server must echo one of the offered protocols (first supported = superchat)
         assert b"Sec-WebSocket-Protocol: superchat" in resp, resp[:200]
         s.close()
+    finally:
+        srv.stop()
+
+@test
+def test_websocket_permessage_deflate(qwrt_bin):
+    """D4: permessage-deflate negotiation + compressed echo round-trip.
+    Client sends RSV1-compressed text; server must inflate it for the
+    handler and deflate the echo (RSV1 set), with context takeover
+    across messages (RFC 7692)."""
+    p = free_port()
+    srv = QwrtServer(gen_server_script(p), qwrt_bin)
+    try:
+        srv.wait_port(p)
+        ws = WSClient(p, "/echo", extensions="permessage-deflate")
+        assert b"Sec-WebSocket-Extensions: permessage-deflate" in ws.handshake, ws.handshake[:300]
+
+        # compressed client -> server (server inflates, handler echoes)
+        ws.send_compressed_text("hello compressed world")
+        opcode, payload = ws.recv_frame()
+        assert opcode == 0x1, "opcode=%d" % opcode
+        if ws._last_rsv1:
+            payload = ws.inflate_payload(payload)
+        assert payload == b"echo:hello compressed world", payload
+
+        # second message exercises context takeover (deflate history shared)
+        ws.send_compressed_text("hello compressed world again")
+        opcode, payload = ws.recv_frame()
+        assert opcode == 0x1, "opcode=%d" % opcode
+        if ws._last_rsv1:
+            payload = ws.inflate_payload(payload)
+        assert payload == b"echo:hello compressed world again", payload
+
+        # uncompressed client still works when the extension is offered
+        ws2 = WSClient(p, "/echo", extensions="permessage-deflate")
+        ws2.send_text("plain text")
+        opcode, payload = ws2.recv_frame()
+        if ws2._last_rsv1:
+            payload = ws2.inflate_payload(payload)
+        assert opcode == 0x1 and payload == b"echo:plain text", payload
+        ws2.close()
+        ws.close()
     finally:
         srv.stop()
 

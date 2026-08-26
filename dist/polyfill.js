@@ -3186,6 +3186,7 @@
   function setupHttpServer(pal2) {
     if (typeof pal2.tcpListen !== "function") return;
     var WS_GUID = "258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5";
+    var PMD_TAIL = new Uint8Array([0, 0, 255, 255]);
     var activeInstance = null;
     var b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     function b64encode(buf) {
@@ -3333,6 +3334,7 @@
       if (buf.length < 2) return null;
       var first = buf[0], second = buf[1];
       var fin = first >> 7 & 1;
+      var rsv1 = first >> 6 & 1;
       var opcode = first & 15;
       var masked = second >> 7 & 1;
       var len = second & 127;
@@ -3358,11 +3360,11 @@
       if (buf.length < offset + len) return null;
       var payload = buf.slice(offset, offset + len);
       if (mask) for (var i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
-      return { fin, opcode, payload, totalLen: offset + len };
+      return { fin, rsv1, opcode, payload, totalLen: offset + len };
     }
-    function buildWSFrame(opcode, payload, fin) {
+    function buildWSFrame(opcode, payload, fin, rsv1) {
       var len = payload.length;
-      var header = [(fin ? 128 : 0) | opcode];
+      var header = [(fin ? 128 : 0) | (rsv1 ? 64 : 0) | opcode];
       if (len < 126) {
         header.push(len);
       } else if (len < 65536) {
@@ -3415,11 +3417,23 @@
         this.onerror = null;
         this._fragOpcode = 0;
         this._fragParts = [];
+        this._msgRsv1 = false;
       }
       WSConnection.prototype.send = function(data) {
         if (this.state !== 1) return;
         var payload = typeof data === "string" ? new TextEncoder().encode(data) : data || new Uint8Array(0);
-        pal2.tcpWrite(this.conn, buildWSFrame(1, payload, 1));
+        var rsv1 = false;
+        if (this._deflate) {
+          try {
+            var comp = pal2.deflatePush(this._deflate, payload, true);
+            if (comp.length >= 5) {
+              payload = comp.subarray(0, comp.length - 4);
+              rsv1 = true;
+            }
+          } catch (e) {
+          }
+        }
+        pal2.tcpWrite(this.conn, buildWSFrame(1, payload, 1, rsv1));
       };
       WSConnection.prototype.close = function(code, reason) {
         if (this.state >= 2) return;
@@ -3459,8 +3473,6 @@
               } catch (e) {
               }
             }
-          } else if (frame.opcode === 9) {
-            pal2.tcpWrite(this.conn, buildWSFrame(10, frame.payload, 1));
           } else if (frame.opcode === 0) {
             this._fragParts.push(frame.payload);
             if (frame.fin) {
@@ -3471,6 +3483,7 @@
               deliverWS(this, fragOp, combined);
             }
           } else if (frame.opcode === 1 || frame.opcode === 2) {
+            this._msgRsv1 = frame.rsv1 ? true : false;
             if (frame.fin) {
               deliverWS(this, frame.opcode, frame.payload);
             } else {
@@ -3492,6 +3505,18 @@
         return out;
       }
       function deliverWS(ws, opcode, payload) {
+        if (ws._msgRsv1 && ws._inflate) {
+          try {
+            var out = pal2.inflatePush(ws._inflate, payload, false);
+            var tail = pal2.inflatePush(ws._inflate, PMD_TAIL, false);
+            var merged = new Uint8Array(out.length + tail.length);
+            merged.set(out, 0);
+            merged.set(tail, out.length);
+            payload = merged;
+          } catch (e) {
+          }
+        }
+        ws._msgRsv1 = false;
         var msg = null;
         if (opcode === 1) msg = new TextDecoder().decode(payload);
         else msg = payload;
@@ -3571,6 +3596,7 @@
                 ));
                 return;
               }
+              var wsRouteFn = typeof wsHandler === "function" ? wsHandler : wsHandler.handler;
               var accept = wsAccept(wsKey);
               var respHdrs = {
                 "Upgrade": "websocket",
@@ -3594,10 +3620,19 @@
                   }
                 }
               }
+              var reqExt = (req.headers["sec-websocket-extensions"] || "").toLowerCase();
+              var pmd = typeof pal2.deflateCreate === "function" && reqExt.indexOf("permessage-deflate") >= 0;
+              if (pmd) respHdrs["Sec-WebSocket-Extensions"] = "permessage-deflate";
               pal2.tcpWrite(conn, buildHTTPResponse(101, "Switching Protocols", respHdrs, new Uint8Array(0)));
-              var wsRouteFn = typeof wsHandler === "function" ? wsHandler : wsHandler.handler;
               ws = new WSConnection(conn);
               ws.state = 1;
+              if (pmd) {
+                try {
+                  ws._inflate = pal2.inflateCreate();
+                  ws._deflate = pal2.deflateCreate();
+                } catch (e) {
+                }
+              }
               clearTimeout(idleTimer);
               if (typeof wsRouteFn === "function") {
                 try {
@@ -3697,6 +3732,22 @@
           clearTimeout(idleTimer);
           var idx = conns.indexOf(conn);
           if (idx >= 0) conns.splice(idx, 1);
+          if (ws) {
+            if (ws._deflate) {
+              try {
+                pal2.deflateFree(ws._deflate);
+              } catch (e) {
+              }
+              ws._deflate = null;
+            }
+            if (ws._inflate) {
+              try {
+                pal2.inflateFree(ws._inflate);
+              } catch (e) {
+              }
+              ws._inflate = null;
+            }
+          }
           if (bodyState) {
             try {
               bodyState.controller.error(new Error("connection closed"));

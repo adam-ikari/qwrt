@@ -89,7 +89,12 @@ void qwrt_destroy(qwrt_t *rt)
 
 void *qwrt_get_runtime_data(qwrt_t *rt) { return rt ? rt->host_data : NULL; }
 void  qwrt_set_runtime_data(qwrt_t *rt, void *data) { if (rt) rt->host_data = data; }
-void  qwrt_free(void *ptr) { free(ptr); }
+void  qwrt_free(void *ptr) {
+    if (!ptr) return;
+    qwrt_t *rt = (qwrt_t *)ptr;
+    free((void *)rt->config.initial_script);
+    free(ptr);
+}
 
 /* ================================================================
  * qwrt 线程侧内部函数（thread.c 调用）
