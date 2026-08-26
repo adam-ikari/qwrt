@@ -5,20 +5,21 @@ category: decision
 status: active
 tags: [httpserver, perf, serve]
 created: "2026-08-24T15:29:31"
-updated: "2026-08-25T08:59:57"
+updated: "2026-08-26T04:03:35"
 ---
 
 <!-- compiled_truth -->
-M1 里程碑正式收尾：
-- 异步文件 I/O 回归 ✅（fsRead/fsReadBinary 异步 uv_io_fs_read，UAF 修复）
-- 网络 I/O 异步确认 ✅（libuv 天然异步：2MB 大响应+快请求并发不阻塞）
-- gzip e2e 恢复 ✅（应用层 CompressionStream，serve 不自动压缩）
-- fs 全路径测试 ✅（write/exists/read/readdir/unlink 异步往返）
-- e2e 10/10 PASS（0 SKIP）
-- ctest offline 13/13（100%）
-- F1 本地验证完成；CI 全绿（ASan/UBSan）待 push 后确认
+M2-D1 HTTP/1.1 协议细节完成：
+- parseRequest: 提取 version、Connection头、keepAlive判断（HTTP/1.1默认keep-alive，HTTP/1.0默认close）
+- keep-alive 支持：连接复用（两个请求走同一 TCP 连接）
+- pipelining: buf余下部分保留给下一个请求（consumed 字节数）
+- Connection: close 正确处理（HTTP/1.0 和显式 Connection: close）
+- sendResponse: Connection头不再硬编码keep-alive，根据 currentKeepAlive 设置
+- HTTP/1.0 兼容：默认关闭连接
 
-M2（HTTP/1.1 细节 / WS 增强 / 流式 body）可开始。
+验证：e2e 12/12（新增 test_keep_alive_reuse + test_connection_close_http10），ctest offline 13/13
+
+未做（留 M2 后续）：chunked 编码、流式请求体（D2）、空闲超时（D3）
 
 
 ## Timeline
@@ -69,4 +70,10 @@ M2（HTTP/1.1 细节 / WS 增强 / 流式 body）可开始。
   kind: decision
   summary: "M1 里程碑正式收尾"
   source: "e2e 10/10 + ctest 13/13 + ROADMAP"
+  affects: [httpserver-perf-baseline]
+
+- time: 2026-08-26T04:03:35
+  kind: decision
+  summary: "D1 HTTP/1.1 协议细节完成"
+  source: ddbd396b
   affects: [httpserver-perf-baseline]
