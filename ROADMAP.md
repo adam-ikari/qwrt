@@ -80,7 +80,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| D1 | HTTP/1.1 细节 | chunked、keep-alive、管线化、Content-Length 严格校验。 | e2e 协议用例 |
+| D1 | **HTTP/1.1 细节** ✅ | keep-alive 管理、Connection 头尊重、pipelining 支持、Content-Length 严格消费、HTTP/1.0 兼容（默认 close）。 | e2e 12/12；ctest 13/13 |
 | D2 | 请求体流式 | 现在 `req.body` 一次性读入；改流式（大 body 上传）。 | e2e 大 body |
 | D3 | 连接生命周期 | 空闲超时、Connection: close 排空、优雅停止。 | e2e + 无泄漏 |
 | D4 | WS server 增强 | 分片、permessage-deflate、Ping/Pong 保活、子协议协商。 | e2e WS |
