@@ -322,7 +322,9 @@
         args,
         stopped: false,
         isInterval: false,
-        delay
+        delay,
+        currentPalHandle: handle
+        // always set so clearTimeout can stop it (handle may be 0)
       };
       timerEntries.set(handle, entry);
       result.promise.then(function() {
@@ -3364,6 +3366,7 @@
       if (typeof handler !== "function")
         throw new TypeError("serve: handler must be a function");
       var port = options.port === void 0 ? 8080 : options.port;
+      var idleTimeout = options.idleTimeout === void 0 ? 3e4 : options.idleTimeout;
       if (typeof port !== "number" || port < 0 || port > 65535)
         throw new TypeError("serve: invalid port");
       var hostname = options.hostname || "0.0.0.0";
@@ -3373,6 +3376,8 @@
         throw new Error("serve: a server is already running (call srv.close() first)");
       activeInstance = activeServer;
       var currentKeepAlive = true;
+      var currentResetIdle = function() {
+      };
       function WSConnection(conn) {
         this.conn = conn;
         this.state = 0;
@@ -3444,12 +3449,22 @@
       function handleConnection(conn) {
         var buf = "";
         var ws = null;
+        var idleTimer = null;
         conns.push(conn);
+        function resetIdle() {
+          if (idleTimer) clearTimeout(idleTimer);
+          if (idleTimeout > 0 && !ws) {
+            idleTimer = setTimeout(function() {
+              pal2.tcpClose(conn);
+            }, idleTimeout);
+          }
+        }
         conn.ondata = function(data) {
           if (ws) {
             ws._processWSData(data);
             return;
           }
+          resetIdle();
           buf += new TextDecoder().decode(data);
           var req = parseRequest(buf);
           if (!req) return;
@@ -3488,6 +3503,7 @@
             }, new Uint8Array(0)));
             ws = new WSConnection(conn);
             ws.state = 1;
+            clearTimeout(idleTimer);
             if (typeof wsHandler === "function") {
               try {
                 wsHandler(ws);
@@ -3518,6 +3534,7 @@
             body: req.body || "",
             keepAlive: req.keepAlive
           };
+          currentResetIdle = resetIdle;
           try {
             var result = handler(requestObj);
             if (result && typeof result.then === "function") {
@@ -3545,6 +3562,9 @@
           }
         };
         conn.onclose = function(code) {
+          if (idleTimer) clearTimeout(idleTimer);
+          var idx = conns.indexOf(conn);
+          if (idx >= 0) conns.splice(idx, 1);
           if (ws && ws.onclose && ws.state < 3) {
             ws.state = 3;
             var ev = { code: code || 1006, reason: "", wasClean: false };
@@ -3617,6 +3637,7 @@
           if (!hdrs["Connection"]) hdrs["Connection"] = currentKeepAlive ? "keep-alive" : "close";
           pal2.tcpWrite(conn, buildHTTPResponse(st, stText, hdrs, b2));
           if (!currentKeepAlive) pal2.tcpClose(conn);
+          if (currentKeepAlive) currentResetIdle();
         }
         pal2.tcpWrite(conn, buildHTTPResponse(500, "Internal Server Error", {
           "Content-Type": "text/plain",

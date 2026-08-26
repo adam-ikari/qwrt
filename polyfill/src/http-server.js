@@ -193,6 +193,7 @@ export function setupHttpServer(pal) {
       throw new TypeError('serve: handler must be a function');
 
     var port = options.port === undefined ? 8080 : options.port;
+    var idleTimeout = options.idleTimeout === undefined ? 30000 : options.idleTimeout;
     if (typeof port !== 'number' || port < 0 || port > 65535)
       throw new TypeError('serve: invalid port');
     var hostname = options.hostname || '0.0.0.0';
@@ -204,6 +205,7 @@ export function setupHttpServer(pal) {
 
     /* ── WS connection ── */
     var currentKeepAlive = true;
+    var currentResetIdle = function() {};
     function WSConnection(conn) {
       this.conn = conn;
       this.state = 0;  // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
@@ -277,13 +279,24 @@ export function setupHttpServer(pal) {
     function handleConnection(conn) {
       var buf = '';
       var ws = null;
+      var idleTimer = null;
       conns.push(conn);
+
+      function resetIdle() {
+        if (idleTimer) clearTimeout(idleTimer);
+        if (idleTimeout > 0 && !ws) {
+          idleTimer = setTimeout(function() {
+            pal.tcpClose(conn);
+          }, idleTimeout);
+        }
+      }
 
       conn.ondata = function(data) {
         if (ws) {
           ws._processWSData(data);
           return;
         }
+        resetIdle();
 
         buf += new TextDecoder().decode(data);
         var req = parseRequest(buf);
@@ -320,6 +333,7 @@ export function setupHttpServer(pal) {
 
           ws = new WSConnection(conn);
           ws.state = 1;
+          clearTimeout(idleTimer);
           if (typeof wsHandler === 'function') {
             try { wsHandler(ws); } catch (e) {}
           }
@@ -345,6 +359,8 @@ export function setupHttpServer(pal) {
           keepAlive: req.keepAlive
         };
 
+        currentResetIdle = resetIdle;
+
         try {
           var result = handler(requestObj);
           if (result && typeof result.then === 'function') {
@@ -363,6 +379,9 @@ export function setupHttpServer(pal) {
       };
 
       conn.onclose = function(code) {
+        if (idleTimer) clearTimeout(idleTimer);
+        var idx = conns.indexOf(conn);
+        if (idx >= 0) conns.splice(idx, 1);
         if (ws && ws.onclose && ws.state < 3) {
           ws.state = 3;
           var ev = { code: code || 1006, reason: '', wasClean: false };
@@ -430,6 +449,7 @@ export function setupHttpServer(pal) {
         if (!hdrs['Connection']) hdrs['Connection'] = currentKeepAlive ? 'keep-alive' : 'close';
         pal.tcpWrite(conn, buildHTTPResponse(st, stText, hdrs, b2));
         if (!currentKeepAlive) pal.tcpClose(conn);
+        if (currentKeepAlive) currentResetIdle();
       }
 
       /* Numbers, booleans, etc. are invalid handler results */

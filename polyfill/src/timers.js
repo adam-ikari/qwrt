@@ -45,7 +45,8 @@ export function setupTimers(pal) {
       args: args,
       stopped: false,
       isInterval: false,
-      delay: delay
+      delay: delay,
+      currentPalHandle: handle   // always set so clearTimeout can stop it (handle may be 0)
     };
     timerEntries.set(handle, entry);
 
