@@ -5,21 +5,24 @@ category: decision
 status: active
 tags: [httpserver, perf, serve]
 created: "2026-08-24T15:29:31"
-updated: "2026-08-26T04:03:35"
+updated: "2026-08-26T06:02:44"
 ---
 
 <!-- compiled_truth -->
-M2-D1 HTTP/1.1 协议细节完成：
-- parseRequest: 提取 version、Connection头、keepAlive判断（HTTP/1.1默认keep-alive，HTTP/1.0默认close）
-- keep-alive 支持：连接复用（两个请求走同一 TCP 连接）
-- pipelining: buf余下部分保留给下一个请求（consumed 字节数）
-- Connection: close 正确处理（HTTP/1.0 和显式 Connection: close）
-- sendResponse: Connection头不再硬编码keep-alive，根据 currentKeepAlive 设置
-- HTTP/1.0 兼容：默认关闭连接
+M2-D3 连接生命周期完成：
+- serve({idleTimeout})：空闲超时关闭连接（默认30s，0禁用）
+- resetIdle() 每请求重置；WS 升级 + onclose 时清除 idle timer
+- sendResponse 对 keep-alive 响应后重置 idle timer
+- onclose 清理 conns 数组（防泄漏）
 
-验证：e2e 12/12（新增 test_keep_alive_reuse + test_connection_close_http10），ctest offline 13/13
+关键修复（存量 bug，D3 暴露）：
+- polyfill timers.js setTimeout 未存 currentPalHandle，handle==0（首个 pal.timerStart）时
+  clearTimeout 的 'handle > 0' guard 为 false → pal.timerStop 永不调用 → 底层 libuv timer
+  保持活跃 → serve().close() 后事件循环不退出 → test_websocket_client 超时
+- 修复：setTimeout 存 currentPalHandle=handle，clearTimeout 总能停止
+- 影响面：任何 handle==0 的 setTimeout 被 clearTimeout 取消时都会泄漏 timer
 
-未做（留 M2 后续）：chunked 编码、流式请求体（D2）、空闲超时（D3）
+验证：e2e 12/12（ws client 不再超时）；idle-close 实测通过；ctest offline 13/13
 
 
 ## Timeline
@@ -76,4 +79,10 @@ M2-D1 HTTP/1.1 协议细节完成：
   kind: decision
   summary: "D1 HTTP/1.1 协议细节完成"
   source: ddbd396b
+  affects: [httpserver-perf-baseline]
+
+- time: 2026-08-26T06:02:44
+  kind: decision
+  summary: "D3 连接生命周期完成 + timers 存量 bug 修复"
+  source: fd743442
   affects: [httpserver-perf-baseline]
