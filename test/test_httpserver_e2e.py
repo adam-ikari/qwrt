@@ -162,6 +162,29 @@ class WSClient:
             hdr += bytes([0x80 | 127]) + struct.pack(">Q", n)
         self.sock.sendall(hdr + mask + masked)
 
+    def send_fragmented_text(self, payload, sizes):
+        """Send a text message as FIN=0 data frame + continuation frames.
+        sizes = list of chunk lengths (must sum to len(payload))."""
+        data = payload.encode() if isinstance(payload, str) else payload
+        off = 0
+        for i, sz in enumerate(sizes):
+            chunk = data[off:off + sz]
+            off += sz
+            is_last = (off == len(data))
+            mask = os.urandom(4)
+            masked = bytes(b ^ mask[k % 4] for k, b in enumerate(chunk))
+            # opcode: 0x1 for first frame, 0x0 (continuation) for rest
+            opcode = 0x1 if i == 0 else 0x0
+            hdr = bytes([(0x80 if is_last else 0x00) | opcode])
+            n = len(chunk)
+            if n < 126:
+                hdr += bytes([0x80 | n])
+            elif n < 65536:
+                hdr += bytes([0x80 | 126]) + struct.pack(">H", n)
+            else:
+                hdr += bytes([0x80 | 127]) + struct.pack(">Q", n)
+            self.sock.sendall(hdr + mask + masked)
+
     def recv_frame(self, timeout=5.0):
         self.sock.settimeout(timeout)
         b0 = self.sock.recv(1)
@@ -234,7 +257,7 @@ const srv = serve({%(opts)s}, async (req) => {
 """
 
 def gen_server_script(port, static_root=None, tls=False, file_root=None,
-                     fs_root=None):
+                     fs_root=None, subprotocols=None):
     opts = "port: %d" % port
     file_routes = ""
     if file_root:
@@ -282,7 +305,12 @@ def gen_server_script(port, static_root=None, tls=False, file_root=None,
                 check=True, capture_output=True)
         opts += ', tls: {cert: %r, key: %r}' % (cert, key)
     # ws endpoints live on port+1 — single serve() call (a second one throws)
-    opts += ', ws: {"/echo": (ws) => { ws.onmessage = (e) => ws.send("echo:" + e.data); }}'
+    if subprotocols:
+        protos = ",".join('"%s"' % s for s in subprotocols)
+        opts += (', ws: {"/echo": {handler: (ws) => { ws.onmessage = (e)'
+                 ' => ws.send("echo:" + e.data); }, protocols: [%s]}}' % protos)
+    else:
+        opts += ', ws: {"/echo": (ws) => { ws.onmessage = (e) => ws.send("echo:" + e.data); }}'
     return SERVER_SCRIPT % {"opts": opts, "file_routes": file_routes,
                            "fs_routes": fs_routes}
 
@@ -561,6 +589,53 @@ def test_websocket_client(qwrt_bin):
     assert proc.returncode == 0, "exit=%d out=%s" % (proc.returncode, text[-400:])
     assert "GOT:9" in text and "GOT:305" in text, text[-400:]
     assert "WS-CLIENT-OK:1000:bye" in text, text[-400:]
+
+@test
+def test_websocket_fragmentation(qwrt_bin):
+    """Server reassembles a fragmented (FIN=0 + continuation) text message."""
+    p = free_port()
+    srv = QwrtServer(gen_server_script(p), qwrt_bin)
+    try:
+        srv.wait_port(p)
+        ws = WSClient(p, "/echo")
+        # 'hello-fragmented-world' = 22 chars; split as [5, 9, 8]
+        ws.send_fragmented_text("hello-fragmented-world", [5, 9, 8])
+        opcode, payload = ws.recv_frame()
+        # server echoes 'echo:' + reassembled message
+        assert opcode == 0x1, "opcode=%d" % opcode
+        assert payload == b"echo:hello-fragmented-world", payload
+        ws.close()
+    finally:
+        srv.stop()
+
+@test
+def test_websocket_subprotocol(qwrt_bin):
+    """Subprotocol negotiation: server echoes first supported Sec-WebSocket-Protocol."""
+    p = free_port()
+    srv = QwrtServer(gen_server_script(p, subprotocols=["chat", "superchat"]),
+                     qwrt_bin)
+    try:
+        srv.wait_port(p)
+        s = socket.create_connection(("127.0.0.1", p), timeout=5)
+        key = base64.b64encode(os.urandom(16)).decode()
+        handshake = (
+            "GET /echo HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n"
+            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+            "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n"
+            "Sec-WebSocket-Protocol: superchat, chat\r\n\r\n"
+            % (p, key))
+        s.sendall(handshake.encode())
+        resp = b""
+        while b"\r\n\r\n" not in resp:
+            c = s.recv(4096)
+            if not c: break
+            resp += c
+        assert b"101" in resp, resp[:200]
+        # server must echo one of the offered protocols (first supported = superchat)
+        assert b"Sec-WebSocket-Protocol: superchat" in resp, resp[:200]
+        s.close()
+    finally:
+        srv.stop()
 
 # ---------------------------------------------------------------------------
 # lifecycle / errors

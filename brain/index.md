@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-26T06:02:44.100Z._
+_Auto-generated. Last updated 2026-08-26T09:30:07.218Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
@@ -9,6 +9,7 @@ _Auto-generated. Last updated 2026-08-26T06:02:44.100Z._
 - [httpserver-perf-baseline](pages/httpserver-perf-baseline.md) — category: decision | tags: [httpserver, perf, serve] | M2-D3 连接生命周期完成：
 - [httpserver-perf-benchmark](pages/httpserver-perf-benchmark.md) — category: decision | ### Phase 4 优化（2026-08-19，分支 phase4-httpserver-perf）
 - [httpserver-ws-fixes](pages/httpserver-ws-fixes.md) — category: decision | tags: [http-server, websocket, uvhttp, llhttp] | uvhttp 在 qwrt 中的底层修复（均改 deps/uvhttp 源码）：1) HPE_PAUSED_UPGRADE 时 llhttp 暂停未恢复——分发前显式 llhttp_resume；2) WS 握手 101 后 uvhttp 仍尝试 HTTP 解析导致状态错乱——升
+- [httpserver-ws-protocol](pages/httpserver-ws-protocol.md) — category: decision | tags: [http-server, websocket, protocol] | polyfill/src/http-server.js（纯 JS 层，uvhttp C 层之上的 WS 协议增强）：1) 消息分片重组——收到 FIN=0 数据帧（0x1/0x2）时暂存 opcode+payload 于 WSConnection._fragOpcode/_fra
 - [libuv-io-uring-workaround](pages/libuv-io-uring-workaround.md) — category: decision | tags: [libuv, io-uring, linux, workaround] | deps/libuv/src/unix/linux.c 有一处本地补丁（未提交到上游）：让 `UV_USE_IO_URING=0` 真正禁用 io_uring。
 - [test262-ctest-fix](pages/test262-ctest-fix.md) — category: decision | tags: [test262, ctest, cmake] | ## 现象
 - [urlpattern-modifier-fix](pages/urlpattern-modifier-fix.md) — category: decision | tags: [urlpattern, wintertc, ecma429, polyfill] | ## 问题

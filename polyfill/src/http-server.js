@@ -214,6 +214,9 @@ export function setupHttpServer(pal) {
       this.onmessage = null;
       this.onclose = null;
       this.onerror = null;
+      /* fragmentation state */
+      this._fragOpcode = 0;    // 0x1 (text) or 0x2 (binary) of a fragmented message
+      this._fragParts = [];    // payload chunks of the current fragmented message
     }
 
     WSConnection.prototype.send = function(data) {
@@ -264,17 +267,45 @@ export function setupHttpServer(pal) {
           }
         } else if (frame.opcode === 0x9) {  // Ping
           pal.tcpWrite(this.conn, buildWSFrame(0xA, frame.payload, 1));
+        } else if (frame.opcode === 0x0) {  // Continuation
+          this._fragParts.push(frame.payload);
+          if (frame.fin) {
+            var fragOp = this._fragOpcode;
+            var combined = combineBytes(this._fragParts);
+            this._fragOpcode = 0;
+            this._fragParts = [];
+            deliverWS(this, fragOp, combined);
+          }
         } else if (frame.opcode === 0x1 || frame.opcode === 0x2) {  // Text/Binary
-          var msg = null;
-          if (frame.opcode === 0x1) msg = new TextDecoder().decode(frame.payload);
-          else msg = frame.payload;
-          if (this.onmessage) {
-            var ev2 = { data: msg };
-            try { this.onmessage(ev2); } catch (e) {}
+          if (frame.fin) {
+            deliverWS(this, frame.opcode, frame.payload);
+          } else {
+            // start a fragmented message
+            this._fragOpcode = frame.opcode;
+            this._fragParts = [frame.payload];
           }
         }
       }
     };
+
+    function combineBytes(parts) {
+      var total = 0;
+      for (var i = 0; i < parts.length; i++) total += parts[i].length;
+      var out = new Uint8Array(total);
+      var off = 0;
+      for (var i = 0; i < parts.length; i++) { out.set(parts[i], off); off += parts[i].length; }
+      return out;
+    }
+
+    function deliverWS(ws, opcode, payload) {
+      var msg = null;
+      if (opcode === 0x1) msg = new TextDecoder().decode(payload);
+      else msg = payload;
+      if (ws.onmessage) {
+        var ev2 = { data: msg };
+        try { ws.onmessage(ev2); } catch (e) {}
+      }
+    }
 
     function handleConnection(conn) {
       var buf = '';
@@ -323,19 +354,37 @@ export function setupHttpServer(pal) {
           }
 
           var accept = wsAccept(wsKey);
-          pal.tcpWrite(conn, buildHTTPResponse(101, 'Switching Protocols', {
+          var respHdrs = {
             'Upgrade': 'websocket',
             'Connection': 'Upgrade',
             'Sec-WebSocket-Accept': accept,
             'Content-Type': 'text/plain',
             'Content-Length': '0'
-          }, new Uint8Array(0)));
+          };
+          /* subprotocol negotiation: echo the first supported protocol */
+          var reqProtocols = (req.headers['sec-websocket-protocol'] || '')
+            .split(',').map(function(s) { return s.trim(); });
+          var supportedProtocols = null;
+          if (wsHandler && typeof wsHandler === 'object' &&
+              Array.isArray(wsHandler.protocols)) {
+            supportedProtocols = wsHandler.protocols;
+          }
+          if (supportedProtocols && reqProtocols.length) {
+            for (var i = 0; i < reqProtocols.length; i++) {
+              if (supportedProtocols.indexOf(reqProtocols[i]) >= 0) {
+                respHdrs['Sec-WebSocket-Protocol'] = reqProtocols[i];
+                break;
+              }
+            }
+          }
+          pal.tcpWrite(conn, buildHTTPResponse(101, 'Switching Protocols', respHdrs, new Uint8Array(0)));
 
+          var wsRouteFn = typeof wsHandler === 'function' ? wsHandler : wsHandler.handler;
           ws = new WSConnection(conn);
           ws.state = 1;
           clearTimeout(idleTimer);
-          if (typeof wsHandler === 'function') {
-            try { wsHandler(ws); } catch (e) {}
+          if (typeof wsRouteFn === 'function') {
+            try { wsRouteFn(ws); } catch (e) {}
           }
           if (ws.onopen) { try { ws.onopen({}); } catch (e) {} }
           return;

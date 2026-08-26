@@ -3386,6 +3386,8 @@
         this.onmessage = null;
         this.onclose = null;
         this.onerror = null;
+        this._fragOpcode = 0;
+        this._fragParts = [];
       }
       WSConnection.prototype.send = function(data) {
         if (this.state !== 1) return;
@@ -3432,20 +3434,48 @@
             }
           } else if (frame.opcode === 9) {
             pal2.tcpWrite(this.conn, buildWSFrame(10, frame.payload, 1));
+          } else if (frame.opcode === 0) {
+            this._fragParts.push(frame.payload);
+            if (frame.fin) {
+              var fragOp = this._fragOpcode;
+              var combined = combineBytes(this._fragParts);
+              this._fragOpcode = 0;
+              this._fragParts = [];
+              deliverWS(this, fragOp, combined);
+            }
           } else if (frame.opcode === 1 || frame.opcode === 2) {
-            var msg = null;
-            if (frame.opcode === 1) msg = new TextDecoder().decode(frame.payload);
-            else msg = frame.payload;
-            if (this.onmessage) {
-              var ev2 = { data: msg };
-              try {
-                this.onmessage(ev2);
-              } catch (e) {
-              }
+            if (frame.fin) {
+              deliverWS(this, frame.opcode, frame.payload);
+            } else {
+              this._fragOpcode = frame.opcode;
+              this._fragParts = [frame.payload];
             }
           }
         }
       };
+      function combineBytes(parts) {
+        var total = 0;
+        for (var i = 0; i < parts.length; i++) total += parts[i].length;
+        var out = new Uint8Array(total);
+        var off = 0;
+        for (var i = 0; i < parts.length; i++) {
+          out.set(parts[i], off);
+          off += parts[i].length;
+        }
+        return out;
+      }
+      function deliverWS(ws, opcode, payload) {
+        var msg = null;
+        if (opcode === 1) msg = new TextDecoder().decode(payload);
+        else msg = payload;
+        if (ws.onmessage) {
+          var ev2 = { data: msg };
+          try {
+            ws.onmessage(ev2);
+          } catch (e) {
+          }
+        }
+      }
       function handleConnection(conn) {
         var buf = "";
         var ws = null;
@@ -3494,19 +3524,36 @@
               return;
             }
             var accept = wsAccept(wsKey);
-            pal2.tcpWrite(conn, buildHTTPResponse(101, "Switching Protocols", {
+            var respHdrs = {
               "Upgrade": "websocket",
               "Connection": "Upgrade",
               "Sec-WebSocket-Accept": accept,
               "Content-Type": "text/plain",
               "Content-Length": "0"
-            }, new Uint8Array(0)));
+            };
+            var reqProtocols = (req.headers["sec-websocket-protocol"] || "").split(",").map(function(s) {
+              return s.trim();
+            });
+            var supportedProtocols = null;
+            if (wsHandler && typeof wsHandler === "object" && Array.isArray(wsHandler.protocols)) {
+              supportedProtocols = wsHandler.protocols;
+            }
+            if (supportedProtocols && reqProtocols.length) {
+              for (var i = 0; i < reqProtocols.length; i++) {
+                if (supportedProtocols.indexOf(reqProtocols[i]) >= 0) {
+                  respHdrs["Sec-WebSocket-Protocol"] = reqProtocols[i];
+                  break;
+                }
+              }
+            }
+            pal2.tcpWrite(conn, buildHTTPResponse(101, "Switching Protocols", respHdrs, new Uint8Array(0)));
+            var wsRouteFn = typeof wsHandler === "function" ? wsHandler : wsHandler.handler;
             ws = new WSConnection(conn);
             ws.state = 1;
             clearTimeout(idleTimer);
-            if (typeof wsHandler === "function") {
+            if (typeof wsRouteFn === "function") {
               try {
-                wsHandler(ws);
+                wsRouteFn(ws);
               } catch (e) {
               }
             }
