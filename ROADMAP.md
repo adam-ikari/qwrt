@@ -72,7 +72,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| C1 | WASM 引擎 | WAMR AOT 路径、wasm3 特性对等、流式编译（test_wasm_streaming）。 | gtest |
+| C1 | **WASM 引擎** ✅ | WAMR 默认 + wasm3 特性对等（streaming API 补齐：`compileStreaming`/`instantiateStreaming`，与 WAMR 语义等价）；修复 `QWRT_DEFAULT_EXTENSIONS` 从未注册 wasm3 的根因（wasm3 构建下 `WebAssembly` 全局缺失）；streaming 测试门控 WAMR OR WASM3。 | gtest 3/3（wasm3）+ 3/3（WAMR 回归）；端到端 `instantiateStreaming` add(20,22)=42 |
 | C2 | TLS/crypto | SNI 多证书、证书热加载；crypto.subtle wrapKey 已做，补其余算法。 | gtest |
 | C3 | 压缩 | miniz 压缩缓存（相同 body 只压一次，可移植 uvhttp 时代 LRU）。 | 基准 + 正确性 |
 
