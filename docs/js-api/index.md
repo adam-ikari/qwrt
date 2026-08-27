@@ -42,10 +42,12 @@ flowchart TB
 | [fetch](/js-api/fetch) | `fetch`, `Headers`, `Request`, `Response` | ✅ Standard |
 | [crypto](/js-api/crypto) | `crypto.getRandomValues()`, `crypto.subtle` | ✅ Standard |
 | [streams](/js-api/streams) | `ReadableStream`, `WritableStream`, `TransformStream` | ✅ Standard |
+| [compress](/js-api/compress) | `CompressionStream`, `DecompressionStream` | ✅ Standard |
 | [TextEncoder](/js-api/encoding) | `TextEncoder`, `TextDecoder` | ✅ Standard |
 | [Blob / File / FormData](/js-api/blob) | `Blob`, `File`, `FormData` | ✅ Standard |
 | [structuredClone](/js-api/structured-clone) | `structuredClone` | ✅ Standard |
 | [MessageChannel](/js-api/message-channel) | `MessageChannel`, `MessagePort` | ✅ Standard |
+| [Worker](/js-api/worker) | `Worker` | ✅ Standard |
 | [navigator](/js-api/navigator) | `navigator` | ✅ Standard |
 
 ### Platform APIs (qwrt extensions)
@@ -54,6 +56,7 @@ flowchart TB
 |-----|--------|-------|
 | [fs](/js-api/fs) | `qwrt.fs` | Filesystem operations |
 | [storage](/js-api/storage) | `qwrt.storage` | Key-value storage |
+| [serve](/js-api/serve) | `serve()` | HTTP server |
 
 ## Standards Compliance
 

@@ -91,6 +91,7 @@ let decrypted = await crypto.subtle.decrypt(
 | Algorithm | Modes | Key Sizes |
 |-----------|-------|-----------|
 | `AES-CBC` | encrypt, decrypt | 128, 192, 256 |
+| `AES-GCM` | encrypt, decrypt (with `iv`, optional `additionalData`, `tagLength`) | 128, 192, 256 |
 | `AES-CTR` | encrypt, decrypt | 128, 192, 256 |
 
 ### `crypto.subtle.generateKey(algorithm, extractable, keyUsages)`
@@ -163,13 +164,57 @@ let derived = await crypto.subtle.deriveBits(
 );
 ```
 
+### Key Export, Wrapping, and Derivation
+
+`exportKey` / `wrapKey` / `unwrapKey` / `deriveKey` are available when `QWRT_WITH_CRYPTO_EXT=ON`.
+
+`exportKey` supports `"raw"` and `"jwk"` formats, and requires a key created with `extractable: true`:
+
+```js
+let key = await crypto.subtle.generateKey(
+    { name: 'HMAC', hash: 'SHA-256' },
+    true, ['sign', 'verify']      // extractable
+);
+
+let raw = await crypto.subtle.exportKey('raw', key);   // ArrayBuffer
+let jwk = await crypto.subtle.exportKey('jwk', key);   // { kty, k, alg, ext, key_ops }
+```
+
+`wrapKey` / `unwrapKey` encrypt a key's bytes using `AES-GCM` or `AES-CBC`, so a key can be stored or transferred securely:
+
+```js
+let kek = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']
+);
+let iv = crypto.getRandomValues(new Uint8Array(12));
+
+let wrapped = await crypto.subtle.wrapKey(
+    'raw', key, kek, { name: 'AES-GCM', iv: iv }
+);
+let unwrapped = await crypto.subtle.unwrapKey(
+    'raw', wrapped, kek, { name: 'AES-GCM', iv: iv },
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']
+);
+```
+
+`deriveKey` derives a key from a PBKDF2-derived bit string (same parameters as `deriveBits`):
+
+```js
+let baseKey = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode('password'), 'PBKDF2', false, ['deriveKey']
+);
+let derived = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+    baseKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+);
+```
+
 ## Without CRYPTO_EXT
 
 When `QWRT_WITH_CRYPTO_EXT=OFF`, only `crypto.getRandomValues()` is available. `crypto.subtle` exists but all methods throw `NotSupportedError`.
 
 ## Notes
 
-- Key extraction (`extractable: true`) is NOT supported — all keys are non-extractable
-- `AES-GCM` is not yet supported
+- Keys are `extractable: false` by default; pass `extractable: true` to `generateKey`/`importKey` to enable `exportKey`/`wrapKey`
 - `ECDH`/`ECDSA` (asymmetric) are not yet supported
-- No `crypto.randomUUID()` — use `getRandomValues` to build UUIDs manually
+- `crypto.randomUUID()` is available (RFC 4122 v4, built on `getRandomValues`)
