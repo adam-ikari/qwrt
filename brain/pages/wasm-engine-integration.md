@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [wasm, wamr, threading]
 created: "2026-08-15T01:32:50"
-updated: "2026-08-15T01:33:01"
+updated: "2026-08-27T08:16:16"
 ---
 
 <!-- compiled_truth -->
@@ -47,4 +47,10 @@ updated: "2026-08-15T01:33:01"
   kind: decision
   summary: "WAMR 线程环境与 streaming API 实现决策"
   source: "Task 3: compileStreaming/instantiateStreaming"
+  affects: [wasm-engine-integration]
+
+- time: 2026-08-27T08:16:16
+  kind: decision
+  summary: "wasm3 streaming 对等 + 引擎注册根因修复（C1）：ext_wasm3.c 补 compileStreaming/instantiateStreaming（镜像 WAMR 的 JS_Eval async IIFE，magic 0/1 区分）；修复 QWRT_DEFAULT_EXTENSIONS 从不注册 wasm3 的 bug（wasm3 构建下 WebAssembly 全局缺失），新增 QWRT_EXT_IF_WITH(WASM3) 槽位（CMake 已保证 WAMR/WASM3 互斥）；streaming 测试门控 WAMR OR WASM3。验证：wasm3 3/3 + WAMR 回归 3/3 + 真实 libuv CLI 端到端 instantiateStreaming add(20,22)=42。"
+  source: "C1: wasm3 streaming parity + registration fix"
   affects: [wasm-engine-integration]
