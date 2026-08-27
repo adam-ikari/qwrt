@@ -113,3 +113,15 @@ TEST(qwrt_wait_idle, api_available_and_teardown_safe) {
     host_destroy(h);                /* destroy 与 wait_idle 共存：join 安全 */
     SUCCEED();
 }
+
+/* F4 security audit:qwrt_msg_push 的分配大小 (sizeof + len + 1) 必须拒绝
+ * 溢出——len 理论可达 SIZE_MAX,若被接受会 malloc 小块后 memcpy 越界写。 */
+TEST(qwrt_msg_push, rejects_alloc_overflow) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+    EXPECT_EQ(-1, qwrt_msg_push(h->rt, "x", (size_t)-1, 0));
+    EXPECT_EQ(-1, qwrt_msg_push(h->rt, "x", (size_t)-2, 0));
+    /* 正常小消息仍入队成功 */
+    EXPECT_EQ(0, qwrt_msg_push(h->rt, "ok", 2, 0));
+    host_destroy(h);
+}

@@ -66,3 +66,18 @@ TEST_F(BridgeHttpTest, StreamingHttpRequestStream) {
     ASSERT_TRUE(host_poll_until_value(h, "_headerStatus", "200", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_dataBytes", "16", &v));
 }
+
+TEST_F(BridgeHttpTest, HttpsFetchRejectsUntrustedPeer) {
+    /* 用垃圾字节冒充 TLS ServerHello:握手必须失败、fetch 必须 reject。
+     * 证明 https 客户端绝不静默接受任意证书/明文(修复前 CA 缺失时降级到
+     * VERIFY_OPTIONAL 且无 verify_result 检查)。无 TLS 构建下该路径直接
+     * 报 "TLS not supported",同样 reject —— 两种构建行为一致。 */
+    const char *garbage = "\x16\x03\x01\x00\x00not-a-real-tls-server-hello";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, garbage, strlen(garbage)));
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis._fetchErr='pending';"
+        "fetch('https://localhost/').then(function(r){_fetchErr='resolved';},"
+        "function(e){_fetchErr='rejected';});'started'", &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_fetchErr", "rejected", &out));
+}

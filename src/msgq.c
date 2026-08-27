@@ -25,8 +25,11 @@
 
 int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source)
 {
+    /* len+1 与 sizeof(qwrt_msg_t) 相加不得溢出,否则 malloc 得到小块而
+     * memcpy 越界写。len 来自 JS 侧 ArrayBuffer 长度或宿主,理论上可达
+     * SIZE_MAX(整数溢出)或极大值(分配炸弹),统一在此拒绝。 */
+    if (len > (size_t)-1 - sizeof(qwrt_msg_t) - 1) return -1;
     qwrt_msg_t *m = (qwrt_msg_t *)malloc(sizeof *m + len + 1);
-    if (!m) return -1;
     m->data = (char *)(m + 1);
     memcpy(m->data, data, len);
     m->data[len] = '\0';

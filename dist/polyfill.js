@@ -1856,6 +1856,7 @@
       var onAbort;
       var streamController = null;
       var abandoned = false;
+      var resolved = false;
       if (request.signal) {
         onAbort = function() {
           aborted = true;
@@ -1977,6 +1978,7 @@
           headers,
           url: request.url
         });
+        resolved = true;
         resolve(resp);
       }
       function onData(chunk) {
@@ -1996,6 +1998,10 @@
       function onEnd(errorStatus) {
         cleanupAbort();
         if (aborted || abandoned) return;
+        if (errorStatus !== 0 && !resolved) {
+          reject(new TypeError("fetch failed: network error " + errorStatus));
+          return;
+        }
         if (streamController) {
           if (errorStatus !== 0) {
             streamController.error(new TypeError("fetch failed with status: " + errorStatus));

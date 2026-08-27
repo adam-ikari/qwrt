@@ -239,6 +239,11 @@ struct qwrt_t {
 /* ================================================================
  * Internal helper functions
  * ================================================================ */
+/* 内部函数为 C 链接;C++ 测试(如 gtest)直接调用时须保持 C 符号,
+ * 否则被 name-mangling 而无法解析(测试构建才 include 本头)。 */
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* msgq.c — thread-safe inbound FIFO */
 int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source);
@@ -354,5 +359,10 @@ void uv_io_http_request_stream(qwrt_t *rt, const char *url, const char *method,
 uint64_t uv_io_hrtime(void);
 void uv_io_log(int level, const char *msg);
 void uv_io_random_bytes(uint8_t *buf, size_t len);
+
+#ifdef __cplusplus
+}
+#endif
+ 
 
 #endif /* QWRT_INTERNAL_H */

@@ -731,6 +731,7 @@ export function setupFetch(pal) {
     var streamController = null;
     var abandoned = false;   /* this hop's stream was abandoned due to a redirect */
 
+    var resolved = false;    /* fetch promise 已 settle(防 onEnd 重复 reject) */
     if (request.signal) {
       onAbort = function() {
         aborted = true;
@@ -877,6 +878,7 @@ export function setupFetch(pal) {
         url: request.url
       });
 
+      resolved = true;       /* 之后 onEnd 的 EOF 只 close 流,不再 reject */
       resolve(resp);
     }
 
@@ -902,6 +904,13 @@ export function setupFetch(pal) {
       cleanupAbort();
 
       if (aborted || abandoned) return;
+
+      /* 网络错误(连接/握手/TLS 失败)且 fetch promise 尚未 settle:必须
+       * reject,否则 fetch 永远 pending。 */
+      if (errorStatus !== 0 && !resolved) {
+        reject(new TypeError('fetch failed: network error ' + errorStatus));
+        return;
+      }
 
       if (streamController) {
         if (errorStatus !== 0) {

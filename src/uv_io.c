@@ -220,16 +220,17 @@ static int tls_init_op(uv_io_http_op_t *op) {
     }
     if (ca_loaded) {
         mbedtls_ssl_conf_ca_chain(&op->ssl_conf, &op->ca_certs, NULL);
-        mbedtls_ssl_conf_authmode(&op->ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-    } else {
-        /* No CA certs available — fall back to optional verification */
-        mbedtls_ssl_conf_authmode(&op->ssl_conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
     }
+    /* 恒为 VERIFY_REQUIRED:证书验证失败必须让握手失败。即使没有系统 CA
+     * (ca_chain 为空,任何服务器证书都无法验证 → 连接被拒),也绝不静默
+     * 降级到 VERIFY_OPTIONAL——那会接受任意中间人/自签名证书。 */
+    mbedtls_ssl_conf_authmode(&op->ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
 
     ret = mbedtls_ssl_setup(&op->ssl, &op->ssl_conf);
     if (ret != 0) return -1;
 
-    mbedtls_ssl_set_hostname(&op->ssl, op->host);
+    ret = mbedtls_ssl_set_hostname(&op->ssl, op->host);
+    if (ret != 0) return -1;   /* SNI/主机名校验不可用 → 拒绝,不静默通过 */
     op->tls_handshake_done = 0;
     return 0;
 }
@@ -1790,13 +1791,19 @@ static void tls_handshake_read_cb(uv_stream_t *stream, ssize_t nread,
 
     int ret = mbedtls_ssl_handshake(&op->ssl);
     if (ret == 0) {
+        /* 纵深防御:即使 authmode 被误配为 OPTIONAL,证书/主机名验证失败
+         * 也必须拒绝连接,不能带着未经验证的证书继续。 */
+        if (mbedtls_ssl_get_verify_result(&op->ssl) != 0) {
+            uv_read_stop((uv_stream_t *)&op->tcp);
+            free(op->tls_read_buf);
+            op->tls_read_buf = NULL;
+            op->tls_read_buf_len = 0;
+            op->tls_read_consumed = 0;
+            uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+                                    "TLS certificate verification failed");
+            return;
+        }
         op->tls_handshake_done = 1;
-        uv_read_stop((uv_stream_t *)&op->tcp);
-        free(op->tls_read_buf);
-        op->tls_read_buf = NULL;
-        op->tls_read_buf_len = 0;
-        op->tls_read_consumed = 0;
-        uv_io_http_send_request(op);
     } else if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
                ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
         char err[128];
@@ -1861,6 +1868,12 @@ static void uv_io_http_connect_cb(uv_connect_t *req, int status)
         {
             int ret = mbedtls_ssl_handshake(&op->ssl);
             if (ret == 0) {
+                /* 纵深防御:同步握手成功后同样校验证书/主机名验证结果。 */
+                if (mbedtls_ssl_get_verify_result(&op->ssl) != 0) {
+                    uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+                                            "TLS certificate verification failed");
+                    return;
+                }
                 /* Handshake completed synchronously (unlikely) */
                 op->tls_handshake_done = 1;
                 uv_read_stop((uv_stream_t *)&op->tcp);
