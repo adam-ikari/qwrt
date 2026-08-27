@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-27T09:54:42.117Z._
+_Auto-generated. Last updated 2026-08-27T15:39:15.767Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
@@ -13,6 +13,7 @@ _Auto-generated. Last updated 2026-08-27T09:54:42.117Z._
 - [httpserver-ws-fixes](pages/httpserver-ws-fixes.md) — category: decision | tags: [http-server, websocket, uvhttp, llhttp] | uvhttp 在 qwrt 中的底层修复（均改 deps/uvhttp 源码）：1) HPE_PAUSED_UPGRADE 时 llhttp 暂停未恢复——分发前显式 llhttp_resume；2) WS 握手 101 后 uvhttp 仍尝试 HTTP 解析导致状态错乱——升
 - [httpserver-ws-protocol](pages/httpserver-ws-protocol.md) — category: decision | tags: [http-server, websocket, protocol] | polyfill/src/http-server.js（纯 JS 层 WS 协议）：
 - [libuv-io-uring-workaround](pages/libuv-io-uring-workaround.md) — category: decision | tags: [libuv, io-uring, linux, workaround] | deps/libuv/src/unix/linux.c 有一处本地补丁（未提交到上游）：让 `UV_USE_IO_URING=0` 真正禁用 io_uring。
+- [startup-memory-benchmark](pages/startup-memory-benchmark.md) — category: decision | tags: [f3, benchmark, memory] | ### F3 启动/内存基准（2026-08-27，commit 1ff03860）
 - [streams-b3-semantics](pages/streams-b3-semantics.md) — category: decision | tags: [streams, wintertc, ecma-429] | - **背景**：ROADMAP B3（streams 覆盖）对照 WHATWG Streams 语义审计 polyfill/src/streams.js，发现 pipeTo/tee/pipeThrough/releaseLock 四处真实缺口。
 - [test262-ctest-fix](pages/test262-ctest-fix.md) — category: decision | tags: [test262, ctest, cmake] | ## 现象
 - [urlpattern-modifier-fix](pages/urlpattern-modifier-fix.md) — category: decision | tags: [urlpattern, wintertc, ecma429, polyfill] | ## 问题
