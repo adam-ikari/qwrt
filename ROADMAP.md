@@ -65,7 +65,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 |---|--------|------|------|
 | B1 | **恢复 gzip e2e** ✅ | `test_gzip_compression` 已恢复（应用层 handler 用 CompressionStream 压缩 + Content-Encoding；serve 不自动压缩）。 | e2e 10/10 |
 | B2 | fetch 完善 | 重定向✅、流式 body✅、上传✅（请求体字节安全：string/Uint8Array/ArrayBuffer/ReadableStream）、AbortSignal✅；剩余代理。 | gtest + 集成 |
-| B3 | streams 覆盖 | BYOB 已补齐；补充 backpressure、tee、pipeThrough 边界。 | gtest + WPT 样例 |
+| B3 | **streams 覆盖** ✅ | backpressure 串行✅、tee 单分支 cancel 关闭分支✅、pipeThrough 校验（结构+locked）✅、releaseLock 语义（释放锁 reject pending read / release 后 read 抛错）✅、pipeTo 收尾释放 writer 锁✅；BYOB 已补齐。 | gtest 51/51（含 5 个新边界用例） |
 | B4 | 标准缺口盘点 | 对照 WinterCG spec 逐模块勾选；缺项入 gtest。 | 覆盖矩阵 |
 
 ### C. 原生扩展
