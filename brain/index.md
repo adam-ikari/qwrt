@@ -1,11 +1,12 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-26T12:27:17.557Z._
+_Auto-generated. Last updated 2026-08-27T05:01:21.417Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
 - [crypto-subtle-wrapkey](pages/crypto-subtle-wrapkey.md) — category: decision | tags: [crypto, webcrypto, wrapkey] | - **背景**：crypto.subtle 此前缺 `wrapKey`/`unwrapKey`（WebCrypto 标准方法）。
 - [examples-tree](pages/examples-tree.md) — category: decision | tags: [build, examples] | - 示例程序放在根目录 examples/ 下，每个示例一个子目录（examples/hello, examples/worker），不再放根目录 example.c。
+- [fetch-request-body-bytes](pages/fetch-request-body-bytes.md) — category: decision | tags: [fetch, wintertc, http, polyfill] | - **背景**：`fetch(url, {body})` 请求体此前在 JS 层被 `String()` 强转，二进制（Uint8Array/ArrayBuffer）与流式 body（ReadableStream）语义丢失；C 桥接层 `http_request_stream`
 - [httpserver-perf-baseline](pages/httpserver-perf-baseline.md) — category: decision | tags: [httpserver, perf, serve] | M2-D3 连接生命周期完成：
 - [httpserver-perf-benchmark](pages/httpserver-perf-benchmark.md) — category: decision | ### Phase 4 优化（2026-08-19，分支 phase4-httpserver-perf）
 - [httpserver-streaming-body](pages/httpserver-streaming-body.md) — category: decision | tags: [http-server, streaming, serve] | D2 请求体流式（破坏性 API 变更）：serve() 的 req.body 从同步字符串改为 ReadableStream（Web 标准语义），新增 req.text()/req.arrayBuffer() 异步读取。
