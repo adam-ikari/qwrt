@@ -51,7 +51,7 @@ if(QWRT_WITH_CRYPTO_EXT)
     add_qwrt_gtest(test_crypto_subtle_gtest)
 endif()
 
-if(QWRT_WITH_WAMR)
+if(QWRT_WITH_WAMR OR QWRT_WITH_WASM3)
     add_qwrt_gtest(test_wasm_streaming_gtest)
 endif()
 

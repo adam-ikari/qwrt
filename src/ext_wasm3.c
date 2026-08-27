@@ -443,6 +443,48 @@ static JSValue wasm3_wasm_instantiate(JSContext *ctx, JSValueConst this_val,
     return promise;
 }
 
+/* WebAssembly.compileStreaming / instantiateStreaming
+ *
+ * v1 语义等价实现：接受 Promise<Response> 或含 arrayBuffer() 方法的对象，
+ * 取完整字节后交给 compile / instantiate（不要求真·逐块流式编译）。
+ * magic: 0 = compileStreaming, 1 = instantiateStreaming。
+ */
+static JSValue wasm3_wasm_streaming(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv, int magic)
+{
+    (void)this_val;
+    if (argc < 1) {
+        return JS_ThrowTypeError(ctx,
+            "WebAssembly.*Streaming requires at least 1 argument");
+    }
+    /* async IIFE：resolve source → arrayBuffer() → compile / instantiate */
+    const char *compile_prog =
+        "(async function(src) {                                           "
+        "  var r = (src && typeof src.then === 'function') ? await src : src;"
+        "  if (!r || typeof r.arrayBuffer !== 'function')                 "
+        "    throw new TypeError('streaming source must provide arrayBuffer()');"
+        "  var buf = await r.arrayBuffer();                               "
+        "  return WebAssembly.compile(buf);                               "
+        "})";
+    const char *instantiate_prog =
+        "(async function(src, imports) {                                  "
+        "  var r = (src && typeof src.then === 'function') ? await src : src;"
+        "  if (!r || typeof r.arrayBuffer !== 'function')                 "
+        "    throw new TypeError('streaming source must provide arrayBuffer()');"
+        "  var buf = await r.arrayBuffer();                               "
+        "  return WebAssembly.instantiate(buf, imports);                  "
+        "})";
+    const char *prog = magic ? instantiate_prog : compile_prog;
+    JSValue fn = JS_Eval(ctx, prog, strlen(prog), "<wasm-streaming>",
+                         JS_EVAL_TYPE_GLOBAL);
+    if (JS_IsException(fn)) return fn;
+    JSValue imports = (argc >= 2) ? argv[1] : JS_UNDEFINED;
+    JSValue args[2] = { argv[0], imports };
+    JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 2, args);
+    JS_FreeValue(ctx, fn);
+    return result;
+}
+
 /* ================================================================
  * WebAssembly.Module constructor
  * ================================================================ */
@@ -1782,6 +1824,10 @@ static int wasm3_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
         JS_NewCFunction(ctx, wasm3_wasm_compile, "compile", 1));
     JS_SetPropertyStr(ctx, wasm_obj, "instantiate",
         JS_NewCFunction(ctx, wasm3_wasm_instantiate, "instantiate", 2));
+    JS_SetPropertyStr(ctx, wasm_obj, "compileStreaming",
+        JS_NewCFunctionMagic(ctx, wasm3_wasm_streaming, "compileStreaming", 1, JS_CFUNC_generic_magic, 0));
+    JS_SetPropertyStr(ctx, wasm_obj, "instantiateStreaming",
+        JS_NewCFunctionMagic(ctx, wasm3_wasm_streaming, "instantiateStreaming", 1, JS_CFUNC_generic_magic, 1));
 
     JSValue module_ctor = JS_NewCFunction2(ctx, wasm3_module_constructor,
                                            "Module", 1, JS_CFUNC_constructor, 0);
