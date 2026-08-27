@@ -142,3 +142,101 @@ TEST_F(FetchStreamTest, RedirectFollow) {
     std::string v;
     ASSERT_TRUE(host_poll_until_value(h, "_followed", "followed body", &v));
 }
+
+// ================================================================
+// fetch 请求体（serializeBody + whenBodyReady 链路）：
+// body 统一序列化为字节（Uint8Array）传给 pal.httpRequestStream，
+// stream body 异步读取完成后再发请求。
+// ================================================================
+
+TEST_F(FetchStreamTest, PostStringBody) {
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 2\r\n"
+        "\r\n"
+        "ok";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _post = null;\n"
+        "fetch('http://test.local/post', {method:'POST', body:'hello'})\n"
+        "  .then(function(r){ return r.text(); })\n"
+        "  .then(function(t){ _post = t; })\n"
+        "  .catch(function(e){ _post = 'error:' + e.message; });\n"
+        "0", &out));
+
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v));
+}
+
+TEST_F(FetchStreamTest, PostUint8ArrayBody) {
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 2\r\n"
+        "\r\n"
+        "ok";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _post = null;\n"
+        "var _bytes = new Uint8Array([104, 105]);  /* 'hi' as raw bytes */\n"
+        "fetch('http://test.local/post', {method:'POST', body:_bytes})\n"
+        "  .then(function(r){ return r.text(); })\n"
+        "  .then(function(t){ _post = t; })\n"
+        "  .catch(function(e){ _post = 'error:' + e.message; });\n"
+        "0", &out));
+
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v));
+}
+
+TEST_F(FetchStreamTest, PostReadableStreamBody) {
+    /* stream body：serializeBody 异步读取全部 chunk 后再发请求 */
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 2\r\n"
+        "\r\n"
+        "ok";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _post = null;\n"
+        "var _stream = new ReadableStream({\n"
+        "  start: function(c){ c.enqueue('chunk1'); c.enqueue('chunk2'); c.close(); }\n"
+        "});\n"
+        "fetch('http://test.local/post', {method:'POST', body:_stream})\n"
+        "  .then(function(r){ return r.text(); })\n"
+        "  .then(function(t){ _post = t; })\n"
+        "  .catch(function(e){ _post = 'error:' + e.message; });\n"
+        "0", &out));
+
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v));
+}
+
+TEST_F(FetchStreamTest, PostStreamErrorRejects) {
+    /* stream 读取失败 → whenBodyReady 的 reject 分支 */
+    const char *resp =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 2\r\n"
+        "\r\n"
+        "ok";
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, resp, strlen(resp)));
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _post = null;\n"
+        "var _stream = new ReadableStream({\n"
+        "  start: function(c){ c.error(new Error('boom')); }\n"
+        "});\n"
+        "fetch('http://test.local/post', {method:'POST', body:_stream})\n"
+        "  .then(function(){ _post = 'resolved'; })\n"
+        "  .catch(function(e){ _post = 'rejected:' + e.message; });\n"
+        "0", &out));
+
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_post", "rejected", &v));
+}

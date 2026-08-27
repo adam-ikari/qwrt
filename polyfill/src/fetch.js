@@ -108,6 +108,52 @@ export function setupFetch(pal) {
     return new TextEncoder().encode(str);
   }
 
+  // Serialize a Request body to bytes: returns a Uint8Array (or null) when
+  // the body is available synchronously, or a Promise<Uint8Array> when it is
+  // a stream that must be read asynchronously.
+  function serializeBody(body) {
+    if (body == null) {
+      return null;
+    }
+    if (typeof body === 'string') {
+      return new TextEncoder().encode(body);
+    }
+    if (body instanceof Uint8Array) {
+      return body;
+    }
+    if (body instanceof ArrayBuffer) {
+      return new Uint8Array(body);
+    }
+    if (typeof body.getReader === 'function') {
+      var reader = body.getReader();
+      var chunks = [];
+      var total = 0;
+      function pump() {
+        return reader.read().then(function(result) {
+          if (result.done) {
+            reader.releaseLock();
+            var out = new Uint8Array(total);
+            var off = 0;
+            for (var i = 0; i < chunks.length; i++) {
+              out.set(chunks[i], off);
+              off += chunks[i].length;
+            }
+            return out;
+          }
+          var chunk = result.value;
+          if (!(chunk instanceof Uint8Array)) {
+            chunk = stringToUint8Array(String(chunk));
+          }
+          chunks.push(chunk);
+          total += chunk.length;
+          return pump();
+        });
+      }
+      return pump();
+    }
+    return new TextEncoder().encode(String(body));
+  }
+
   // ================================================================
   // Headers class
   // WHATWG Headers interface with case-insensitive header names.
@@ -676,11 +722,9 @@ export function setupFetch(pal) {
     });
     var headersJson = JSON.stringify(headersObj);
 
-    // Get body as string
-    var bodyStr = null;
-    if (request.body != null) {
-      bodyStr = typeof request.body === 'string' ? request.body : String(request.body);
-    }
+    // Serialize request body to bytes (Uint8Array) or null. Stream bodies
+    // return a Promise; the PAL call below is deferred until it resolves.
+    var requestBodyBytes = serializeBody(request.body);
 
     var aborted = false;
     var onAbort;
@@ -704,27 +748,46 @@ export function setupFetch(pal) {
       }
     }
 
+    // Run cb once the request body is ready. Serialization is synchronous
+    // except for stream bodies (async read); a failed read rejects the fetch.
+    function whenBodyReady(cb) {
+      if (requestBodyBytes && typeof requestBodyBytes.then === 'function') {
+        requestBodyBytes.then(cb, function(err) {
+          if (aborted) return;
+          cleanupAbort();
+          reject(new TypeError('fetch failed: ' + (err || 'unknown error')));
+        });
+      } else {
+        cb(requestBodyBytes);
+      }
+    }
+
     // Fallback to non-streaming httpRequest if streaming not available.
     // pal.httpRequest returns a Promise<string> (resolves with the body on
     // success, rejects with an error string on failure); it does NOT provide
     // the HTTP status or headers, so the Response is built with status 200
     // and empty headers (the non-streaming PAL contract's limitation).
     if (typeof pal.httpRequestStream !== 'function') {
-      if (aborted) { return; }
-      cleanupAbort();
-      var p = pal.httpRequest(request.url, request.method, headersJson, bodyStr);
-      Promise.resolve(p).then(function(data) {
-        if (aborted) return;
-        var bodyBytes = stringToUint8Array(data || '');
-        var res = new Response(bodyBytes, {
-          status: 200,
-          headers: new Headers()
+      // The non-streaming PAL API accepts only a string body, so decode the
+      // serialized bytes (lossless round-trip for text bodies).
+      whenBodyReady(function(bytes) {
+        if (aborted) { return; }
+        cleanupAbort();
+        var bodyStr = bytes ? new TextDecoder().decode(bytes) : null;
+        var p = pal.httpRequest(request.url, request.method, headersJson, bodyStr);
+        Promise.resolve(p).then(function(data) {
+          if (aborted) return;
+          var resBytes = stringToUint8Array(data || '');
+          var res = new Response(resBytes, {
+            status: 200,
+            headers: new Headers()
+          });
+          res._url = request.url;
+          resolve(res);
+        }, function(err) {
+          if (aborted) return;
+          reject(new TypeError('fetch failed: ' + (err || 'unknown error')));
         });
-        res._url = request.url;
-        resolve(res);
-      }, function(err) {
-        if (aborted) return;
-        reject(new TypeError('fetch failed: ' + (err || 'unknown error')));
       });
       return;
     }
@@ -849,8 +912,11 @@ export function setupFetch(pal) {
       }
     }
 
-    // Call PAL streaming HTTP
-    pal.httpRequestStream(request.url, request.method, headersJson, bodyStr, onHeaders, onData, onEnd);
+    // Call PAL streaming HTTP once the request body is ready.
+    whenBodyReady(function(bytes) {
+      if (aborted) return;
+      pal.httpRequestStream(request.url, request.method, headersJson, bytes, onHeaders, onData, onEnd);
+    });
   }
 
   // ================================================================

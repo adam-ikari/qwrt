@@ -693,8 +693,16 @@ static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val,
 
     const char *body = NULL;
     size_t body_len = 0;
+    int body_is_cstr = 0;
     if (!JS_IsUndefined(argv[3]) && !JS_IsNull(argv[3])) {
-        body = JS_ToCStringLen(ctx, &body_len, argv[3]);
+        body = (const char *)JS_GetUint8Array(ctx, &body_len, argv[3]);
+        if (!body) {
+            body = (const char *)JS_GetArrayBuffer(ctx, &body_len, argv[3]);
+        }
+        if (!body) {
+            body = JS_ToCStringLen(ctx, &body_len, argv[3]);
+            body_is_cstr = 1;
+        }
         if (!body) {
             JS_FreeCString(ctx, url);
             JS_FreeCString(ctx, method);
@@ -708,7 +716,7 @@ static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val,
         JS_FreeCString(ctx, url);
         JS_FreeCString(ctx, method);
         JS_FreeCString(ctx, headers);
-        if (body) JS_FreeCString(ctx, body);
+        if (body_is_cstr) JS_FreeCString(ctx, body);
         return JS_ThrowOutOfMemory(ctx);
     }
     bs->ctx = ctx;
@@ -728,7 +736,7 @@ static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val,
     JS_FreeCString(ctx, url);
     JS_FreeCString(ctx, method);
     JS_FreeCString(ctx, headers);
-    if (body) JS_FreeCString(ctx, body);
+    if (body_is_cstr) JS_FreeCString(ctx, body);
 
     return JS_UNDEFINED;
 }

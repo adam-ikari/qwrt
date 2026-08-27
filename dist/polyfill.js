@@ -1322,6 +1322,48 @@
     function stringToUint8Array(str) {
       return new TextEncoder().encode(str);
     }
+    function serializeBody(body) {
+      if (body == null) {
+        return null;
+      }
+      if (typeof body === "string") {
+        return new TextEncoder().encode(body);
+      }
+      if (body instanceof Uint8Array) {
+        return body;
+      }
+      if (body instanceof ArrayBuffer) {
+        return new Uint8Array(body);
+      }
+      if (typeof body.getReader === "function") {
+        let pump = function() {
+          return reader.read().then(function(result) {
+            if (result.done) {
+              reader.releaseLock();
+              var out = new Uint8Array(total);
+              var off = 0;
+              for (var i = 0; i < chunks.length; i++) {
+                out.set(chunks[i], off);
+                off += chunks[i].length;
+              }
+              return out;
+            }
+            var chunk = result.value;
+            if (!(chunk instanceof Uint8Array)) {
+              chunk = stringToUint8Array(String(chunk));
+            }
+            chunks.push(chunk);
+            total += chunk.length;
+            return pump();
+          });
+        };
+        var reader = body.getReader();
+        var chunks = [];
+        var total = 0;
+        return pump();
+      }
+      return new TextEncoder().encode(String(body));
+    }
     function Headers(init) {
       this._map = /* @__PURE__ */ new Map();
       if (init === null) {
@@ -1809,10 +1851,7 @@
         headersObj[name] = value;
       });
       var headersJson = JSON.stringify(headersObj);
-      var bodyStr = null;
-      if (request.body != null) {
-        bodyStr = typeof request.body === "string" ? request.body : String(request.body);
-      }
+      var requestBodyBytes = serializeBody(request.body);
       var aborted = false;
       var onAbort;
       var streamController = null;
@@ -1832,24 +1871,38 @@
           request.signal.removeEventListener("abort", onAbort);
         }
       }
-      if (typeof pal2.httpRequestStream !== "function") {
-        if (aborted) {
-          return;
-        }
-        cleanupAbort();
-        var p = pal2.httpRequest(request.url, request.method, headersJson, bodyStr);
-        Promise.resolve(p).then(function(data) {
-          if (aborted) return;
-          var bodyBytes = stringToUint8Array(data || "");
-          var res = new Response2(bodyBytes, {
-            status: 200,
-            headers: new Headers()
+      function whenBodyReady(cb) {
+        if (requestBodyBytes && typeof requestBodyBytes.then === "function") {
+          requestBodyBytes.then(cb, function(err) {
+            if (aborted) return;
+            cleanupAbort();
+            reject(new TypeError("fetch failed: " + (err || "unknown error")));
           });
-          res._url = request.url;
-          resolve(res);
-        }, function(err) {
-          if (aborted) return;
-          reject(new TypeError("fetch failed: " + (err || "unknown error")));
+        } else {
+          cb(requestBodyBytes);
+        }
+      }
+      if (typeof pal2.httpRequestStream !== "function") {
+        whenBodyReady(function(bytes) {
+          if (aborted) {
+            return;
+          }
+          cleanupAbort();
+          var bodyStr = bytes ? new TextDecoder().decode(bytes) : null;
+          var p = pal2.httpRequest(request.url, request.method, headersJson, bodyStr);
+          Promise.resolve(p).then(function(data) {
+            if (aborted) return;
+            var resBytes = stringToUint8Array(data || "");
+            var res = new Response2(resBytes, {
+              status: 200,
+              headers: new Headers()
+            });
+            res._url = request.url;
+            resolve(res);
+          }, function(err) {
+            if (aborted) return;
+            reject(new TypeError("fetch failed: " + (err || "unknown error")));
+          });
         });
         return;
       }
@@ -1951,7 +2004,10 @@
           }
         }
       }
-      pal2.httpRequestStream(request.url, request.method, headersJson, bodyStr, onHeaders, onData, onEnd);
+      whenBodyReady(function(bytes) {
+        if (aborted) return;
+        pal2.httpRequestStream(request.url, request.method, headersJson, bytes, onHeaders, onData, onEnd);
+      });
     }
     globalThis.Headers = Headers;
     globalThis.Request = Request2;
