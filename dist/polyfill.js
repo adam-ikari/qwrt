@@ -2078,14 +2078,13 @@
 
   // src/text-encoding.js
   function setupTextEncoding(pal2) {
-    var useNativeEncode = typeof pal2.nativeEncodeUtf8 === "function";
     var useNativeDecode = typeof pal2.nativeDecodeUtf8 === "function";
     function TextEncoder2() {
       this.encoding = "utf-8";
     }
     TextEncoder2.prototype.encode = function encode(input) {
       var str = input === void 0 ? "" : String(input);
-      if (useNativeEncode) {
+      if (typeof pal2.nativeEncodeUtf8 === "function") {
         return pal2.nativeEncodeUtf8(str);
       }
       var bytes = [];

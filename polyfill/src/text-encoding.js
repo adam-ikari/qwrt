@@ -9,7 +9,10 @@
  */
 
 export function setupTextEncoding(pal) {
-  var useNativeEncode = typeof pal.nativeEncodeUtf8 === 'function';
+  /* Native encode is registered by the textcodec C extension AFTER the
+   * polyfill bundle is evaluated (ext init runs post-injection), so a
+   * one-shot `typeof` check here would permanently see undefined. Probe
+   * lazily on every call instead. */
   var useNativeDecode = typeof pal.nativeDecodeUtf8 === 'function';
 
   function TextEncoder() {
@@ -18,7 +21,7 @@ export function setupTextEncoding(pal) {
 
   TextEncoder.prototype.encode = function encode(input) {
     var str = input === undefined ? '' : String(input);
-    if (useNativeEncode) {
+    if (typeof pal.nativeEncodeUtf8 === 'function') {
       return pal.nativeEncodeUtf8(str);
     }
     var bytes = [];

@@ -29,14 +29,13 @@ static JSValue js_pal_native_encode_utf8(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeError(ctx, "nativeEncodeUtf8 requires 1 argument");
     }
 
-    const char *str = JS_ToCString(ctx, argv[0]);
+    size_t len = 0;
+    const char *str = JS_ToCStringLen(ctx, &len, argv[0]);
     if (!str) return JS_EXCEPTION;
 
-    /* QuickJS strings are UTF-8 internally, so we can just measure
-     * the byte length and copy. JS_ToCString returns a pointer to
-     * the UTF-8 encoded bytes (null-terminated). */
-    size_t len = strlen(str);
-
+    /* JS_ToCStringLen reports the true UTF-8 byte length (QuickJS stores
+     * strings as UTF-8 internally). strlen() would truncate at an embedded
+     * NUL, corrupting binary payloads, so it must not be used here. */
     JSValue result = JS_NewUint8ArrayCopy(ctx, (const uint8_t *)str, len);
     JS_FreeCString(ctx, str);
     return result;
