@@ -85,6 +85,9 @@ export function setupStreams(pal) {
     get closed() { return this._closed; }
 
     read() {
+      if (this._released) {
+        return Promise.reject(new TypeError('Reader has been released'));
+      }
       if (this._isClosed) {
         return Promise.resolve({ done: true, value: undefined });
       }
@@ -109,8 +112,24 @@ export function setupStreams(pal) {
 
     releaseLock() {
       if (this._stream._reader !== this) return;
-      this._stream._reader = null;
+      var stream = this._stream;
+      stream._reader = null;
       this._isClosed = true;
+      this._released = true;
+      // 规范:释放锁须 reject 未 settle 的 closed promise 与所有 pending read
+      var err = new TypeError('Reader released');
+      if (this._closedReject) {
+        var rj = this._closedReject;
+        this._closedReject = null;
+        rj(err);
+      }
+      if (stream._pendingReads && stream._pendingReads.length > 0) {
+        var pending = stream._pendingReads;
+        stream._pendingReads = [];
+        for (var i = 0; i < pending.length; i++) {
+          try { pending[i].reject(err); } catch (e) {}
+        }
+      }
     }
 
     cancel(reason) {
@@ -186,6 +205,9 @@ export function setupStreams(pal) {
     get closed() { return this._closed; }
 
     read(view) {
+      if (this._released) {
+        return Promise.reject(new TypeError('BYOB reader has been released'));
+      }
       if (!ArrayBuffer.isView(view) || view.byteLength === 0) {
         return Promise.reject(new TypeError('BYOB read requires a non-empty ArrayBufferView'));
       }
@@ -215,8 +237,23 @@ export function setupStreams(pal) {
 
     releaseLock() {
       if (this._stream._reader !== this) return;
-      this._stream._reader = null;
+      var stream = this._stream;
+      stream._reader = null;
       this._isClosed = true;
+      this._released = true;
+      var err = new TypeError('BYOB reader released');
+      if (this._closedReject) {
+        var rj = this._closedReject;
+        this._closedReject = null;
+        rj(err);
+      }
+      if (stream._pendingReads && stream._pendingReads.length > 0) {
+        var pending = stream._pendingReads;
+        stream._pendingReads = [];
+        for (var i = 0; i < pending.length; i++) {
+          try { pending[i].reject(err); } catch (e) {}
+        }
+      }
     }
 
     cancel(reason) {
@@ -473,6 +510,12 @@ export function setupStreams(pal) {
               sourceCancelled = true;
               try { reader.releaseLock(); } catch (e) {}
               source.cancel(reason);
+            } else {
+              /* Single-branch cancel: close this branch so its reader's pending
+               * read resolves {done:true} instead of hanging forever; the other
+               * branch keeps pulling from the shared source. */
+              var c = which === 'b1' ? branch1Controller : branch2Controller;
+              if (c) c.close();
             }
           }
         });
@@ -518,7 +561,10 @@ export function setupStreams(pal) {
         });
       }
 
-      return pump().catch(function(e) {
+      return pump().then(function() {
+        // 正常收尾:writer.close() 已完成(或 preventClose),释放 dest writer 锁
+        try { writer.releaseLock(); } catch (x) {}
+      }).catch(function(e) {
         try { reader.releaseLock(); } catch (x) {}
         if (!preventAbort) {
           try { writer.abort(e); } catch (x) {}
@@ -526,11 +572,20 @@ export function setupStreams(pal) {
         if (!preventCancel) {
           try { reader.cancel(e); } catch (x) {}
         }
+        // 出错路径同样释放 dest writer 锁(规范 ReadableStreamPipeTo 收尾必释放)
+        try { writer.releaseLock(); } catch (x) {}
         throw e;
       });
     }
 
     pipeThrough(transform) {
+      if (!transform || typeof transform !== 'object' ||
+          !transform.readable || !transform.writable) {
+        throw new TypeError('pipeThrough requires {readable, writable}');
+      }
+      if (this.locked || transform.readable.locked || transform.writable.locked) {
+        throw new TypeError('pipeThrough: streams must not be locked');
+      }
       this.pipeTo(transform.writable);
       return transform.readable;
     }

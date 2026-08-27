@@ -4001,6 +4001,9 @@
         return this._closed;
       }
       read() {
+        if (this._released) {
+          return Promise.reject(new TypeError("Reader has been released"));
+        }
         if (this._isClosed) {
           return Promise.resolve({ done: true, value: void 0 });
         }
@@ -4023,8 +4026,26 @@
       }
       releaseLock() {
         if (this._stream._reader !== this) return;
-        this._stream._reader = null;
+        var stream = this._stream;
+        stream._reader = null;
         this._isClosed = true;
+        this._released = true;
+        var err = new TypeError("Reader released");
+        if (this._closedReject) {
+          var rj = this._closedReject;
+          this._closedReject = null;
+          rj(err);
+        }
+        if (stream._pendingReads && stream._pendingReads.length > 0) {
+          var pending = stream._pendingReads;
+          stream._pendingReads = [];
+          for (var i = 0; i < pending.length; i++) {
+            try {
+              pending[i].reject(err);
+            } catch (e) {
+            }
+          }
+        }
       }
       cancel(reason) {
         return this._stream.cancel(reason);
@@ -4085,6 +4106,9 @@
         return this._closed;
       }
       read(view) {
+        if (this._released) {
+          return Promise.reject(new TypeError("BYOB reader has been released"));
+        }
         if (!ArrayBuffer.isView(view) || view.byteLength === 0) {
           return Promise.reject(new TypeError("BYOB read requires a non-empty ArrayBufferView"));
         }
@@ -4110,8 +4134,26 @@
       }
       releaseLock() {
         if (this._stream._reader !== this) return;
-        this._stream._reader = null;
+        var stream = this._stream;
+        stream._reader = null;
         this._isClosed = true;
+        this._released = true;
+        var err = new TypeError("BYOB reader released");
+        if (this._closedReject) {
+          var rj = this._closedReject;
+          this._closedReject = null;
+          rj(err);
+        }
+        if (stream._pendingReads && stream._pendingReads.length > 0) {
+          var pending = stream._pendingReads;
+          stream._pendingReads = [];
+          for (var i = 0; i < pending.length; i++) {
+            try {
+              pending[i].reject(err);
+            } catch (e) {
+            }
+          }
+        }
       }
       cancel(reason) {
         return this._stream.cancel(reason);
@@ -4338,6 +4380,9 @@
                 } catch (e) {
                 }
                 source.cancel(reason);
+              } else {
+                var c = which === "b1" ? branch1Controller : branch2Controller;
+                if (c) c.close();
               }
             }
           });
@@ -4372,7 +4417,12 @@
             return writer.write(result.value).then(pump);
           });
         }
-        return pump().catch(function(e) {
+        return pump().then(function() {
+          try {
+            writer.releaseLock();
+          } catch (x) {
+          }
+        }).catch(function(e) {
           try {
             reader.releaseLock();
           } catch (x) {
@@ -4389,10 +4439,20 @@
             } catch (x) {
             }
           }
+          try {
+            writer.releaseLock();
+          } catch (x) {
+          }
           throw e;
         });
       }
       pipeThrough(transform) {
+        if (!transform || typeof transform !== "object" || !transform.readable || !transform.writable) {
+          throw new TypeError("pipeThrough requires {readable, writable}");
+        }
+        if (this.locked || transform.readable.locked || transform.writable.locked) {
+          throw new TypeError("pipeThrough: streams must not be locked");
+        }
         this.pipeTo(transform.writable);
         return transform.readable;
       }

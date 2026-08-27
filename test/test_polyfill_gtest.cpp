@@ -536,6 +536,111 @@ TEST_F(PolyfillTest, StreamPipeToAbort) {
     EXPECT_EQ(0, v.compare("2")) << "写端并发推进了: got " << v;
 }
 
+
+TEST_F(PolyfillTest, PipeToReleasesWriterLock) {
+    std::string v;
+    /* WHATWG ReadableStreamPipeTo 收尾必须释放 dest writer 锁——否则 pipeTo
+     * 完成后 dest.getWriter() 抛 "already has a writer"。三路径:正常收尾 /
+     * preventClose / 出错(源 errored)都必须解锁。 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _rl = null;
+        var relocked = function(dest){
+          try { var w = dest.getWriter(); w.releaseLock(); return true; }
+          catch(e) { return false; }
+        };
+        var r = [];
+        var s1 = new ReadableStream({ start: function(c){ c.enqueue(1); c.close(); } });
+        var d1 = new WritableStream({ write: function(){ return Promise.resolve(); } });
+        s1.pipeTo(d1).then(function(){
+          r.push('normal:' + relocked(d1));
+          var s2 = new ReadableStream({ start: function(c){ c.enqueue(2); c.close(); } });
+          var d2 = new WritableStream({ write: function(){ return Promise.resolve(); } });
+          return s2.pipeTo(d2, {preventClose:true}).then(function(){
+            r.push('preventClose:' + relocked(d2));
+            var s3 = new ReadableStream({ start: function(c){ c.error(new Error('x')); } });
+            var d3 = new WritableStream({ write: function(){ return Promise.resolve(); } });
+            return s3.pipeTo(d3).then(function(){}, function(){
+              r.push('error:' + relocked(d3));
+            });
+          });
+        }).then(function(){ _rl = r.join('|'); });
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_rl", "normal:true", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_rl", "preventClose:true", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_rl", "error:true", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, ReleaseLockRejectsPendingRead) {
+    std::string v;
+    /* reader.releaseLock() 时有 pending read:该 read 必须被 reject(TypeError),
+     * 而非永久挂起(规范 readableStreamReaderGenericRelease)。 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _rl2 = null;
+        var s = new ReadableStream();   // 无数据 → read() 挂 pending
+        var r = s.getReader();
+        r.read().then(function(x){ _rl2 = 'resolved:' + JSON.stringify(x); },
+                       function(e){ _rl2 = 'rejected:' + (e && e.name); });
+        r.releaseLock();
+        0)", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_rl2", "rejected:TypeError", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, ReadAfterReleaseRejects) {
+    std::string v;
+    /* releaseLock 后再 read():必须 reject TypeError("Reader has been released"),
+     * 而非返回 {done:true}(规范)。 */
+    ASSERT_TRUE(host_eval(h,
+        "var _rar = null;\n"
+        "var s = new ReadableStream({ start: function(c){ c.enqueue(1); } });\n"
+        "var r = s.getReader();\n"
+        "r.releaseLock();\n"
+        "r.read().then(function(x){ _rar = 'resolved'; }, function(e){ _rar = e.name; });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_rar", "TypeError", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, TeeSingleCancelClosesBranch) {
+    std::string v;
+    /* 单分支取消:该分支关闭(后续 read 返回 done),另一分支继续工作(规范
+     * ReadableStreamTee)。修复前取消分支的 read 永久挂起。 */
+    ASSERT_TRUE(host_eval(h,
+        R"(var _tee3 = null;
+        var s = new ReadableStream({
+          start: function(c){ c.enqueue('a'); c.enqueue('b'); c.close(); }
+        });
+        var b = s.tee();
+        b[0].cancel().then(function(){
+          var r0 = b[0].getReader();
+          return r0.read().then(function(x){
+            var cancelledBranch = JSON.stringify(x);
+            var r1 = b[1].getReader();
+            return r1.read().then(function(y){
+              _tee3 = cancelledBranch + '|' + JSON.stringify([y.value]);
+            });
+          });
+        });
+        0)", &v));
+    /* 取消的分支读返回 done,活跃分支仍读到数据 */
+    ASSERT_TRUE(host_poll_until_value(h, "_tee3", "\"done\":true", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_tee3", "\"a\"", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, PipeThroughValidation) {
+    std::string v;
+    /* pipeThrough 规范校验:transform 缺 readable/writable 或源流已 locked
+     * 必须同步抛 TypeError。 */
+    ASSERT_TRUE(host_value(h,
+        "var e1 = null, e2 = null, e3 = null;\n"
+        "var s = new ReadableStream();\n"
+        "try { s.pipeThrough({}); } catch(e) { e1 = e.name; }\n"
+        "try { s.pipeThrough({readable: new ReadableStream()}); } catch(e) { e2 = e.name; }\n"
+        "var s2 = new ReadableStream();\n"
+        "s2.getReader();\n"
+        "try { s2.pipeThrough({readable: new ReadableStream(), writable: new WritableStream()}); } catch(e) { e3 = e.name; }\n"
+        "JSON.stringify([e1, e2, e3])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"TypeError\",\"TypeError\",\"TypeError\"]")) << "got: " << v;
+}
+
 TEST_F(PolyfillTest, TextDecoderStreamMultibyte) {
     std::string v;
     /* 3 字节 UTF-8 字符（€ = E2 82 AC）跨 chunk 边界写入 TextDecoderStream：
