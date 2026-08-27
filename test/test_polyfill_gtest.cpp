@@ -1450,6 +1450,260 @@ TEST_F(PolyfillTest, EventSource) {
     EXPECT_NE(std::string::npos, v.find("[true,0,1,2]")) << "got: " << v;
 }
 
+// ================================================================
+// ECMA-429 Minimum Common Web API gap coverage
+// （已实现但此前无 gtest 覆盖的规范表面）
+// ================================================================
+
+TEST_F(PolyfillTest, Ecma429CustomEvent) {
+    std::string v;
+    /* 1. CustomEvent 全局存在；detail 透传 options；继承 Event */
+    ASSERT_TRUE(host_value(h,
+        "var ev = new CustomEvent('x', {detail: {a: 1}});\n"
+        "JSON.stringify([typeof CustomEvent, ev instanceof Event, ev.type, ev.detail.a])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"function\",true,\"x\",1]")) << "got: " << v;
+
+    /* 2. 无 options → detail 默认 null；bubbles/cancelable 默认 false */
+    ASSERT_TRUE(host_value(h,
+        "var ev = new CustomEvent('y');\n"
+        "JSON.stringify([ev.detail, ev.bubbles, ev.cancelable])", &v));
+    EXPECT_NE(std::string::npos, v.find("[null,false,false]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, Ecma429PromiseRejectionEvent) {
+    std::string v;
+    /* 1. 构造 + promise/reason 属性透传 */
+    ASSERT_TRUE(host_value(h,
+        "var p = Promise.reject('r'); p.catch(function(){});\n"
+        "var ev = new PromiseRejectionEvent('unhandledrejection', {promise: p, reason: 'r'});\n"
+        "JSON.stringify([typeof PromiseRejectionEvent, ev instanceof Event, ev.promise === p, ev.reason])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"function\",true,true,\"r\"]")) << "got: " << v;
+
+    /* 2. unhandledrejection cancelable=true；rejectionhandled cancelable=false */
+    ASSERT_TRUE(host_value(h,
+        "var p = Promise.resolve();\n"
+        "var u = new PromiseRejectionEvent('unhandledrejection', {promise: p, reason: 'x'});\n"
+        "var h = new PromiseRejectionEvent('rejectionhandled', {promise: p});\n"
+        "JSON.stringify([u.cancelable, h.cancelable, h.reason === undefined])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,false,true]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, GlobalErrorHandlerProperties) {
+    std::string v;
+    /* 1. self === globalThis；reportError 存在 */
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify([self === globalThis, typeof reportError])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,\"function\"]")) << "got: " << v;
+
+    /* 2. onerror 赋值 → dispatch error 事件触发；getter 返回；置 null 移除 */
+    ASSERT_TRUE(host_value(h,
+        "var got = null;\n"
+        "globalThis.onerror = function(e){ got = e.type; };\n"
+        "globalThis.dispatchEvent(new ErrorEvent('error', {message: 'boom', error: new Error('boom')}));\n"
+        "var g = globalThis.onerror;\n"
+        "globalThis.onerror = null;\n"
+        "JSON.stringify([got, g !== null, globalThis.onerror === null])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"error\",true,true]")) << "got: " << v;
+
+    /* 3. reportError 分发 ErrorEvent 到全局 error 处理器 */
+    ASSERT_TRUE(host_value(h,
+        "var got2 = null;\n"
+        "globalThis.onerror = function(e){ got2 = [e.type, e.message, e.error instanceof Error]; };\n"
+        "reportError(new Error('kaboom'));\n"
+        "globalThis.onerror = null;\n"
+        "JSON.stringify(got2)", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"error\",\"kaboom\",true]")) << "got: " << v;
+
+    /* 4. onunhandledrejection / onrejectionhandled 事件处理器属性 */
+    ASSERT_TRUE(host_value(h,
+        "var gotU = null; var gotH = null;\n"
+        "globalThis.onunhandledrejection = function(e){ gotU = [e.type, e.reason]; };\n"
+        "globalThis.onrejectionhandled = function(e){ gotH = e.type; };\n"
+        "var p = Promise.reject('why'); p.catch(function(){});\n"
+        "globalThis.dispatchEvent(new PromiseRejectionEvent('unhandledrejection', {promise: p, reason: 'why'}));\n"
+        "globalThis.dispatchEvent(new PromiseRejectionEvent('rejectionhandled', {promise: p}));\n"
+        "globalThis.onunhandledrejection = null; globalThis.onrejectionhandled = null;\n"
+        "JSON.stringify([gotU, gotH])", &v));
+    EXPECT_NE(std::string::npos, v.find("[[\"unhandledrejection\",\"why\"],\"rejectionhandled\"]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, TextEncoderStreamApi) {
+    std::string v;
+    /* 1. 全局存在；readable/writable 是流实例 */
+    ASSERT_TRUE(host_value(h,
+        "var es = new TextEncoderStream();\n"
+        "JSON.stringify([typeof TextEncoderStream, es.encoding, es.readable instanceof ReadableStream, es.writable instanceof WritableStream])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"function\",\"utf-8\",true,true]")) << "got: " << v;
+
+    /* 2. 写入字符串 → readable 产出 UTF-8 字节（'hé' = 0x68 0xC3 0xA9） */
+    ASSERT_TRUE(host_eval(h,
+        "var _enc = null;\n"
+        "var es = new TextEncoderStream();\n"
+        "var w = es.writable.getWriter();\n"
+        "var r = es.readable.getReader();\n"
+        "w.write('h\\u00e9').then(function(){ return w.close(); }).then(function(){ return r.read(); })\n"
+        "  .then(function(x){ var u = x.value; _enc = JSON.stringify([u instanceof Uint8Array, u.length, u[0], u[1], u[2]]); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_enc", "[true,3,104,195,169]", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, QueuingStrategies) {
+    std::string v;
+    /* 1. ByteLengthQueuingStrategy：highWaterMark + size(chunk)=byteLength */
+    ASSERT_TRUE(host_value(h,
+        "var s = new ByteLengthQueuingStrategy({highWaterMark: 1024});\n"
+        "var u = new Uint8Array(4);\n"
+        "JSON.stringify([s.highWaterMark, s.size(u), s.size('str'), typeof s.size])", &v));
+    EXPECT_NE(std::string::npos, v.find("[1024,4,0,\"function\"]")) << "got: " << v;
+
+    /* 2. CountQueuingStrategy：highWaterMark + size()=1 */
+    ASSERT_TRUE(host_value(h,
+        "var s = new CountQueuingStrategy({highWaterMark: 10});\n"
+        "JSON.stringify([s.highWaterMark, s.size('anything'), s.size(null)])", &v));
+    EXPECT_NE(std::string::npos, v.find("[10,1,1]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, TransformStreamApi) {
+    std::string v;
+    /* 1. 全局存在 + 基本结构 */
+    ASSERT_TRUE(host_value(h,
+        "var ts = new TransformStream();\n"
+        "JSON.stringify([typeof TransformStream, ts.readable instanceof ReadableStream, ts.writable instanceof WritableStream])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"function\",true,true]")) << "got: " << v;
+
+    /* 2. transform 映射 + flush 回调 */
+    ASSERT_TRUE(host_eval(h,
+        "var _ts = null;\n"
+        "var flushed = false;\n"
+        "var ts = new TransformStream({\n"
+        "  transform: function(chunk, c){ c.enqueue(String(chunk).toUpperCase()); },\n"
+        "  flush: function(){ flushed = true; }\n"
+        "});\n"
+        "var w = ts.writable.getWriter(); var r = ts.readable.getReader();\n"
+        "var out = [];\n"
+        "w.write('a').then(function(){ return w.write('b'); }).then(function(){ return w.close(); })\n"
+        "  .then(function(){ return r.read(); }).then(function(x){ out.push(x.value); })\n"
+        "  .then(function(){ return r.read(); }).then(function(x){ out.push(x.value); })\n"
+        "  .then(function(){ return r.read(); }).then(function(x){ out.push(x.done); })\n"
+        "  .then(function(){ _ts = JSON.stringify([out, flushed]); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_ts", "[[\"A\",\"B\",true],true]", &v)) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"A\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"B\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("true]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, BroadcastChannelCloneIsolation) {
+    std::string v;
+    /* 1. 发送者自身不接收自己的消息 */
+    ASSERT_TRUE(host_value(h,
+        "var bc = new BroadcastChannel('bc-self'); var got = false;\n"
+        "bc.onmessage = function(){ got = true; };\n"
+        "bc.postMessage('x');\n"
+        "bc.close();\n"
+        "JSON.stringify(got)", &v));
+    EXPECT_NE(std::string::npos, v.find("false")) << "got: " << v;
+
+    /* 2. postMessage 快照隔离：发送后改原对象，接收方看到 post 时快照 */
+    ASSERT_TRUE(host_value(h,
+        "var rcv = new BroadcastChannel('bc-snap'); var got = null;\n"
+        "rcv.onmessage = function(e){ got = e.data.x; };\n"
+        "var snd = new BroadcastChannel('bc-snap');\n"
+        "var obj = {x: 1}; snd.postMessage(obj); obj.x = 99;\n"
+        "rcv.close(); snd.close();\n"
+        "JSON.stringify(got)", &v));
+    EXPECT_NE(std::string::npos, v.find("1")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, CacheStorageExtended) {
+    std::string v;
+    /* 跳过条件同 CacheStorageEdgeCases */
+    ASSERT_TRUE(host_value(h, "JSON.stringify(typeof caches)", &v));
+    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "CacheStorage not implemented"; }
+
+    /* 1. caches.has / keys / delete 生命周期 */
+    ASSERT_TRUE(host_eval(h,
+        "var _cs2 = null;\n"
+        "caches.open('ex1').then(function(){ return caches.has('ex1'); })\n"
+        "  .then(function(has){ var a = [has]; return caches.keys().then(function(ks){ a.push(ks.indexOf('ex1') >= 0); return a; }); })\n"
+        "  .then(function(a){ return caches.delete('ex1').then(function(d){ a.push(d); return a; }); })\n"
+        "  .then(function(a){ return caches.has('ex1').then(function(h2){ a.push(h2); return a; }); })\n"
+        "  .then(function(a){ _cs2 = JSON.stringify(a); }).catch(function(e){ _cs2 = 'err:' + String(e); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_cs2", "[true,true,true,false]", &v)) << "got: " << v;
+
+    /* 2. cache.put → matchAll → keys → delete 生命周期 */
+    ASSERT_TRUE(host_eval(h,
+        "var _cs3 = null;\n"
+        "caches.open('ex2').then(function(c){\n"
+        "  return c.put('https://x.com/1', new Response('one'))\n"
+        "    .then(function(){ return c.put('https://x.com/2', new Response('two')); })\n"
+        "    .then(function(){ return c.matchAll().then(function(all){ return all.length; }); })\n"
+        "    .then(function(n){ var r = [n]; return c.keys().then(function(ks){ r.push(ks.length, ks[0]); return r; }); })\n"
+        "    .then(function(r){ return c.matchAll('https://x.com/1').then(function(s){ r.push(s.length, s[0].status); return r; }); })\n"
+        "    .then(function(r){ return c.delete('https://x.com/1').then(function(d){ r.push(d); return r; }); })\n"
+        "    .then(function(r){ return c.keys().then(function(ks){ r.push(ks.length); return r; }); })\n"
+        "    .then(function(r){ _cs3 = JSON.stringify(r); });\n"
+        "}).catch(function(e){ _cs3 = 'err:' + String(e); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_cs3", "[2,2,", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_cs3", "\"https://x.com/1\"", &v)) << "got: " << v;
+    ASSERT_TRUE(host_poll_until_value(h, "_cs3", ",1,200,true,1]", &v)) << "got: " << v;
+
+    /* 3. put 非 Response → TypeError */
+    ASSERT_TRUE(host_eval(h,
+        "var _cs4 = null;\n"
+        "caches.open('ex3').then(function(c){\n"
+        "  return c.put('https://x.com/n', 'not-a-response')\n"
+        "    .then(function(){ _cs4 = 'resolved'; })\n"
+        "    .catch(function(e){ _cs4 = e.name + ':' + e.message; });\n"
+        "}).catch(function(e){ _cs4 = 'outer:' + String(e); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_cs4", "TypeError", &v)) << "got: " << v;
+
+    /* 4. match 未命中 → undefined；命中两次返回独立 clone */
+    ASSERT_TRUE(host_eval(h,
+        "var _cs5 = null; var miss = null;\n"
+        "caches.open('ex4').then(function(c){\n"
+        "  return c.put('https://x.com/c', new Response('orig'))\n"
+        "    .then(function(){ return c.match('https://x.com/miss'); })\n"
+        "    .then(function(m){ miss = (m === undefined); return c.match('https://x.com/c'); })\n"
+        "    .then(function(r){ return r.text().then(function(t1){ return c.match('https://x.com/c').then(function(r2){ return r2.text().then(function(t2){ _cs5 = JSON.stringify([miss, t1, t2]); }); }); }); });\n"
+        "}).catch(function(e){ _cs5 = 'err:' + String(e); });\n"
+        "0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_cs5", "[true,\"orig\",\"orig\"]", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, MessageChannelMessaging) {
+    std::string v;
+    /* 1. 同上下文消息往返：onmessage 赋值自动 start；数据/类型透传 */
+    ASSERT_TRUE(host_value(h,
+        "var ch = new MessageChannel(); var got = [];\n"
+        "ch.port2.onmessage = function(e){ got.push([e.data, e.type]); };\n"
+        "ch.port1.postMessage('m1'); ch.port1.postMessage('m2');\n"
+        "JSON.stringify([got, ch.port2 instanceof MessagePort])", &v));
+    EXPECT_NE(std::string::npos, v.find("[[[\"m1\",\"message\"],[\"m2\",\"message\"]],true]")) << "got: " << v;
+
+    /* 2. 未 start 的 port：消息排队，start() 后按序 flush */
+    ASSERT_TRUE(host_value(h,
+        "var ch = new MessageChannel(); var got2 = [];\n"
+        "ch.port2.addEventListener('message', function(e){ got2.push(e.data); });\n"
+        "ch.port1.postMessage('q1');\n"
+        "ch.port2.start();\n"
+        "ch.port1.postMessage('q2');\n"
+        "JSON.stringify(got2)", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"q1\",\"q2\"]")) << "got: " << v;
+
+    /* 3. close() 后不再投递 */
+    ASSERT_TRUE(host_value(h,
+        "var ch = new MessageChannel(); var got3 = false;\n"
+        "ch.port2.onmessage = function(){ got3 = true; };\n"
+        "ch.port2.close();\n"
+        "ch.port1.postMessage('x');\n"
+        "JSON.stringify(got3)", &v));
+    EXPECT_NE(std::string::npos, v.find("false")) << "got: " << v;
+}
+
 
 
 

@@ -66,7 +66,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | B1 | **恢复 gzip e2e** ✅ | `test_gzip_compression` 已恢复（应用层 handler 用 CompressionStream 压缩 + Content-Encoding；serve 不自动压缩）。 | e2e 10/10 |
 | B2 | fetch 完善 | 重定向✅、流式 body✅、上传✅（请求体字节安全：string/Uint8Array/ArrayBuffer/ReadableStream）、AbortSignal✅；剩余代理。 | gtest + 集成 |
 | B3 | **streams 覆盖** ✅ | backpressure 串行✅、tee 单分支 cancel 关闭分支✅、pipeThrough 校验（结构+locked）✅、releaseLock 语义（释放锁 reject pending read / release 后 read 抛错）✅、pipeTo 收尾释放 writer 锁✅；BYOB 已补齐。 | gtest 51/51（含 5 个新边界用例） |
-| B4 | 标准缺口盘点 | 对照 WinterCG spec 逐模块勾选；缺项入 gtest。 | 覆盖矩阵 |
+| B4 | **标准缺口盘点** ✅ | 对照 **ECMA-429**（ECMA TC55 WinterTC Minimum common web API，2025 snapshot）全接口逐项盘点：5.1 Common interfaces（~60）+ 5.2 methods/properties（~30）**全部实现**；9 处"已实现但无测试"的规范表面补 gtest（CustomEvent / PromiseRejectionEvent / onerror+onunhandledrejection+onrejectionhandled+reportError / TextEncoderStream / QueuingStrategies / TransformStream / BroadcastChannel 克隆隔离 / CacheStorage 扩展 / MessageChannel 消息往返）。盘点暴露并修复 1 个真实规范违例：TransformStream 存在 flush 时 close 后不 terminate，readable 永不关闭 → 第三次 read() 挂起。 | 覆盖矩阵（brain `wintertc-ecma429-coverage`）；polyfill gtest 60/60 |
 
 ### C. 原生扩展
 

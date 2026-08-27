@@ -12,7 +12,9 @@ All notable changes to Qwrt.js.
 - fetch 客户端请求体字节化：`fetch(url, {body})` 的 body 统一序列化为 `Uint8Array` 传给 `pal.httpRequestStream`（支持 string / Uint8Array / ArrayBuffer / ReadableStream，流式 body 异步读取全部 chunk 后再发请求，读取失败 reject）；C 桥接层 `http_request_stream` 直接接受字节 body（不再强制 C string）
 
 - WASM 引擎：wasm3 补齐 `WebAssembly.compileStreaming`/`instantiateStreaming`（与 WAMR 语义等价：取完整字节后交 compile/instantiate）；修复 `QWRT_DEFAULT_EXTENSIONS` 从未注册 wasm3 的根因（wasm3 构建下 `WebAssembly` 全局缺失），streaming 测试门控改为 WAMR OR WASM3
+- WinterTC/ECMA-429 覆盖盘点（B4）：对照 ECMA-429（Minimum common web API）全接口逐项勾选，补齐 9 个缺口 gtest（CustomEvent / PromiseRejectionEvent / 全局 onerror+onunhandledrejection+onrejectionhandled+reportError / TextEncoderStream / ByteLength+CountQueuingStrategy / TransformStream / BroadcastChannel 克隆隔离 / CacheStorage 扩展 / MessageChannel 消息往返），polyfill gtest 60/60
 ### Fixed
+- TransformStream：存在 `flush` 时 close 后不调用 `terminate()`（readable 侧永不关闭，队列 drain 后第三次 `read()` 永久挂起）——await flush 结果后再 terminate，兼容异步 flush
 - Blob：blobParts 非迭代对象抛 TypeError、type 规范化只去 0x09/0x0A/0x0D、字符串元素 UTF-8 编码
 - Headers：new Headers(null) 与 3+ 元素 pair 抛 TypeError
 - TextEncoder.encodeInto：代理对感知增量编码 + read/written 精确语义 + 非法目标类型抛错

@@ -809,7 +809,14 @@ export function setupStreams(pal) {
         },
         close: function() {
           if (transformer.flush) {
-            return transformer.flush(tsController);
+            /* 规范：flush 完成后必须 close readable 侧；flush 可能返回 promise
+             * （异步 flush），先 await 其结果再 terminate。此前直接返回 flush
+             * 结果而从不 terminate，导致有 flush 的 TransformStream 在 drain
+             * 队列后第三次 read() 永久挂起。 */
+            var res = transformer.flush(tsController);
+            return Promise.resolve(res).then(function() {
+              tsController.terminate();
+            });
           }
           tsController.terminate();
           return Promise.resolve();

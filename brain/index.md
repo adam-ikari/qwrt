@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-08-27T08:16:16.975Z._
+_Auto-generated. Last updated 2026-08-27T09:54:42.117Z._
 
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
@@ -19,6 +19,7 @@ _Auto-generated. Last updated 2026-08-27T08:16:16.975Z._
 - [wasm-engine-integration](pages/wasm-engine-integration.md) — category: decision | tags: [wasm, wamr, threading] | # WAMR 线程环境（关键坑）
 - [wintertc-byob-streams](pages/wintertc-byob-streams.md) — category: decision | tags: [wintertc, streams, byob, ecma-429] | - **背景**：ECMA-429（WinterTC Minimum common web API，2025 snapshot）要求 Streams 的三个 BYOB 接口必须暴露在 globalThis 上：`ReadableByteStreamController`、`Rea
 - [wintertc-crypto-performance-globals](pages/wintertc-crypto-performance-globals.md) — category: decision | tags: [wintertc, ecma-429, crypto, performance] | - **背景**：ECMA-429（WinterTC Minimum common web API）WEBCRYPTO 要求 globalThis 暴露 `Crypto`/`CryptoKey`/`SubtleCrypto`/`crypto`，HR-TIME 要求 `Perfor
+- [wintertc-ecma429-coverage](pages/wintertc-ecma429-coverage.md) — category: decision | tags: [wintertc, ecma-429, coverage, gtest, streams] | ## 结论
 - [worker-error-events](pages/worker-error-events.md) — category: decision | tags: [worker, error-events, w3c] | ## compiled_truth
 - [worker-transferable](pages/worker-transferable.md) — category: decision | tags: [worker, transferable, arraybuffer, structured-clone, wintertc] | - **MessagePort 跨线程 transfer（已实现，2026-08-18）**：父线程与 worker 线程是独立 JSRuntime，不能共享 JS 对象。
 - [wpt-runner-removed](pages/wpt-runner-removed.md) — category: decision | tags: [wpt, wintertc, testing, libuv-native] | ## 决策

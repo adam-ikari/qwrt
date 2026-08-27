@@ -4660,7 +4660,10 @@
           },
           close: function() {
             if (transformer.flush) {
-              return transformer.flush(tsController);
+              var res = transformer.flush(tsController);
+              return Promise.resolve(res).then(function() {
+                tsController.terminate();
+              });
             }
             tsController.terminate();
             return Promise.resolve();
