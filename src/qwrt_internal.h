@@ -90,6 +90,10 @@ typedef struct qwrt_worker_s {
 extern const uint8_t qwrt_default_polyfill[];
 extern const size_t qwrt_default_polyfill_len;
 
+/* Worker boot shim bytecode (compiled in from worker_boot_default.c) */
+extern const uint8_t qwrt_default_worker_boot[];
+extern const size_t qwrt_default_worker_boot_len;
+
 /* Inbound message source: 0 = host; >0 = worker id (Task 4). */
 typedef enum { QWRT_MSG_SRC_HOST = 0 } qwrt_msg_src_t;
 
@@ -248,6 +252,8 @@ void qwrt_thread_main(void *arg);
 /* qwrt.c — runtime init / eval / teardown (called from thread.c) */
 int  qwrt_runtime_init(qwrt_t *rt);
 int  qwrt_eval_internal(qwrt_t *rt, const char *script, char **err);
+int  qwrt_eval_bytecode_internal(qwrt_t *rt, const uint8_t *code, size_t len,
+                                 char **err);
 void qwrt_thread_teardown(qwrt_t *rt);
 
 /* thread.c — flush pending JS microtasks (worker.c calls this on its loop) */

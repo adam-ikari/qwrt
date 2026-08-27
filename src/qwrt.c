@@ -171,6 +171,43 @@ int qwrt_eval_internal(qwrt_t *rt, const char *script, char **err)
     return 0;
 }
 
+/* 在活动 context 上执行预编译字节码（JS_ReadObject + JS_EvalFunction）。
+ * 用于编译期注入的 JS（worker 启动垫片等），与 qwrt_eval_internal 的
+ * 错误提取语义一致。 */
+int qwrt_eval_bytecode_internal(qwrt_t *rt, const uint8_t *code, size_t len,
+                                char **err)
+{
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
+    if (!ctx) return -1;
+
+    JSValue obj = JS_ReadObject(ctx, code, len, JS_READ_OBJ_BYTECODE);
+    if (JS_IsException(obj)) {
+        if (err) {
+            JSValue exc = JS_GetException(ctx);
+            const char *msg = JS_ToCString(ctx, exc);
+            *err = msg ? strdup(msg) : NULL;
+            if (msg) JS_FreeCString(ctx, msg);
+            JS_FreeValue(ctx, exc);
+        }
+        JS_FreeValue(ctx, obj);
+        return -1;
+    }
+    JSValue val = JS_EvalFunction(ctx, obj);
+    if (JS_IsException(val)) {
+        if (err) {
+            JSValue exc = JS_GetException(ctx);
+            const char *msg = JS_ToCString(ctx, exc);
+            *err = msg ? strdup(msg) : NULL;
+            if (msg) JS_FreeCString(ctx, msg);
+            JS_FreeValue(ctx, exc);
+        }
+        JS_FreeValue(ctx, val);
+        return -1;
+    }
+    JS_FreeValue(ctx, val);
+    return 0;
+}
+
 static void qwrt_close_walk_cb(uv_handle_t *h, void *arg)
 {
     QWRT_UNUSED(arg);

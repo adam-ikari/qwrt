@@ -9,10 +9,11 @@ build-*/
 *.dll
 
 # Generated files
-# NOTE: dist/polyfill.js + dist/polyfill.bytecode + src/polyfill_default.c are
-# deliberately force-tracked (git add -f) as shipped build artifacts so a
-# fresh clone compiles without re-running the polyfill build. The rules below
-# only stop *other* output under dist/ from being accidentally added.
+# NOTE: dist/polyfill.js + dist/polyfill.bytecode + src/polyfill_default.c and
+# dist/worker-boot.bytecode + src/worker_boot_default.c are deliberately
+# force-tracked (git add -f) as shipped build artifacts so a fresh clone
+# compiles without re-running the polyfill build. The rules below only stop
+# *other* output under dist/ from being accidentally added.
 dist/
 polyfill.js
 src/polyfill_default.c.bak
