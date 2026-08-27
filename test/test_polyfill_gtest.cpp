@@ -1704,6 +1704,174 @@ TEST_F(PolyfillTest, MessageChannelMessaging) {
     EXPECT_NE(std::string::npos, v.find("false")) << "got: " << v;
 }
 
+// ================================================================
+// qwrt.fs — 异步文件系统 API 覆盖（ROADMAP A1）
+// 异步原语走 uv_io_*；mock_libuv 在 uv_fs_* 调用点同步执行真实文件系统并
+// 立即回调，promise 在下一轮 host_eval（跑 loop + 冲刷微任务）后可见。
+// 临时路径 /tmp/qwrt_fs_<tag>_<pid>_<id>：唯一且绝对（guard 只拒 ".." 组件）。
+// ================================================================
+
+#include <unistd.h>
+#include <sys/stat.h>
+
+namespace {
+// 每个测试一个唯一 /tmp 路径（同进程 pid 相同，静态计数保证唯一）。
+std::string fs_tmp(const char *tag) {
+    static std::atomic<int> n{0};
+    int id = n.fetch_add(1) + 1;
+    return std::string("/tmp/qwrt_fs_") + tag + "_" +
+           std::to_string((long)getpid()) + "_" + std::to_string(id);
+}
+}
+
+TEST_F(PolyfillTest, FsApiSurface) {
+    std::string v;
+    /* 6 个 async fs API 全部挂载 */
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify([typeof qwrt.fs.readFile, typeof qwrt.fs.readFileBinary,\n"
+        "  typeof qwrt.fs.writeFile, typeof qwrt.fs.exists,\n"
+        "  typeof qwrt.fs.readdir, typeof qwrt.fs.unlink])", &v));
+    int cnt = 0;
+    std::string::size_type p = 0;
+    while ((p = v.find("\"function\"", p)) != std::string::npos) { cnt++; p += 10; }
+    EXPECT_EQ(6, cnt) << "got: " << v;
+
+    /* readFileSync 是显式拒绝的同步别名 */
+    ASSERT_TRUE(host_value(h,
+        "(() => { try { qwrt.fs.readFileSync('/etc/hostname'); return 'NO_THROW'; }"
+        " catch (e) { return e.message; } })()", &v));
+    EXPECT_NE(std::string::npos, v.find("not supported")) << "got: " << v;
+}
+
+// 注意：所有轮询目标全局都必须先初始化为非 undefined 哨兵（'pending'）——
+// host_poll_until_value 在表达式求值为 undefined（无 "v" 字段）时会立即失败返回
+// false，而不是继续轮询；异步 .then 若未在该轮 eval 内冲刷微任务，就会误报。
+TEST_F(PolyfillTest, FsWriteReadRoundtrip) {
+    std::string path = fs_tmp("rw");
+    std::string plit = JSON_string(path.c_str());
+    std::string out, v;
+
+    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qwrt.fs.writeFile(" + plit +
+        ", 'hello fs world').then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
+
+    /* 异步 readFile 往返 */
+    ASSERT_TRUE(host_eval(h, ("globalThis._rd = 'pending'; qwrt.fs.readFile(" + plit +
+        ").then(function(d){ globalThis._rd = d; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_rd", "hello fs world", &v));
+
+    /* 原生 fsReadSync 交叉验证（worker 脚本加载走同一同步读） */
+    ASSERT_TRUE(host_value(h, ("__native__.fsReadSync(" + plit + ")").c_str(), &v));
+    EXPECT_NE(std::string::npos, v.find("hello fs world")) << "got: " << v;
+
+    /* 清理 */
+    ASSERT_TRUE(host_eval(h, ("globalThis._del = 'pending'; qwrt.fs.unlink(" + plit +
+        ").then(function(){ globalThis._del = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_del", "done", &v));
+}
+
+TEST_F(PolyfillTest, FsExistsUnlink) {
+    std::string path = fs_tmp("ex");
+    std::string plit = JSON_string(path.c_str());
+    std::string out, v;
+
+    /* 不存在 → false */
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qwrt.fs.exists(" + plit +
+        ").then(function(b){ globalThis._e = b; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_e", "false", &v));
+
+    /* 写入 → true */
+    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qwrt.fs.writeFile(" + plit +
+        ", 'x').then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
+    ASSERT_TRUE(host_eval(h, ("globalThis._e2 = 'pending'; qwrt.fs.exists(" + plit +
+        ").then(function(b){ globalThis._e2 = b; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_e2", "true", &v));
+
+    /* unlink → false */
+    ASSERT_TRUE(host_eval(h, ("globalThis._u = 'pending'; qwrt.fs.unlink(" + plit +
+        ").then(function(){ globalThis._u = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_u", "done", &v));
+    ASSERT_TRUE(host_eval(h, ("globalThis._e3 = 'pending'; qwrt.fs.exists(" + plit +
+        ").then(function(b){ globalThis._e3 = b; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_e3", "false", &v));
+}
+
+TEST_F(PolyfillTest, FsReadFileBinary) {
+    std::string path = fs_tmp("bin");
+    std::string plit = JSON_string(path.c_str());
+    std::string out, v;
+
+    /* 二进制往返：NUL + 0x7f（<0x80 保证 UTF-8 单字节映射，字节精确） */
+    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qwrt.fs.writeFile(" + plit +
+        ", '\\x00\\x01\\x02\\x7f').then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
+
+    /* readFileBinary → ArrayBuffer → Uint8Array 逐字节核对 */
+    ASSERT_TRUE(host_eval(h, ("globalThis._b = 'pending'; qwrt.fs.readFileBinary(" + plit +
+        ").then(function(ab){ globalThis._b = Array.from(new Uint8Array(ab)); }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "JSON.stringify(_b)", "0,1,2,127", &v));
+
+    /* 清理 */
+    ASSERT_TRUE(host_eval(h, ("globalThis._del = 'pending'; qwrt.fs.unlink(" + plit +
+        ").then(function(){ globalThis._del = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_del", "done", &v));
+}
+
+TEST_F(PolyfillTest, FsReaddir) {
+    std::string dir = fs_tmp("dir");
+    std::string f1 = dir + "/one.txt";
+    std::string f2 = dir + "/two.txt";
+    ASSERT_EQ(0, ::mkdir(dir.c_str(), 0700));
+    std::string out, v;
+
+    ASSERT_TRUE(host_eval(h, ("globalThis._w1 = 'pending'; qwrt.fs.writeFile(" +
+        JSON_string(f1.c_str()) + ", '1').then(function(){ globalThis._w1 = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_w1", "done", &v));
+    ASSERT_TRUE(host_eval(h, ("globalThis._w2 = 'pending'; qwrt.fs.writeFile(" +
+        JSON_string(f2.c_str()) + ", '2').then(function(){ globalThis._w2 = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_w2", "done", &v));
+
+    /* readdir 列出两个文件（顺序无关，逐个断言存在） */
+    ASSERT_TRUE(host_eval(h, ("globalThis._dl = 'pending'; qwrt.fs.readdir(" +
+        JSON_string(dir.c_str()) + ").then(function(a){ globalThis._dl = a.join(','); }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_dl", "one.txt", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_dl", "two.txt", &v));
+
+    /* 清理：unlink 两文件 + 移除目录 */
+    ASSERT_TRUE(host_eval(h, ("globalThis._d1 = 'pending'; qwrt.fs.unlink(" +
+        JSON_string(f1.c_str()) + ").then(function(){ globalThis._d1 = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_d1", "done", &v));
+    ASSERT_TRUE(host_eval(h, ("globalThis._d2 = 'pending'; qwrt.fs.unlink(" +
+        JSON_string(f2.c_str()) + ").then(function(){ globalThis._d2 = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_d2", "done", &v));
+    ASSERT_EQ(0, ::rmdir(dir.c_str()));
+}
+
+TEST_F(PolyfillTest, FsTraversalGuard) {
+    std::string out, v;
+    /* 全部异步 fs op 都在调用点拒绝 ".." 组件（同步 throw → async 包装变 rejection） */
+    const char *ops[] = {
+        "qwrt.fs.writeFile('../q_x', 'x')",
+        "qwrt.fs.readFile('../q_x')",
+        "qwrt.fs.readFileBinary('../q_x')",
+        "qwrt.fs.exists('../q_x')",
+        "qwrt.fs.readdir('../q_x')",
+        "qwrt.fs.unlink('../q_x')",
+    };
+    for (size_t i = 0; i < sizeof(ops) / sizeof(ops[0]); i++) {
+        char gname[24];
+        snprintf(gname, sizeof gname, "_g%zu", i);   /* 每轮独立全局，避免上一轮残留误匹配 */
+        std::string code = "globalThis['" + std::string(gname) + "'] = 'pending'; " +
+            std::string(ops[i]) +
+            ".then(function(){ globalThis['" + gname + "'] = 'ok'; },"
+            " function(e){ globalThis['" + gname + "'] = 'rej:' + e.message; }); 0";
+        ASSERT_TRUE(host_eval(h, code.c_str(), &out)) << "op[" << i << "]";
+        ASSERT_TRUE(host_poll_until_value(h, gname, "rej:Path traversal detected", &v))
+            << "op[" << i << "] " << ops[i] << " got: " << v;
+    }
+}
+
 
 
 

@@ -357,3 +357,27 @@ TEST(worker_, transfer_messageport_multihop) {
     EXPECT_NE(std::string::npos, out.find("entangled")) << "got: " << out;
     host_destroy(h);
 }
+
+// worker 自关（脚本内 close()）：请求终止自身线程（pal.workerClose →
+// qwrt_worker_terminate），父 runtime 不受影响；自关后父侧 w.terminate()
+//（对已退出的 worker）静默安全，父 teardown join 不崩溃/不双重释放。
+TEST(worker_, self_close) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    /* worker 先回报一条消息，随后 close() 终止自身 */
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_selfclose.js');\n"
+        "w.onmessage = function(e){ postMessage({v: e.data}); };\n"
+        "'started'", &out));
+
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"v\"")) << "got: " << out;
+    EXPECT_NE(std::string::npos, out.find("before-close")) << "got: " << out;
+
+    /* 自关后父侧 terminate 不抛错（worker 已 shutting_down，静默丢弃） */
+    ASSERT_TRUE(host_value(h, "w.terminate(); 'ok'", &out));
+    EXPECT_NE(std::string::npos, out.find("ok")) << "got: " << out;
+    host_destroy(h);
+}
