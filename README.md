@@ -203,8 +203,8 @@ platform-backend option anymore.
 | Target | Description |
 |--------|-------------|
 | `libqwrt.a` | Static core. Deliberately does **not** link libuv — uv symbols resolve at the final executable. |
-| `libqwrt_full.a` | Aggregator: qwrt + real libuv + mbedTLS + miniz + WAMR + pthread/dl/rt. |
-| `libqwrt.pc` | pkg-config (`-lqwrt -luv …`). |
+| `libqwrt_full.a` | CMake link-interface aggregator: qwrt + real libuv + mbedTLS + miniz + WAMR + pthread/dl/rt. |
+| `qwrt.pc` | pkg-config. `pkg-config --cflags --libs qwrt` yields the full static link line (all vendored archives). |
 
 ## WinterTC Modules
 

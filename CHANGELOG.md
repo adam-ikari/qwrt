@@ -22,6 +22,7 @@ All notable changes to Qwrt.js.
 - CLI/运行时内存泄漏：run_code 的 `json_escape` 返回值未 free；`qwrt_free` 未释放 `config.initial_script`（ASan 回归触发，e2e 16/16 + ASan 0 泄漏）
 - Streams：pipeTo 收尾释放 dest writer 锁（正常/出错路径，之后 `dest.getWriter()` 可用）；`reader.releaseLock` reject 未决 pending read 与未 settle 的 closed promise、释放后 `read()` 抛 TypeError（BYOB 同）；tee 单分支 cancel 关闭该分支流（pending read 以 done 结束，另一分支继续）；pipeThrough 校验 `{readable, writable}` 结构与三流 locked 状态
 - 运行时 teardown UAF：`qwrt_wait_idle`/`qwrt_destroy` 在 libuv 线程池 request（fs / getaddrinfo / queue_work）在途时进入 teardown，其 done 回调（`bridge_io_done`）在 JSRuntime 释放后 JS_Call → 崩溃（QuickJS `gc_obj_list` 断言 / UAF）。修复：`qwrt_loop_idle` 将 `loop.active_reqs != 0` 判为忙（wait_idle 等全部线程池 work 完成后才退出）；teardown 在销毁 contexts / 释放 runtime 前限轮排空已排队的 work_done 并 flush 微任务（兜底 destroy 瞬时窗口）。ASan 复现：无修复崩溃，有修复干净退出
+- 打包（M5-G3）：`cmake --install` 现在同时安装全部 vendored 依赖归档（libuv/libqjs/libiwasm/libminiz/libmbedtls*/libmbedx509/libmbedcrypto）；`libqwrt.pc` 更名 `qwrt.pc` 并补全 Libs（按 `QWRT_WITH_*` 列出所有扩展归档），`pkg-config --cflags --libs qwrt` 即可编译链接消费方（此前 `-lqwrt` 链接缺 qjs/wasm/扩展符号）。WAMR fast-jit/lazy-jit 关闭（asmjit 为 C++，会把 C++ 运行时依赖带进 libiwasm.a；qwrt 仅需 Fast Interpreter + AOT，纯 C 可链接）
 
 ## [0.2.0] — 2026-08-19
 

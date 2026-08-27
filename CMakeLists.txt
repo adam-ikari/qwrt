@@ -309,8 +309,11 @@ if(QWRT_WITH_WAMR)
     set(WAMR_BUILD_INTERP 1)
     set(WAMR_BUILD_AOT 1)
     set(WAMR_BUILD_JIT 0)
-    set(WAMR_BUILD_FAST_JIT 1)
-    set(WAMR_BUILD_LAZY_JIT 1)
+    # fast-jit/lazy-jit compile asmjit (C++) into libiwasm.a, forcing consumers
+    # to link a C++ runtime. qwrt only needs the Fast Interpreter + AOT (both
+    # pure C) — keep vmlib linkable by a plain C compiler.
+    set(WAMR_BUILD_FAST_JIT 0)
+    set(WAMR_BUILD_LAZY_JIT 0)
     set(WAMR_BUILD_FAST_INTERP 1)
     set(WAMR_BUILD_WASM_C_API 1)
     set(WAMR_BUILD_LIBC_BUILTIN 1)
@@ -658,6 +661,29 @@ install(DIRECTORY include/qwrt
     DESTINATION include
 )
 install(FILES include/qwrt/ext_wasm3.h DESTINATION include/qwrt)
+# Vendored dependency archives. The qwrt static lib deliberately does not
+# bundle uv/qjs/extensions — their symbols resolve at the final link — so
+# install the archives alongside libqwrt.a for non-CMake consumers
+# (pkg-config, plain -L<prefix>/lib).
+set(_qwrt_dep_install_targets uv_a qjs)
+if(QWRT_WITH_WAMR)
+    list(APPEND _qwrt_dep_install_targets vmlib)
+endif()
+if(QWRT_WITH_WASM3)
+    list(APPEND _qwrt_dep_install_targets m3)
+endif()
+if(QWRT_WITH_COMPRESS)
+    list(APPEND _qwrt_dep_install_targets miniz)
+endif()
+if(QWRT_WITH_TLS)
+    list(APPEND _qwrt_dep_install_targets
+        ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB})
+elseif(QWRT_WITH_CRYPTO_EXT)
+    list(APPEND _qwrt_dep_install_targets ${MBEDCRYPTO_LIB})
+endif()
+install(TARGETS ${_qwrt_dep_install_targets}
+    ARCHIVE DESTINATION lib
+)
 
 # ============================================================================
 # pkg-config & CMake config for find_package(qwrt) consumers
@@ -678,9 +704,23 @@ install(FILES
     DESTINATION "${_qwrt_cmake_config_dir}"
 )
 
-# Generate a pkg-config .pc file for qwrt (libqwrt.pc)
+# Generate a pkg-config .pc file for qwrt (qwrt.pc)
 set(_qwrt_pc_dir "lib/pkgconfig")
-set(_qwrt_pc_libs "-lqwrt -luv")
+set(_qwrt_pc_libs "-lqwrt -luv -lqjs")
+if(QWRT_WITH_WAMR)
+    string(APPEND _qwrt_pc_libs " -liwasm")
+endif()
+if(QWRT_WITH_WASM3)
+    string(APPEND _qwrt_pc_libs " -lm3")
+endif()
+if(QWRT_WITH_COMPRESS)
+    string(APPEND _qwrt_pc_libs " -lminiz")
+endif()
+if(QWRT_WITH_TLS)
+    string(APPEND _qwrt_pc_libs " -lmbedtls -lmbedx509 -lmbedcrypto")
+elseif(QWRT_WITH_CRYPTO_EXT)
+    string(APPEND _qwrt_pc_libs " -lmbedcrypto")
+endif()
 if(UNIX AND NOT ESP_PLATFORM)
     string(APPEND _qwrt_pc_libs " -lpthread -ldl -lrt")
 endif()
@@ -689,10 +729,10 @@ set(_qwrt_pc_cflags "-I\${includedir}")
 
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libqwrt.pc.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/libqwrt.pc"
+    "${CMAKE_CURRENT_BINARY_DIR}/qwrt.pc"
     @ONLY
 )
 install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/libqwrt.pc"
+    "${CMAKE_CURRENT_BINARY_DIR}/qwrt.pc"
     DESTINATION "${_qwrt_pc_dir}"
 )

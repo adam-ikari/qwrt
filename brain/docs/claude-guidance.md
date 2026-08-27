@@ -226,8 +226,8 @@ Example: the Web Crypto 65536-byte cap on `getRandomValues` lives in
 - `src/debugger.c` + `src/debugger_dap.c` (+ `include/qwrt/qwrt_debug{,_dap}.h`)
   implement the DAP step-debugger, gated by `QWRT_BUILD_DEBUGGER` (default OFF;
   applies `deps/quickjs-ng-debugger.patch` to the engine).
-- `libqwrt_full` bundles core + uv + mock + extensions for host embedding;
-  `libqwrt.pc` (pkg-config) is also produced.
+- `libqwrt_full` is a CMake link-interface aggregator (qwrt + real libuv + enabled extensions) for host embedding; the core static lib deliberately does not bundle uv/extension symbols — they resolve at the final link, and `install` ships every vendored archive alongside `libqwrt.a`.
+- `qwrt.pc` (pkg-config, full static link line) is also produced.
 - `.github/workflows/ci.yml` — Actions matrix: most jobs build with
   `-DQWRT_WITH_WAMR=OFF` for speed, plus dedicated `wamr`/`wasm3` and ASan+UBSan
   jobs; tests run as `ctest -L offline`.

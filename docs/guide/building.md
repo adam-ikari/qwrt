@@ -74,7 +74,8 @@ qwrt and all its dependencies build under **strict C99** (`-std=c99`). quickjs-n
 
 | Artifact | Path |
 |----------|------|
-| `libqwrt.a` | `build/lib/` (static core — deliberately does not link libuv; uv symbols resolve at the final executable) |
-| `libqwrt_full.a` | `build/lib/` (aggregator: qwrt + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt) |
+| `libqwrt.a` | `build/` (static core — deliberately does not link libuv; uv symbols resolve at the final executable) |
+| `libqwrt_full.a` | `build/` (CMake link-interface aggregator: qwrt + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt) |
+| `qwrt.pc` | `build/lib/pkgconfig/` (pkg-config — `pkg-config --cflags --libs qwrt` lists every vendored archive) |
 | Test binaries | `build/test/` |
 

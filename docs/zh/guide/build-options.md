@@ -79,6 +79,7 @@ static JSValue my_callback(JSContext *ctx, JSValue this_val,
 
 | 文件 | 描述 |
 |------|-------------|
-| `build/lib/libqwrt.a` | 核心运行时库（静态核心 — 刻意不链接 libuv） |
-| `build/lib/libqwrt_full.a` | 聚合库（qwrt + libuv + mbedTLS + miniz + WAMR） |
+| `build/libqwrt.a` | 核心运行时库（静态核心 — 刻意不链接 libuv） |
+| `build/libqwrt_full.a` | CMake 链接接口聚合库（qwrt + libuv + mbedTLS + miniz + WAMR） |
+| `build/lib/pkgconfig/qwrt.pc` | pkg-config 文件（`pkg-config --cflags --libs qwrt` 输出完整静态链接行） |
 | `build/test/test_*` | 测试二进制文件（当 `QWRT_BUILD_TESTS=ON` 时） |

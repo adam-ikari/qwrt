@@ -108,7 +108,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 |---|--------|------|------|
 | G1 | API 参考 | serve / fs / compress / crypto / worker 文档（网站 + repo）。 | 文档可跑通 |
 | G2 | examples 扩充 | httpserver 已做；补 worker 编排、流式管道、代理。 | example 可跑 |
-| G3 | 打包 | libqwrt.pc、静态库目标（libqwrt/libqwrt_full）、无系统依赖构建。 | CMake 验证 |
+| G3 | **打包** ✅ | `qwrt.pc`（原 libqwrt.pc，完整 Libs）、静态库目标（libqwrt/libqwrt_full）+ 全部 vendored 依赖归档安装完整、无系统依赖构建；WAMR fast-jit 关闭（vmlib 纯 C）。 | CMake 验证 ✅（pkg-config 消费方编译/链接/运行 OK） |
 
 ## 四、里程碑节奏
 

@@ -74,6 +74,7 @@ qwrt 及其所有依赖均在**严格 C99**（`-std=c99`）下构建。quickjs-n
 
 | 产物 | 路径 |
 |----------|------|
-| `libqwrt.a` | `build/lib/`（静态核心 — 刻意不链接 libuv） |
-| `libqwrt_full.a` | `build/lib/`（聚合库：qwrt + libuv + mbedTLS + miniz + WAMR） |
+| `libqwrt.a` | `build/`（静态核心 — 刻意不链接 libuv） |
+| `libqwrt_full.a` | `build/`（CMake 链接接口聚合库：qwrt + libuv + mbedTLS + miniz + WAMR） |
+| `qwrt.pc` | `build/lib/pkgconfig/`（pkg-config — `pkg-config --cflags --libs qwrt` 列出全部 vendored 归档） |
 | 测试二进制文件 | `build/test/` |

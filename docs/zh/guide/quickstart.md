@@ -25,7 +25,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-构建产物 `libqwrt.a`（静态核心）和 `libqwrt_full.a`（聚合库，链接 libuv、mbedTLS 等）位于 `build/lib/` 目录中。
+构建产物 `libqwrt.a`（静态核心）和 `libqwrt_full.a`（供 CMake 消费方使用的链接接口聚合库）位于 `build/` 目录，另有 `build/qwrt.pc` 供 pkg-config 使用。
 
 ## 你的第一个程序
 
@@ -60,11 +60,16 @@ int main(void) {
 }
 ```
 
-编译并链接 `libqwrt_full`（聚合了 qwrt + libuv + 依赖）：
+使用 pkg-config 编译并链接（自动带出完整静态链接行 — 全部 vendored 归档）：
 
 ```bash
-cc -std=c99 -I include -o hello hello.c \
-   -L build/lib -lqwrt_full -lm
+cc -std=c99 -o hello hello.c $(pkg-config --cflags --libs qwrt)
+```
+
+树内构建时，先把 pkg-config 指向构建目录：
+
+```bash
+export PKG_CONFIG_PATH="$PWD/build/lib/pkgconfig"
 ```
 
 ## 带测试构建

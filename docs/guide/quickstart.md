@@ -25,7 +25,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-The build produces `libqwrt.a` (static core) and `libqwrt_full.a` (aggregator that links libuv, mbedTLS, and friends) in `build/lib/`.
+The build produces `libqwrt.a` (static core) and `libqwrt_full.a` (link-interface aggregator for CMake consumers) in `build/`, plus `build/qwrt.pc` for pkg-config.
 
 ## Your First Program
 
@@ -60,11 +60,16 @@ int main(void) {
 }
 ```
 
-Compile and link against `libqwrt_full` (aggregates qwrt + libuv + deps):
+Compile and link with pkg-config (pulls the full static link line — all vendored archives):
 
 ```bash
-cc -std=c99 -I include -o hello hello.c \
-   -L build/lib -lqwrt_full -lm
+cc -std=c99 -o hello hello.c $(pkg-config --cflags --libs qwrt)
+```
+
+For an in-tree build, point pkg-config at the build directory first:
+
+```bash
+export PKG_CONFIG_PATH="$PWD/build/lib/pkgconfig"
 ```
 
 ## Build with Tests
