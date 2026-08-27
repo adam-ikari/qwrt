@@ -172,6 +172,10 @@ struct uv_loop_s {
     uint64_t now_ms;
     int stopping;
     int active_handle_count;
+    /* 活跃 request 计数（对齐真实 libuv 的 uv_loop_t.active_reqs，union 结构）。
+     * mock 的 fs/tcp 请求同步完成，故 uv_loop_init 的 memset 后恒为 0；仅需
+     * 该字段与真实 libuv 对齐，供 qwrt_loop_idle 编译并保持一致语义。 */
+    union { void *unused[2]; unsigned int count; } active_reqs;
 };
 
 static inline uv_buf_t uv_buf_init(char *base, unsigned int len)

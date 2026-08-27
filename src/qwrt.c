@@ -249,6 +249,19 @@ void qwrt_thread_teardown(qwrt_t *rt)
         int ret;
         while ((ret = JS_ExecutePendingJob(rt->jsrt, &job_ctx)) > 0) {}
     }
+    /* 2.5) 排空 libuv 已排队但未处理的 request 完成（work_done）。
+     * 必须在销毁 contexts / 释放 JSRuntime 之前：完成回调（bridge_io_done）
+     * 会 JS_Call resolve，需要活着的 ctx 与 jsrt。wait_idle 路径由
+     * qwrt_loop_idle 的 active_reqs 检查保证 teardown 时无残留；此处兜底
+     * 强制 shutdown（qwrt_destroy）的瞬时窗口。限轮防止在途慢请求
+     * 导致 busy-spin（UV_RUN_NOWAIT 的返回值是 loop-alive，不是"处理数"）。 */
+    for (int i = 0; i < 16; i++) {
+        if (uv_run(&rt->loop, UV_RUN_NOWAIT) == 0) break;
+        if (rt->jsrt) {
+            JSContext *job_ctx = NULL;
+            while (JS_ExecutePendingJob(rt->jsrt, &job_ctx) > 0) {}
+        }
+    }
 
     /* 3) DAP detach 必须先于 contexts/JSRuntime 释放：qwrt_debug_detach 会调
      * JS_SetDebuggerHandler(jsrt, NULL)（在已释放的 runtime 上写即 UAF），

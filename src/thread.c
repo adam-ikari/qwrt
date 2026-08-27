@@ -49,7 +49,13 @@ static int qwrt_loop_idle(qwrt_t *rt)
     st.rt = rt;
     st.busy = 0;
     uv_walk(&rt->loop, qwrt_idle_walk_cb, &st);
-    return !st.busy;
+    if (st.busy) return 0;
+    /* fs/http 等 request 不是 handle，uv_walk 看不到。若线程池 work 在途或
+     * 完成回调（work_done）仍在 loop 队列排队，idle 判定必须算"忙"，否则
+     * wait_idle 会在 work_done 处理前进入 teardown，其回调（bridge_io_done）
+     * 访问已释放的 JSRuntime → UAF。 */
+    if (rt->loop.active_reqs.count != 0) return 0;
+    return 1;
 }
 
 /* uv_async callback: runs on the qwrt thread; drains the inbound queue and dispatches onmessage */
