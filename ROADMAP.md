@@ -55,7 +55,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
 | A1 | **异步文件 I/O 回归** ✅ | `fsRead/fsReadBinary` 已改回异步（`uv_io_fs_read`），修复根因（`uv_fs_read` 直接写入 iov 目标缓冲，删除多余 memcpy / UAF）。`fsExists/fsList/fsRemove/fsWrite` 走 `uv_io_*` 异步原语，补测试即可。 | 多连接并发读文件不阻塞事件循环；e2e fs 往返；ctest offline 13/13 |
-| A2 | 多上下文 / Worker 健壮性 | 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖。 | gtest + 压力 |
+| A2 | **多上下文 / Worker 健壮性** ✅ | 软挂起边界 4 例（destroy 后 resume 同槽、坏 state 路径、skipped 语义、10 轮循环复用）、transferable 错误路径全覆盖（重复/不可转移/detached → DataCloneError 无副作用）、worker 错误事件流补齐（timer 回调异步抛错接入 reportError）。修 2 个实现缺口（timers 错误流、detached transfer 校验）。 | gtest + 压力：suspend 6/6、worker 23/23、offline ctest 14/14 |
 | A3 | 引擎升级跟进 | QuickJS-ng 上游合并策略（小补丁 diff 管理）。 | test262 通过率 |
 | A4 | DAP 调试器完善 | `debugger_dap.c` TODO：uv_run 轮询超时驱动；多上下文断点。 | 集成测试 |
 
@@ -64,7 +64,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
 | B1 | **恢复 gzip e2e** ✅ | `test_gzip_compression` 已恢复（应用层 handler 用 CompressionStream 压缩 + Content-Encoding；serve 不自动压缩）。 | e2e 10/10 |
-| B2 | fetch 完善 | 重定向✅、流式 body✅、上传✅（请求体字节安全：string/Uint8Array/ArrayBuffer/ReadableStream）、AbortSignal✅；剩余代理。 | gtest + 集成 |
+| B2 | fetch 完善 | 重定向✅、流式 body✅、上传✅（请求体字节安全：string/Uint8Array/ArrayBuffer/ReadableStream）、AbortSignal✅、代理✅（HTTP_PROXY/HTTPS_PROXY/NO_PROXY 环境变量；C 层 CONNECT 隧道 + 绝对式请求行，TLS 端到端）。 | gtest + 集成 |
 | B3 | **streams 覆盖** ✅ | backpressure 串行✅、tee 单分支 cancel 关闭分支✅、pipeThrough 校验（结构+locked）✅、releaseLock 语义（释放锁 reject pending read / release 后 read 抛错）✅、pipeTo 收尾释放 writer 锁✅；BYOB 已补齐。 | gtest 51/51（含 5 个新边界用例） |
 | B4 | **标准缺口盘点** ✅ | 对照 **ECMA-429**（ECMA TC55 WinterTC Minimum common web API，2025 snapshot）全接口逐项盘点：5.1 Common interfaces（~60）+ 5.2 methods/properties（~30）**全部实现**；9 处"已实现但无测试"的规范表面补 gtest（CustomEvent / PromiseRejectionEvent / onerror+onunhandledrejection+onrejectionhandled+reportError / TextEncoderStream / QueuingStrategies / TransformStream / BroadcastChannel 克隆隔离 / CacheStorage 扩展 / MessageChannel 消息往返）。盘点暴露并修复 1 个真实规范违例：TransformStream 存在 flush 时 close 后不 terminate，readable 永不关闭 → 第三次 read() 挂起。 | 覆盖矩阵（brain `wintertc-ecma429-coverage`）；polyfill gtest 60/60 |
 

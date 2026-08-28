@@ -334,6 +334,9 @@
           try {
             e.callback.apply(null, e.args);
           } catch (err) {
+            if (typeof globalThis.reportError === "function") {
+              globalThis.reportError(err);
+            }
             if (globalThis.console) {
               console.error("Uncaught error in setTimeout callback:", err);
             }
@@ -367,6 +370,9 @@
           try {
             entry.callback.apply(null, entry.args);
           } catch (err) {
+            if (typeof globalThis.reportError === "function") {
+              globalThis.reportError(err);
+            }
             if (globalThis.console) {
               console.error("Uncaught error in setInterval callback:", err);
             }
@@ -5866,6 +5872,8 @@
           var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
           if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
+          if (t instanceof ArrayBuffer && t.detached)
+            throw new DOMException("ArrayBuffer has already been detached", "DataCloneError");
           transferSet.add(t);
         }
       }
@@ -6136,6 +6144,8 @@
           var isPort = typeof globalThis.MessagePort === "function" && t instanceof globalThis.MessagePort;
           if (!(t instanceof ArrayBuffer) && !isPort)
             throw new DOMException("object is not transferable", "DataCloneError");
+          if (t instanceof ArrayBuffer && t.detached)
+            throw new DOMException("ArrayBuffer has already been detached", "DataCloneError");
           transferSet.add(t);
         }
       }

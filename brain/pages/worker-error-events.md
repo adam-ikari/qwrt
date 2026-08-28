@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [worker, error-events, w3c]
 created: "2026-08-14T09:22:43"
-updated: "2026-08-14T09:22:48"
+updated: "2026-08-28T15:53:31"
 ---
 
 <!-- compiled_truth -->
@@ -30,4 +30,10 @@ updated: "2026-08-14T09:22:48"
   kind: decision
   summary: "Worker 错误事件流设计定案（Task 1 实现完成）"
   source: Task 1 implementation
+  affects: [worker-error-events]
+
+- time: 2026-08-28T15:53:31
+  kind: decision
+  summary: "A2 修复：timers.js setTimeout/setInterval 回调抛错接入 reportError 错误事件流（原只 console.error，worker 内 self.onerror 收不到异步异常）；async_error_self_onerror_survives gtest 覆盖"
+  source: 2026-08-28 A2 session
   affects: [worker-error-events]

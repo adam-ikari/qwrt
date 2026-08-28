@@ -5,6 +5,7 @@ All notable changes to Qwrt.js.
 ## [Unreleased]
 
 ### Added
+- fetch 出站代理：支持 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`（含小写、`*`/后缀匹配）环境变量。C 层透明实现：http 走绝对式请求行（RFC 7230 5.3.2），https 走 CONNECT 隧道后 TLS 端到端（主机名校验仍对源站）；非法/不支持 scheme 的代理 URL 立即失败（fail closed），不静默回退直连。流式与非流式 fetch 均生效，新增 e2e test_fetch_proxy_e2e.py 7/7。
 - HTTPServer perf：修复 TextEncoder 大字符串编码走 JS 慢路径的存量 bug（nativeEncodeUtf8 由 C extension 在 polyfill 求值后注册，顶层一次性 `typeof` 检测恒 false），改为惰性探测；C 侧改用 `JS_ToCStringLen`（顺带修复含 NUL 字符串 encode 截断）。wrk -t2 -c64 /medium(16KB) 240→5100 rps（+21x），/small 2897→11174（+3.9x），/tiny +31%，/post +32%，错误归零
 - HTTPServer perf：缓存 handler + Request 构造器引用，Headers._map 直写（绕过正则 normalize），wrk -t4 -c100 /hello +37% /gzip +49% /big +13%
 - HTTPServer WebSocket：服务端消息分片重组（FIN=0 + Continuation 帧拼为完整消息）+ 子协议协商（ws 路由支持 `{handler, protocols}` 对象形式，回显首个双方支持的 `Sec-WebSocket-Protocol`）
@@ -14,7 +15,10 @@ All notable changes to Qwrt.js.
 
 - WASM 引擎：wasm3 补齐 `WebAssembly.compileStreaming`/`instantiateStreaming`（与 WAMR 语义等价：取完整字节后交 compile/instantiate）；修复 `QWRT_DEFAULT_EXTENSIONS` 从未注册 wasm3 的根因（wasm3 构建下 `WebAssembly` 全局缺失），streaming 测试门控改为 WAMR OR WASM3
 - WinterTC/ECMA-429 覆盖盘点（B4）：对照 ECMA-429（Minimum common web API）全接口逐项勾选，补齐 9 个缺口 gtest（CustomEvent / PromiseRejectionEvent / 全局 onerror+onunhandledrejection+onrejectionhandled+reportError / TextEncoderStream / ByteLength+CountQueuingStrategy / TransformStream / BroadcastChannel 克隆隔离 / CacheStorage 扩展 / MessageChannel 消息往返），polyfill gtest 60/60
+- A2 多上下文/Worker 健壮性（gtest + 压力）：软挂起边界 4 例（destroy 后 resume 同槽字节一致、坏 state 路径报错隔离、不可克隆属性 skipped 语义、suspend→resume 循环 10 轮槽位稳定复用）；Worker 错误路径 6 例（transfer 重复/不可转移/detached buffer 抛 DataCloneError 且无副作用、非法 URL 构造失败不占槽位、terminate 后 postMessage 静默、父侧 handler 抛错 worker 存活、timer 回调异步抛错进 self.onerror 且 worker 存活）；压力 2 例（4 worker×20 消息洪泛内容校验、30 轮 ArrayBuffer transfer 往返链）
 ### Fixed
+- timers：setTimeout/setInterval 回调抛错只 `console.error`，不进错误事件流（worker 内 `self.onerror`/全局 `error` 监听收不到异步异常）——catch 后调 `reportError(err)`（存在性守卫，navigator.js 晚于 timers 挂载）再打日志，runtime 不中断
+- structuredClone/Worker.postMessage：已 detach 的 ArrayBuffer 再进 transfer 列表不报错、静默无副作用（Web 规范应抛 DataCloneError）——两处 transfer 校验补 `detached` 检查，抛 `DOMException('ArrayBuffer has already been detached', 'DataCloneError')`
 - TransformStream：存在 `flush` 时 close 后不调用 `terminate()`（readable 侧永不关闭，队列 drain 后第三次 `read()` 永久挂起）——await flush 结果后再 terminate，兼容异步 flush
 - Blob：blobParts 非迭代对象抛 TypeError、type 规范化只去 0x09/0x0A/0x0D、字符串元素 UTF-8 编码
 - Headers：new Headers(null) 与 3+ 元素 pair 抛 TypeError

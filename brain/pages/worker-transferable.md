@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [worker, transferable, arraybuffer, structured-clone, wintertc]
 created: "2026-08-18T12:49:50"
-updated: "2026-08-19T01:54:08"
+updated: "2026-08-28T15:53:31"
 ---
 
 <!-- compiled_truth -->
@@ -57,4 +57,10 @@ updated: "2026-08-19T01:54:08"
   kind: decision
   summary: "边界验证：多 worker 并发转移路由正确 + terminate 后代理 port 优雅失败"
   source: brain update-truth
+  affects: [worker-transferable]
+
+- time: 2026-08-28T15:53:31
+  kind: decision
+  summary: "A2 边界补齐：已 detach 的 ArrayBuffer 再进 transfer 列表抛 DataCloneError（structuredClone 与 serializeToBytes 两处校验补 detached 检查）；A2 transfer 错误路径 + 30 轮 transfer 压力链入 test_worker_gtest"
+  source: 2026-08-28 A2 session
   affects: [worker-transferable]

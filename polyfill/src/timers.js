@@ -58,7 +58,13 @@ export function setupTimers(pal) {
         try {
           e.callback.apply(null, e.args);
         } catch (err) {
-          // Log error but don't throw - timers should not break the runtime
+          // Timer callbacks must not break the runtime, but the error still
+          // enters the error-event flow (reportError → ErrorEvent 'error' on
+          // globalThis → self.onerror / addEventListener('error')). reportError
+          // is installed later (navigator.js) — guard for early fires.
+          if (typeof globalThis.reportError === 'function') {
+            globalThis.reportError(err);
+          }
           if (globalThis.console) {
             console.error('Uncaught error in setTimeout callback:', err);
           }
@@ -115,6 +121,9 @@ export function setupTimers(pal) {
         try {
           entry.callback.apply(null, entry.args);
         } catch (err) {
+          if (typeof globalThis.reportError === 'function') {
+            globalThis.reportError(err);
+          }
           if (globalThis.console) {
             console.error('Uncaught error in setInterval callback:', err);
           }

@@ -381,3 +381,238 @@ TEST(worker_, self_close) {
     EXPECT_NE(std::string::npos, out.find("ok")) << "got: " << out;
     host_destroy(h);
 }
+
+/* ================================================================
+ * A2 健壮性：transferable 错误路径
+ * ================================================================ */
+
+// transfer 列表含重复对象 → DataCloneError；异常时原 buffer 不被 detach
+//（Web 语义：抛错的 postMessage 不产生副作用）。
+TEST(worker_, transfer_duplicate_throws_no_detach) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_echo.js');\n"
+        "'started'", &out));
+
+    ASSERT_TRUE(host_value(h,
+        "var ab = new ArrayBuffer(4); var caught = '';\n"
+        "try { w.postMessage(ab, [ab, ab]); } catch (e) { caught = e.name; }\n"
+        "JSON.stringify([caught, ab.byteLength])", &out));
+    EXPECT_NE(std::string::npos, out.find("[\"DataCloneError\",4]")) << "got: " << out;
+    host_destroy(h);
+}
+
+// 不可转移对象（普通对象）进 transfer 列表 → DataCloneError，消息不发出。
+TEST(worker_, transfer_nontransferable_throws) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_echo.js');\n"
+        "var got = 'none';\n"
+        "w.onmessage = function(e){ got = e.data; };\n"
+        "'started'", &out));
+
+    ASSERT_TRUE(host_value(h,
+        "var caught = ''; var sent = true;\n"
+        "try { w.postMessage({a:1}, [{}]); } catch (e) { caught = e.name; sent = false; }\n"
+        "JSON.stringify([caught, sent, got])", &out));
+    EXPECT_NE(std::string::npos, out.find("[\"DataCloneError\",false,\"none\"]")) << "got: " << out;
+    host_destroy(h);
+}
+
+// 已 detach 的 ArrayBuffer 再进 transfer 列表 → DataCloneError（原引用
+// 已不可转移），buffer 保持 detached。
+TEST(worker_, transfer_detached_buffer_throws) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_echo.js');\n"
+        "'started'", &out));
+
+    ASSERT_TRUE(host_value(h,
+        "var ab = new ArrayBuffer(4);\n"
+        "w.postMessage(ab, [ab]);\n"
+        "var caught = '';\n"
+        "try { w.postMessage('x', [ab]); } catch (e) { caught = e.name; }\n"
+        "JSON.stringify([caught, ab.byteLength])", &out));
+    EXPECT_NE(std::string::npos, out.find("[\"DataCloneError\",0]")) << "got: " << out;
+    host_destroy(h);
+}
+
+/* ================================================================
+ * A2 健壮性：Worker 生命周期错误路径
+ * ================================================================ */
+
+// 非法 URL（非 file://）与不存在的文件 → new Worker 抛错；失败构造不占
+// 槽位，后续正常 spawn 的 worker 通信无碍。
+TEST(worker_, constructor_bad_url_then_recovery) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_value(h,
+        "var e1 = ''; var e2 = '';\n"
+        "try { new Worker('http://x/y.js'); } catch (err) { e1 = err.name; }\n"
+        "try { new Worker('file:///nonexistent-qwrt-a2.js'); } catch (err) { e2 = err.name; }\n"
+        "JSON.stringify([e1, e2])", &out));
+    /* http:// 非法 URL → Error（loadScript 校验）；不存在的文件 → TypeError
+       （fsReadSync 底层错误透传）。两者都中断构造、不占槽位。 */
+    EXPECT_NE(std::string::npos, out.find("[\"Error\",\"TypeError\"]")) << "got: " << out;
+
+    /* 失败构造后 runtime 仍正常：spawn echo worker 往返 */
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_echo.js');\n"
+        "w.onmessage = function(e){ postMessage({v: e.data}); };\n"
+        "w.postMessage('recover');\n"
+        "'started'", &out));
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("\"v\":\"recover\"")) << "got: " << out;
+    host_destroy(h);
+}
+
+// terminate 后 postMessage 静默丢弃（不抛错、不崩溃）；重复 terminate 亦安全；
+// 父 runtime 继续正常求值。
+TEST(worker_, post_after_terminate_safe) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_idle.js');\n"
+        "'started'", &out));
+
+    ASSERT_TRUE(host_value(h,
+        "w.postMessage('x'); w.terminate();\n"
+        "var caught = '';\n"
+        "try { w.postMessage('y'); w.terminate(); } catch (err) { caught = err.name; }\n"
+        "JSON.stringify([caught, 2 + 2])", &out));
+    EXPECT_NE(std::string::npos, out.find("[\"\",4]")) << "got: " << out;
+    host_destroy(h);
+}
+
+// 父侧 onmessage 处理器抛错：worker 存活，替换处理器后后续消息仍正常处理。
+TEST(worker_, handler_throw_worker_survives) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_echo.js');\n"
+        "w.onmessage = function(e){ throw new Error('handler-boom'); };\n"
+        "w.postMessage('a');\n"
+        "'started'", &out));
+
+    /* 处理器抛错不杀 worker：换处理器后 'b' 正常回显。注意 'a' 的回显可能
+       恰在替换后才到达父侧（跨线程竞态），被新 handler 回传 {v:'a'} ——
+       跳过它，断言 'b' 到达即证明 worker 存活。 */
+    ASSERT_TRUE(host_eval(h,
+        "w.onmessage = function(e){ postMessage({v: e.data}); };\n"
+        "w.postMessage('b');\n"
+        "'swapped'", &out));
+    bool gotB = false;
+    for (int i = 0; i < 4 && !gotB; i++) {
+        if (!host_wait_msg(h, &out, 5000)) break;
+        gotB = out.find("\"v\":\"b\"") != std::string::npos;
+    }
+    ASSERT_TRUE(gotB) << "worker 未存活或回显缺失, last: " << out;
+    host_destroy(h);
+}
+
+// worker 运行中（定时器回调）抛错：self.onerror 捕获并回报父；worker 不死，
+// 后续消息仍处理。覆盖异步错误路径（非脚本顶层 throw）。
+TEST(worker_, async_error_self_onerror_survives) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_async_error.js');\n"
+        "w.onmessage = function(e){ postMessage(e.data); };\n"
+        "w.postMessage('boom-later');\n"
+        "'started'", &out));
+
+    /* 先到 'scheduled'，随后定时器抛错 → self.onerror 回报 */
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("scheduled")) << "got: " << out;
+    /* 先到 'scheduled'，随后定时器抛错 → self.onerror 回报 {workerErr:...}
+       （经父侧 w.onmessage 转发 postMessage(e.data)） */
+    ASSERT_TRUE(host_wait_msg(h, &out, 10000));
+    EXPECT_NE(std::string::npos, out.find("\"workerErr\":\"async-boom\"")) << "got: " << out;
+
+    /* worker 不死：后续消息仍回显 */
+    ASSERT_TRUE(host_poll_until_value(h,
+        "(function(){ w.postMessage('ping'); return 'sent'; })()",
+        "sent", &out));
+    ASSERT_TRUE(host_wait_msg(h, &out, 10000));
+    EXPECT_NE(std::string::npos, out.find("alive:ping")) << "got: " << out;
+    host_destroy(h);
+}
+
+/* ================================================================
+ * A2 压力
+ * ================================================================ */
+
+// 压力：4 个 worker × 20 条消息洪泛，全部回显且内容不错乱。
+TEST(worker_, stress_multi_worker_flood) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.seen = []; globalThis.n = 0;\n"
+        "globalThis.ws = [];\n"
+        "for (var i = 0; i < 4; i++) {\n"
+        "  var wi = new Worker('file://" TEST_DIR "/worker_echo.js');\n"
+        "  wi.onmessage = function(e){ n++; seen.push(e.data); };\n"
+        "  ws.push(wi);\n"
+        "}\n"
+        "for (var r = 0; r < 20; r++)\n"
+        "  for (var k = 0; k < 4; k++)\n"
+        "    ws[k].postMessage('w' + k + '-m' + r);\n"
+        "'flooded'", &out));
+
+    ASSERT_TRUE(host_poll_until_value(h, "String(n)", "80", &out));
+    ASSERT_TRUE(host_value(h,
+        "var exp = [];\n"
+        "for (var r = 0; r < 20; r++) for (var k = 0; k < 4; k++) exp.push('w' + k + '-m' + r);\n"
+        "JSON.stringify(exp.sort().join('|') === seen.sort().join('|'))", &out));
+    EXPECT_NE(std::string::npos, out.find("true")) << "got: " << out;
+    host_destroy(h);
+}
+
+// 压力：30 轮 ArrayBuffer transfer 往返链。父侧发送后立即 detach；worker
+// echo 克隆回传；内容逐轮校验不错乱。
+TEST(worker_, stress_transfer_roundtrip_chain) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.wt = new Worker('file://" TEST_DIR "/worker_echo.js');\n"
+        "globalThis.tn = 0; globalThis.tbad = '';\n"
+        "globalThis.sendNext = function () {\n"
+        "  var ab = new ArrayBuffer(4);\n"
+        "  new Uint8Array(ab).set([tn + 1, 0, 0, 0]);\n"
+        "  wt.postMessage(ab, [ab]);\n"
+        "  if (ab.byteLength !== 0) tbad = 'not-detached-' + tn;\n"
+        "};\n"
+        "wt.onmessage = function(e){\n"
+        "  tn++;\n"
+        "  if (!(e.data instanceof ArrayBuffer) || e.data.byteLength !== 4) { tbad = 'shape-' + tn; return; }\n"
+        "  if (new Uint8Array(e.data)[0] !== tn) { tbad = 'content-' + tn; return; }\n"
+        "  if (tn < 30) sendNext();\n"
+        "};\n"
+        "sendNext();\n"
+        "'chained'", &out));
+
+    ASSERT_TRUE(host_poll_until_value(h,
+        "tn + ':' + (tbad || 'ok')", "30:ok", &out));
+    host_destroy(h);
+}

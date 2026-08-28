@@ -42,6 +42,8 @@ export function setupStructuredClone() {
                      t instanceof globalThis.MessagePort;
         if (!(t instanceof ArrayBuffer) && !isPort)
           throw new DOMException('object is not transferable', 'DataCloneError');
+        if (t instanceof ArrayBuffer && t.detached)
+          throw new DOMException('ArrayBuffer has already been detached', 'DataCloneError');
         transferSet.add(t);
       }
     }
@@ -351,6 +353,8 @@ export function setupStructuredClone() {
                      t instanceof globalThis.MessagePort;
         if (!(t instanceof ArrayBuffer) && !isPort)
           throw new DOMException('object is not transferable', 'DataCloneError');
+        if (t instanceof ArrayBuffer && t.detached)
+          throw new DOMException('ArrayBuffer has already been detached', 'DataCloneError');
         transferSet.add(t);
       }
     }
