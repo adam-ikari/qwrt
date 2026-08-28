@@ -101,7 +101,9 @@ export function setupHttpServer(pal) {
     var parts = reqLine.split(' ');
     if (parts.length < 3) return null;
     var method = parts[0], path = parts[1], version = parts[2];
-    var headers = {};
+    /* F4 安全审计：头名来自远程字节流。对象若无原型，'__proto__' 等键
+     * 只是普通属性，无法触发原型链污染。 */
+    var headers = Object.create(null);
     headerStr.substring(idx + 2).split('\r\n').forEach(function(l) {
       var ci = l.indexOf(':');
       if (ci > 0) headers[l.substring(0, ci).toLowerCase()] = l.substring(ci + 1).trim();
@@ -603,7 +605,7 @@ export function setupHttpServer(pal) {
       if (typeof val === 'object' && val !== null) {
         var st = val.status || 200;
         var stText = val.statusText || (st === 200 ? 'OK' : '');
-        var hdrs = {};
+        var hdrs = Object.create(null);   /* 头名不做原型链解析（F4 审计） */
         if (val.headers && typeof val.headers.forEach === 'function') {
           val.headers.forEach(function(v, k) { hdrs[k] = v; });
         } else if (val.headers) {

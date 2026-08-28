@@ -3341,7 +3341,7 @@
       var parts = reqLine.split(" ");
       if (parts.length < 3) return null;
       var method = parts[0], path = parts[1], version = parts[2];
-      var headers = {};
+      var headers = /* @__PURE__ */ Object.create(null);
       headerStr.substring(idx + 2).split("\r\n").forEach(function(l) {
         var ci = l.indexOf(":");
         if (ci > 0) headers[l.substring(0, ci).toLowerCase()] = l.substring(ci + 1).trim();
@@ -3851,7 +3851,7 @@
         if (typeof val === "object" && val !== null) {
           var st = val.status || 200;
           var stText = val.statusText || (st === 200 ? "OK" : "");
-          var hdrs = {};
+          var hdrs = /* @__PURE__ */ Object.create(null);
           if (val.headers && typeof val.headers.forEach === "function") {
             val.headers.forEach(function(v, k2) {
               hdrs[k2] = v;
@@ -6008,7 +6008,12 @@
         seen.set(value, result);
         var keys = Object.keys(value);
         for (var i = 0; i < keys.length; i++) {
-          result[keys[i]] = clone(value[keys[i]], seen, options);
+          Object.defineProperty(result, keys[i], {
+            value: clone(value[keys[i]], seen, options),
+            writable: true,
+            enumerable: true,
+            configurable: true
+          });
         }
         return result;
       }
@@ -6017,7 +6022,12 @@
       try {
         var keys = Object.keys(value);
         for (var i = 0; i < keys.length; i++) {
-          result[keys[i]] = clone(value[keys[i]], seen, options);
+          Object.defineProperty(result, keys[i], {
+            value: clone(value[keys[i]], seen, options),
+            writable: true,
+            enumerable: true,
+            configurable: true
+          });
         }
       } catch (e) {
       }
@@ -6322,13 +6332,17 @@
           i += 8;
           return f[0];
         },
+        /* F4 安全审计：长度来自不可信字节流，必须先校验剩余字节，否则
+         * str/bytes 会越界读 u8、或按 0xFFFFFFFF 巨量分配 Uint8Array。 */
         str: function() {
           var n = this.u32();
+          if (n > u8.length - i) throw new DOMException("Bad serialized data", "DataCloneError");
           var s = utf8Decode(u8, i, n);
           i += n;
           return s;
         },
         bytes: function(n) {
+          if (n > u8.length - i) throw new DOMException("Bad serialized data", "DataCloneError");
           var out = new Uint8Array(n);
           for (var j = 0; j < n; j++) out[j] = u8[i + j];
           i += n;
@@ -6429,7 +6443,12 @@
               refs.push(o);
               for (var i = 0; i < n; i++) {
                 var k = r.str();
-                o[k] = rd();
+                Object.defineProperty(o, k, {
+                  value: rd(),
+                  writable: true,
+                  enumerable: true,
+                  configurable: true
+                });
               }
               return o;
             }

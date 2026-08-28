@@ -911,8 +911,44 @@ def test_connection_close_http10(qwrt_bin):
     finally:
         srv.stop()
 
-def main():
+@test
+def test_header_proto_pollution(qwrt_bin):
+    """F4 security audit: remote headers with '__proto__'/'constructor' names
+    must be inert data slots on req.headers — no Object.prototype pollution,
+    normal routing unaffected."""
+    p = free_port()
+    srv = QwrtServer(gen_server_script(p), qwrt_bin)
+    try:
+        srv.wait_port(p)
+        # Malicious header block: __proto__ would set Object.prototype.polluted
+        # via the parser if the headers object had a prototype.
+        raw = (
+            b"GET /hello HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"__proto__: polluted\r\n"
+            b"constructor: hacked\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        s = socket.create_connection(("127.0.0.1", p), timeout=5)
+        s.sendall(raw)
+        data = b""
+        s.settimeout(3)
+        while b"\r\n\r\n" not in data:
+            c = s.recv(4096)
+            if not c: break
+            data += c
+        s.close()
+        assert b"200" in data, "no 200: " + repr(data[:300])
+        assert b"plain string" in data, "body wrong: " + repr(data[:300])
+        # Follow-up request must still route cleanly.
+        st, hdrs, body = raw_request(p, "GET", "/hello")
+        assert st == 200 and body == b"plain string", (st, body)
+    finally:
+        srv.stop()
 
+
+
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--qwrt-bin", required=True)
     args = ap.parse_args()

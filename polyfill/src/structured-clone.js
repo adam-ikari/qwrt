@@ -225,7 +225,9 @@ export function setupStructuredClone() {
       seen.set(value, result);
       var keys = Object.keys(value);
       for (var i = 0; i < keys.length; i++) {
-        result[keys[i]] = clone(value[keys[i]], seen, options);
+        /* F4 安全审计：'__proto__' 键必须落为 own 数据属性，不得触发原型 setter */
+        Object.defineProperty(result, keys[i], { value: clone(value[keys[i]], seen, options),
+          writable: true, enumerable: true, configurable: true });
       }
       return result;
     }
@@ -237,7 +239,9 @@ export function setupStructuredClone() {
     try {
       var keys = Object.keys(value);
       for (var i = 0; i < keys.length; i++) {
-        result[keys[i]] = clone(value[keys[i]], seen, options);
+        /* F4 安全审计：同上，'__proto__' 键不得触发原型 setter */
+        Object.defineProperty(result, keys[i], { value: clone(value[keys[i]], seen, options),
+          writable: true, enumerable: true, configurable: true });
       }
     } catch (e) {
       // If we can't enumerate, just return empty
@@ -491,13 +495,17 @@ export function setupStructuredClone() {
         i += 8;
         return f[0];
       },
+      /* F4 安全审计：长度来自不可信字节流，必须先校验剩余字节，否则
+       * str/bytes 会越界读 u8、或按 0xFFFFFFFF 巨量分配 Uint8Array。 */
       str: function () {
         var n = this.u32();
+        if (n > u8.length - i) throw new DOMException('Bad serialized data', 'DataCloneError');
         var s = utf8Decode(u8, i, n);
         i += n;
         return s;
       },
       bytes: function (n) {
+        if (n > u8.length - i) throw new DOMException('Bad serialized data', 'DataCloneError');
         var out = new Uint8Array(n);
         for (var j = 0; j < n; j++) out[j] = u8[i + j];
         i += n;
@@ -578,7 +586,14 @@ export function setupStructuredClone() {
           }
           if (tag === 0x1D) {
             var n = r.u32(); var o = {}; refs.push(o);
-            for (var i = 0; i < n; i++) { var k = r.str(); o[k] = rd(); }
+            /* F4 安全审计：键来自不可信字节流。直接 o[k] 赋值时 k === '__proto__'
+             * 会触发 setter 改写原型（原型链污染），因此走 defineProperty 固定为
+             * 普通 own 数据属性。 */
+            for (var i = 0; i < n; i++) {
+              var k = r.str();
+              Object.defineProperty(o, k, { value: rd(), writable: true,
+                enumerable: true, configurable: true });
+            }
             return o;
           }
           if (tag === 0x1E) return refs[r.u32()];

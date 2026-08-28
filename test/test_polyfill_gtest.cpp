@@ -1872,6 +1872,63 @@ TEST_F(PolyfillTest, FsTraversalGuard) {
     }
 }
 
+/* F4 安全审计回归：structuredClone 反序列化端遇到 '__proto__' 键必须落为
+ * 普通 own 属性（defineProperty），不得触发原型 setter 污染 Object.prototype。 */
+TEST_F(PolyfillTest, CloneProtoPollutionGuard) {
+    std::string v;
+    /* 1. 恶意对象：own enumerable '__proto__' 键（defineProperty 绕过 setter
+     *    才能造出来），序列化后其键进入字节流；克隆端不得改写原型。 */
+    ASSERT_TRUE(host_value(h,
+        "var evil = {};\n"
+        "Object.defineProperty(evil, '__proto__', { value: {polluted: 1}, enumerable: true });\n"
+        "var c = structuredClone(evil);\n"
+        "var protoOk = Object.getPrototypeOf(c) === Object.prototype;\n"
+        "var globalOk = Object.prototype.polluted === undefined;\n"
+        "var ownOk = Object.prototype.hasOwnProperty.call(c, '__proto__');\n"
+        "JSON.stringify([protoOk, globalOk, ownOk])", &v));
+    EXPECT_NE(std::string::npos, v.find("[true,true,true]")) << "got: " << v;
+
+    /* 2. 循环引用仍正常（defineProperty 路径不破坏 0x1E ref 解析）。 */
+    ASSERT_TRUE(host_value(h,
+        "var a = {x: 1}; a.self = a; var c = structuredClone(a);\n"
+        "JSON.stringify([c.x, c.self === c])", &v));
+    EXPECT_NE(std::string::npos, v.find("[1,true]")) << "got: " << v;
+
+    /* 3. 普通属性的可枚举/可写语义保持不变。 */
+    ASSERT_TRUE(host_value(h,
+        "var c = structuredClone({p: 5});\n"
+        "var d = Object.getOwnPropertyDescriptor(c, 'p');\n"
+        "JSON.stringify([d.value, d.writable, d.enumerable, d.configurable])", &v));
+    EXPECT_NE(std::string::npos, v.find("[5,true,true,true]")) << "got: " << v;
+}
+
+/* F4 安全审计回归：反序列化长度字段来自不可信字节流。截断/巨量长度必须
+ * 抛 DataCloneError，不得越界读或按 0xFFFFFFFF 分配。 */
+TEST_F(PolyfillTest, CloneTruncatedLengthGuard) {
+    std::string v;
+    /* 1. 对象键声明超长字符串长度（tag 0x1D + count 1 + key len=0xFFFFFFFF）→ str() 越界拒绝。 */
+    ASSERT_TRUE(host_value(h,
+        "var b = new Uint8Array([0x1D, 1,0,0,0, 0xFF,0xFF,0xFF,0xFF]);\n"
+        "var r; try { __qwrt_deserialize__(b.buffer); r = 'no-throw'; }\n"
+        "catch (e) { r = e.name + ':' + (e.message || ''); }\n"
+        "r.indexOf('DataCloneError') >= 0 ? 'guarded' : 'leak:' + r", &v));
+    EXPECT_EQ("guarded", v) << "got: " << v;
+
+    /* 2. TypedArray 声明巨量字节长度（tag 0x0D + len=0xFFFFFFFF）→ bytes() 拒绝。 */
+    ASSERT_TRUE(host_value(h,
+        "var b = new Uint8Array([0x0D, 0xFF,0xFF,0xFF,0xFF]);\n"
+        "var r; try { __qwrt_deserialize__(b.buffer); r = 'no-throw'; }\n"
+        "catch (e) { r = e.name; }\n"
+        "r === 'DataCloneError' ? 'guarded' : 'leak:' + r", &v));
+    EXPECT_EQ("guarded", v) << "got: " << v;
+
+    /* 3. 合法数据不受影响：正常 round-trip 仍工作。 */
+    ASSERT_TRUE(host_value(h,
+        "var c = structuredClone({s: 'hello', arr: [1,2,3]});\n"
+        "JSON.stringify([c.s, c.arr.join(',')])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"hello\",\"1,2,3\"]")) << "got: " << v;
+}
+
 
 
 

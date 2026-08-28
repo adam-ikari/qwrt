@@ -30,6 +30,7 @@ int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source)
      * SIZE_MAX(整数溢出)或极大值(分配炸弹),统一在此拒绝。 */
     if (len > (size_t)-1 - sizeof(qwrt_msg_t) - 1) return -1;
     qwrt_msg_t *m = (qwrt_msg_t *)malloc(sizeof *m + len + 1);
+    if (!m) return -1;   /* OOM:拒绝入队而非解引用 NULL */
     m->data = (char *)(m + 1);
     memcpy(m->data, data, len);
     m->data[len] = '\0';
