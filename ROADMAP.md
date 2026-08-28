@@ -100,7 +100,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | F1 | CI 全绿 ✅(本地) | 消除 SKIP（gzip）✅；feature-matrix / ASan / UBSan 待 push 后 CI 确认。 | CI 状态 |
 | F2 | 覆盖率 | fs / tls / ws / worker 路径补测。 | coverage 报告 |
 | F3 | 启动/内存 | 引擎预热、上下文复用、大文件零拷贝评估。 | 基准 |
-| F4 | 安全审计 | 路径穿越、消息边界、TLS 证书校验、原型链污染。 | 专项 |
+| F4 | 安全审计 ✅ | 路径穿越、消息边界、TLS 证书校验、原型链污染四领域审计；发现并修复 4 漏洞（structured-clone `__proto__` 污染 ×2 处路径、msgq malloc OOM、clone 字节流长度无界、http 头对象污染），新增 3 回归测试。 | polyfill gtest 68/68；e2e 17/17 ✅ |
 
 ### G. 生态与文档
 
@@ -118,7 +118,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | M2 ✅ | **HTTP/1.1 细节 + WS 增强 + 流式 body**（D1–D4 全部完成） | 2–4 周 |
 | M3 | fetch 完善 + streams 覆盖 + WASM 流式（B2–B3, C1） | 1–2 月 |
 | M4 | 质量与性能（F 全项）+ 大响应优化（D5） | 持续 |
-| M5 | 生态与文档（G）+ 安全审计（F4） | 持续 |
+| M5 ✅ | 生态与文档（G）+ 安全审计（F4）（G1/G2/G3/F4 全部完成） | 持续 |
 
 ## 五、验证矩阵
 
