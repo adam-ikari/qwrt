@@ -89,8 +89,20 @@ typedef struct uv_io_http_op_t {
     char *body;
     size_t body_len;
 
-    /* TLS flag: 1 = https requested */
     int use_tls;
+
+    /* Outbound proxy (HTTP(S)_PROXY env, NO_PROXY excludes). proxy_active=1
+     * routes DNS/TCP at proxy_host:proxy_port; plain-http origins use an
+     * absolute-form request line, https origins get a CONNECT tunnel. */
+    char *proxy_host;
+    int proxy_port;
+    int proxy_active;
+
+    /* CONNECT tunnel state: 0=unused, 1=CONNECT sent, awaiting response.
+     * proxy_buf accumulates the raw CONNECT response bytes. */
+    int connect_state;
+    char *proxy_buf;
+    size_t proxy_buf_len;
 
 #if QWRT_WITH_TLS
     mbedtls_ssl_context ssl;
@@ -577,9 +589,201 @@ static int uv_io_parse_url(const char *url, uv_io_url_t *out)
 }
 
 /* ================================================================
- * Storage operations (in-memory, synchronous callback)
+ * Outbound proxy (env configuration)
+ *
+ * HTTP_PROXY / http_proxy      — proxy for plain-http origins
+ * HTTPS_PROXY / https_proxy    — proxy for https origins
+ * NO_PROXY / no_proxy          — comma-separated host suffixes, "*" = all
+ *
+ * Proxy URL form: http://host[:port] (default port 80). Other schemes are
+ * rejected (failing closed) rather than silently bypassing the proxy.
  * ================================================================ */
 
+/* Does host match one NO_PROXY entry? Suffix match on dot boundaries;
+ * a leading dot in the entry is ignored. Exact match also passes. */
+static int uv_io_no_proxy_entry_match(const char *host, const char *entry)
+{
+    size_t hl, el;
+    if (!host || !entry || !*entry) return 0;
+    if (strcmp(entry, "*") == 0) return 1;
+    if (entry[0] == '.') entry++;
+    hl = strlen(host);
+    el = strlen(entry);
+    if (el > hl) return 0;
+    if (strcmp(host + hl - el, entry) != 0) return 0;
+    /* "x.com" must not match "ax.com"; equal length = exact match */
+    return (hl == el || host[hl - el - 1] == '.');
+}
+
+static int uv_io_host_in_no_proxy(const char *host)
+{
+    const char *np = getenv("NO_PROXY");
+    const char *p, *entry;
+    if (!np || !*np) {
+        np = getenv("no_proxy");
+        if (!np || !*np) return 0;
+    }
+    p = np;
+    while (*p) {
+        size_t len;
+        entry = p;
+        while (*p && *p != ',') p++;
+        len = (size_t)(p - entry);
+        if (len > 0) {
+            char buf[256];
+            if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+            memcpy(buf, entry, len);
+            buf[len] = '\0';
+            /* trim surrounding whitespace */
+            {
+                char *b = buf;
+                while (*b == ' ' || *b == '\t') b++;
+                char *e = b + strlen(b);
+                while (e > b && (e[-1] == ' ' || e[-1] == '\t')) e--;
+                *e = '\0';
+                if (*b && uv_io_no_proxy_entry_match(host, b)) return 1;
+            }
+        }
+        if (*p == ',') p++;
+    }
+    return 0;
+}
+
+/* Parse "http://host[:port]" from env. Returns 0 and fills host/port on
+ * success; -1 on malformed value or unsupported scheme (failing closed). */
+static int uv_io_parse_proxy_url(const char *url, char **host_out, int *port_out)
+{
+    const char *p;
+    const char *host_start, *port_start = NULL;
+    size_t len;
+    long port = 80;
+    char *host;
+
+    if (strncmp(url, "http://", 7) != 0) return -1;   /* https-pfx unsupported */
+    p = url + 7;
+    if (!*p) return -1;
+    host_start = p;
+    while (*p && *p != ':' && *p != '/') {
+        if (*p == '@') return -1;                     /* userinfo unsupported */
+        p++;
+    }
+    len = (size_t)(p - host_start);
+    if (len == 0 || len > 253) return -1;
+    if (*p == ':') {
+        char *end = NULL;
+        port = strtol(p + 1, &end, 10);
+        if (end == p + 1 || port <= 0 || port > 65535) return -1;
+        port_start = end;
+    }
+    /* trailing garbage after host[:port] (path, more colons) is invalid */
+    if (port_start && *port_start) return -1;
+    if (!port_start && *p) return -1;
+
+    host = (char *)malloc(len + 1);
+    if (!host) return -1;
+    memcpy(host, host_start, len);
+    host[len] = '\0';
+    *host_out = host;
+    *port_out = (int)port;
+    return 0;
+}
+
+/* Decide whether this op goes through a proxy, from env. Called once after
+ * URL parsing. On failure (bad proxy URL) the op errors out — failing closed
+ * keeps traffic from silently bypassing the configured proxy. */
+static int uv_io_http_apply_proxy(uv_io_http_op_t *op)
+{
+    const char *val;
+    if (uv_io_host_in_no_proxy(op->host)) return 0;
+    if (op->use_tls) {
+        val = getenv("HTTPS_PROXY");
+        if (!val || !*val) val = getenv("https_proxy");
+    } else {
+        val = getenv("HTTP_PROXY");
+        if (!val || !*val) val = getenv("http_proxy");
+    }
+    if (!val || !*val) return 0;
+    if (uv_io_parse_proxy_url(val, &op->proxy_host, &op->proxy_port) < 0) {
+        return -1;
+    }
+    op->proxy_active = 1;
+    return 0;
+}
+
+/* Effective DNS/connect target: the proxy when active, else the origin. */
+static const char *uv_io_http_connect_host(uv_io_http_op_t *op)
+{
+    return op->proxy_active ? op->proxy_host : op->host;
+}
+
+static int uv_io_http_connect_port(uv_io_http_op_t *op)
+{
+    return op->proxy_active ? op->proxy_port : op->port;
+}
+
+/* Absolute-form request target for plain-http via proxy (RFC 7230 5.3.2);
+ * default port 80 may be omitted. Returns malloc'd string or NULL. */
+static char *uv_io_http_proxy_request_target(uv_io_http_op_t *op)
+{
+    const char *scheme = "http://";
+    size_t n = strlen(scheme) + strlen(op->host) + 16 + strlen(op->path);
+    char *target = (char *)malloc(n);
+    if (!target) return NULL;
+    if (op->port != 80) {
+        snprintf(target, n, "%s%s:%d%s", scheme, op->host, op->port, op->path);
+    } else {
+        snprintf(target, n, "%s%s%s", scheme, op->host, op->path);
+    }
+    return target;
+}
+
+/* Build and send "CONNECT host[:port] HTTP/1.1" to the proxy. Returns 0 and
+ * has consumed the write on success; -1 fills err and the caller must fail. */
+#if QWRT_WITH_TLS
+static void uv_io_http_connect_write_cb(uv_write_t *req, int status);
+static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
+                                             const uv_buf_t *buf);
+
+static int uv_io_http_send_connect(uv_io_http_op_t *op, const char **err)
+{
+    uv_buf_t buf;
+    int n;
+    char *req;
+    size_t cap = strlen(op->host) + 64;
+
+    req = (char *)malloc(cap);
+    if (!req) { *err = "out of memory"; return -1; }
+    if (op->port != 443) {
+        n = snprintf(req, cap, "CONNECT %s:%d HTTP/1.1\r\n"
+                                "Host: %s:%d\r\n\r\n",
+                     op->host, op->port, op->host, op->port);
+    } else {
+        n = snprintf(req, cap, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n",
+                     op->host, op->host);
+    }
+    if (n <= 0 || (size_t)n >= cap) { free(req); *err = "connect build failed"; return -1; }
+
+    op->req_buf = req;
+    op->req_buf_len = (size_t)n;
+    buf.base = req;
+    buf.len = (size_t)n;
+    op->connect_state = 1;
+    op->write_req.data = op;
+    if (uv_write(&op->write_req, (uv_stream_t *)&op->tcp, &buf, 1,
+                 uv_io_http_connect_write_cb) != 0) {
+        free(req);
+        op->req_buf = NULL;
+        op->req_buf_len = 0;
+        op->connect_state = 0;
+        *err = "proxy connect write failed";
+        return -1;
+    }
+    return 0;
+    }
+#endif /* QWRT_WITH_TLS */
+/* ================================================================
+ * Storage operations (in-memory, synchronous callback)
+ * ================================================================ */
 void uv_io_storage_get(qwrt_t *rt, const char *key,
                                qwrt_io_done_t cb, void *cb_data)
 {
@@ -1299,6 +1503,8 @@ static void uv_io_http_cleanup(uv_io_http_op_t *op)
     if (op->req_buf) free(op->req_buf);
     if (op->resp_buf) free(op->resp_buf);
     if (op->resp_headers) free(op->resp_headers);
+    if (op->proxy_host) free(op->proxy_host);
+    if (op->proxy_buf) free(op->proxy_buf);
     free(op);
 }
 
@@ -1614,6 +1820,12 @@ static void uv_io_http_alloc_cb(uv_handle_t *handle, size_t suggested_size,
 }
 
 static void uv_io_http_write_cb(uv_write_t *req, int status);
+#if QWRT_WITH_TLS
+static void uv_io_http_connect_write_cb(uv_write_t *req, int status);
+static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
+                                             const uv_buf_t *buf);
+#endif
+static void uv_io_http_start_tls(uv_io_http_op_t *op);
 
 #if QWRT_WITH_TLS
 static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
@@ -1632,10 +1844,22 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     const char *method = op->method ? op->method : "GET";
     const char *path = op->path ? op->path : "/";
     const char *host = op->host ? op->host : "localhost";
+    char *proxy_target = NULL;
+
+    /* Plain-http via proxy: absolute-form request target (RFC 7230 5.3.2). */
+    if (op->proxy_active && !op->use_tls) {
+        proxy_target = uv_io_http_proxy_request_target(op);
+        if (!proxy_target) {
+            uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
+            return;
+        }
+        path = proxy_target;
+    }
 
     size_t req_cap = 1024 + (op->body_len > 0 ? op->body_len : 0);
     char *req_buf = (char *)malloc(req_cap);
     if (!req_buf) {
+        free(proxy_target);
         uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
         return;
     }
@@ -1644,6 +1868,7 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     pos += snprintf(req_buf + pos, req_cap - pos,
                     "%s %s HTTP/1.1\r\nHost: %s\r\n",
                     method, path, host);
+    free(proxy_target);
 
     /* Add Content-Length if we have a body */
     if (op->body && op->body_len > 0) {
@@ -1852,40 +2077,17 @@ static void uv_io_http_connect_cb(uv_connect_t *req, int status)
         return;
     }
 
-    /* If TLS was requested, initiate handshake */
-    if (op->use_tls) {
+    /* https via proxy: tunnel first (CONNECT), TLS starts after the proxy's
+     * 2xx, TLS hostname verification still targets the origin. */
+    if (op->proxy_active && op->use_tls) {
 #if QWRT_WITH_TLS
-        if (tls_init_op(op) != 0) {
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS init failed");
+        const char *err = NULL;
+        if (uv_io_http_send_connect(op, &err) != 0) {
+            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, err);
             return;
         }
-        mbedtls_ssl_set_bio(&op->ssl, op, tls_send_cb, tls_recv_cb, NULL);
-        op->tls_handshake_done = 0;
-        /* Start reading for handshake data */
         uv_read_start((uv_stream_t *)&op->tcp, uv_io_http_alloc_cb,
-                      tls_handshake_read_cb);
-        /* Kick off the handshake — this sends ClientHello via tls_send_cb */
-        {
-            int ret = mbedtls_ssl_handshake(&op->ssl);
-            if (ret == 0) {
-                /* 纵深防御:同步握手成功后同样校验证书/主机名验证结果。 */
-                if (mbedtls_ssl_get_verify_result(&op->ssl) != 0) {
-                    uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
-                                            "TLS certificate verification failed");
-                    return;
-                }
-                /* Handshake completed synchronously (unlikely) */
-                op->tls_handshake_done = 1;
-                uv_read_stop((uv_stream_t *)&op->tcp);
-                uv_io_http_send_request(op);
-            } else if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
-                       ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-                char err[128];
-                mbedtls_strerror(ret, err, sizeof(err));
-                uv_io_http_finish_error(op, QWRT_ERR_NETWORK, err);
-            }
-            /* WANT_READ/WANT_WRITE: wait for tls_handshake_read_cb */
-        }
+                      uv_io_http_proxy_connect_read_cb);
         return;
 #else
         uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS not supported: compile with QWRT_WITH_TLS");
@@ -1893,7 +2095,55 @@ static void uv_io_http_connect_cb(uv_connect_t *req, int status)
 #endif
     }
 
+    if (op->use_tls) {
+        uv_io_http_start_tls(op);
+        return;
+    }
+
     uv_io_http_send_request(op);
+}
+
+/* Initiate the TLS handshake on an established (possibly tunneled) TCP
+ * connection. Shared by the direct-connect path and the CONNECT-tunnel
+ * continuation. */
+static void uv_io_http_start_tls(uv_io_http_op_t *op)
+{
+#if QWRT_WITH_TLS
+    if (tls_init_op(op) != 0) {
+        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS init failed");
+        return;
+    }
+    mbedtls_ssl_set_bio(&op->ssl, op, tls_send_cb, tls_recv_cb, NULL);
+    op->tls_handshake_done = 0;
+    /* Start reading for handshake data */
+    uv_read_start((uv_stream_t *)&op->tcp, uv_io_http_alloc_cb,
+                  tls_handshake_read_cb);
+    /* Kick off the handshake — this sends ClientHello via tls_send_cb */
+    {
+        int ret = mbedtls_ssl_handshake(&op->ssl);
+        if (ret == 0) {
+            /* 纵深防御:同步握手成功后同样校验证书/主机名验证结果。 */
+            if (mbedtls_ssl_get_verify_result(&op->ssl) != 0) {
+                uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+                                        "TLS certificate verification failed");
+                return;
+            }
+            /* Handshake completed synchronously (unlikely) */
+            op->tls_handshake_done = 1;
+            uv_read_stop((uv_stream_t *)&op->tcp);
+            uv_io_http_send_request(op);
+        } else if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
+                   ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            char err[128];
+            mbedtls_strerror(ret, err, sizeof(err));
+            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, err);
+        }
+        /* WANT_READ/WANT_WRITE: wait for tls_handshake_read_cb */
+    }
+    return;
+#else
+    uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS not supported: compile with QWRT_WITH_TLS");
+#endif
 }
 
 static void uv_io_http_write_cb(uv_write_t *req, int status)
@@ -1924,6 +2174,104 @@ static void uv_io_http_write_cb(uv_write_t *req, int status)
                       uv_io_http_read_cb);
     }
 }
+
+#if QWRT_WITH_TLS
+/* CONNECT request flushed → start reading the proxy's response. */
+static void uv_io_http_connect_write_cb(uv_write_t *req, int status)
+{
+    uv_io_http_op_t *op = (uv_io_http_op_t *)req->data;
+
+    if (op->aborted) return;
+    if (status < 0) {
+        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "proxy connect write error");
+        return;
+    }
+    /* Reading was already started in connect_cb; nothing else to do here. */
+}
+
+/* Accumulate the CONNECT response until the end of headers, require a 2xx,
+ * then continue with TLS through the tunnel. Any bytes after the header end
+ * belong to the TLS record stream (ServerHello may share the segment) and are
+ * replayed into tls_read_buf exactly like tls_handshake_read_cb does. */
+static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
+                                             const uv_buf_t *buf)
+{
+    uv_io_http_op_t *op = (uv_io_http_op_t *)stream->data;
+    size_t search_from, i;
+    char *new_buf;
+
+    if (op->aborted) {
+        if (buf && buf->base) free(buf->base);
+        return;
+    }
+    if (nread < 0) {
+        free(buf->base);
+        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "proxy CONNECT failed");
+        return;
+    }
+    if (nread == 0) {
+        free(buf->base);
+        return;
+    }
+
+    new_buf = (char *)realloc(op->proxy_buf, op->proxy_buf_len + (size_t)nread);
+    if (!new_buf) {
+        free(buf->base);
+        uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
+        return;
+    }
+    op->proxy_buf = new_buf;
+    memcpy(op->proxy_buf + op->proxy_buf_len, buf->base, (size_t)nread);
+    op->proxy_buf_len += (size_t)nread;
+    free(buf->base);
+
+    /* Look for \r\n\r\n */
+    search_from = op->proxy_buf_len > (size_t)nread
+                      ? op->proxy_buf_len - (size_t)nread - 3 : 0;
+    for (i = search_from; i + 3 < op->proxy_buf_len; i++) {
+        if (op->proxy_buf[i] == '\r' && op->proxy_buf[i + 1] == '\n' &&
+            op->proxy_buf[i + 2] == '\r' && op->proxy_buf[i + 3] == '\n') {
+            break;
+        }
+    }
+    if (i + 3 >= op->proxy_buf_len) return;  /* headers not complete yet */
+
+    /* 2xx required ("HTTP/1.x 2xx ...") */
+    if (op->proxy_buf_len < 12 ||
+        strncmp(op->proxy_buf, "HTTP/", 5) != 0 ||
+        (op->proxy_buf[9] != '2')) {
+        uv_read_stop((uv_stream_t *)&op->tcp);
+        uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+                                "proxy CONNECT refused or malformed response");
+        return;
+    }
+
+    /* Tunnel established. Requeue leftover TLS bytes, then start TLS. */
+    uv_read_stop((uv_stream_t *)&op->tcp);
+    op->connect_state = 0;
+    {
+        size_t hdr_end = i + 4;
+        size_t leftover = op->proxy_buf_len - hdr_end;
+        if (leftover > 0) {
+#if QWRT_WITH_TLS
+            op->tls_read_buf = (unsigned char *)malloc(leftover);
+            if (!op->tls_read_buf) {
+                uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
+                return;
+            }
+            memcpy(op->tls_read_buf, op->proxy_buf + hdr_end, leftover);
+            op->tls_read_buf_len = leftover;
+            op->tls_read_consumed = 0;
+#endif
+        }
+    }
+    free(op->proxy_buf);
+    op->proxy_buf = NULL;
+    op->proxy_buf_len = 0;
+
+    uv_io_http_start_tls(op);
+}
+#endif /* QWRT_WITH_TLS */
 
 /* ================================================================
  * HTTP response data processor — appends data to response buffer
@@ -2747,6 +3095,14 @@ void uv_io_http_request(qwrt_t *rt,
         /* parts fields are now owned by op — do NOT call uv_io_url_free */
     }
 
+    /* Outbound proxy from env (must precede DNS: it decides connect target).
+     * A malformed proxy URL fails the request — failing closed. */
+    if (uv_io_http_apply_proxy(op) < 0) {
+        uv_io_http_finalize(op);
+        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid proxy URL", 18);
+        return;
+    }
+
     /* If TLS is requested, check compile-time support */
     if (op->use_tls) {
 #if QWRT_WITH_TLS
@@ -2789,14 +3145,14 @@ void uv_io_http_request(qwrt_t *rt,
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
-    /* Build port string for getaddrinfo */
+    /* Build port string for getaddrinfo. Via proxy, resolve the proxy. */
     char port_str[8];
-    snprintf(port_str, sizeof(port_str), "%d", op->port);
+    snprintf(port_str, sizeof(port_str), "%d", uv_io_http_connect_port(op));
 
     op->addr_req.data = op;
     int rc = uv_getaddrinfo(&rt->loop, &op->addr_req,
                             uv_io_http_getaddrinfo_cb,
-                            op->host, port_str, &hints);
+                            uv_io_http_connect_host(op), port_str, &hints);
     if (rc < 0) {
         uv_io_http_finalize(op);
         cb(cb_data, QWRT_ERR_NETWORK, "DNS resolution request failed", 29);
@@ -2954,6 +3310,16 @@ void uv_io_http_request_stream(qwrt_t *rt,
         /* parts fields are now owned by op — do NOT call uv_io_url_free */
     }
 
+    /* Outbound proxy from env (must precede DNS: it decides connect target).
+     * A malformed proxy URL fails the request — failing closed. */
+    if (uv_io_http_apply_proxy(op) < 0) {
+        uv_io_http_finalize(op);
+        if (ops->on_end) {
+            ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
+        }
+        return;
+    }
+
     /* If TLS is requested, check compile-time support */
     if (op->use_tls) {
 #if QWRT_WITH_TLS
@@ -2988,14 +3354,14 @@ void uv_io_http_request_stream(qwrt_t *rt,
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
-    /* Build port string for getaddrinfo */
+    /* Build port string for getaddrinfo. Via proxy, resolve the proxy. */
     char port_str[8];
-    snprintf(port_str, sizeof(port_str), "%d", op->port);
+    snprintf(port_str, sizeof(port_str), "%d", uv_io_http_connect_port(op));
 
     op->addr_req.data = op;
     int rc = uv_getaddrinfo(&rt->loop, &op->addr_req,
                             uv_io_http_stream_getaddrinfo_cb,
-                            op->host, port_str, &hints);
+                            uv_io_http_connect_host(op), port_str, &hints);
     if (rc < 0) {
         uv_io_http_finalize(op);
         if (ops->on_end) {
