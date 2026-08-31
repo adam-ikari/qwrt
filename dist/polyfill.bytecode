@@ -1,4 +1,4 @@
-;aÏpalsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel*setupBroadcastChannel"setupCacheStorage setupEventSourcesetupWebSocketsetupHttpServer$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
+óùøfÏpalsetupConsole setupPerformancesetupTimers setupEventTargetsetupAbortsetupURLsetupEncodingsetupFetchsetupFSsetupStorage"setupTextEncodingsetupCrypto setupErrorEvents&setupMessageChannel*setupBroadcastChannel"setupCacheStorage setupEventSourcesetupWebSocketsetupHttpServer$setupHostMessagingsetupStreams*setupBlobFileFormDatasetupURLPattern2setupNavigatorReportError"setupCryptoSubtle&installCryptoSubtle(setupStructuredClonesetupWorkersetupContextpal2timersLEVELSformatArgsconsole2argsargestringifyN/home/gem/project/qwrt/dist/polyfill.jsmap loginfowarn
 debugTrace: objoptions
 depth
 labeltimeNow
@@ -14794,8 +14794,8 @@ N& & & & öclass CryptoKey {
                 reject(new DOMException("Invalid JWK key data", "DataError"));
                 return;
               }
-              if (keyData.k) {
-                var d = base64UrlDecode(keyData.k);
+              if (keyData.d) {
+                var d = base64UrlDecode(keyData.d);
                 var dd = new Uint8Array(coordLen);
                 dd.set(d.length > coordLen ? d.subarray(0, coordLen) : d, coordLen - d.length);
                 resolve(new CryptoKey("private", { name: algoName, namedCurve: curve }, extractable, keyUsages, dd));
@@ -15360,7 +15360,7 @@ N& & & & öclass CryptoKey {
       }B  ¾ @Ü @Ì @ Î @Ş @°  º¸ C
  
   ¥”  –  à   æ  â  ä  ğ  Ì	  æ  ‚  è  ê 	 Ì¾ ° ÜºÎŞ¸ã–L   ­ğãòã@:   Óö  ­ñ	Ë÷  ­h5  ã–M   ­ğãğ	ã@ø  òÕ•ğØ8Ú   ù  ! õ)Íú  ­ğÂ òÍû  ­ğÂ0òÂBÒäx   ­ğSåæõÉïÎ¼™»œ®ñÇºF¾®ğØ8İ   ü  ı  ! õ)×d ,   ËK:   ÍKø  ] ] Ç! õ)äş  ­hn  æ•ñ
-æ@ÿ  Í®ğØ8İ      ı  ! õ)æ@u  ğb] æ@u  õÈ8±   Î! ÉAF   ÇïÎ§ğÇAy  ºÎ$ òÇÎÇï$ ×d *   ËK:   ÍKø  ] ] Ç! õ)æ@A  h¾   æ@ô  h³   ] æ@A  õÈ] æ@ô  õÈ8±   Î¼™»œ! É	º¯ñq¾qHÇ	AF   ÇïÎ§ğÇAy  ºÎ$ òÇ»ÎœÇï$ Ç	AF   ÇïÎ§ğÇAy  ºÎ$ òÇ»¼Î™œÇï$ ×d ,   ËK:   ÍKø  ] ] Ç	! õ)Ø8İ     ı  ! õ)Ø8İ     äœõ  ! õ)äx   ­ğWæ8­   ©ğ8±   æ! Ğó 8­   A   æ$ ğ8±   æ@Ó  æ@‰  æ@D  ! Ğò`Ø8Ú     ! õ)äş  ­ğ.æ•ñ	æ@u  •ğØ8Ú      ! õ)] æ@u  õĞòØ8İ     äœõ  ! õ)×d   ËK:   ] ] Ì! õ)²+›&c%90?=ZC2SE09 _n¹v&;  05%94L+‰ <? 0%,OX %94>+“%94>+›´n9TFO0+{"!!šZw#U.6-9TAmáfunction(resolve, reject) {
+æ@ÿ  Í®ğØ8İ      ı  ! õ)æ@f  ğb] æ@f  õÈ8±   Î! ÉAF   ÇïÎ§ğÇAy  ºÎ$ òÇÎÇï$ ×d *   ËK:   ÍKø  ] ] Ç! õ)æ@A  h¾   æ@ô  h³   ] æ@A  õÈ] æ@ô  õÈ8±   Î¼™»œ! É	º¯ñq¾qHÇ	AF   ÇïÎ§ğÇAy  ºÎ$ òÇ»ÎœÇï$ Ç	AF   ÇïÎ§ğÇAy  ºÎ$ òÇ»¼Î™œÇï$ ×d ,   ËK:   ÍKø  ] ] Ç	! õ)Ø8İ     ı  ! õ)Ø8İ     äœõ  ! õ)äx   ­ğWæ8­   ©ğ8±   æ! Ğó 8­   A   æ$ ğ8±   æ@Ó  æ@‰  æ@D  ! Ğò`Ø8Ú     ! õ)äş  ­ğ.æ•ñ	æ@u  •ğØ8Ú      ! õ)] æ@u  õĞòØ8İ     äœõ  ! õ)×d   ËK:   ] ] Ì! õ)²+›&c%90?=ZC2SE09 _n¹v&;  05%94L+‰ <? 0%,OX %94>+“%94>+›´n9TFO0+{"!!šZw#U.6-9TAmáfunction(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var data;
           if (algoName === "ECDSA" || algoName === "ECDH") {
@@ -15384,8 +15384,8 @@ N& & & & öclass CryptoKey {
                 reject(new DOMException("Invalid JWK key data", "DataError"));
                 return;
               }
-              if (keyData.k) {
-                var d = base64UrlDecode(keyData.k);
+              if (keyData.d) {
+                var d = base64UrlDecode(keyData.d);
                 var dd = new Uint8Array(coordLen);
                 dd.set(d.length > coordLen ? d.subarray(0, coordLen) : d, coordLen - d.length);
                 resolve(new CryptoKey("private", { name: algoName, namedCurve: curve }, extractable, keyUsages, dd));
@@ -15458,8 +15458,8 @@ N& & & & öclass CryptoKey {
                 reject(new DOMException("Invalid JWK key data", "DataError"));
                 return;
               }
-              if (keyData.k) {
-                var d = base64UrlDecode(keyData.k);
+              if (keyData.d) {
+                var d = base64UrlDecode(keyData.d);
                 var dd = new Uint8Array(coordLen);
                 dd.set(d.length > coordLen ? d.subarray(0, coordLen) : d, coordLen - d.length);
                 resolve(new CryptoKey("private", { name: algoName, namedCurve: curve }, extractable, keyUsages, dd));
@@ -16609,8 +16609,8 @@ S   ÅSb   ÅS   ÅS*   ÅSc   ÅSd   ÅSe   ÅSf   ÅSg   ÅSh   Å
                 reject(new DOMException("Invalid JWK key data", "DataError"));
                 return;
               }
-              if (keyData.k) {
-                var d = base64UrlDecode(keyData.k);
+              if (keyData.d) {
+                var d = base64UrlDecode(keyData.d);
                 var dd = new Uint8Array(coordLen);
                 dd.set(d.length > coordLen ? d.subarray(0, coordLen) : d, coordLen - d.length);
                 resolve(new CryptoKey("private", { name: algoName, namedCurve: curve }, extractable, keyUsages, dd));
@@ -24772,8 +24772,8 @@ DC 8   c –function setupWorker(pal2) {
                 reject(new DOMException("Invalid JWK key data", "DataError"));
                 return;
               }
-              if (keyData.k) {
-                var d = base64UrlDecode(keyData.k);
+              if (keyData.d) {
+                var d = base64UrlDecode(keyData.d);
                 var dd = new Uint8Array(coordLen);
                 dd.set(d.length > coordLen ? d.subarray(0, coordLen) : d, coordLen - d.length);
                 resolve(new CryptoKey("private", { name: algoName, namedCurve: curve }, extractable, keyUsages, dd));

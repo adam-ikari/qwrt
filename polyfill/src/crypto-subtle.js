@@ -151,9 +151,9 @@ function installCryptoSubtle(pal) {
               reject(new DOMException('Invalid JWK key data', 'DataError'));
               return;
             }
-            if (keyData.k) {
+            if (keyData.d) {
               /* private key: d, zero-padded to coordLen */
-              var d = base64UrlDecode(keyData.k);
+              var d = base64UrlDecode(keyData.d);
               var dd = new Uint8Array(coordLen);
               dd.set(d.length > coordLen ? d.subarray(0, coordLen) : d, coordLen - d.length);
               resolve(new CryptoKey('private', { name: algoName, namedCurve: curve }, extractable, keyUsages, dd));

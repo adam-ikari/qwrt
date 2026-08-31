@@ -349,3 +349,249 @@ TEST_F(CryptoSubtleTest, JwkImportExportRoundTrip) {
         "});\n'go'",
         "746573742d6b6579", &v));
 }
+
+// ================================================================
+// HKDF — importKey(raw) + deriveBits / deriveKey
+// ================================================================
+
+// JS 片段：把 ArrayBuffer/Uint8Array 转 hex 字符串（供本文件后续测试复用）
+static const char *kJsHex = "function _hx(b){var s='';var u=new Uint8Array(b);"
+    "for(var i=0;i<u.length;i++)s+=u[i].toString(16).padStart(2,'0');return s;}";
+
+// RFC 5869 Test Case 1 已知向量 (SHA-256, L=336 bits=42 bytes)
+// OKM = 3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865
+TEST_F(CryptoSubtleTest, HkdfDeriveBitsRfc5869) {
+    std::string v;
+    std::string code = std::string(kJsHex) + R"(
+var _d = null;
+var ikm = new Uint8Array(22); ikm.fill(0x0b);
+var salt = new Uint8Array([0,1,2,3,4,5,6,7,8,9,10,11,12]);
+var info = new Uint8Array([0xf0,0xf1,0xf2,0xf3,0xf4,0xf5,0xf6,0xf7,0xf8,0xf9]);
+crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']).then(function(k){
+  return crypto.subtle.deriveBits({name:'HKDF', hash:'SHA-256', salt:salt, info:info}, k, 336)
+    .then(function(bits){ _d = JSON.stringify({len: bits.byteLength, hex: _hx(bits)}); });
+});
+'go'
+)";
+    ASSERT_TRUE(poll_until(h, "_d", code.c_str(),
+        "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865", &v));
+    EXPECT_NE(std::string::npos, v.find("\"len\":42")) << "got: " << v;
+}
+
+// deriveKey 派生 AES-GCM 密钥并完成加密往返（验证 deriveKey 路径与派生密钥可用）
+TEST_F(CryptoSubtleTest, HkdfDeriveKeyRoundTrip) {
+    std::string v;
+    std::string code = std::string(kJsHex) + R"(
+var _k = null;
+var ikm = new TextEncoder().encode('hkdf test ikm material');
+var salt = new Uint8Array([1,2,3,4,5,6,7,8]);
+var info = new Uint8Array([9,10,11,12]);
+crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveKey']).then(function(bk){
+  return crypto.subtle.deriveKey({name:'HKDF', hash:'SHA-256', salt:salt, info:info}, bk,
+    {name:'AES-GCM', length:128}, false, ['encrypt','decrypt']).then(function(ak){
+      var msg = new TextEncoder().encode('hkdf derived key roundtrip');
+      var iv = new Uint8Array(12);
+      return crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, ak, msg).then(function(ct){
+        return crypto.subtle.decrypt({name:'AES-GCM', iv:iv}, ak, ct).then(function(pt){
+          _k = JSON.stringify({txt: new TextDecoder().decode(pt), type: ak.type, usages: ak.usages});
+        });
+      });
+  });
+});
+'go'
+)";
+    ASSERT_TRUE(poll_until(h, "_k", code.c_str(),
+        "\"txt\":\"hkdf derived key roundtrip\"", &v));
+    EXPECT_NE(std::string::npos, v.find("\"type\":\"secret\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"usages\":[\"encrypt\",\"decrypt\"]")) << "got: " << v;
+}
+
+// 同一 IKM/salt/info 下 SHA-1/SHA-384/SHA-512 均可用，输出互不相同且非全零
+TEST_F(CryptoSubtleTest, HkdfShaVariants) {
+    std::string v;
+    std::string code = std::string(kJsHex) + R"(
+var _h = null;
+function deriveH(hash){
+  var ikm = new TextEncoder().encode('hkdf multi-hash ikm');
+  var salt = new Uint8Array([1,2,3,4,5,6,7,8]);
+  var info = new Uint8Array([9,10,11,12]);
+  return crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']).then(function(k){
+    return crypto.subtle.deriveBits({name:'HKDF', hash:hash, salt:salt, info:info}, k, 256)
+      .then(function(bits){ return _hx(bits); });
+  });
+}
+Promise.all([deriveH('SHA-1'), deriveH('SHA-384'), deriveH('SHA-512')]).then(function(hs){
+  var z = '0000000000000000000000000000000000000000000000000000000000000000';
+  _h = JSON.stringify({len: 32,
+    distinct: hs[0] !== hs[1] && hs[1] !== hs[2] && hs[0] !== hs[2],
+    nonzero: hs[0] !== z && hs[1] !== z && hs[2] !== z});
+});
+'go'
+)";
+    ASSERT_TRUE(poll_until(h, "_h", code.c_str(), "\"distinct\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"nonzero\":true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"len\":32")) << "got: " << v;
+}
+
+// ================================================================
+// AES-KW (RFC 3394) — wrapKey/unwrapKey roundtrip（wrap 后 unwrap 还原字节一致）
+// ================================================================
+
+TEST_F(CryptoSubtleTest, AesKwWrapUnwrapRoundTrip) {
+    std::string v;
+    std::string code = std::string(kJsHex) + R"(
+var _w = null;
+var _kek = null; var _orig = '';
+crypto.subtle.generateKey({name:'AES-KW', length:256}, false, ['wrapKey','unwrapKey']).then(function(kek){
+  _kek = kek;
+  return crypto.subtle.generateKey({name:'AES-GCM', length:128}, true, ['encrypt','decrypt']);
+}).then(function(target){
+  return crypto.subtle.exportKey('raw', target).then(function(raw){
+    _orig = _hx(raw);
+    return crypto.subtle.wrapKey('raw', target, _kek, {name:'AES-KW'}).then(function(wrapped){
+      return crypto.subtle.unwrapKey('raw', wrapped, _kek, {name:'AES-KW'},
+        {name:'AES-GCM', length:128}, true, ['encrypt','decrypt']).then(function(unwrapped){
+          return crypto.subtle.exportKey('raw', unwrapped).then(function(raw2){
+            _w = JSON.stringify({wrappedLen: wrapped.byteLength, orig: _orig, hex: _hx(raw2),
+              match: _orig === _hx(raw2), type: unwrapped.type});
+          });
+      });
+    });
+  });
+});
+'go'
+)";
+    ASSERT_TRUE(poll_until(h, "_w", code.c_str(), "\"type\":\"secret\"", &v));
+    EXPECT_NE(std::string::npos, v.find("\"match\":true")) << "got: " << v;
+    /* RFC 3394: wrapped = 明文(16B) + 8B 完整性块 => 24B */
+    EXPECT_NE(std::string::npos, v.find("\"wrappedLen\":24")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"orig\"")) << "got: " << v;
+}
+
+// ================================================================
+// ECDSA — generateKey / sign / verify 往返 + import/exportKey(jwk)
+// ================================================================
+
+TEST_F(CryptoSubtleTest, EcdsaP256SignVerifyRoundTrip) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_e",
+        "var _e = null;\n"
+        "crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, true, ['sign','verify'])\n"
+        "  .then(function(kp){\n"
+        "    var msg = new TextEncoder().encode('ecdsa p-256 message');\n"
+        "    return crypto.subtle.sign({name:'ECDSA', hash:'SHA-256'}, kp.privateKey, msg).then(function(sig){\n"
+        "      return crypto.subtle.verify({name:'ECDSA', hash:'SHA-256'}, kp.publicKey, sig, msg).then(function(ok){\n"
+        "        _e = JSON.stringify({sigLen: sig.byteLength, ok: ok,\n"
+        "          pubType: kp.publicKey.type, privType: kp.privateKey.type,\n"
+        "          curve: kp.publicKey.algorithm.namedCurve, usages: kp.privateKey.usages});\n"
+        "      });\n"
+        "    });\n"
+        "  });\n'go'",
+        "\"ok\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"sigLen\":64")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"pubType\":\"public\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"privType\":\"private\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"curve\":\"P-256\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"usages\":[\"sign\"]")) << "got: " << v;
+}
+
+// 负例：篡改签名或消息后 verify 必须返回 false
+TEST_F(CryptoSubtleTest, EcdsaP256VerifyRejectsTampered) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_e",
+        "var _e = null;\n"
+        "crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, false, ['sign','verify'])\n"
+        "  .then(function(kp){\n"
+        "    var msg = new TextEncoder().encode('ecdsa tamper test');\n"
+        "    return crypto.subtle.sign({name:'ECDSA', hash:'SHA-256'}, kp.privateKey, msg).then(function(sig){\n"
+        "      var s2 = new Uint8Array(sig); s2[0] ^= 0x01;\n"
+        "      return crypto.subtle.verify({name:'ECDSA', hash:'SHA-256'}, kp.publicKey, s2, msg).then(function(badSig){\n"
+        "        var t2 = new Uint8Array(msg); t2[0] ^= 0xff;\n"
+        "        return crypto.subtle.verify({name:'ECDSA', hash:'SHA-256'}, kp.publicKey, sig, t2).then(function(badMsg){\n"
+        "          _e = JSON.stringify({badSig: badSig, badMsg: badMsg});\n"
+        "        });\n"
+        "      });\n"
+        "    });\n"
+        "  });\n'go'",
+        "\"badSig\":false", &v));
+    EXPECT_NE(std::string::npos, v.find("\"badMsg\":false")) << "got: " << v;
+}
+
+// exportKey('jwk', 私钥) -> importKey('jwk') 后仍能签出被原公钥验证的签名
+TEST_F(CryptoSubtleTest, EcdsaP256ImportExportJwk) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_e",
+        "var _e = null;\n"
+        "crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, true, ['sign','verify'])\n"
+        "  .then(function(kp){\n"
+        "    var msg = new TextEncoder().encode('ecdsa jwk roundtrip');\n"
+        "    return crypto.subtle.exportKey('jwk', kp.privateKey).then(function(jwk){\n"
+        "      return crypto.subtle.importKey('jwk', jwk, {name:'ECDSA', namedCurve:'P-256'}, false, ['sign'])\n"
+        "        .then(function(imp){\n"
+        "          return crypto.subtle.sign({name:'ECDSA', hash:'SHA-256'}, imp, msg).then(function(sig){\n"
+        "            return crypto.subtle.verify({name:'ECDSA', hash:'SHA-256'}, kp.publicKey, sig, msg).then(function(ok){\n"
+        "              return crypto.subtle.exportKey('jwk', kp.publicKey).then(function(pubjwk){\n"
+        "                _e = JSON.stringify({kty: jwk.kty, crv: jwk.crv, hasD: !!jwk.d,\n"
+        "                  hasX: !!jwk.x, hasY: !!jwk.y, ok: ok, pubKty: pubjwk.kty, pubX: !!pubjwk.x});\n"
+        "              });\n"
+        "            });\n"
+        "          });\n"
+        "        });\n"
+        "    });\n"
+        "  });\n'go'",
+        "\"ok\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"kty\":\"EC\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"crv\":\"P-256\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"hasD\":true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"hasX\":true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"hasY\":true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"pubKty\":\"EC\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"pubX\":true")) << "got: " << v;
+}
+
+// 多曲线覆盖：P-384 sign/verify（r||s = 96B）
+TEST_F(CryptoSubtleTest, EcdsaP384SignVerify) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_e",
+        "var _e = null;\n"
+        "crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-384'}, false, ['sign','verify'])\n"
+        "  .then(function(kp){\n"
+        "    var msg = new TextEncoder().encode('ecdsa p-384 message');\n"
+        "    return crypto.subtle.sign({name:'ECDSA', hash:'SHA-384'}, kp.privateKey, msg).then(function(sig){\n"
+        "      return crypto.subtle.verify({name:'ECDSA', hash:'SHA-384'}, kp.publicKey, sig, msg).then(function(ok){\n"
+        "        _e = JSON.stringify({sigLen: sig.byteLength, ok: ok, curve: kp.publicKey.algorithm.namedCurve});\n"
+        "      });\n"
+        "    });\n"
+        "  });\n'go'",
+        "\"ok\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"sigLen\":96")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"curve\":\"P-384\"")) << "got: " << v;
+}
+
+// ================================================================
+// ECDH — 双方 generateKey 后 deriveBits 共享密钥一致 (P-256, 32B)
+// ================================================================
+
+TEST_F(CryptoSubtleTest, EcdhP256SharedSecret) {
+    std::string v;
+    std::string code = std::string(kJsHex) + R"(
+var _e = null;
+crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, false, ['deriveBits']).then(function(a){
+  return crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, false, ['deriveBits']).then(function(b){
+    return crypto.subtle.deriveBits({name:'ECDH', public: b.publicKey}, a.privateKey, 256).then(function(sa){
+      return crypto.subtle.deriveBits({name:'ECDH', public: a.publicKey}, b.privateKey, 256).then(function(sb){
+        var ua = new Uint8Array(sa); var ub = new Uint8Array(sb);
+        var match = ua.length === ub.length;
+        var nonzero = false;
+        for (var i = 0; i < ua.length; i++) { if (ua[i] !== ub[i]) match = false; if (ua[i] !== 0) nonzero = true; }
+        _e = JSON.stringify({len: ua.length, match: match, nonzero: nonzero, hex: _hx(sa)});
+      });
+    });
+  });
+});
+'go'
+)";
+    ASSERT_TRUE(poll_until(h, "_e", code.c_str(), "\"match\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"len\":32")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"nonzero\":true")) << "got: " << v;
+}
