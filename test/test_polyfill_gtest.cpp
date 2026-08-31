@@ -362,9 +362,12 @@ TEST_F(PolyfillTest, ByobRequestRespond) {
 // Crypto / Performance constructor exposure (ECMA-429 WEBCRYPTO / HR-TIME)
 // ================================================================
 
+#if QWRT_WITH_CRYPTO_EXT
 TEST_F(PolyfillTest, CryptoGlobals) {
     std::string v;
-    /* Crypto / SubtleCrypto 构造函数暴露为 globalThis，且实例关系正确 */
+    /* Crypto / SubtleCrypto 构造函数暴露为 globalThis，且实例关系正确。
+     * SubtleCrypto 仅在原生 crypto 扩展存在时安装（ext_crypto 的 init 钩子调
+     * pal.__installCryptoSubtle__），故该测试随扩展门控。 */
     ASSERT_TRUE(host_value(h,
         R"(JSON.stringify([typeof Crypto, typeof SubtleCrypto,
           globalThis.crypto instanceof Crypto,
@@ -379,6 +382,7 @@ TEST_F(PolyfillTest, CryptoGlobals) {
         JSON.stringify([r === u8, u8.length, u8[0] !== undefined]))", &v));
     EXPECT_NE(std::string::npos, v.find("true")) << "got: " << v;
 }
+#endif
 
 TEST_F(PolyfillTest, PerformanceGlobals) {
     std::string v;

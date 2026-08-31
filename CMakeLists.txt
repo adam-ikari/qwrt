@@ -621,21 +621,6 @@ if(QWRT_BUILD_DEBUGGER)
     target_compile_definitions(qwrt_full PUBLIC QWRT_DEBUG_SUPPORT)
 endif()
 
-# ============================================================================
-# CLI — standalone WinterTC runtime (dogfoods the qwrt C API)
-# ============================================================================
-option(QWRT_BUILD_CLI "Build the qwrt CLI" ON)
-if(QWRT_BUILD_CLI)
-    if(QWRT_BUILD_TESTS)
-        # mock_libuv has no real event loop: the CLI links against it and aborts
-        # at runtime. Build with QWRT_BUILD_TESTS=OFF (e.g. a build_cli dir) for
-        # a usable standalone 'qwrt' executable.
-        message(WARNING "QWRT_BUILD_TESTS=ON builds qwrt_cli against mock_libuv, which has no real event loop; the resulting 'qwrt' executable will abort at runtime. Use a QWRT_BUILD_TESTS=OFF build for a usable CLI.")
-    endif()
-    add_executable(qwrt_cli src/cli.c)
-    set_target_properties(qwrt_cli PROPERTIES OUTPUT_NAME qwrt)
-    target_link_libraries(qwrt_cli PRIVATE qwrt_full)
-endif()
 
 # ============================================================================
 # Subdirectories
@@ -648,6 +633,28 @@ endif()
 
 if(QWRT_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+# ============================================================================
+# CLI — standalone WinterTC runtime (dogfoods the qwrt C API)
+# ============================================================================
+option(QWRT_BUILD_CLI "Build the qwrt CLI" ON)
+if(QWRT_BUILD_CLI)
+    add_executable(qwrt_cli src/cli.c)
+    set_target_properties(qwrt_cli PROPERTIES OUTPUT_NAME qwrt)
+    if(QWRT_BUILD_TESTS)
+        # Test builds compile the qwrt core against mock_libuv.h
+        # (QWRT_USE_MOCK_LIBUV), so the CLI must link mock_libuv too. Linking
+        # qwrt_full (real uv_a) makes the real-libuv functions operate on
+        # mock-sized structs and overwrite the queue fields — the old
+        # "free(): invalid pointer" abort on `qwrt -e 'console.log(1+1)'`.
+        # Mock libuv's loop drives timers/asyncs/threads, so basic scripts
+        # evaluate correctly; real networking needs a QWRT_BUILD_TESTS=OFF
+        # build (e.g. build_cli).
+        target_link_libraries(qwrt_cli PRIVATE qwrt mock_libuv)
+    else()
+        target_link_libraries(qwrt_cli PRIVATE qwrt_full)
+    endif()
 endif()
 
 # ============================================================================

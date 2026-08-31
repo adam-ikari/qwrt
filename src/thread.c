@@ -73,6 +73,13 @@ static void qwrt_wake_cb(uv_async_t *a)
     while ((m = qwrt_msg_pop(rt)) != NULL) {
         qwrt_dispatch_message(rt, m);   /* bridge.c 实现；JSRuntime 已就绪 */
         /* 节点不 free：pop 内部已释放旧 head；m 成为下次 pop 的 head */
+
+        /* 每个消息派发后立即排空微任务：宿主常在消息回调（dispatch 内联的
+         * message_cb）里立即回发下一条消息，若攒到 uv_run 返回后再统一冲刷，
+         * 下一条消息的 JS 会在本消息 promise 副作用落定之前被派发（读到旧
+         * 状态）。逐条冲刷保持"每条消息 = 一个任务，任务后微任务先跑完"的
+         * 事件循环语义。 */
+        qwrt_flush_microtasks(rt);
     }
 }
 
@@ -112,7 +119,6 @@ void qwrt_thread_main(void *arg)
         if (loop_inited) qwrt_thread_teardown(rt);
         return;
     }
-
     /* ==== 主循环 ==== */
     while (!__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) {
         uv_run(&rt->loop, UV_RUN_ONCE);  /* 阻塞等事件；wake_cb 期间派发消息 */

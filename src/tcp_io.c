@@ -916,9 +916,9 @@ static JSValue js_pal_tcp_reload_tls(JSContext *ctx, JSValueConst this_val,
     JS_ToInt64(ctx, &ptr, pv);
     JS_FreeValue(ctx, pv);
     qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)(uintptr_t)ptr;
+#if QWRT_WITH_TLS
     if (!l || l->closed || !l->tls_ctx) return JS_FALSE;
 
-#if QWRT_WITH_TLS
     qwrt_tls_server_ctx_t *new_ctx = tls_server_ctx_new(ctx, argv[1]);
     if (!new_ctx) return JS_EXCEPTION;
 
@@ -929,6 +929,7 @@ static JSValue js_pal_tcp_reload_tls(JSContext *ctx, JSValueConst this_val,
     tls_server_ctx_unref(old);
     return JS_TRUE;
 #else
+    (void)l;
     return JS_FALSE;
 #endif
 }

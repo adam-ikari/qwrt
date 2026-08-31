@@ -18,6 +18,9 @@ All notable changes to Qwrt.js.
 - A2 多上下文/Worker 健壮性（gtest + 压力）：软挂起边界 4 例（destroy 后 resume 同槽字节一致、坏 state 路径报错隔离、不可克隆属性 skipped 语义、suspend→resume 循环 10 轮槽位稳定复用）；Worker 错误路径 6 例（transfer 重复/不可转移/detached buffer 抛 DataCloneError 且无副作用、非法 URL 构造失败不占槽位、terminate 后 postMessage 静默、父侧 handler 抛错 worker 存活、timer 回调异步抛错进 self.onerror 且 worker 存活）；压力 2 例（4 worker×20 消息洪泛内容校验、30 轮 ArrayBuffer transfer 往返链）
 - HTTPServer 示例 C3：静态文件 gzip 结果缓存进 LRU entry（`entry.gz`），重复请求不再每请求重跑 CompressionStream/miniz——wrk 16KB gzip 响应吞吐与未压缩持平（压缩开销从每请求摊销为首次）
 ### Fixed
+- CLI：test 构建（`QWRT_BUILD_TESTS=ON`，mock libuv）下 qwrt_cli 链接 `qwrt_full`（真实 libuv）→ 核心按 mock 布局、libuv 按真实布局操作同一结构体，`uv_async_init` 越过 mock 大小的 wake 写坏紧随其后的队列字段，任何脚本（连 `console.log(1+1)`）都 `free(): invalid pointer`。修复：test 构建下 CLI 改链 `qwrt mock_libuv`（结构体一致，mock 的 poll 循环驱动 timers/asyncs/threads，基础脚本可正常求值；真实网络需 `QWRT_BUILD_TESTS=OFF`）；并把 CLI 目标定义移到 `add_subdirectory(test)` 之后。
+- 编译：`QWRT_WITH_TLS=OFF` 时 `tcp_io.c` 的 `js_pal_tcp_reload_tls` 在 `#if QWRT_WITH_TLS` 之外引用 `l->tls_ctx`（该字段仅在 TLS=ON 时存在）→ 生产 minimal 构建（`QWRT_BUILD_TESTS=OFF` + 全扩展 OFF）编译失败。修复：把 `!l->tls_ctx` 检查移入 `#if QWRT_WITH_TLS` 分支。
+- 运行时事件循环：`qwrt_wake_cb` 一次 `uv_run` 派发多条入站消息，但微任务冲刷在 `uv_run` 返回后才统一进行——宿主在消息回调（dispatch 内联的 message_cb）里立即回发下一条消息时，下一条消息的 JS 会在本条消息的 promise 副作用落定之前被派发（读到旧状态）。ASan 构建下 `test_compress_gtest` 因此稳定失败/卡死（DeflateRaw 等 roundtrip 的 `_rok` 永不置位、部分测试直接挂起、GzipMagicBytes 即时读 `_gch` 落空）。修复：每条消息派发后立即 `qwrt_flush_microtasks`，保持"每条消息 = 一个任务，任务后微任务先跑完"的事件循环语义。ASan 该套件 5×18/18 全绿。
 - HTTPServer：`sendResponse` 对象分支末尾缺 `return`，每个对象（Response）响应后在原连接上额外发一个 `500`——pipelining 客户端收到 `200+500` 双响应，wrk 全部计入 Non-2xx；补 return（合法响应只发一次）
 - CLI/TCP 服务：写已关闭的对端连接触发 `SIGPIPE` 直接杀进程（wrk 压测客户端中断连即崩，exit 141）——`main()` 入口 `signal(SIGPIPE, SIG_IGN)`
 - timers：setTimeout/setInterval 回调抛错只 `console.error`，不进错误事件流（worker 内 `self.onerror`/全局 `error` 监听收不到异步异常）——catch 后调 `reportError(err)`（存在性守卫，navigator.js 晚于 timers 挂载）再打日志，runtime 不中断
