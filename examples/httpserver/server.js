@@ -18,7 +18,7 @@
  *   CompressionStream('gzip')         — 压缩
  */
 
-var PORT = 8080;
+var PORT = 18080;
 var STATIC_ROOT = 'examples/httpserver/public';   // 静态目录（相对进程 cwd）
 var CACHE_MAX = 128;      // LRU 缓存条目上限
 var GZIP_MIN = 1024;      // 小于该字节数的响应不压缩
@@ -52,7 +52,7 @@ var MIME = {
   '.bin':  'application/octet-stream',
 };
 
-/* ── 内存 LRU 缓存：path -> {data: Uint8Array, type, etag} ── */
+/* ── 内存 LRU 缓存：path -> {data, gz: Uint8Array|null, type, etag} ── */
 var cache = new Map();
 
 function cacheGet(path) {
@@ -179,16 +179,22 @@ function serveStatic(pathname, req) {
       return new Response(null, { status: 304, headers: { 'ETag': entry.etag } });
     }
 
-    /* 压缩：客户端接受 gzip + 可压缩类型 + 足够大 */
+    /* 压缩：客户端接受 gzip + 可压缩类型 + 足够大；结果缓存进 entry.gz,
+     * 重复请求不再重复压缩（C3 压缩缓存） */
     var body = entry.data;
     var acceptEnc = (req.headers['accept-encoding'] || '').toLowerCase();
     if (acceptEnc.indexOf('gzip') !== -1 &&
         body.length >= GZIP_MIN &&
         isCompressible(entry.type)) {
-      return gzipBytes(body).then(function(gz) {
+      var done = function(gz) {
         hdrs['Content-Encoding'] = 'gzip';
         hdrs['Vary'] = 'Accept-Encoding';
         return new Response(gz, { headers: hdrs });
+      };
+      if (entry.gz) return done(entry.gz);
+      return gzipBytes(body).then(function(gz) {
+        entry.gz = gz;
+        return done(gz);
       });
     }
 

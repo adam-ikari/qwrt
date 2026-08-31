@@ -636,8 +636,8 @@ export function setupHttpServer(pal) {
         hdrs['Content-Length'] = '' + b2.length;
         if (!hdrs['Connection']) hdrs['Connection'] = currentKeepAlive ? 'keep-alive' : 'close';
         pal.tcpWrite(conn, buildHTTPResponse(st, stText, hdrs, b2));
-        if (!currentKeepAlive) pal.tcpClose(conn);
         if (currentKeepAlive) currentResetIdle();
+        return;
       }
 
       /* Numbers, booleans, etc. are invalid handler results */

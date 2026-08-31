@@ -3893,8 +3893,8 @@
           hdrs["Content-Length"] = "" + b2.length;
           if (!hdrs["Connection"]) hdrs["Connection"] = currentKeepAlive ? "keep-alive" : "close";
           pal2.tcpWrite(conn, buildHTTPResponse(st, stText, hdrs, b2));
-          if (!currentKeepAlive) pal2.tcpClose(conn);
           if (currentKeepAlive) currentResetIdle();
+          return;
         }
         pal2.tcpWrite(conn, buildHTTPResponse(500, "Internal Server Error", {
           "Content-Type": "text/plain",
@@ -5519,6 +5519,50 @@
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var data;
+          if (algoName === "ECDSA" || algoName === "ECDH") {
+            var curve = typeof algorithm === "object" && algorithm ? algorithm.namedCurve : void 0;
+            if (!curve) {
+              reject(new TypeError("namedCurve required"));
+              return;
+            }
+            var coordLen = curve === "P-256" ? 32 : curve === "P-384" ? 48 : 66;
+            if (format === "raw") {
+              var raw = toUint8Array(keyData);
+              if (raw.length !== coordLen * 2 + 1 || raw[0] !== 4) {
+                reject(new DOMException("Invalid EC public key", "DataError"));
+                return;
+              }
+              resolve(new CryptoKey("public", { name: algoName, namedCurve: curve }, extractable, keyUsages, raw));
+              return;
+            }
+            if (format === "jwk") {
+              if (!keyData || keyData.crv !== curve) {
+                reject(new DOMException("Invalid JWK key data", "DataError"));
+                return;
+              }
+              if (keyData.k) {
+                var d = base64UrlDecode(keyData.k);
+                var dd = new Uint8Array(coordLen);
+                dd.set(d.length > coordLen ? d.subarray(0, coordLen) : d, coordLen - d.length);
+                resolve(new CryptoKey("private", { name: algoName, namedCurve: curve }, extractable, keyUsages, dd));
+                return;
+              }
+              if (keyData.x && keyData.y) {
+                var x = base64UrlDecode(keyData.x);
+                var y = base64UrlDecode(keyData.y);
+                var pub = new Uint8Array(coordLen * 2 + 1);
+                pub[0] = 4;
+                pub.set(x.length > coordLen ? x.subarray(0, coordLen) : x, 1 + coordLen - x.length);
+                pub.set(y.length > coordLen ? y.subarray(0, coordLen) : y, 1 + 2 * coordLen - y.length);
+                resolve(new CryptoKey("public", { name: algoName, namedCurve: curve }, extractable, keyUsages, pub));
+                return;
+              }
+              reject(new DOMException("Invalid JWK EC key", "DataError"));
+              return;
+            }
+            reject(new DOMException("Unsupported key format: " + format, "NotSupportedError"));
+            return;
+          }
           if (format === "raw") {
             if (keyData instanceof ArrayBuffer) {
               data = new Uint8Array(keyData);
@@ -5550,6 +5594,24 @@
       sign(algorithm, key, data) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
+          if (algoName === "ECDSA") {
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : void 0;
+            if (!hashAlgo) {
+              reject(new TypeError("hash required for ECDSA sign"));
+              return;
+            }
+            if (key.type !== "private" || typeof pal2.nativeEcdsaSign !== "function") {
+              reject(new DOMException("Crypto extension not available or wrong key type", "NotSupportedError"));
+              return;
+            }
+            try {
+              var sig = pal2.nativeEcdsaSign(hashAlgo, key.algorithm.namedCurve, key._data, toUint8Array(data));
+              resolve(toArrayBuffer(sig));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           if (algoName === "HMAC") {
             var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : "SHA-256";
             if (typeof pal2.nativeHmac !== "function") {
@@ -5570,6 +5632,29 @@
       verify(algorithm, key, signature, data) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
+          if (algoName === "ECDSA") {
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : void 0;
+            if (!hashAlgo) {
+              reject(new TypeError("hash required for ECDSA verify"));
+              return;
+            }
+            if (key.type !== "public" || typeof pal2.nativeEcdsaVerify !== "function") {
+              reject(new DOMException("Crypto extension not available or wrong key type", "NotSupportedError"));
+              return;
+            }
+            try {
+              resolve(pal2.nativeEcdsaVerify(
+                hashAlgo,
+                key.algorithm.namedCurve,
+                key._data,
+                toUint8Array(signature),
+                toUint8Array(data)
+              ));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           if (algoName === "HMAC") {
             this.sign(algorithm, key, data).then(function(computed) {
               var sig = toUint8Array(signature);
@@ -5678,7 +5763,38 @@
             resolve(new CryptoKey("secret", { name: "HMAC", hash: hashAlgo }, extractable, keyUsages, keyBytes));
             return;
           }
-          if (algoName === "AES-CBC" || algoName === "AES-GCM" || algoName === "AES-CTR") {
+          if (algoName === "ECDSA" || algoName === "ECDH") {
+            var curve = algorithm.namedCurve;
+            if (curve !== "P-256" && curve !== "P-384" && curve !== "P-521") {
+              reject(new DOMException("Unsupported namedCurve", "NotSupportedError"));
+              return;
+            }
+            if (typeof pal2.nativeEcGenerate !== "function") {
+              reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+              return;
+            }
+            try {
+              var packed = new Uint8Array(pal2.nativeEcGenerate(curve));
+              var privLen = packed[0] << 24 | packed[1] << 16 | packed[2] << 8 | packed[3];
+              var priv = packed.slice(4, 4 + privLen);
+              var pub = packed.slice(4 + privLen);
+              var usages = keyUsages.filter(function(u) {
+                return algoName === "ECDSA" ? u === "sign" || u === "verify" : u === "deriveKey" || u === "deriveBits";
+              });
+              var pubKey = new CryptoKey("public", { name: algoName, namedCurve: curve }, extractable, usages.filter(function(u) {
+                return u === "verify" || u === "deriveKey" || u === "deriveBits";
+              }), pub);
+              var privKey = new CryptoKey("private", { name: algoName, namedCurve: curve }, extractable, usages.filter(function(u) {
+                return u !== "verify";
+              }), priv);
+              privKey._pub = pub;
+              resolve({ publicKey: pubKey, privateKey: privKey });
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
+          if (algoName === "AES-CBC" || algoName === "AES-GCM" || algoName === "AES-CTR" || algoName === "AES-KW") {
             var length = algorithm.length || 128;
             if (length !== 128 && length !== 192 && length !== 256) {
               reject(new DOMException("Invalid AES key length", "OperationError"));
@@ -5698,6 +5814,41 @@
             reject(new DOMException("Key is not extractable", "InvalidAccessError"));
             return;
           }
+          var algoName = key.algorithm.name;
+          if (algoName === "ECDSA" || algoName === "ECDH") {
+            var curve = key.algorithm.namedCurve;
+            var coordLen = curve === "P-256" ? 32 : curve === "P-384" ? 48 : 66;
+            if (format === "raw") {
+              if (key.type !== "public") {
+                reject(new DOMException("raw export requires a public key", "NotSupportedError"));
+                return;
+              }
+              resolve(toArrayBuffer(key._data));
+              return;
+            }
+            if (format === "jwk") {
+              var jwk = { kty: "EC", crv: curve, ext: true, key_ops: key.usages };
+              if (key.type === "private") {
+                jwk.d = base64UrlEncode(key._data);
+                var pub = key._pub || new Uint8Array(0);
+                if (pub.length === coordLen * 2 + 1) {
+                  jwk.x = base64UrlEncode(pub.subarray(1, 1 + coordLen));
+                  jwk.y = base64UrlEncode(pub.subarray(1 + coordLen));
+                }
+              } else {
+                if (key._data.length !== coordLen * 2 + 1) {
+                  reject(new DOMException("Invalid public key", "DataError"));
+                  return;
+                }
+                jwk.x = base64UrlEncode(key._data.subarray(1, 1 + coordLen));
+                jwk.y = base64UrlEncode(key._data.subarray(1 + coordLen));
+              }
+              resolve(jwk);
+              return;
+            }
+            reject(new DOMException("Unsupported export format: " + format, "NotSupportedError"));
+            return;
+          }
           if (format === "raw") {
             resolve(toArrayBuffer(key._data));
             return;
@@ -5706,7 +5857,7 @@
             var jwk = {
               kty: "oct",
               k: base64UrlEncode(key._data),
-              alg: key.algorithm.name === "HMAC" ? "HS" + (key.algorithm.hash ? key.algorithm.hash.replace("SHA-", "") : "256") : key.algorithm.name,
+              alg: algoName === "HMAC" ? "HS" + (key.algorithm.hash ? key.algorithm.hash.replace("SHA-", "") : "256") : algoName,
               ext: true,
               key_ops: key.usages
             };
@@ -5719,6 +5870,22 @@
       wrapKey(format, key, wrappingKey, wrapAlgorithm) {
         return new Promise(function(resolve, reject) {
           var wrapName = typeof wrapAlgorithm === "string" ? wrapAlgorithm : wrapAlgorithm.name;
+          if (wrapName === "AES-KW") {
+            if (format !== "raw") {
+              reject(new DOMException("AES-KW supports raw format only", "NotSupportedError"));
+              return;
+            }
+            if (typeof pal2.nativeAesKwWrap !== "function") {
+              reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+              return;
+            }
+            try {
+              resolve(toArrayBuffer(pal2.nativeAesKwWrap(wrappingKey._data, toUint8Array(key._data))));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           if (wrapName !== "AES-GCM" && wrapName !== "AES-CBC") {
             reject(new DOMException("Unsupported wrap algorithm: " + wrapName, "NotSupportedError"));
             return;
@@ -5770,6 +5937,23 @@
       unwrapKey(format, wrappedKey, unwrappingKey, unwrapAlgorithm, unwrappedKeyAlgorithm, extractable, keyUsages) {
         return new Promise(function(resolve, reject) {
           var unwrapName = typeof unwrapAlgorithm === "string" ? unwrapAlgorithm : unwrapAlgorithm.name;
+          if (unwrapName === "AES-KW") {
+            if (format !== "raw") {
+              reject(new DOMException("AES-KW supports raw format only", "NotSupportedError"));
+              return;
+            }
+            if (typeof pal2.nativeAesKwUnwrap !== "function") {
+              reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+              return;
+            }
+            try {
+              var keyBytes = new Uint8Array(pal2.nativeAesKwUnwrap(unwrappingKey._data, toUint8Array(wrappedKey)));
+              resolve(new CryptoKey("secret", unwrappedKeyAlgorithm, extractable, keyUsages, keyBytes));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           if (unwrapName !== "AES-GCM" && unwrapName !== "AES-CBC") {
             reject(new DOMException("Unsupported unwrap algorithm: " + unwrapName, "NotSupportedError"));
             return;
@@ -5829,6 +6013,49 @@
               var dkLen = Math.ceil(length / 8);
               var result = pal2.nativePbkdf2(key._data, salt, iterations, hashAlgo, dkLen);
               resolve(toArrayBuffer(result));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
+          if (algoName === "HKDF") {
+            var salt = algorithm.salt ? toUint8Array(algorithm.salt) : new Uint8Array(0);
+            var info = algorithm.info ? toUint8Array(algorithm.info) : new Uint8Array(0);
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : void 0;
+            if (!hashAlgo) {
+              reject(new TypeError("hash required for HKDF"));
+              return;
+            }
+            if (typeof pal2.nativeHkdf !== "function") {
+              reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+              return;
+            }
+            try {
+              var dkLen = Math.ceil(length / 8);
+              var result = pal2.nativeHkdf(hashAlgo, key._data, salt, info, dkLen);
+              resolve(toArrayBuffer(result));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
+          if (algoName === "ECDH") {
+            if (key.type !== "private") {
+              reject(new DOMException("ECDH requires a private key", "InvalidAccessError"));
+              return;
+            }
+            var pub = algorithm.public;
+            if (!pub || pub.type !== "public") {
+              reject(new TypeError("public key required for ECDH"));
+              return;
+            }
+            if (typeof pal2.nativeEcdh !== "function") {
+              reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+              return;
+            }
+            try {
+              var secret = pal2.nativeEcdh(key.algorithm.namedCurve, key._data, pub._data);
+              resolve(toArrayBuffer(secret));
             } catch (e) {
               reject(e);
             }

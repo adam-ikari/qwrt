@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 
 #define QWRT_CLI_VERSION "qwrt 0.2.0"
 
@@ -335,6 +336,9 @@ static int repl_loop(void) {
 }
 
 int main(int argc, char **argv) {
+    /* HTTP/TCP 服务写已关闭的对端连接会触发 SIGPIPE(默认杀进程,
+     * wrk 压测中断连即崩)。libuv 不忽略它;宿主必须显式忽略。 */
+    signal(SIGPIPE, SIG_IGN);
     /* parse -h/-v and -e; the first non-flag argument is the script path; the rest are script args */
     const char *script_path = NULL;
     int script_index = 0;    /* argv index where script args start */
