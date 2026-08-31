@@ -14,6 +14,7 @@
 #include "qwrt_internal.h"
 #include <uv.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 
 #if QWRT_WITH_TLS
@@ -28,13 +29,200 @@
 
 /* TLS server context (shared across connections from one listener) */
 #if QWRT_WITH_TLS
-typedef struct {
-    mbedtls_ssl_config ssl_conf;
+
+/* One certificate (+key). The first entry with name[0]=='\0' is the
+ * default; others are selected by SNI hostname (exact or "*.suffix"). */
+typedef struct qwrt_tls_cert_entry {
+    struct qwrt_tls_cert_entry *next;
     mbedtls_x509_crt cert;
     mbedtls_pk_context key;
+    char name[256];
+} qwrt_tls_cert_entry_t;
+
+typedef struct {
+    mbedtls_ssl_config ssl_conf;
+    qwrt_tls_cert_entry_t *certs;    /* live list (default first) */
+    qwrt_tls_cert_entry_t *retired;  /* old list awaiting last unref */
     mbedtls_entropy_context entropy;
     mbedtls_ctr_drbg_context ctr_drbg;
+    int refs;                        /* listener + in-flight connections */
 } qwrt_tls_server_ctx_t;
+
+static void tls_cert_entries_free(qwrt_tls_cert_entry_t *list) {
+    while (list) {
+        qwrt_tls_cert_entry_t *n = list->next;
+        mbedtls_x509_crt_free(&list->cert);
+        mbedtls_pk_free(&list->key);
+        free(list);
+        list = n;
+    }
+}
+
+/* Drop one reference. Retired certificates are only freed once the
+ * listener is the sole remaining reference (no connection can still be
+ * mid-handshake against them). */
+static void tls_server_ctx_unref(qwrt_tls_server_ctx_t *tc) {
+    if (!tc || --tc->refs > 0) return;
+    mbedtls_ssl_config_free(&tc->ssl_conf);
+    tls_cert_entries_free(tc->certs);
+    tls_cert_entries_free(tc->retired);
+    mbedtls_ctr_drbg_free(&tc->ctr_drbg);
+    mbedtls_entropy_free(&tc->entropy);
+    free(tc);
+}
+
+/* Wildcard-aware host match: "a.com" exact, "*.a.com" one label + suffix. */
+static int tls_host_match(const char *pattern, const char *host) {
+    if (strcasecmp(pattern, host) == 0) return 1;
+    if (strncmp(pattern, "*.", 2) == 0) {
+        const char *dot = strchr(host, '.');
+        return dot && strcasecmp(pattern + 1, dot) == 0;
+    }
+    return 0;
+}
+
+/* SNI callback: pick the matching cert, fall back to the default entry. */
+static int tls_sni_cb(void *p, mbedtls_ssl_context *ssl,
+                      const unsigned char *name, size_t len) {
+    qwrt_tls_server_ctx_t *tc = (qwrt_tls_server_ctx_t *)p;
+    char host[256];
+    if (len >= sizeof(host)) return MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
+    memcpy(host, name, len);
+    host[len] = '\0';
+
+    qwrt_tls_cert_entry_t *def = NULL;
+    for (qwrt_tls_cert_entry_t *e = tc->certs; e; e = e->next) {
+        if (e->name[0] && tls_host_match(e->name, host))
+            return mbedtls_ssl_set_hs_own_cert(ssl, &e->cert, &e->key);
+        if (!e->name[0]) def = e;
+    }
+    if (def)
+        return mbedtls_ssl_set_hs_own_cert(ssl, &def->cert, &def->key);
+    return MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
+}
+
+/* Parse one {cert, key, name?} into a new entry; NULL on failure. */
+static qwrt_tls_cert_entry_t *tls_cert_entry_new(mbedtls_ctr_drbg_context *drbg,
+                                                 const char *cert_path,
+                                                 const char *key_path,
+                                                 const char *name) {
+    qwrt_tls_cert_entry_t *e = calloc(1, sizeof(*e));
+    if (!e) return NULL;
+    mbedtls_x509_crt_init(&e->cert);
+    mbedtls_pk_init(&e->key);
+    if (mbedtls_x509_crt_parse_file(&e->cert, cert_path) != 0 ||
+        mbedtls_pk_parse_keyfile(&e->key, key_path, NULL,
+                                 mbedtls_ctr_drbg_random, drbg) != 0) {
+        mbedtls_x509_crt_free(&e->cert);
+        mbedtls_pk_free(&e->key);
+        free(e);
+        return NULL;
+    }
+    snprintf(e->name, sizeof(e->name), "%s", name ? name : "");
+    return e;
+}
+
+/* Build cert list from JS tls object {cert, key, sni: {host: {cert,key}}}.
+ * Returns list (default first) or NULL; *ok set to 0 on parse failure. */
+static qwrt_tls_cert_entry_t *tls_certs_from_js(JSContext *ctx,
+                                                JSValueConst tls_obj,
+                                                mbedtls_ctr_drbg_context *drbg,
+                                                int *ok) {
+    qwrt_tls_cert_entry_t *head = NULL, **tail = &head;
+    *ok = 1;
+
+    JSValue cv = JS_GetPropertyStr(ctx, tls_obj, "cert");
+    JSValue kv = JS_GetPropertyStr(ctx, tls_obj, "key");
+    const char *cert_path = JS_ToCString(ctx, cv);
+    const char *key_path = JS_ToCString(ctx, kv);
+    if (cert_path && key_path) {
+        qwrt_tls_cert_entry_t *e = tls_cert_entry_new(drbg, cert_path, key_path, NULL);
+        if (!e) { *ok = 0; }
+        else { *tail = e; tail = &e->next; }
+    }
+    if (cert_path) JS_FreeCString(ctx, cert_path);
+    if (key_path) JS_FreeCString(ctx, key_path);
+    JS_FreeValue(ctx, cv);
+    JS_FreeValue(ctx, kv);
+
+    JSValue sni = JS_GetPropertyStr(ctx, tls_obj, "sni");
+    if (JS_IsObject(sni)) {
+        JSPropertyEnum *props = NULL;
+        uint32_t nprops = 0;
+        if (JS_GetOwnPropertyNames(ctx, &props, &nprops, sni,
+                                   JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) == 0) {
+            for (uint32_t i = 0; i < nprops && *ok; i++) {
+                JSValue entry = JS_GetProperty(ctx, sni, props[i].atom);
+                const char *host = JS_AtomToCString(ctx, props[i].atom);
+                if (JS_IsObject(entry) && host) {
+                    JSValue ecv = JS_GetPropertyStr(ctx, entry, "cert");
+                    JSValue ekv = JS_GetPropertyStr(ctx, entry, "key");
+                    const char *ecert = JS_ToCString(ctx, ecv);
+                    const char *ekey = JS_ToCString(ctx, ekv);
+                    if (ecert && ekey) {
+                        qwrt_tls_cert_entry_t *e = tls_cert_entry_new(drbg, ecert, ekey, host);
+                        if (!e) *ok = 0;
+                        else { *tail = e; tail = &e->next; }
+                    } else {
+                        *ok = 0;
+                    }
+                    if (ecert) JS_FreeCString(ctx, ecert);
+                    if (ekey) JS_FreeCString(ctx, ekey);
+                    JS_FreeValue(ctx, ecv);
+                    JS_FreeValue(ctx, ekv);
+                } else {
+                    *ok = 0;
+                }
+                JS_FreeCString(ctx, host);
+                JS_FreeValue(ctx, entry);
+            }
+            for (uint32_t i = 0; i < nprops; i++) JS_FreeAtom(ctx, props[i].atom);
+            js_free(ctx, props);
+        } else {
+            *ok = 0;
+        }
+    }
+    JS_FreeValue(ctx, sni);
+
+    if (!*ok) {
+        tls_cert_entries_free(head);
+        return NULL;
+    }
+    return head;
+}
+
+/* Shared setup: init ctx, build cert list, config defaults + SNI callback. */
+static qwrt_tls_server_ctx_t *tls_server_ctx_new(JSContext *ctx,
+                                                 JSValueConst tls_obj) {
+    qwrt_tls_server_ctx_t *tc = calloc(1, sizeof(*tc));
+    if (!tc) {
+        JS_ThrowOutOfMemory(ctx);
+        return NULL;
+    }
+    int ok = 0;
+    do {
+        mbedtls_ssl_config_init(&tc->ssl_conf);
+        mbedtls_entropy_init(&tc->entropy);
+        mbedtls_ctr_drbg_init(&tc->ctr_drbg);
+        if (mbedtls_ctr_drbg_seed(&tc->ctr_drbg, mbedtls_entropy_func,
+                                  &tc->entropy, NULL, 0) != 0) break;
+        tc->certs = tls_certs_from_js(ctx, tls_obj, &tc->ctr_drbg, &ok);
+        if (!ok || !tc->certs) break;
+        if (mbedtls_ssl_config_defaults(&tc->ssl_conf, MBEDTLS_SSL_IS_SERVER,
+                                        MBEDTLS_SSL_TRANSPORT_STREAM,
+                                        MBEDTLS_SSL_PRESET_DEFAULT) != 0) break;
+        mbedtls_ssl_conf_rng(&tc->ssl_conf, mbedtls_ctr_drbg_random, &tc->ctr_drbg);
+        /* Certs are selected per-handshake in tls_sni_cb (default entry
+         * included) so a hot reload swaps them without touching ssl_conf. */
+        mbedtls_ssl_conf_sni(&tc->ssl_conf, tls_sni_cb, tc);
+        tc->refs = 1;
+        return tc;
+    } while (0);
+
+    tls_server_ctx_unref(tc);
+    JS_ThrowTypeError(ctx, "tcpListen: TLS setup failed (bad cert/key?)");
+    return NULL;
+}
 #endif
 
 /* ── Per-connection state ── */
@@ -105,6 +293,8 @@ static void tcp_client_free(qwrt_tcp_client_t *c) {
         c->tls_read_buf = NULL;
         c->tls_read_buf_len = 0;
         c->tls_read_consumed = 0;
+        tls_server_ctx_unref(c->tls_server_ctx);
+        c->tls_server_ctx = NULL;
     }
 #endif
     if (c->tcp_active) {
@@ -519,12 +709,8 @@ static void tcp_listener_close_cb(uv_handle_t *handle) {
         }
 #if QWRT_WITH_TLS
         if (l->tls_ctx) {
-            mbedtls_ssl_config_free(&l->tls_ctx->ssl_conf);
-            mbedtls_x509_crt_free(&l->tls_ctx->cert);
-            mbedtls_pk_free(&l->tls_ctx->key);
-            mbedtls_ctr_drbg_free(&l->tls_ctx->ctr_drbg);
-            mbedtls_entropy_free(&l->tls_ctx->entropy);
-            free(l->tls_ctx);
+            tls_server_ctx_unref(l->tls_ctx);
+            l->tls_ctx = NULL;
         }
 #endif
         js_free(l->jsctx, l);
@@ -598,6 +784,7 @@ static void tcp_listen_on_connection(uv_stream_t *server, int status) {
     if (l->tls_ctx) {
         c->use_tls = 1;
         c->tls_server_ctx = l->tls_ctx;
+        l->tls_ctx->refs++;
         c->tls_handshake_done = 0;
         c->tls_read_buf = NULL;
         c->tls_read_buf_len = 0;
@@ -670,55 +857,16 @@ JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
     l->rt = rt;
     l->jsctx = ctx;
     l->onconnection = JS_DupValue(ctx, argv[3]);
-
 #if QWRT_WITH_TLS
-    /* Optional 5th arg: tls = { cert: path, key: path } */
+    /* Optional 5th arg: tls = { cert, key, sni: { host: {cert, key} } } */
     if (argc >= 5 && !JS_IsUndefined(argv[4]) && !JS_IsNull(argv[4]) && JS_IsObject(argv[4])) {
-        JSValue cv = JS_GetPropertyStr(ctx, argv[4], "cert");
-        JSValue kv = JS_GetPropertyStr(ctx, argv[4], "key");
-        const char *cert_path = JS_ToCString(ctx, cv);
-        const char *key_path = JS_ToCString(ctx, kv);
-        if (cert_path && key_path) {
-            qwrt_tls_server_ctx_t *tc = calloc(1, sizeof(*tc));
-            int ok = 0;
-            do {
-                mbedtls_ssl_config_init(&tc->ssl_conf);
-                mbedtls_x509_crt_init(&tc->cert);
-                mbedtls_pk_init(&tc->key);
-                mbedtls_entropy_init(&tc->entropy);
-                mbedtls_ctr_drbg_init(&tc->ctr_drbg);
-                if (mbedtls_ctr_drbg_seed(&tc->ctr_drbg, mbedtls_entropy_func,
-                                          &tc->entropy, NULL, 0) != 0) break;
-                if (mbedtls_x509_crt_parse_file(&tc->cert, cert_path) != 0) break;
-                if (mbedtls_pk_parse_keyfile(&tc->key, key_path, NULL,
-                                              mbedtls_ctr_drbg_random, &tc->ctr_drbg) != 0) break;
-                if (mbedtls_ssl_config_defaults(&tc->ssl_conf, MBEDTLS_SSL_IS_SERVER,
-                                                MBEDTLS_SSL_TRANSPORT_STREAM,
-                                                MBEDTLS_SSL_PRESET_DEFAULT) != 0) break;
-                mbedtls_ssl_conf_rng(&tc->ssl_conf, mbedtls_ctr_drbg_random, &tc->ctr_drbg);
-                if (mbedtls_ssl_conf_own_cert(&tc->ssl_conf, &tc->cert, &tc->key) != 0) break;
-                ok = 1;
-            } while (0);
-            if (!ok) {
-                mbedtls_ssl_config_free(&tc->ssl_conf);
-                mbedtls_x509_crt_free(&tc->cert);
-                mbedtls_pk_free(&tc->key);
-                mbedtls_ctr_drbg_free(&tc->ctr_drbg);
-                mbedtls_entropy_free(&tc->entropy);
-                free(tc);
-                JS_FreeCString(ctx, cert_path);
-                JS_FreeCString(ctx, key_path);
-                JS_FreeValue(ctx, cv);
-                JS_FreeValue(ctx, kv);
-                JS_FreeCString(ctx, hostname);
-                return JS_ThrowTypeError(ctx, "tcpListen: TLS setup failed (bad cert/key?)");
-            }
-            l->tls_ctx = tc;
+        l->tls_ctx = tls_server_ctx_new(ctx, argv[4]);
+        if (!l->tls_ctx) {
+            JS_FreeCString(ctx, hostname);
+            JS_FreeValue(ctx, l->onconnection);
+            js_free(ctx, l);
+            return JS_EXCEPTION;
         }
-        if (cert_path) JS_FreeCString(ctx, cert_path);
-        if (key_path) JS_FreeCString(ctx, key_path);
-        JS_FreeValue(ctx, cv);
-        JS_FreeValue(ctx, kv);
     }
 #endif
 
@@ -754,6 +902,37 @@ JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
     return obj;
 }
 
+/* ── PAL: tcpReloadTls(listenerHandle, tlsObj) -> bool ── */
+static JSValue js_pal_tcp_reload_tls(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv) {
+    (void)this_val;
+    if (argc < 2 || !JS_IsObject(argv[0]) || !JS_IsObject(argv[1])) {
+        return JS_ThrowTypeError(ctx, "tcpReloadTls(listenerHandle, tlsObj) required");
+    }
+
+    JSValue pv = JS_GetPropertyStr(ctx, argv[0], "_tcpListener");
+    if (!JS_IsNumber(pv)) { JS_FreeValue(ctx, pv); return JS_FALSE; }
+    int64_t ptr = 0;
+    JS_ToInt64(ctx, &ptr, pv);
+    JS_FreeValue(ctx, pv);
+    qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)(uintptr_t)ptr;
+    if (!l || l->closed || !l->tls_ctx) return JS_FALSE;
+
+#if QWRT_WITH_TLS
+    qwrt_tls_server_ctx_t *new_ctx = tls_server_ctx_new(ctx, argv[1]);
+    if (!new_ctx) return JS_EXCEPTION;
+
+    /* Swap in the new context; in-flight connections keep a reference to
+     * the old one (refs > 1) and free it when they close. */
+    qwrt_tls_server_ctx_t *old = l->tls_ctx;
+    l->tls_ctx = new_ctx;
+    tls_server_ctx_unref(old);
+    return JS_TRUE;
+#else
+    return JS_FALSE;
+#endif
+}
+
 /* ── PAL: tcpCloseListener(handle) ── */
 JSValue js_pal_tcp_close_listener(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv) {
@@ -781,4 +960,5 @@ void qwrt_tcp_io_init(JSContext *ctx, JSValue pal) {
     JS_SetPropertyStr(ctx, pal, "tcpClose", JS_NewCFunction(ctx, js_pal_tcp_close, "tcpClose", 1));
     JS_SetPropertyStr(ctx, pal, "tcpListen", JS_NewCFunction(ctx, js_pal_tcp_listen, "tcpListen", 4));
     JS_SetPropertyStr(ctx, pal, "tcpCloseListener", JS_NewCFunction(ctx, js_pal_tcp_close_listener, "tcpCloseListener", 1));
+    JS_SetPropertyStr(ctx, pal, "tcpReloadTls", JS_NewCFunction(ctx, js_pal_tcp_reload_tls, "tcpReloadTls", 2));
 }
