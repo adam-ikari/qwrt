@@ -126,14 +126,23 @@ int qwrt_runtime_init(qwrt_t *rt)
     /* Auto-attach the DAP debugger when enabled (env QWRT_DEBUG=1 or
      * config->debug bit 1). qwrt_dap_configure blocks reading the DAP
      * initialize/setBreakpoints/configurationDone exchange, so breakpoints
-     * are armed before the host's first message. */
+     * are armed before the host's first message.
+     *
+     * 作用域语义（A4 多上下文断点）：DAP 走 stdio 单通道，一个进程只有一份
+     * stdin/stdout，无法同时服务两个 runtime 的协议会话。因此 worker 运行时
+     * （rt->worker_self != NULL，独立线程 + 独立 JSRuntime）不 auto-attach——
+     * 否则它会与父 runtime 竞争读同一 stdin（父的 configure/on_stopped pump
+     * 会吞掉 worker 的协议消息 → 死锁/错乱）。结果：断点只作用于 attach 的
+     * 那个 runtime 的 source 文件执行；父 runtime 设的断点不影响 worker。 */
     {
         int enable = 0;
-        const char *env = getenv("QWRT_DEBUG");
-        if (env && (env[0] == '1' || env[0] == 't' || env[0] == 'T'))
-            enable = 1;
-        if (rt->config.debug & 0x2)  /* bit 1 = debug-enable */
-            enable = 1;
+        if (rt->worker_self == NULL) {
+            const char *env = getenv("QWRT_DEBUG");
+            if (env && (env[0] == '1' || env[0] == 't' || env[0] == 'T'))
+                enable = 1;
+            if (rt->config.debug & 0x2)  /* bit 1 = debug-enable */
+                enable = 1;
+        }
         if (enable) {
             qwrt_dap_config_t dcfg;
             dcfg.stop_on_entry = 1;

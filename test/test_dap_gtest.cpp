@@ -303,6 +303,151 @@ static int parent_main(int child_out_fd, int child_in_fd, pid_t pid) {
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return 100;  /* child failed */
     return 0;
 }
+/* ---- PauseWhileRunning: the bounded uv_run poll must service DAP requests
+ * ---- that arrive while the debuggee is NOT paused ---- */
+
+/* Run-mode child: keeps a setInterval alive so a DAP pause request can land
+ * mid-run, then exits after a fixed sleep so the parent's pause/continue
+ * sequence has time. The qwrt thread runs the uv loop on its own thread while
+ * this process sleeps — exactly the state where the periodic DAP poll timer
+ * is needed (an idle uv_run would otherwise block forever and never read the
+ * pause off stdin). */
+static int child_run_main(int in_fd, int out_fd)
+{
+    dup2(in_fd, STDIN_FILENO);
+    dup2(out_fd, STDOUT_FILENO);
+    close(in_fd);
+    close(out_fd);
+
+    qwrt_config_t cfg = {};
+    /* setInterval keeps the event loop alive; the qwrt thread services it. */
+    cfg.initial_script = "setInterval(() => {}, 200);\n1;\n";
+    qwrt_t *rt = qwrt_create(&cfg);
+    if (!rt) return 1;
+    usleep(3 * 1000 * 1000);   /* give the parent time to pause us mid-run */
+    qwrt_destroy(rt);
+    return 0;
+}
+
+static int pause_parent_main(int child_out_fd, int child_in_fd, pid_t pid)
+{
+    FILE *from_child = fdopen(child_out_fd, "r");
+    if (!from_child) return 1;
+    char *msg;
+
+    /* 1. initialize */
+    dap_write(child_in_fd,
+        "{\"type\":\"request\",\"seq\":1,\"command\":\"initialize\","
+        "\"arguments\":{\"adapterID\":\"qwrt\",\"clientID\":\"test\"}}");
+    int got_event = 0, got_response = 0;
+    for (int tries = 0; tries < 4 && !(got_event && got_response); tries++) {
+        msg = dap_read(from_child);
+        if (!msg) break;
+        if (strstr(msg, "\"event\"") && strstr(msg, "\"initialized\"")) got_event = 1;
+        if (strstr(msg, "\"response\"") && strstr(msg, "\"initialize\"")) got_response = 1;
+        free(msg);
+    }
+    if (!got_event || !got_response) {
+        fprintf(stderr, "FAIL: no initialized/response\n");
+        return 1;
+    }
+    fprintf(stderr, "ok: initialized\n");
+
+    /* 2. configurationDone */
+    dap_write(child_in_fd,
+        "{\"type\":\"request\",\"seq\":2,\"command\":\"configurationDone\","
+        "\"arguments\":{}}");
+    msg = dap_read(from_child);
+    if (!msg) { fprintf(stderr, "FAIL: no configurationDone response\n"); return 1; }
+    free(msg);
+
+    /* 3. stopped at entry (stop_on_entry is on) */
+    msg = dap_read(from_child);
+    if (!msg || !strstr(msg, "\"stopped\"")) {
+        fprintf(stderr, "FAIL: no entry stopped: %s\n", msg ? msg : "(null)");
+        free(msg);
+        return 1;
+    }
+    free(msg);
+    fprintf(stderr, "ok: stopped at entry\n");
+
+    /* 4. continue past entry — the script finishes evaluating and the qwrt
+     * thread settles into uv_run with only the setInterval + DAP poll timers. */
+    dap_write(child_in_fd,
+        "{\"type\":\"request\",\"seq\":3,\"command\":\"continue\","
+        "\"arguments\":{\"threadId\":1}}");
+    msg = dap_read(from_child);
+    free(msg);
+
+    /* 5. pause mid-run: nothing is paused, so this request sits on stdin until
+     * the periodic DAP poll timer wakes the idle uv_run. It must arm the next
+     * dispatch checkpoint and we must get stopped(reason "pause"). */
+    dap_write(child_in_fd,
+        "{\"type\":\"request\",\"seq\":4,\"command\":\"pause\","
+        "\"arguments\":{\"threadId\":1}}");
+    msg = dap_read(from_child);   /* pause response */
+    if (!msg || strstr(msg, "\"success\":false")) {
+        fprintf(stderr, "FAIL: pause not accepted: %s\n", msg ? msg : "(null)");
+        free(msg);
+        return 1;
+    }
+    free(msg);
+    msg = dap_read(from_child);
+    if (!msg || !strstr(msg, "\"stopped\"") || !strstr(msg, "\"pause\"")) {
+        fprintf(stderr, "FAIL: no pause stopped: %s\n", msg ? msg : "(null)");
+        free(msg);
+        return 1;
+    }
+    free(msg);
+    fprintf(stderr, "ok: paused while running (uv_run bounded poll)\n");
+
+    /* 6. continue to let the child finish (its sleep elapses, then destroy) */
+    dap_write(child_in_fd,
+        "{\"type\":\"request\",\"seq\":5,\"command\":\"continue\","
+        "\"arguments\":{\"threadId\":1}}");
+    msg = dap_read(from_child);
+    free(msg);
+    while ((msg = dap_read(from_child)) != nullptr) free(msg);
+    fprintf(stderr, "ok: child terminated\n");
+
+    fclose(from_child);
+    close(child_in_fd);
+    signal(SIGPIPE, SIG_IGN);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    signal(SIGPIPE, SIG_DFL);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return 100;
+    return 0;
+}
+
+TEST(DapDebugger, PauseWhileRunning) {
+    int to_child[2], from_child[2];
+    ASSERT_EQ(0, pipe(to_child));
+    ASSERT_EQ(0, pipe(from_child));
+
+    pid_t pid = fork();
+    ASSERT_GE(pid, 0);
+
+    if (pid == 0) {
+        close(to_child[1]);
+        close(from_child[0]);
+        setenv("QWRT_DEBUG", "1", 1);
+        const char *trace = getenv("QWRT_DAP_TRACE");
+        if (trace) { freopen(trace, "w", stderr); }
+        int rc = child_run_main(to_child[0], from_child[1]);
+        _exit(rc);
+    }
+
+    close(to_child[0]);
+    close(from_child[1]);
+    int rc = pause_parent_main(from_child[0], to_child[1], pid);
+    if (rc == 100) {
+        ADD_FAILURE() << "child exited non-zero";
+    } else if (rc != 0) {
+        ADD_FAILURE() << rc << " DAP assertion(s) failed";
+    }
+}
+
 
 TEST(DapDebugger, BreakpointFlow) {
     int to_child[2], from_child[2];

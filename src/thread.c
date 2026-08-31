@@ -38,6 +38,12 @@ static void qwrt_idle_walk_cb(uv_handle_t *h, void *arg)
 {
     qwrt_idle_state_t *st = (qwrt_idle_state_t *)arg;
     if (h == (uv_handle_t *)&st->rt->wake) return;   /* exclude the internal wake async */
+#ifdef QWRT_DEBUG_SUPPORT
+    /* 调试器附着的周期 DAP 轮询 timer 不算"忙"——wait_idle 应照常退出，
+     * 不能被它（一个恒活动的 50ms timer）永远判为 busy。 */
+    if (st->rt->dap_timer_active && h == (uv_handle_t *)&st->rt->dap_timer)
+        return;
+#endif
     if (!uv_is_closing(h) && uv_is_active(h)) st->busy = 1;
 }
 

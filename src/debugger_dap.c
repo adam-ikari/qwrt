@@ -597,6 +597,75 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
  * Attach / main loop
  * ================================================================ */
 
+/* DAP stdin poll cadence. Also used by the paused pump (dap_on_stopped) as
+ * its poll timeout; the periodic run-time timer reuses the same value so an
+ * idle uv_run never sleeps longer than this between DAP services. */
+#define DAP_POLL_MS 50
+/* forward decl — defined with the other request handlers below; shared by the
+ * configuration phase and the run-time service pump. */
+static void dap_handle_set_breakpoints(qwrt_dap_t *d, const char *args, int req_seq);
+
+
+/* Timer callback: fires on the qwrt thread while the debuggee is running.
+ * Non-blockingly drains any DAP request that arrived on stdin. */
+static void qwrt_dap_timer_cb(uv_timer_t *t)
+{
+    qwrt_t *rt = (qwrt_t *)t->data;
+    if (rt) qwrt_dap_service(rt);
+}
+
+/* Service the DAP stdin channel while the debuggee is NOT paused. Called
+ * from the periodic poll timer (see qwrt_dap_attach); never blocks. Handles
+ * the requests that are meaningful mid-run: pause (arm the next dispatch
+ * checkpoint to stop), setBreakpoints (replace the breakpoint table so new
+ * breakpoints take effect immediately) and disconnect (stop polling). All
+ * other requests are acknowledged so the VS Code client stays happy; their
+ * real work (stackTrace/scopes/variables/evaluate) happens in the paused
+ * pump (dap_on_stopped), which runs on the same thread and therefore cannot
+ * race with this function. */
+void qwrt_dap_service(qwrt_t *rt)
+{
+    qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
+    if (!d || !d->in) return;
+
+    int pr = dap_poll_message(d, 0);  /* non-blocking */
+    if (pr < 0) {
+        /* EOF / error on stdin — the client is gone; stop polling. */
+        if (rt->dap_timer_active) {
+            uv_timer_stop(&rt->dap_timer);
+            rt->dap_timer_active = 0;
+        }
+        return;
+    }
+    if (pr == 0) return;  /* no message yet */
+
+    int req_seq = 0; char *cmd = NULL, *args = NULL;
+    char *msg = dap_read_message(d, &req_seq, &cmd, &args);
+    if (!msg) return;
+    if (cmd) {
+        if (strcmp(cmd, "pause") == 0) {
+            qwrt_debug_pause(d->dbg);
+            dap_send_response(d, req_seq, "pause", 1, "{}", NULL);
+        } else if (strcmp(cmd, "setBreakpoints") == 0) {
+            dap_handle_set_breakpoints(d, args, req_seq);
+        } else if (strcmp(cmd, "disconnect") == 0) {
+            dap_send_response(d, req_seq, "disconnect", 1, "{}", NULL);
+            if (rt->dap_timer_active) {
+                uv_timer_stop(&rt->dap_timer);
+                rt->dap_timer_active = 0;
+            }
+        } else {
+            /* acknowledge unsupported mid-run requests */
+            dap_send_response(d, req_seq, cmd, 1, "{}", NULL);
+        }
+    }
+    free(msg); free(cmd); free(args);
+}
+
+/* ================================================================
+ * Attach / main loop
+ * ================================================================ */
+
 int qwrt_dap_attach(qwrt_t *rt, const qwrt_dap_config_t *cfg)
 {
     if (!rt) return -1;
@@ -620,6 +689,20 @@ int qwrt_dap_attach(qwrt_t *rt, const qwrt_dap_config_t *cfg)
 
     /* Send initialized event so VS Code knows it can configure breakpoints. */
     dap_send_event(d, "initialized", NULL);
+
+    /* 注册周期轮询 timer：DAP 走 stdin，不是 libuv 事件源。没有它，事件
+     * 循环空闲（无 pending work）时 uv_run(UV_RUN_ONCE) 无限阻塞在 poll，
+     * 运行中的 pause/setBreakpoints/disconnect 请求永远不被读取。active
+     * timer 同时让真 libuv 的 uv_run 有界（backend timeout ≤ DAP_POLL_MS），
+     * 每次醒来回调 qwrt_dap_service 非阻塞服务 stdin。loop 在调用本函数
+     * 前已由 thread_main/worker_thread_main 完成 uv_loop_init。 */
+    if (!rt->dap_timer_active) {
+        uv_timer_init(&rt->loop, &rt->dap_timer);
+        rt->dap_timer.data = rt;
+        uv_timer_start(&rt->dap_timer, qwrt_dap_timer_cb,
+                       DAP_POLL_MS, DAP_POLL_MS);
+        rt->dap_timer_active = 1;
+    }
     return 0;
 }
 
@@ -627,6 +710,11 @@ void qwrt_dap_detach(qwrt_t *rt)
 {
     qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
     if (!d) return;
+    /* stop the periodic stdin poll timer (it keeps the loop alive + waking) */
+    if (rt->dap_timer_active) {
+        uv_timer_stop(&rt->dap_timer);
+        rt->dap_timer_active = 0;
+    }
     rt->dap = NULL;
     if (d->dbg)
         qwrt_debug_detach(d->rt, d->dbg);
@@ -637,6 +725,96 @@ void qwrt_dap_detach(qwrt_t *rt)
  * configuration phase: initialize, setBreakpoints, attach, configurationDone).
  * Called by the host (qwrt_create auto-attach path) after qwrt_dap_attach.
  * Returns when configurationDone is received. */
+/* Handle a setBreakpoints request: replace the whole breakpoint table for the
+ * session with the breakpoints in `args` (source.path + breakpoints[].line,
+ * optional condition), then respond with the verified lines. Shared by the
+ * configuration phase (qwrt_dap_configure) and the run-time pump
+ * (qwrt_dap_service) so breakpoints added mid-run take effect immediately. */
+static void dap_handle_set_breakpoints(qwrt_dap_t *d, const char *args, int req_seq)
+{
+    /* args.source.path + args.breakpoints[].line */
+    char *path = json_get(args, "path");
+    /* parse breakpoints array: each element is { "line":N, "condition":"..." } */
+    qwrt_debug_clear_breakpoints(d->dbg);
+    if (path) {
+        const char *bp = strstr(args ? args : "", "\"breakpoints\"");
+        if (bp) {
+            const char *p = strchr(bp, '[');
+            const char *e = p ? strchr(p, ']') : NULL;
+            const char *q = p ? p + 1 : NULL;
+            while (q && (!e || q < e)) {
+                /* find the next breakpoint object '{' */
+                const char *obj = strchr(q, '{');
+                if (!obj || (e && obj >= e)) break;
+                const char *obje = strchr(obj, '}');
+                if (!obje) break;
+                /* extract line within [obj, obje] */
+                const char *lp = strstr(obj, "\"line\"");
+                if (lp && lp < obje) {
+                    lp = strchr(lp, ':');
+                    if (lp && lp < obje) {
+                        long ln = strtol(lp + 1, NULL, 10);
+                        if (ln > 0) {
+                            /* extract optional condition within this object */
+                            char *cond = NULL;
+                            const char *cp = strstr(obj, "\"condition\"");
+                            if (cp && cp < obje) {
+                                cp = strchr(cp, ':');
+                                if (cp && cp < obje) {
+                                    /* parse the string value */
+                                    const char *cs = cp + 1;
+                                    while (*cs && (*cs == ' ' || *cs == '\t')) cs++;
+                                    if (*cs == '"') {
+                                        json_parser jp = { cs, obje, 0 };
+                                        json_parse_string(&jp, &cond);
+                                    }
+                                }
+                            }
+                            qwrt_debug_add_breakpoint(d->dbg, path, (int)ln, cond);
+                            free(cond);
+                        }
+                    }
+                }
+                q = obje + 1;
+            }
+        }
+    }
+    /* respond with verified breakpoints (echo lines) */
+    char *buf = NULL; size_t cap = 0, len = 0;
+    je_lit(&buf, &cap, &len, "{\"breakpoints\":[");
+    int first = 1;
+    if (path) {
+        const char *bp = strstr(args ? args : "", "\"breakpoints\"");
+        if (bp) {
+            const char *p = strchr(bp, '[');
+            const char *e = p ? strchr(p, ']') : NULL;
+            const char *q = p ? p + 1 : NULL;
+            while (q && (!e || q < e)) {
+                const char *obj = strchr(q, '{');
+                if (!obj || (e && obj >= e)) break;
+                const char *obje = strchr(obj, '}');
+                if (!obje) break;
+                const char *lp = strstr(obj, "\"line\"");
+                if (lp && lp < obje) {
+                    lp = strchr(lp, ':');
+                    if (lp && lp < obje) {
+                        long ln = strtol(lp + 1, NULL, 10);
+                        if (!first) je_lit(&buf, &cap, &len, ",");
+                        first = 0;
+                        char fb[64];
+                        int m = snprintf(fb, sizeof(fb), "{\"verified\":true,\"line\":%ld}", ln);
+                        json_emit(&buf, &cap, &len, fb, (size_t)m);
+                    }
+                }
+                q = obje + 1;
+            }
+        }
+    }
+    je_lit(&buf, &cap, &len, "]}");
+    dap_send_response(d, req_seq, "setBreakpoints", 1, buf, NULL);
+    free(buf); free(path);
+}
+
 int qwrt_dap_configure(qwrt_t *rt)
 {
     qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
@@ -656,87 +834,7 @@ int qwrt_dap_configure(qwrt_t *rt)
         } else if (strcmp(cmd, "attach") == 0) {
             dap_send_response(d, req_seq, "attach", 1, "{}", NULL);
         } else if (strcmp(cmd, "setBreakpoints") == 0) {
-            /* args.source.path + args.breakpoints[].line */
-            char *path = json_get(args, "path");
-            /* parse breakpoints array: each element is { "line":N, "condition":"..." } */
-            qwrt_debug_clear_breakpoints(d->dbg);
-            if (path) {
-                const char *bp = strstr(args ? args : "", "\"breakpoints\"");
-                if (bp) {
-                    const char *p = strchr(bp, '[');
-                    const char *e = p ? strchr(p, ']') : NULL;
-                    const char *q = p ? p + 1 : NULL;
-                    while (q && (!e || q < e)) {
-                        /* find the next breakpoint object '{' */
-                        const char *obj = strchr(q, '{');
-                        if (!obj || (e && obj >= e)) break;
-                        const char *obje = strchr(obj, '}');
-                        if (!obje) break;
-                        /* extract line within [obj, obje] */
-                        const char *lp = strstr(obj, "\"line\"");
-                        if (lp && lp < obje) {
-                            lp = strchr(lp, ':');
-                            if (lp && lp < obje) {
-                                long ln = strtol(lp + 1, NULL, 10);
-                                if (ln > 0) {
-                                    /* extract optional condition within this object */
-                                    char *cond = NULL;
-                                    const char *cp = strstr(obj, "\"condition\"");
-                                    if (cp && cp < obje) {
-                                        cp = strchr(cp, ':');
-                                        if (cp && cp < obje) {
-                                            /* parse the string value */
-                                            const char *cs = cp + 1;
-                                            while (*cs && (*cs == ' ' || *cs == '\t')) cs++;
-                                            if (*cs == '"') {
-                                                json_parser jp = { cs, obje, 0 };
-                                                json_parse_string(&jp, &cond);
-                                            }
-                                        }
-                                    }
-                                    qwrt_debug_add_breakpoint(d->dbg, path, (int)ln, cond);
-                                    free(cond);
-                                }
-                            }
-                        }
-                        q = obje + 1;
-                    }
-                }
-            }
-            /* respond with verified breakpoints (echo lines) */
-            char *buf = NULL; size_t cap = 0, len = 0;
-            je_lit(&buf, &cap, &len, "{\"breakpoints\":[");
-            int first = 1;
-            if (path) {
-                const char *bp = strstr(args ? args : "", "\"breakpoints\"");
-                if (bp) {
-                    const char *p = strchr(bp, '[');
-                    const char *e = p ? strchr(p, ']') : NULL;
-                    const char *q = p ? p + 1 : NULL;
-                    while (q && (!e || q < e)) {
-                        const char *obj = strchr(q, '{');
-                        if (!obj || (e && obj >= e)) break;
-                        const char *obje = strchr(obj, '}');
-                        if (!obje) break;
-                        const char *lp = strstr(obj, "\"line\"");
-                        if (lp && lp < obje) {
-                            lp = strchr(lp, ':');
-                            if (lp && lp < obje) {
-                                long ln = strtol(lp + 1, NULL, 10);
-                                if (!first) je_lit(&buf, &cap, &len, ",");
-                                first = 0;
-                                char fb[64];
-                                int m = snprintf(fb, sizeof(fb), "{\"verified\":true,\"line\":%ld}", ln);
-                                json_emit(&buf, &cap, &len, fb, (size_t)m);
-                            }
-                        }
-                        q = obje + 1;
-                    }
-                }
-            }
-            je_lit(&buf, &cap, &len, "]}");
-            dap_send_response(d, req_seq, "setBreakpoints", 1, buf, NULL);
-            free(buf); free(path);
+            dap_handle_set_breakpoints(d, args, req_seq);
         } else if (strcmp(cmd, "configurationDone") == 0) {
             dap_send_response(d, req_seq, "configurationDone", 1, "{}", NULL);
             free(msg); free(cmd); free(args);

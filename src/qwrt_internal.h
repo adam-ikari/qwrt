@@ -233,6 +233,14 @@ struct qwrt_t {
      * src/debugger_dap.c. Per-runtime, so multiple runtimes (e.g. a worker)
      * each get their own DAP state. */
     void *dap;
+    /* Periodic timer that keeps uv_run bounded while a DAP session is open:
+     * DAP messages arrive on stdin, which is NOT a libuv event source, so an
+     * idle loop would otherwise block forever in poll and never service
+     * pause/setBreakpoints/disconnect. The timer wakes uv_run every 50 ms; its
+     * callback (qwrt_dap_service) non-blockingly drains stdin. dap_timer_active
+     * marks it running so the wait_idle walk can exclude it from "busy". */
+    uv_timer_t dap_timer;
+    int dap_timer_active;
 #endif
 };
 
@@ -260,6 +268,13 @@ int  qwrt_eval_internal(qwrt_t *rt, const char *script, char **err);
 int  qwrt_eval_bytecode_internal(qwrt_t *rt, const uint8_t *code, size_t len,
                                  char **err);
 void qwrt_thread_teardown(qwrt_t *rt);
+#ifdef QWRT_DEBUG_SUPPORT
+/* debugger_dap.c — service the DAP stdin channel from the qwrt thread while
+ * the debuggee is NOT paused (the paused pump runs inside on_stopped).
+ * Called by the DAP poll timer so an idle uv_run never blocks forever on a
+ * DAP pause/setBreakpoints/disconnect that arrived on stdin. */
+void qwrt_dap_service(qwrt_t *rt);
+#endif
 
 /* thread.c — flush pending JS microtasks (worker.c calls this on its loop) */
 int qwrt_flush_microtasks(qwrt_t *rt);
