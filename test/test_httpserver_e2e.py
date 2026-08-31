@@ -671,6 +671,67 @@ def test_websocket_client(qwrt_bin):
     assert "GOT:9" in text and "GOT:305" in text, text[-400:]
     assert "WS-CLIENT-OK:1000:bye" in text, text[-400:]
 
+
+# F2 覆盖率补测：WebSocket 客户端错误路径（websocket.js 的 _onError/_fail 分支）。
+# 两个场景（连接被拒 / 对非 WS 端点握手）都只触发 onerror（_onError/_fail 置
+# CLOSED 后 onclose 不再触发），断言 onerror 确实被调用。
+def _run_js_until(qwrt_bin, js, markers, settle=2.5):
+    """Run a -e script, read stdout until all markers appear or settle seconds
+    elapse, then terminate the process. Returns (text, returncode)."""
+    import select
+    proc = subprocess.Popen([qwrt_bin, "-e", js],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = b""
+    deadline = time.time() + settle
+    fd = proc.stdout.fileno()
+    try:
+        while time.time() < deadline and not all(m in out for m in markers):
+            rlist, _, _ = select.select([fd], [], [], 0.05)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk:
+                    break
+                out += chunk
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+    return out.decode(errors="replace"), proc.returncode
+
+
+@test
+def test_websocket_client_connect_refused(qwrt_bin):
+    """WS client to a closed port → tcp connect error → onerror fires.
+    (_onError 置 CLOSED，onclose 不再触发 —— 只断言 onerror。)"""
+    p = free_port()   # 无人监听
+    js = (
+        "const ws = new WebSocket('ws://127.0.0.1:%d/');"
+        "ws.onerror = () => console.log('WS-REFUSED-ERR');"
+        "ws.onclose = (ev) => console.log('WS-REFUSED-CLOSE:' + ev.code);" % p
+    )
+    text, rc = _run_js_until(qwrt_bin, js, (b"WS-REFUSED-ERR",))
+    assert "WS-REFUSED-ERR" in text, "refused onerror not fired; rc=%d out=%s" % (rc, text[:400])
+
+
+@test
+def test_websocket_client_non_ws_server(qwrt_bin):
+    """WS client → plain HTTP endpoint (200, no Upgrade) → handshake parse
+    fails → onerror fires. serve() keeps the loop alive; read until the
+    timeout marker then terminate."""
+    p = free_port()
+    js = (
+        "const srv = serve({port: %d}, () => new Response('ok'));"
+        "const ws = new WebSocket('ws://127.0.0.1:%d/hello');"
+        "ws.onerror = () => console.log('WS-HTTP-ERR');"
+        "setTimeout(() => { console.log('WS-HTTP-DONE'); srv.close(); }, 1200);"
+        % (p, p)
+    )
+    text, rc = _run_js_until(qwrt_bin, js, (b"WS-HTTP-ERR", b"WS-HTTP-DONE"))
+    assert "WS-HTTP-ERR" in text, "handshake-fail onerror not fired; rc=%d out=%s" % (rc, text[:400])
+    assert "WS-HTTP-DONE" in text, "script did not reach timeout marker; rc=%d out=%s" % (rc, text[:400])
 @test
 def test_websocket_fragmentation(qwrt_bin):
     """Server reassembles a fragmented (FIN=0 + continuation) text message."""

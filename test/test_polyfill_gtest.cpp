@@ -1872,6 +1872,119 @@ TEST_F(PolyfillTest, FsTraversalGuard) {
     }
 }
 
+/* ────────────────────────────────────────────────────────────────
+ * F2 覆盖率补测：fs 错误路径。
+ * 正常路径（往返/exists/二进制/readdir/穿越守卫）已被上面用例覆盖；
+ * 这里补齐 uv_io_fs_* 的失败分支：读不存在文件、读目录当文件、
+ * 写不存在目录、readdir 不存在目录、unlink 不存在、多块读取扩容、
+ * readdir 条目扩容。mock_libuv 的 uv_fs_* 在调用点同步走真实文件
+ * 系统并立即回调，promise 在下一轮 host_eval 后可见；错误经
+ * bridge_io_done 以字符串 reject（如 "file not found"）。
+ * ──────────────────────────────────────────────────────────────── */
+
+TEST_F(PolyfillTest, FsReadFileMissing) {
+    std::string path = fs_tmp("missing_read");
+    std::string plit = JSON_string(path.c_str());
+    std::string out, v;
+
+    /* 读不存在的文件 → rejection "file not found"（uv_io_fs_read_open_cb NOT_FOUND 分支） */
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qwrt.fs.readFile(" + plit +
+        ").then(function(){ globalThis._e = 'ok'; },"
+        " function(e){ globalThis._e = 'rej:' + e; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_e", "rej:file not found", &v)) << "got: " << v;
+
+    /* readFileBinary 同路径 */
+    ASSERT_TRUE(host_eval(h, ("globalThis._b = 'pending'; qwrt.fs.readFileBinary(" + plit +
+        ").then(function(){ globalThis._b = 'ok'; },"
+        " function(e){ globalThis._b = 'rej:' + e; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_b", "rej:file not found", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, FsWriteToMissingDir) {
+    /* 写不存在的目录 → open 失败 "cannot open file for writing"（uv_io_fs_write_open_cb） */
+    std::string path = fs_tmp("no_dir") + "/x.txt";
+    std::string out, v;
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qwrt.fs.writeFile(" +
+        JSON_string(path.c_str()) + ", 'x').then(function(){ globalThis._e = 'ok'; },"
+        " function(e){ globalThis._e = 'rej:' + e; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_e", "rej:cannot open file for writing", &v))
+        << "got: " << v;
+}
+
+TEST_F(PolyfillTest, FsReaddirMissingDir) {
+    /* 不存在的目录 → scandir 失败 "scandir error"（uv_io_fs_list_cb result<0） */
+    std::string dir = fs_tmp("no_dir2");
+    std::string out, v;
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qwrt.fs.readdir(" +
+        JSON_string(dir.c_str()) + ").then(function(){ globalThis._e = 'ok'; },"
+        " function(e){ globalThis._e = 'rej:' + e; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_e", "rej:scandir error", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, FsUnlinkMissing) {
+    /* unlink 不存在文件 → "not found"（uv_io_fs_remove_cb ENOENT 分支） */
+    std::string path = fs_tmp("no_unlink");
+    std::string out, v;
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qwrt.fs.unlink(" +
+        JSON_string(path.c_str()) + ").then(function(){ globalThis._e = 'ok'; },"
+        " function(e){ globalThis._e = 'rej:' + e; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_e", "rej:not found", &v)) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, FsReadLargeFileMultiChunk) {
+    /* >8KB 文件触发多块读取与缓冲区增长（uv_io_fs_read_cb 的 realloc/grow 分支）。
+     * PAL_UV_FS_BUF_INIT=4096：首读 4096 → iov.len=0 触发扩容（×2）→ 续读至 EOF。 */
+    std::string path = fs_tmp("big");
+    std::string data(30000, 'z');
+    std::string plit = JSON_string(path.c_str());
+    std::string dlit = JSON_string(data.c_str());
+    std::string out, v;
+
+    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qwrt.fs.writeFile(" + plit +
+        ", " + dlit + ").then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
+
+    /* 读回：长度精确 + 首尾字节正确（无截断/错位） */
+    ASSERT_TRUE(host_eval(h, ("globalThis._r = 'pending'; qwrt.fs.readFile(" + plit +
+        ").then(function(d){ globalThis._r = d.length + ':' + d[0] + d[d.length-1]; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_r", "30000:zz", &v)) << "got: " << v;
+
+    /* 清理 */
+    ASSERT_TRUE(host_eval(h, ("globalThis._d = 'pending'; qwrt.fs.unlink(" + plit +
+        ").then(function(){ globalThis._d = 'done'; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_d", "done", &v));
+}
+
+TEST_F(PolyfillTest, FsReaddirManyEntries) {
+    /* >32 条目触发 fs_list 的 names 扩容分支（cap 32 → 64 → …） */
+    const int N = 36;
+    std::string dir = fs_tmp("many");
+    ASSERT_EQ(0, ::mkdir(dir.c_str(), 0700));
+    std::string files[N];
+    char name[64];
+    for (int i = 0; i < N; i++) {
+        snprintf(name, sizeof name, "%s/f_%02d.txt", dir.c_str(), i);
+        files[i] = name;
+    }
+    std::string out, v;
+    for (int i = 0; i < N; i++) {
+        ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qwrt.fs.writeFile(" +
+            JSON_string(files[i].c_str()) + ", 'x').then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
+        ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
+    }
+    /* 36 个条目全列出 */
+    ASSERT_TRUE(host_eval(h, ("globalThis._dl = 'pending'; qwrt.fs.readdir(" +
+        JSON_string(dir.c_str()) + ").then(function(a){ globalThis._dl = a.length; }); 0").c_str(), &out));
+    ASSERT_TRUE(host_poll_until_value(h, "_dl", "36", &v)) << "got: " << v;
+    /* 清理 */
+    for (int i = 0; i < N; i++) {
+        ASSERT_TRUE(host_eval(h, ("globalThis._d = 'pending'; qwrt.fs.unlink(" +
+            JSON_string(files[i].c_str()) + ").then(function(){ globalThis._d = 'done'; }); 0").c_str(), &out));
+        ASSERT_TRUE(host_poll_until_value(h, "_d", "done", &v));
+    }
+    ASSERT_EQ(0, ::rmdir(dir.c_str()));
+}
+
 /* F4 安全审计回归：structuredClone 反序列化端遇到 '__proto__' 键必须落为
  * 普通 own 属性（defineProperty），不得触发原型 setter 污染 Object.prototype。 */
 TEST_F(PolyfillTest, CloneProtoPollutionGuard) {
