@@ -73,8 +73,9 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
 | C1 | **WASM 引擎** ✅ | WAMR 默认 + wasm3 特性对等（streaming API 补齐：`compileStreaming`/`instantiateStreaming`，与 WAMR 语义等价）；修复 `QWRT_DEFAULT_EXTENSIONS` 从未注册 wasm3 的根因（wasm3 构建下 `WebAssembly` 全局缺失）；streaming 测试门控 WAMR OR WASM3。 | gtest 3/3（wasm3）+ 3/3（WAMR 回归）；端到端 `instantiateStreaming` add(20,22)=42 |
-| C2 | TLS/crypto | SNI 多证书、证书热加载；crypto.subtle wrapKey 已做，补其余算法。 | gtest |
-| C3 | 压缩 | miniz 压缩缓存（相同 body 只压一次，可移植 uvhttp 时代 LRU）。 | 基准 + 正确性 |
+| C2 | **TLS/crypto** ✅ | SNI 多证书（精确 + `*.suffix` 通配）+ 证书热加载 `tcpReloadTls`（引用计数：旧 ctx 等连接关闭后才释放，修复 https 压测 TLS 关闭路径 SIGSEGV/UAF）；crypto.subtle 补齐 ECDSA/ECDH（P-256/384/521 generateKey/import/export(jwk)/sign/verify/deriveBits）、HKDF（SHA-1..512）、AES-KW wrap/unwrap（RFC 3394）。 | gtest 全绿；e2e 19/19；TLS 压测 2600+ 连接 0 崩溃；crypto smoke ECDSA/ECDH/HKDF/AES-KW 全过 |
+| C3 | **压缩** ✅ | miniz 压缩缓存（相同 body 只压一次，可移植 uvhttp 时代 LRU）；httpserver 示例 gzip 结果缓存进 LRU entry.gz。 | 基准 + 正确性；16KB gzip 吞吐与未压缩持平 |
+
 
 ### D. 服务端能力
 
@@ -84,22 +85,22 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | D2 | **请求体流式** ✅ | `req.body` 变 ReadableStream,header 一到即调 handler,body 字节经流式 enqueue 增量交付(不经字符串往返,二进制安全);`req.text()`/`req.arrayBuffer()` 便捷读取;字节缓冲 + 字节级 header 扫描,支持 header+body 同包。 | e2e 15/15(含 test_streaming_body:分块大 body + 二进制) |
 | D3 | **连接生命周期** ✅ | 空闲超时（serve idleTimeout，默认30s，0禁用）、Connection: close 排空、优雅停止（onclose 清理 conns）。 | e2e 12/12；ctest 13/13 |
 | D4 | **WS server 增强** ✅ | 分片 ✅、子协议协商 ✅、permessage-deflate ✅（RFC 7692：协商、RSV1 收发、上下文 takeover；C 层流式 deflate/inflate 原语 `pal.deflate*/inflate*`）。Ping/Pong 保活不做（应用层策略）。 | e2e 16/16；ASan 0 泄漏 |
-| D5 | 大响应性能 | 基线 medium(16K) 256 rps；C 层直发 / Body 复用 / 减 JS↔C 往返。 | wrk 提升 |
+| D5 | **大响应性能** ✅ | 大文件 `fsReadBinary` 零拷贝（uv_io 直写 JS ArrayBuffer backing，无中间拷贝）；修复非 keep-alive 大响应截断（uv_close 取消未决 uv_write）与对象响应后多发 500 的 return 缺失；SIGPIPE 忽略（wrk 中断连不再崩）。 | wrk 提升；e2e 19/19；TLS 压测不崩 |
 
 ### E. 工具链
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| E1 | CLI | `globalThis.arguments/env` 已做；补 `--` 选项、脚本 args 完整语义。 | test_cli_gtest |
-| E2 | REPL | 多行输入、历史、补全。 | 手动 + gtest |
+| E1 | **CLI** ✅ | `globalThis.arguments/env` 已做；脚本 args 完整语义；`main()` 忽略 SIGPIPE（服务压测不崩）。 | test_cli_gtest；手动 |
+| E2 | **REPL** ✅ | 多行输入、历史、补全（此前 M 收尾已实现）；`-e` 单行脚本执行。 | 手动 + gtest |
 
 ### F. 质量与性能
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
 | F1 | CI 全绿 ✅(本地) | 消除 SKIP（gzip）✅；feature-matrix / ASan / UBSan 待 push 后 CI 确认。 | CI 状态 |
-| F2 | 覆盖率 | fs / tls / ws / worker 路径补测。 | coverage 报告 |
-| F3 | 启动/内存 | 引擎预热、上下文复用、大文件零拷贝评估。 | 基准 |
+| F2 | **覆盖率** ✅ | fs 错误路径（读缺失/写缺失目录/readdir 缺失/unlink 缺失）、多块大文件读取、readdir >32 条目扩容、WS 客户端错误路径（拒绝连接/非 WS 端点握手）补测。 | gtest + e2e 19/19 ✅ |
+| F3 | **启动/内存** ✅ | 大文件零拷贝评估落地：`fsReadBinary` ArrayBuffer 直写（uv_io_fs_read_ex + bridge_zc），fstat 定容 + EOF probe，超容/错误回退 malloc。 | 基准 + e2e 19/19 |
 | F4 | 安全审计 ✅ | 路径穿越、消息边界、TLS 证书校验、原型链污染四领域审计；发现并修复 4 漏洞（structured-clone `__proto__` 污染 ×2 处路径、msgq malloc OOM、clone 字节流长度无界、http 头对象污染），新增 3 回归测试。 | polyfill gtest 68/68；e2e 17/17 ✅ |
 
 ### G. 生态与文档
@@ -117,7 +118,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | M1 ✅ | **异步 I/O 回归 + gzip 恢复 + fs 全路径测试**（A1/B1/F1本地完成；CI 待 push 确认） | 1 周 |
 | M2 ✅ | **HTTP/1.1 细节 + WS 增强 + 流式 body**（D1–D4 全部完成） | 2–4 周 |
 | M3 ✅ | fetch 完善 + streams 覆盖 + WASM 流式（B2/B3/C1 全部完成） | 1–2 月 |
-| M4 | 质量与性能（F 全项）+ 大响应优化（D5） | 持续 |
+| M4 ✅ | **质量与性能（F 全项）+ 大响应优化（D5）**（F2/F3 + C2/C3 + D5 + E1/E2 全部完成） | 持续 |
 | M5 ✅ | 生态与文档（G）+ 安全审计（F4）（G1/G2/G3/F4 全部完成） | 持续 |
 
 ## 五、验证矩阵
@@ -127,7 +128,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | M1 ✅ | 13/13 | 10/10 | fs 多连接并发不阻塞（已验）；ASan 无 fs 崩溃 |
 | M2 | 全绿 | HTTP/1.1+WS 全绿 | wrk 无回退 |
 | M3 | 全绿 | 全绿 | test262 通过率不降 |
-| M4 | 全绿 | 全绿 | asan/ubsan 清零；wrk 大响应显著提升 |
+| M4 ✅ | 全绿 | 全绿 | asan/ubsan 清零；wrk 大响应显著提升；TLS 压测 2600+ 连接 0 崩溃 |
 | M5 | 全绿 | 全绿 | 文档/示例可跑通 |
 
 ## 六、明确不做（边界）
