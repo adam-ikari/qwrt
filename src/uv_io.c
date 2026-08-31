@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 #if QWRT_WITH_TLS
 #include <mbedtls/ssl.h>
@@ -57,6 +58,20 @@ typedef struct uv_io_fs_op_t {
     char *buf;
     size_t buf_len;
     size_t buf_cap;
+    /* Zero-copy fs_read: alloc_fn provisions buf after open (JS ArrayBuffer
+     * backing); owner != NULL marks buf as externally owned — close_cb then
+     * hands it to the done callback instead of free(). err records a read
+     * failure so close_cb releases the backing before the (already-fired)
+     * error callback's cleanup. */
+    qwrt_fs_alloc_fn alloc_fn;
+    qwrt_fs_free_fn free_fn;
+    void *alloc_ud;
+    void *owner;
+    int err;
+    /* EOF probe for zero-copy reads: when the backing (sized by fstat) is
+     * full, read one byte to distinguish EOF from a file that grew. */
+    char probe[1];
+    int probing;
     /* For fs_write: write offset into buf (avoids advancing buf pointer) */
     size_t buf_offset;
     /* For fs_read/fs_write: file descriptor after open */
@@ -909,13 +924,45 @@ static void uv_io_fs_read_close_cb(uv_fs_t *req)
     uv_io_fs_op_t *op = (uv_io_fs_op_t *)req->data;
     uv_fs_req_cleanup(req);
 
-    /* Callback with accumulated data */
+    /* Zero-copy error path: release the externally-owned backing before the
+     * cleanup free below would double-free it (the error callback itself has
+     * already fired synchronously from read_cb). Success hands the backing to
+     * the done callback — uv_io must not free it. */
+    if (op->err && op->owner && op->free_fn) {
+        op->free_fn(op->alloc_ud, op->owner);
+        op->owner = NULL;
+    }
     if (op->cb) {
         op->cb(op->cb_data, 0, op->buf, op->buf_len);
     }
 
-    free(op->buf);
+    if (!op->owner)
+        free(op->buf);
     free(op);
+}
+
+/* Grow op->buf to at least new_cap. In zero-copy mode the backing store is
+ * owned by the allocator (e.g. a JS ArrayBuffer) and cannot be realloc'd:
+ * release it and fall back to a plain malloc buffer, copying what has been
+ * read so far. Returns the (possibly new) buffer, or NULL on OOM. */
+static char *uv_io_fs_read_grow(uv_io_fs_op_t *op, size_t new_cap)
+{
+    char *new_buf;
+    if (op->owner && op->free_fn) {
+        /* Copy BEFORE releasing the backing: free_fn may free op->buf
+         * (e.g. the engine finalizer), so reading from it afterwards is
+         * a use-after-free. */
+        new_buf = (char *)malloc(new_cap);
+        if (new_buf && op->buf_len)
+            memcpy(new_buf, op->buf, op->buf_len);
+        op->free_fn(op->alloc_ud, op->owner);
+        op->owner = NULL;
+        if (!new_buf)
+            op->buf = NULL;  /* close_cb must not free the released backing */
+    } else {
+        new_buf = (char *)realloc(op->buf, new_cap);
+    }
+    return new_buf;
 }
 
 static void uv_io_fs_read_cb(uv_fs_t *req)
@@ -934,13 +981,56 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
          * and clean up in close_cb without calling cb again. */
         qwrt_io_done_t cb = op->cb;
         void *cb_data = op->cb_data;
+        op->err = 1;
+        /* Release the zero-copy backing BEFORE the error callback fires:
+         * the callback frees the allocator state, so free_fn must not run
+         * afterwards from close_cb. */
+        if (op->owner && op->free_fn) {
+            op->free_fn(op->alloc_ud, op->owner);
+            op->owner = NULL;
+            op->buf = NULL;
+        }
         op->cb = NULL;
         cb(cb_data, QWRT_ERR_GENERIC, "read error", 10);
         return;
     }
 
-    if (result == 0) {
+    if (op->probing) {
+        /* EOF probe result: 0 means we are truly at EOF (deliver the
+         * zero-copy backing as-is); 1 means the file grew past fstat's size,
+         * so fall back to a malloc buffer and keep the probe byte. */
+        op->probing = 0;
+        if (result == 0) {
+            fprintf(stderr, "DIAG ZC-EOF: backing=%p len=%zu\n", (void*)op->buf, op->buf_len);
+            uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
+                         uv_io_fs_read_close_cb);
+            return;
+        }
         uv_fs_req_cleanup(req);
+        size_t new_cap = op->buf_cap + PAL_UV_FS_BUF_INIT;
+        char *new_buf = uv_io_fs_read_grow(op, new_cap);
+        if (!new_buf) {
+            qwrt_io_done_t cb = op->cb;
+            void *cb_data = op->cb_data;
+            op->cb = NULL;
+            uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
+                         uv_io_fs_read_close_cb);
+            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+            return;
+        }
+        op->buf = new_buf;
+        op->buf_cap = new_cap;
+        op->buf[op->buf_len] = op->probe[0];
+        op->buf_len += 1;
+        /* keep reading from the new offset */
+        uv_buf_t iov;
+        iov.base = op->buf + op->buf_len;
+        iov.len = op->buf_cap - op->buf_len;
+        uv_fs_read(&op->rt->loop, &op->fs_req, op->fd, &iov, 1,
+                   QWRT_ERR_GENERIC, uv_io_fs_read_cb);
+        return;
+    }
+    if (result == 0) {
         /* EOF — close file and deliver data */
         uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                      uv_io_fs_read_close_cb);
@@ -955,7 +1045,7 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
     if (new_len > op->buf_cap) {
         size_t new_cap = op->buf_cap * 2;
         if (new_cap < new_len) new_cap = new_len;
-        char *new_buf = (char *)realloc(op->buf, new_cap);
+        char *new_buf = uv_io_fs_read_grow(op, new_cap);
         if (!new_buf) {
             qwrt_io_done_t cb = op->cb;
             void *cb_data = op->cb_data;
@@ -975,10 +1065,21 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
     iov.base = op->buf + op->buf_len;
     iov.len = op->buf_cap - op->buf_len;
     if (iov.len == 0) {
+        if (op->owner) {
+            /* Zero-copy backing is exactly fstat's size and it is now full:
+             * probe one byte to tell EOF (deliver the backing untouched)
+             * from a file that grew mid-read (fall back to a malloc buf). */
+            op->probe[0] = 0;
+            op->probing = 1;
+            uv_buf_t p = { op->probe, 1 };
+            uv_fs_read(&op->rt->loop, &op->fs_req, op->fd, &p, 1,
+                       QWRT_ERR_GENERIC, uv_io_fs_read_cb);
+            return;
+        }
         iov.len = PAL_UV_FS_BUF_INIT;
         /* Grow buffer */
         size_t new_cap = op->buf_cap + PAL_UV_FS_BUF_INIT;
-        char *new_buf = (char *)realloc(op->buf, new_cap);
+        char *new_buf = uv_io_fs_read_grow(op, new_cap);
         if (!new_buf) {
             qwrt_io_done_t cb = op->cb;
             void *cb_data = op->cb_data;
@@ -1014,6 +1115,34 @@ static void uv_io_fs_read_open_cb(uv_fs_t *req)
 
     op->fd = (uv_file)result;
 
+    /* Zero-copy mode: size the destination with a cheap synchronous fstat
+     * (loop thread) and let the allocator provision the backing store; libuv
+     * then reads straight into it. Fall back to the malloc buffer when no
+     * allocator is set, the stat fails, or the file is empty. */
+    if (op->alloc_fn) {
+        struct stat st;
+        if (fstat(op->fd, &st) == 0 && st.st_size > 0) {
+            void *owner = NULL;
+            char *backing = (char *)op->alloc_fn(op->alloc_ud,
+                                                 (size_t)st.st_size, &owner);
+            if (backing) {
+                op->buf = backing;
+                op->buf_cap = (size_t)st.st_size;
+                op->owner = owner;
+            }
+        }
+        if (!op->buf) {
+            op->buf_cap = PAL_UV_FS_BUF_INIT;
+            op->buf = (char *)malloc(op->buf_cap);
+            if (!op->buf) {
+                op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+                uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
+                             uv_io_fs_read_close_cb);
+                return;
+            }
+        }
+    }
+
     /* Start reading */
     uv_buf_t iov;
     iov.base = op->buf;
@@ -1022,10 +1151,11 @@ static void uv_io_fs_read_open_cb(uv_fs_t *req)
                uv_io_fs_read_cb);
 }
 
-void uv_io_fs_read(qwrt_t *rt, const char *path,
-                           qwrt_io_done_t cb, void *cb_data)
+void uv_io_fs_read_ex(qwrt_t *rt, const char *path,
+                      qwrt_io_done_t cb, void *cb_data,
+                      qwrt_fs_alloc_fn alloc_fn, qwrt_fs_free_fn free_fn,
+                      void *alloc_ud)
 {
-
     if (!path) {
         cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
         return;
@@ -1041,16 +1171,27 @@ void uv_io_fs_read(qwrt_t *rt, const char *path,
     op->cb_data = cb_data;
     op->rt = rt;
     op->fs_req.data = op;
-    op->buf_cap = PAL_UV_FS_BUF_INIT;
-    op->buf = (char *)malloc(op->buf_cap);
-    if (!op->buf) {
-        free(op);
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
-        return;
+    op->alloc_fn = alloc_fn;
+    op->free_fn = free_fn;
+    op->alloc_ud = alloc_ud;
+    if (!alloc_fn) {
+        op->buf_cap = PAL_UV_FS_BUF_INIT;
+        op->buf = (char *)malloc(op->buf_cap);
+        if (!op->buf) {
+            free(op);
+            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+            return;
+        }
     }
 
     uv_fs_open(&rt->loop, &op->fs_req, path, O_RDONLY, 0,
                uv_io_fs_read_open_cb);
+}
+
+void uv_io_fs_read(qwrt_t *rt, const char *path,
+                   qwrt_io_done_t cb, void *cb_data)
+{
+    uv_io_fs_read_ex(rt, path, cb, cb_data, NULL, NULL, NULL);
 }
 
 /* --- fs_write: open -> write -> close -> callback --- */

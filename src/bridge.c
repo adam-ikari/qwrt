@@ -486,17 +486,68 @@ static void bridge_io_done(void *opaque, int status, const char *data, size_t le
     qwrt_free_cb_data(ctx, cd);
 }
 
-/* Binary fs_read done callback: resolve with an ArrayBuffer copy of the raw
- * bytes (unlike bridge_io_done, which builds a UTF-8 string and would corrupt
- * arbitrary binary data). Errors reject with a string, same as the text path. */
-static void bridge_io_done_binary(void *opaque, int status, const char *data, size_t len)
+
+/* Zero-copy fsReadBinary: uv_io provisions the destination buffer after open
+ * (with the file size) and libuv reads straight into a JS ArrayBuffer's
+ * backing store — the resolved promise hands out that same buffer, no copy.
+ * The zc state carries the stashed JSValue; it is malloc'd (not js_malloc)
+ * because its lifetime is owned by the async op, and all JS touchpoints
+ * (alloc/free_fn/done) run on the qwrt loop thread. */
+typedef struct {
+    JSContext *ctx;
+    qwrt_cb_data_t *cbd;
+    JSValue ab;      /* stashed ArrayBuffer; consumed on success */
+    int zc_valid;    /* cleared when uv_io releases the backing */
+} bridge_zc_t;
+
+/* JSFreeArrayBufferDataFunc shim: the engine finalizer frees the backing. */
+static void bridge_zc_ab_free(JSRuntime *rt, void *opaque, void *ptr)
 {
-    qwrt_cb_data_t *cd = (qwrt_cb_data_t *)opaque;
-    JSContext *ctx = cd->ctx->jsctx;
+    (void)rt;
+    (void)opaque;
+    free(ptr);
+}
+
+static void *bridge_zc_alloc(void *ud, size_t size, void **owner)
+{
+    bridge_zc_t *zc = (bridge_zc_t *)ud;
+    /* Plain malloc + JS_NewArrayBuffer(free_func=free): the engine's
+     * finalizer releases the backing once the JSValue is collected. */
+    uint8_t *buf = (uint8_t *)malloc(size);
+    if (!buf)
+        return NULL;
+    JSValue ab = JS_NewArrayBuffer(zc->ctx, buf, size, bridge_zc_ab_free, NULL, false);
+    if (JS_IsException(ab)) {
+        free(buf);
+        return NULL;
+    }
+    zc->ab = ab;
+    zc->zc_valid = 1;
+    *owner = zc;
+    return buf;
+}
+
+static void bridge_zc_free(void *ud, void *owner)
+{
+    (void)owner;
+    bridge_zc_t *zc = (bridge_zc_t *)ud;
+    JS_FreeValue(zc->ctx, zc->ab);
+    zc->ab = JS_UNDEFINED;
+    zc->zc_valid = 0;
+}
+
+static void bridge_io_done_binary_zc(void *opaque, int status, const char *data, size_t len)
+{
+    bridge_zc_t *zc = (bridge_zc_t *)opaque;
+    qwrt_cb_data_t *cd = zc->cbd;
+    JSContext *ctx = zc->ctx;
     JSValue fn = (status == 0) ? cd->resolve : cd->reject;
     JSValue result;
 
-    if (status == 0) {
+    if (status == 0 && zc->zc_valid) {
+        result = zc->ab;         /* hand the backing to the promise */
+        zc->ab = JS_UNDEFINED;
+    } else if (status == 0) {
         result = JS_NewArrayBufferCopy(ctx, (const uint8_t *)(data ? data : ""), data ? len : 0);
     } else if (data) {
         result = JS_NewStringLen(ctx, data, len);
@@ -510,6 +561,7 @@ static void bridge_io_done_binary(void *opaque, int status, const char *data, si
     }
     JS_FreeValue(ctx, result);
     qwrt_free_cb_data(ctx, cd);
+    free(zc);
 }
 
 /* storage_get done callback: found → resolve the stored string; not-found →
@@ -820,15 +872,28 @@ static JSValue js_pal_fs_read_binary(JSContext *ctx, JSValueConst this_val, int 
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
-    if (!cbd) {
+    bridge_zc_t *zc = (bridge_zc_t *)malloc(sizeof(*zc));
+    if (!zc) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
         JS_FreeCString(ctx, path);
         return JS_ThrowOutOfMemory(ctx);
     }
+    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    if (!cbd) {
+        free(zc);
+        JS_FreeValue(ctx, resolving_funcs[0]);
+        JS_FreeValue(ctx, resolving_funcs[1]);
+        JS_FreeCString(ctx, path);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    zc->ctx = ctx;
+    zc->cbd = cbd;
+    zc->ab = JS_UNDEFINED;
+    zc->zc_valid = 0;
 
-    uv_io_fs_read(rt, path, bridge_io_done_binary, cbd);
+    uv_io_fs_read_ex(rt, path, bridge_io_done_binary_zc, zc,
+                     bridge_zc_alloc, bridge_zc_free, zc);
 
     JS_FreeCString(ctx, path);
     return promise;

@@ -335,6 +335,19 @@ void uv_io_storage_set(qwrt_t *rt, const char *key,
                        qwrt_io_done_t cb, void *cb_data);
 void uv_io_storage_del(qwrt_t *rt, const char *key,
                        qwrt_io_done_t cb, void *cb_data);
+/* Zero-copy fs_read: alloc_fn runs on the qwrt loop thread right after open,
+ * with the file size from fstat; it returns a backing store that receives the
+ * bytes directly (no intermediate copy). On success the backing is handed to
+ * the done callback and NOT freed by uv_io; on read error free_fn releases it
+ * before the done callback fires. If alloc_fn returns NULL (or the file grows
+ * past the backing store) uv_io falls back to a plain malloc buffer and the
+ * done callback must synthesize the result. */
+typedef void *(*qwrt_fs_alloc_fn)(void *ud, size_t size, void **owner);
+typedef void (*qwrt_fs_free_fn)(void *ud, void *owner);
+void uv_io_fs_read_ex(qwrt_t *rt, const char *path,
+                      qwrt_io_done_t cb, void *cb_data,
+                      qwrt_fs_alloc_fn alloc_fn, qwrt_fs_free_fn free_fn,
+                      void *alloc_ud);
 void uv_io_fs_read(qwrt_t *rt, const char *path,
                    qwrt_io_done_t cb, void *cb_data);
 void uv_io_fs_write(qwrt_t *rt, const char *path,
