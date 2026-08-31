@@ -45,6 +45,7 @@ struct HostCtx {
     uv_mutex_t m; uv_cond_t c;
     std::deque<std::string> inbox;   /* lock-guarded message FIFO (no overwrite loss) */
     long replies = 0;                /* lock-guarded message_cb count */
+    int eval_id = 0;                 /* 递增 eval 请求 id，用于响应配对 */
 };
 
 static inline void host_msg_cb(qwrt_t *rt, const char *json, size_t len, void *data) {
@@ -65,8 +66,8 @@ static const char *kTestBootstrap = R"JS(
 globalThis.onmessage = function (e) {
   var d = e.data;
   if (d && d.cmd === 'eval') {
-    try { postMessage({ok: true, v: JSON.stringify((0, eval)(d.code))}); }
-    catch (err) { postMessage({ok: false, e: String(err)}); }
+    try { postMessage({ok: true, id: d.id, v: JSON.stringify((0, eval)(d.code))}); }
+    catch (err) { postMessage({ok: false, id: d.id, e: String(err)}); }
   } else if (d && d.cmd === 'echo') {
     postMessage(d.data);
   }
@@ -92,11 +93,33 @@ static inline void host_destroy(HostCtx *h) {
     delete h;
 }
 
+// 单次 eval 的短超时：host_poll_until* 应持续重试直到总预算耗尽，而不是被
+// 单次慢的 eval 拖垮——Debug 高负载下 qwrt 线程处理 1MB 压缩/解压消息队列
+// 可能数秒，5s 的单次等待会让 poll 退化成一击即败。值取 3000ms：正常 1MB
+// roundtrip 的 JS 层比较循环在 Debug 下 ~1-2s，3000ms 单次内完成不引入额外
+// 重试；高负载下超时后重试自愈。超时后残留的 eval 响应由 host_wait_msg
+// 清理，下一次 eval 从干净状态重试。
+#define HOST_POLL_SINGLE_MS 3000
+
 // 等待宿主收到一条消息；返回 true 并把内容写进 out。timeout_ms 内没到则 false。
 static inline bool host_wait_msg(HostCtx *h, std::string *out, int timeout_ms = 5000) {
     uv_mutex_lock(&h->m);
     while (h->inbox.empty()) {
-        if (uv_cond_timedwait(&h->c, &h->m, timeout_ms) != 0) { uv_mutex_unlock(&h->m); return false; }
+        if (uv_cond_timedwait(&h->c, &h->m, timeout_ms) != 0) {
+            /* 超时：丢弃堆积的 eval 响应残留，防止下一条 eval 弹出旧响应导致
+             * 消息错位（一条 eval 超时后，其响应稍后到达会留在 inbox，污染
+             * 后续所有 host_eval 的"发一条/等一条"配对）。只清 eval 响应
+             * （{"ok":…} / {"type":"error…}），保留 worker/异步回调等其他
+             * 消息，避免误删其他测试依赖的异步消息。 */
+            while (!h->inbox.empty()) {
+                const std::string &f = h->inbox.front();
+                if (f.compare(0, 6, "{\"ok\":") == 0 || f.compare(0, 16, "{\"type\":\"error") == 0)
+                    h->inbox.pop_front();
+                else break;
+            }
+            uv_mutex_unlock(&h->m);
+            return false;
+        }
     }
     *out = std::move(h->inbox.front());
     h->inbox.pop_front();
@@ -106,10 +129,27 @@ static inline bool host_wait_msg(HostCtx *h, std::string *out, int timeout_ms = 
 
 // 宿主对 qwrt 求值（经命令通道）；返回 {ok, v|e} 的原始 JSON。
 static inline bool host_eval(HostCtx *h, const char *code, std::string *out, int timeout_ms = 5000) {
-    std::string payload = std::string("{\"cmd\":\"eval\",\"code\":") + JSON_string(code) + "}";
+    int id = ++h->eval_id;
+    std::string payload = std::string("{\"cmd\":\"eval\",\"id\":") + std::to_string(id) +
+                          ",\"code\":" + JSON_string(code) + "}";
     EXPECT_EQ(0, qwrt_post_message(h->rt, payload.data(), payload.size()));
-    return host_wait_msg(h, out, timeout_ms);
+    std::string key = "\"id\":" + std::to_string(id);
+    for (;;) {
+        std::string raw;
+        if (!host_wait_msg(h, &raw, timeout_ms)) return false;
+        if (raw.compare(0, 6, "{\"ok\":") != 0) {
+            /* 非 eval 响应（echo/worker 等）：原样返回，保持旧行为 */
+            *out = std::move(raw);
+            return true;
+        }
+        if (raw.find(key) != std::string::npos) {
+            *out = std::move(raw);
+            return true;
+        }
+        /* 陈旧 eval 响应（之前超时的 eval 稍后到达）：id 不匹配，丢弃重试 */
+    }
 }
+
 
 // 轮询直到表达式求值结果包含 expected_substring。每次 host_eval 都会跑一轮
 // loop + 冲刷微任务，所以异步结果（promise/timer/storage）在下一次 eval 可见。
@@ -127,7 +167,16 @@ static inline bool host_poll_until(HostCtx *h, const char *expr,
     int waited = 0;
     std::string last;
     while (waited < timeout_ms) {
-        if (!host_eval(h, expr, &last, timeout_ms)) return false;
+        int single = timeout_ms - waited;   /* 单次超时不超过剩余预算 */
+        if (single > HOST_POLL_SINGLE_MS) single = HOST_POLL_SINGLE_MS;
+        if (!host_eval(h, expr, &last, single)) {
+            /* 单次 eval 超时/异常：qwrt 线程忙（处理长消息队列）或 eval 读到
+             * 中间状态。残留响应已被 host_wait_msg 清理，sleep 后重试——poll
+             * 的语义是"持续轮询直到条件满足或总预算耗尽"，不是单次一击。 */
+            host_poll_sleep();
+            waited += 25;
+            continue;
+        }
         if (last.find(expected_substring) != std::string::npos) {
             *out = last;
             return true;
@@ -238,7 +287,14 @@ static inline bool host_poll_until_value(HostCtx *h, const char *expr,
     int waited = 0;
     std::string last;
     while (waited < timeout_ms) {
-        if (!host_value(h, expr, &last, timeout_ms)) return false;
+        int single = timeout_ms - waited;   /* 单次超时不超过剩余预算 */
+        if (single > HOST_POLL_SINGLE_MS) single = HOST_POLL_SINGLE_MS;
+        if (!host_value(h, expr, &last, single)) {
+            /* 同 host_poll_until：单次慢不放弃，重试直到总预算 */
+            host_poll_sleep();
+            waited += 25;
+            continue;
+        }
         if (last.find(expected_substring) != std::string::npos) {
             *out = last;
             return true;
