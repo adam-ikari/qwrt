@@ -314,7 +314,7 @@
       if (typeof callback !== "function") {
         throw new TypeError("setTimeout callback must be a function");
       }
-      delay = Math.max(0, Number(delay) || 0);
+      delay = Math.min(2147483647, Math.max(0, Number(delay) || 0));
       const result = pal2.timerStart(delay, 0);
       const handle = result.handle;
       const entry = {
@@ -349,7 +349,7 @@
       if (typeof callback !== "function") {
         throw new TypeError("setInterval callback must be a function");
       }
-      delay = Math.max(0, Number(delay) || 0);
+      delay = Math.min(2147483647, Math.max(0, Number(delay) || 0));
       const handle = nextIntervalHandle--;
       let currentPalHandle = null;
       const entry = {
@@ -405,11 +405,10 @@
 
   // src/event-target.js
   function setupEventTarget() {
+    var _listenerErrorDepth = 0;
     class Event2 {
       constructor(type, options) {
-        if (typeof type !== "string") {
-          throw new TypeError("Event type must be a string");
-        }
+        type = String(type);
         this._type = type;
         this._bubbles = options?.bubbles ?? false;
         this._cancelable = options?.cancelable ?? false;
@@ -601,7 +600,14 @@
                 callback.call(this, event);
               }
             } catch (err) {
-              if (globalThis.console) {
+              if (_listenerErrorDepth < 5 && typeof globalThis.reportError === "function") {
+                _listenerErrorDepth++;
+                try {
+                  globalThis.reportError(err);
+                } finally {
+                  _listenerErrorDepth--;
+                }
+              } else if (globalThis.console) {
                 console.error("Error in event listener:", err);
               }
             }
@@ -658,10 +664,11 @@
        */
       throwIfAborted() {
         if (this._aborted) {
-          throw new DOMException(
-            this._reason || "The operation was aborted",
-            "AbortError"
-          );
+          var reason = this._reason;
+          if (reason === void 0) {
+            reason = new DOMException("The operation was aborted", "AbortError");
+          }
+          throw reason;
         }
       }
       /**
@@ -696,6 +703,9 @@
        */
       static abort(reason) {
         const signal = new AbortSignal();
+        if (reason === void 0) {
+          reason = new DOMException("The operation was aborted", "AbortError");
+        }
         signal._aborted = true;
         signal._reason = reason;
         return signal;
@@ -722,18 +732,25 @@
           throw new TypeError("signals must be an array");
         }
         const result = new AbortSignal();
+        const listeners = [];
         for (const signal of signals) {
           if (!(signal instanceof AbortSignal)) {
             throw new TypeError("All signals must be AbortSignal instances");
           }
           if (signal.aborted) {
             result._abort(signal.reason);
+            for (const l of listeners) l.signal.removeEventListener("abort", l.fn);
             return result;
           }
-          signal.addEventListener("abort", function() {
+          const fn = function() {
             result._abort(signal.reason);
-          });
+          };
+          signal.addEventListener("abort", fn);
+          listeners.push({ signal, fn });
         }
+        result.addEventListener("abort", function() {
+          for (const l of listeners) l.signal.removeEventListener("abort", l.fn);
+        }, { once: true });
         return result;
       }
     }
@@ -753,6 +770,9 @@
        * @param reason - Optional reason for abort
        */
       abort(reason) {
+        if (reason === void 0) {
+          reason = new DOMException("The operation was aborted", "AbortError");
+        }
         this._signal._abort(reason);
       }
     }
@@ -811,8 +831,8 @@
         } else if (typeof init === "object") {
           if (Symbol.iterator in init) {
             for (const pair of init) {
-              if (Array.isArray(pair) && pair.length >= 2) {
-                this._params.push([String(pair[0]), String(pair[1])]);
+              if (Array.isArray(pair) && pair.length >= 1) {
+                this._params.push([String(pair[0]), pair.length >= 2 ? String(pair[1]) : ""]);
               }
             }
           } else {
@@ -980,7 +1000,7 @@
           throw new TypeError("URL must be a string");
         }
         url = url.trim();
-        const URL_REGEX = /^(?:([a-z][a-z0-9+.-]*):)?(?:\/\/(?:([^:@]*)(?::([^@]*))?@)?([^:/?#]*)(?::(\d+))?)?(\/?[^?#]*)?(?:\?([^#]*))?(?:#(.*))?$/i;
+        const URL_REGEX = /^(?:([a-z][a-z0-9+.-]*):)?(?:\/\/(?:([^:@]*)(?::([^@]*))?@)?(\[[^\]]*\]|[^:/?#]*)(?::(\d+))?)?(\/?[^?#]*)?(?:\?([^#]*))?(?:#(.*))?$/i;
         let match = url.match(URL_REGEX);
         if (!match) {
           throw new TypeError("Invalid URL: " + url);
@@ -988,6 +1008,23 @@
         let [, protocol, username, password, host, port, path, query, hash] = match;
         if (!protocol && !baseUrl) {
           throw new TypeError("Relative URL without base: " + url);
+        }
+        const SPECIAL_SCHEMES = { http: 1, https: 1, ws: 1, wss: 1, ftp: 1 };
+        const protoName = protocol ? protocol.toLowerCase() : "";
+        if (protoName && SPECIAL_SCHEMES[protoName] && !host && path) {
+          let rest = path;
+          if (rest[0] === "/") rest = rest.slice(1);
+          const sl = rest.indexOf("/");
+          if (sl < 0) {
+            host = rest;
+            path = "/";
+          } else {
+            host = rest.slice(0, sl);
+            path = rest.slice(sl);
+          }
+        }
+        if (protoName && SPECIAL_SCHEMES[protoName] && !host && protoName !== "file") {
+          throw new TypeError("Invalid URL: " + url);
         }
         if (!protocol && baseUrl) {
           protocol = baseUrl._protocol;
@@ -1008,8 +1045,16 @@
         this._protocol = (protocol || "").toLowerCase();
         this._username = username || "";
         this._password = password || "";
-        this._host = host || "";
-        this._port = port || "";
+        const hostName = host ? String(host).toLowerCase() : "";
+        let portStr = port || "";
+        if (portStr !== "") {
+          const portNum = Number(portStr);
+          if (!Number.isInteger(portNum) || portNum < 0 || portNum > 65535) {
+            portStr = "";
+          }
+        }
+        this._host = hostName;
+        this._port = portStr;
         this._pathname = path || "/";
         this._search = query || "";
         this._hash = hash || "";
@@ -1087,20 +1132,41 @@
       }
       set host(v) {
         v = String(v);
-        const colonIdx = v.lastIndexOf(":");
-        if (colonIdx >= 0) {
-          this._host = v.slice(0, colonIdx);
-          this._port = v.slice(colonIdx + 1);
+        let hostPart = v, portPart = "";
+        if (v[0] === "[") {
+          const close = v.indexOf("]");
+          if (close >= 0) {
+            hostPart = v.slice(0, close + 1);
+            const after = v.slice(close + 1);
+            if (after[0] === ":") portPart = after.slice(1);
+          }
         } else {
-          this._host = v;
-          this._port = "";
+          const colonIdx = v.lastIndexOf(":");
+          if (colonIdx >= 0) {
+            hostPart = v.slice(0, colonIdx);
+            portPart = v.slice(colonIdx + 1);
+          }
         }
+        if (portPart !== "") {
+          const pn = Number(portPart);
+          if (!Number.isInteger(pn) || pn < 0 || pn > 65535) return;
+        }
+        this._host = hostPart.toLowerCase();
+        this._port = portPart === "" ? "" : String(Number(portPart));
       }
       set hostname(v) {
-        this._host = String(v);
+        this._host = String(v).toLowerCase();
       }
       set port(v) {
-        this._port = String(v);
+        v = String(v);
+        if (v === "") {
+          this._port = "";
+          return;
+        }
+        const pn = Number(v);
+        if (Number.isInteger(pn) && pn >= 0 && pn <= 65535) {
+          this._port = String(pn);
+        }
       }
       set pathname(v) {
         v = String(v);
@@ -1184,6 +1250,12 @@
       for (let i2 = 0; i2 < binaryString.length; i2++) {
         const code = binaryString.charCodeAt(i2);
         if (code > 255) {
+          if (typeof DOMException === "function") {
+            throw new DOMException(
+              "Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range.",
+              "InvalidCharacterError"
+            );
+          }
           throw new Error(
             "Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range."
           );
@@ -1220,8 +1292,14 @@
           "Failed to execute 'atob': The string to be decoded is not correctly encoded."
         );
       }
-      const validChars = /^[A-Za-z0-9+/=]*$/;
+      const validChars = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
       if (!validChars.test(base64String)) {
+        if (typeof DOMException === "function") {
+          throw new DOMException(
+            "Failed to execute 'atob': The string to be decoded is not correctly encoded.",
+            "InvalidCharacterError"
+          );
+        }
         throw new Error(
           "Failed to execute 'atob': The string to be decoded is not correctly encoded."
         );
@@ -1325,6 +1403,22 @@
       }
       return str;
     }
+    function normalizeMethod(method) {
+      var m = String(method);
+      if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(m)) {
+        throw new TypeError("Invalid HTTP method: " + m);
+      }
+      return m.toUpperCase();
+    }
+    function validateStatus(status) {
+      if (!Number.isInteger(status) || status < 200 || status > 599) {
+        throw new RangeError("Invalid status code: " + status);
+      }
+      return status;
+    }
+    function normalizeUrl(url) {
+      return new URL(String(url)).href;
+    }
     function stringToUint8Array(str) {
       return new TextEncoder().encode(str);
     }
@@ -1402,7 +1496,8 @@
       }
     }
     Headers.prototype.get = function(name) {
-      return this._map.get(normalizeName(name)) || null;
+      var value = this._map.get(normalizeName(name));
+      return value === void 0 ? null : value;
     };
     Headers.prototype.set = function(name, value) {
       this._map.set(normalizeName(name), normalizeValue(value));
@@ -1453,7 +1548,7 @@
     function Request2(input, init) {
       init = init || {};
       if (input instanceof Request2) {
-        this._method = init.method || input.method;
+        this._method = normalizeMethod(init.method || input.method);
         this._url = input.url;
         this._headers = new Headers(init.headers || input.headers);
         this._body = init.body !== void 0 ? init.body : input._body;
@@ -1464,8 +1559,8 @@
         this._mode = init.mode || input.mode || "cors";
         this._credentials = init.credentials || input.credentials || "same-origin";
       } else {
-        this._method = init.method || "GET";
-        this._url = String(input);
+        this._method = normalizeMethod(init.method || "GET");
+        this._url = normalizeUrl(input);
         this._headers = new Headers(init.headers);
         this._body = init.body !== void 0 ? init.body : null;
         this._signal = init.signal || null;
@@ -1476,9 +1571,6 @@
         this._credentials = init.credentials || "same-origin";
       }
       this._bodyUsed = false;
-      if (!/^[A-Z]+$/.test(this._method)) {
-        throw new TypeError("Invalid HTTP method: " + this._method);
-      }
     }
     Object.defineProperty(Request2.prototype, "method", {
       get: function() {
@@ -1555,11 +1647,14 @@
     };
     Request2.prototype.arrayBuffer = function() {
       return this.text().then(function(text) {
-        return stringToUint8Array(text);
+        var u8 = stringToUint8Array(text);
+        return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
       });
     };
     Request2.prototype.blob = function() {
-      return this.text();
+      return this.arrayBuffer().then(function(buf) {
+        return new Blob([buf]);
+      });
     };
     function ReadableStream2(underlyingSource) {
       this._reader = null;
@@ -1646,8 +1741,9 @@
     };
     function Response2(body, init) {
       init = init || {};
-      this._status = init.status !== void 0 ? Number(init.status) : 200;
-      this._statusText = init.statusText || STATUS_TEXTS[this._status] || "";
+      var status = init.status !== void 0 ? Number(init.status) : 200;
+      this._status = validateStatus(status);
+      this._statusText = init.statusText !== void 0 ? String(init.statusText) : "";
       this._headers = new Headers(init.headers);
       this._bodyUsed = false;
       this._type = "default";
@@ -1800,13 +1896,13 @@
       return Promise.resolve(stringToUint8Array(consumeBody(self._body)));
     };
     Response2.prototype.blob = function() {
-      return this.text();
+      return this.arrayBuffer().then(function(buf) {
+        return new Blob([buf]);
+      });
     };
     Response2.error = function() {
-      var response = new Response2(null, {
-        status: 0,
-        statusText: ""
-      });
+      var response = new Response2(null, { statusText: "" });
+      response._status = 0;
       response._type = "error";
       return response;
     };
@@ -1845,14 +1941,18 @@
           return;
         }
         if (request.signal && request.signal.aborted) {
-          reject(new DOMException("The operation was aborted.", "AbortError"));
+          var reason = request.signal.reason;
+          if (reason === void 0) {
+            reason = new DOMException("The operation was aborted.", "AbortError");
+          }
+          reject(reason);
           return;
         }
         doRequest(request, resolve, reject, 0);
       });
     }
     function doRequest(request, resolve, reject, redirectCount) {
-      var headersObj = {};
+      var headersObj = /* @__PURE__ */ Object.create(null);
       request.headers.forEach(function(value, name) {
         headersObj[name] = value;
       });
@@ -1863,13 +1963,19 @@
       var streamController = null;
       var abandoned = false;
       var resolved = false;
+      var sentBodyBytes = null;
+      var sentBodyReady = false;
       if (request.signal) {
         onAbort = function() {
           aborted = true;
-          if (streamController) {
-            streamController.error(new DOMException("The operation was aborted.", "AbortError"));
+          var reason = request.signal.reason;
+          if (reason === void 0) {
+            reason = new DOMException("The operation was aborted.", "AbortError");
           }
-          reject(new DOMException("The operation was aborted.", "AbortError"));
+          if (streamController) {
+            streamController.error(reason);
+          }
+          reject(reason);
         };
         request.signal.addEventListener("abort", onAbort);
       }
@@ -1879,14 +1985,19 @@
         }
       }
       function whenBodyReady(cb) {
+        function deliver(bytes) {
+          sentBodyBytes = bytes;
+          sentBodyReady = true;
+          cb(bytes);
+        }
         if (requestBodyBytes && typeof requestBodyBytes.then === "function") {
-          requestBodyBytes.then(cb, function(err) {
+          requestBodyBytes.then(deliver, function(err) {
             if (aborted) return;
             cleanupAbort();
             reject(new TypeError("fetch failed: " + (err || "unknown error")));
           });
         } else {
-          cb(requestBodyBytes);
+          deliver(requestBodyBytes);
         }
       }
       if (typeof pal2.httpRequestStream !== "function") {
@@ -1935,7 +2046,8 @@
           }
           if (request.redirect === "manual") {
             cleanupAbort();
-            var manualRes = new Response2(null, { status: 0, statusText: "" });
+            var manualRes = new Response2(null, { statusText: "" });
+            manualRes._status = 0;
             manualRes._type = "opaqueredirect";
             resolve(manualRes);
             return;
@@ -1968,7 +2080,7 @@
             if (status === 303 || status === 301 && request.method === "POST" || status === 302 && request.method === "POST") {
               nextInit.method = "GET";
             } else {
-              nextInit.body = request.body;
+              nextInit.body = sentBodyReady ? sentBodyBytes : request.body;
             }
             var nextReq = new Request2(nextUrl, nextInit);
             cleanupAbort();
@@ -2378,7 +2490,7 @@
     if (typeof globalThis.Event !== "function") {
       throw new Error("ErrorEvent requires Event to be loaded first");
     }
-    class ErrorEvent extends Event {
+    class ErrorEvent2 extends Event {
       constructor(type, options) {
         super(type, options);
         this._message = options?.message ?? "";
@@ -2416,7 +2528,7 @@
         return this._reason;
       }
     }
-    globalThis.ErrorEvent = ErrorEvent;
+    globalThis.ErrorEvent = ErrorEvent2;
     globalThis.PromiseRejectionEvent = PromiseRejectionEvent;
   }
 
@@ -2901,6 +3013,17 @@
         return btoa(String.fromCharCode.apply(null, new Uint8Array(hash)));
       });
     }
+    function concatParts(parts) {
+      var total = 0;
+      for (var i = 0; i < parts.length; i++) total += parts[i].length;
+      var out = new Uint8Array(total);
+      var off = 0;
+      for (var i = 0; i < parts.length; i++) {
+        out.set(parts[i], off);
+        off += parts[i].length;
+      }
+      return out;
+    }
     function buildFrame(opcode, payload, mask) {
       var len = payload.length;
       var headerSize = 2;
@@ -2947,6 +3070,9 @@
         this._closeSent = false;
         this._closeCode = 1e3;
         this._closeReason = "";
+        this._binaryType = "blob";
+        this._fragOpcode = 0;
+        this._fragParts = null;
         var isSecure = url.indexOf("wss://") === 0;
         if (isSecure) throw new Error("wss:// not supported yet");
         if (url.indexOf("ws://") !== 0) throw new Error("invalid WebSocket URL: " + url);
@@ -3102,12 +3228,24 @@
       }
       _handleFrame(fin, opcode, payload) {
         if (opcode === OPCODE_TEXT || opcode === OPCODE_BINARY) {
-          var text = new TextDecoder().decode(payload);
-          if (typeof this._onmessage === "function") {
-            try {
-              this._onmessage(new MessageEvent("message", { data: text }));
-            } catch (e) {
-            }
+          if (!fin) {
+            this._fragOpcode = opcode;
+            this._fragParts = [payload];
+            return;
+          }
+          this._deliverMessage(opcode, payload);
+        } else if (opcode === OPCODE_CONT) {
+          if (this._fragOpcode === 0 || !this._fragParts) {
+            this._fail("unexpected continuation frame");
+            return;
+          }
+          this._fragParts.push(payload);
+          if (fin) {
+            var fragOp = this._fragOpcode;
+            var parts = this._fragParts;
+            this._fragOpcode = 0;
+            this._fragParts = null;
+            this._deliverMessage(fragOp, concatParts(parts));
           }
         } else if (opcode === OPCODE_CLOSE) {
           var code = 1e3;
@@ -3118,11 +3256,11 @@
               reason = new TextDecoder().decode(payload.subarray(2));
           }
           if (!this._closeSent) {
-            var closePayload = new Uint8Array(2 + reason.length);
+            var reasonBytes = new TextEncoder().encode(reason);
+            var closePayload = new Uint8Array(2 + reasonBytes.length);
             closePayload[0] = code >> 8 & 255;
             closePayload[1] = code & 255;
-            for (var i = 0; i < reason.length; i++)
-              closePayload[2 + i] = reason.charCodeAt(i);
+            closePayload.set(reasonBytes, 2);
             var frame = buildFrame(OPCODE_CLOSE, closePayload, true);
             pal2.tcpWrite(this._tcp, frame);
           }
@@ -3138,10 +3276,35 @@
           var pong = buildFrame(OPCODE_PONG, payload, true);
           pal2.tcpWrite(this._tcp, pong);
         } else if (opcode === OPCODE_PONG) {
-        } else if (opcode === OPCODE_CONT) {
         }
       }
-      // ── Error handling ──
+      _deliverMessage(opcode, payload) {
+        if (opcode === OPCODE_TEXT) {
+          var text = new TextDecoder().decode(payload);
+          if (typeof this._onmessage === "function") {
+            try {
+              this._onmessage(new MessageEvent("message", { data: text }));
+            } catch (e) {
+            }
+          }
+          return;
+        }
+        var ab = payload.slice().buffer;
+        var data;
+        if (this._binaryType === "arraybuffer") {
+          data = ab;
+        } else if (typeof Blob !== "undefined") {
+          data = new Blob([ab]);
+        } else {
+          data = ab;
+        }
+        if (typeof this._onmessage === "function") {
+          try {
+            this._onmessage(new MessageEvent("message", { data }));
+          } catch (e) {
+          }
+        }
+      }
       _onError(msg) {
         if (this._readyState === CLOSED) return;
         this._readyState = CLOSED;
@@ -3151,12 +3314,25 @@
           } catch (e) {
           }
         }
+        if (typeof this._onclose === "function") {
+          try {
+            this._onclose(new CloseEvent("close", { code: 1006, reason: "", wasClean: false }));
+          } catch (e) {
+          }
+        }
       }
       _fail(msg) {
+        if (this._readyState === CLOSED) return;
         this._readyState = CLOSED;
         if (typeof this._onerror === "function") {
           try {
             this._onerror(new Event("error"));
+          } catch (e) {
+          }
+        }
+        if (typeof this._onclose === "function") {
+          try {
+            this._onclose(new CloseEvent("close", { code: 1006, reason: "", wasClean: false }));
           } catch (e) {
           }
         }
@@ -3217,10 +3393,33 @@
       set onclose(fn) {
         this._onclose = fn;
       }
+      get binaryType() {
+        return this._binaryType;
+      }
+      set binaryType(v) {
+        this._binaryType = String(v);
+      }
       send(data) {
         if (this._readyState !== OPEN) return;
-        var encoded = new TextEncoder().encode(String(data));
-        var frame = buildFrame(OPCODE_TEXT, encoded, true);
+        var opcode = OPCODE_TEXT;
+        var payload;
+        if (typeof data === "string") {
+          payload = new TextEncoder().encode(data);
+          opcode = OPCODE_TEXT;
+        } else if (data instanceof ArrayBuffer) {
+          payload = new Uint8Array(data);
+          opcode = OPCODE_BINARY;
+        } else if (ArrayBuffer.isView(data)) {
+          payload = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+          opcode = OPCODE_BINARY;
+        } else if (typeof Blob !== "undefined" && data instanceof Blob) {
+          payload = data._getBytes ? data._getBytes() : new Uint8Array(0);
+          opcode = OPCODE_BINARY;
+        } else {
+          payload = new TextEncoder().encode(String(data));
+          opcode = OPCODE_TEXT;
+        }
+        var frame = buildFrame(opcode, payload, true);
         pal2.tcpWrite(this._tcp, frame);
       }
       close(code, reason) {
@@ -3254,6 +3453,7 @@
     if (typeof pal2.tcpListen !== "function") return;
     var WS_GUID = "258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5";
     var PMD_TAIL = new Uint8Array([0, 0, 255, 255]);
+    var MAX_HEADER_SIZE = 64 * 1024;
     var activeInstance = null;
     var b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     function b64encode(buf) {
@@ -3352,8 +3552,12 @@
         var ci = l.indexOf(":");
         if (ci > 0) headers[l.substring(0, ci).toLowerCase()] = l.substring(ci + 1).trim();
       });
-      var cl = parseInt(headers["content-length"], 10);
-      var contentLength = isNaN(cl) ? 0 : cl;
+      var clRaw = (headers["content-length"] || "").trim();
+      var contentLength = 0;
+      if (clRaw !== "") {
+        if (!/^\d+$/.test(clRaw)) return null;
+        contentLength = Number(clRaw);
+      }
       var conn = (headers["connection"] || "").toLowerCase();
       var keepAlive = version !== "HTTP/1.0" && conn !== "close";
       return {
@@ -3427,7 +3631,7 @@
       if (buf.length < offset + len) return null;
       var payload = buf.slice(offset, offset + len);
       if (mask) for (var i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
-      return { fin, rsv1, opcode, payload, totalLen: offset + len };
+      return { fin, rsv1, opcode, masked, payload, totalLen: offset + len };
     }
     function buildWSFrame(opcode, payload, fin, rsv1) {
       var len = payload.length;
@@ -3445,9 +3649,14 @@
       for (var i = 0; i < len; i++) frame[header.length + i] = payload[i];
       return frame;
     }
+    function safeHeaderValue(v) {
+      var s = String(v);
+      if (/[\r\n]/.test(s)) throw new TypeError("Invalid HTTP response header value");
+      return s;
+    }
     function buildHTTPResponse(status, statusText, hdrs, bodyBytes) {
-      var h = "HTTP/1.1 " + status + " " + statusText + "\r\n";
-      for (var k in hdrs) h += k + ": " + hdrs[k] + "\r\n";
+      var h = "HTTP/1.1 " + status + " " + safeHeaderValue(statusText || "") + "\r\n";
+      for (var k in hdrs) h += k + ": " + safeHeaderValue(hdrs[k]) + "\r\n";
       h += "\r\n";
       var enc = new TextEncoder();
       var hBytes = enc.encode(h);
@@ -3524,6 +3733,15 @@
         for (; ; ) {
           var frame = parseWSFrame(this.buf);
           if (!frame) break;
+          if (!frame.masked) {
+            try {
+              pal2.tcpWrite(this.conn, buildWSFrame(8, new Uint8Array([3, 234]), 1));
+            } catch (e) {
+            }
+            this.state = 3;
+            pal2.tcpClose(this.conn);
+            return;
+          }
           this.buf = this.buf.slice(frame.totalLen);
           if (frame.opcode === 8) {
             var closeCode = 1005, closeReason = "";
@@ -3540,6 +3758,12 @@
               } catch (e) {
               }
             }
+          } else if (frame.opcode === 9) {
+            try {
+              pal2.tcpWrite(this.conn, buildWSFrame(10, frame.payload, 1));
+            } catch (e) {
+            }
+          } else if (frame.opcode === 10) {
           } else if (frame.opcode === 0) {
             this._fragParts.push(frame.payload);
             if (frame.fin) {
@@ -3632,6 +3856,19 @@
             bodyState = null;
           } else {
             raw = concatBytes(raw, data);
+          }
+          if (raw.length > MAX_HEADER_SIZE && indexOfHdrEnd(raw) < 0) {
+            try {
+              pal2.tcpWrite(conn, buildHTTPResponse(
+                431,
+                "Request Header Fields Too Large",
+                { "Content-Length": "0", "Connection": "close" },
+                new Uint8Array(0)
+              ));
+            } catch (e) {
+            }
+            pal2.tcpClose(conn);
+            return;
           }
           while (true) {
             var hdrEnd = indexOfHdrEnd(raw);
@@ -3763,14 +4000,22 @@
             try {
               var result = handler(requestObj);
               if (result && typeof result.then === "function") {
-                result.then(
-                  function(val) {
+                result.then(function(val) {
+                  try {
                     sendResponse(conn, val);
-                  },
-                  function() {
+                  } catch (e) {
                     sendResponse(conn, null, 500, "Internal Server Error");
                   }
-                );
+                }, function() {
+                  try {
+                    sendResponse(conn, null, 500, "Internal Server Error");
+                  } catch (e) {
+                    try {
+                      pal2.tcpClose(conn);
+                    } catch (x) {
+                    }
+                  }
+                });
               } else {
                 sendResponse(conn, result);
               }
@@ -3973,7 +4218,9 @@
         this._stream._notifyReaders();
       }
       enqueue(chunk) {
-        if (this._stream._state !== "readable") return;
+        if (this._closeRequested || this._stream._state !== "readable") {
+          throw new TypeError("Cannot enqueue after close or error");
+        }
         this._stream._queue.push(chunk);
         this._stream._notifyReaders();
       }
@@ -4195,7 +4442,9 @@
         this._stream._notifyReaders();
       }
       enqueue(chunk) {
-        if (this._stream._state !== "readable") return;
+        if (this._closeRequested || this._stream._state !== "readable") {
+          throw new TypeError("Cannot enqueue after close or error");
+        }
         if (chunk instanceof ArrayBuffer) {
           chunk = new Uint8Array(chunk);
         } else if (ArrayBuffer.isView(chunk)) {
@@ -4306,16 +4555,23 @@
         var needsMore = this._type === "bytes" ? hasByobPending || this._queueBytes() < this._hwm : this._queue.length < this._hwm;
         if (!needsMore) return;
         this._pulling = true;
+        var result;
         try {
-          var result = this._pull(this._controller);
-          if (result && typeof result.catch === "function") {
-            result.catch(function(e) {
-              this._controller.error(e);
-            }.bind(this));
-          }
+          result = this._pull(this._controller);
         } catch (e) {
+          this._pulling = false;
           this._controller.error(e);
-        } finally {
+          return;
+        }
+        var self = this;
+        if (result && typeof result.then === "function") {
+          result.then(function() {
+            self._pulling = false;
+          }, function(e) {
+            self._pulling = false;
+            self._controller.error(e);
+          });
+        } else {
           this._pulling = false;
         }
       }
@@ -4336,14 +4592,27 @@
         return new ReadableStreamDefaultReader(this);
       }
       cancel(reason) {
-        if (this._state !== "readable") return Promise.resolve();
+        var self = this;
+        if (this._state === "errored") {
+          return Promise.reject(this._storedError);
+        }
+        if (this._state !== "readable") {
+          return Promise.resolve();
+        }
         this._state = "closed";
         this._queue = [];
-        try {
-          this._cancel(reason);
-        } catch (e) {
-        }
         this._notifyReaders();
+        var result;
+        try {
+          result = this._cancel(reason);
+        } catch (e) {
+          return Promise.reject(e);
+        }
+        if (result && typeof result.then === "function") {
+          return result.then(function() {
+            return void 0;
+          });
+        }
         return Promise.resolve();
       }
       tee() {
@@ -4354,8 +4623,11 @@
         var reading = false;
         var flags = { b1: false, b2: false };
         var sourceCancelled = false;
+        function shouldPull() {
+          return !flags.b1 && !branch1Closed && branch1Controller && branch1Controller.desiredSize > 0 || !flags.b2 && !branch2Closed && branch2Controller && branch2Controller.desiredSize > 0;
+        }
         function pullAndDispatch() {
-          if (reading) return;
+          if (reading || !shouldPull()) return;
           reading = true;
           reader.read().then(function(result) {
             reading = false;
@@ -4366,7 +4638,7 @@
             }
             if (!flags.b1 && !branch1Closed && branch1Controller) branch1Controller.enqueue(result.value);
             if (!flags.b2 && !branch2Closed && branch2Controller) branch2Controller.enqueue(result.value);
-            if (!flags.b1 && !branch1Closed || !flags.b2 && !branch2Closed) {
+            if (shouldPull()) {
               pullAndDispatch();
             }
           }).catch(function(e) {
@@ -4409,6 +4681,7 @@
         var preventClose = !!options.preventClose;
         var preventAbort = !!options.preventAbort;
         var preventCancel = !!options.preventCancel;
+        var signal = options.signal || null;
         var reader, writer;
         try {
           reader = this.getReader();
@@ -4416,24 +4689,8 @@
         } catch (e) {
           return Promise.reject(e);
         }
-        function pump() {
-          return reader.read().then(function(result) {
-            if (result.done) {
-              reader.releaseLock();
-              if (preventClose) {
-                return Promise.resolve();
-              }
-              return writer.close();
-            }
-            return writer.write(result.value).then(pump);
-          });
-        }
-        return pump().then(function() {
-          try {
-            writer.releaseLock();
-          } catch (x) {
-          }
-        }).catch(function(e) {
+        var abortReason = null;
+        function cleanup(e) {
           try {
             reader.releaseLock();
           } catch (x) {
@@ -4454,8 +4711,55 @@
             writer.releaseLock();
           } catch (x) {
           }
-          throw e;
+        }
+        function pump() {
+          if (abortReason) return Promise.reject(abortReason);
+          return reader.read().then(function(result2) {
+            if (abortReason) throw abortReason;
+            if (result2.done) {
+              reader.releaseLock();
+              if (preventClose) {
+                return Promise.resolve();
+              }
+              return writer.close();
+            }
+            return writer.write(result2.value).then(pump);
+          });
+        }
+        var rejectPipe = null;
+        var onAbort = null;
+        if (signal) {
+          if (signal.aborted) {
+            var r0 = signal.reason;
+            if (r0 === void 0) r0 = new DOMException("The operation was aborted", "AbortError");
+            cleanup(r0);
+            return Promise.reject(r0);
+          }
+          onAbort = function() {
+            var r = signal.reason;
+            if (r === void 0) r = new DOMException("The operation was aborted", "AbortError");
+            abortReason = r;
+            cleanup(r);
+            if (rejectPipe) rejectPipe(r);
+          };
+          signal.addEventListener("abort", onAbort);
+        }
+        var result = new Promise(function(resolve, reject) {
+          rejectPipe = reject;
+          pump().then(function() {
+            try {
+              writer.releaseLock();
+            } catch (x) {
+            }
+            if (signal) signal.removeEventListener("abort", onAbort);
+            resolve();
+          }).catch(function(e) {
+            cleanup(e);
+            if (signal) signal.removeEventListener("abort", onAbort);
+            reject(abortReason || e);
+          });
         });
+        return result;
       }
       pipeThrough(transform) {
         if (!transform || typeof transform !== "object" || !transform.readable || !transform.writable) {
@@ -4464,7 +4768,14 @@
         if (this.locked || transform.readable.locked || transform.writable.locked) {
           throw new TypeError("pipeThrough: streams must not be locked");
         }
-        this.pipeTo(transform.writable);
+        var pipePromise = this.pipeTo(transform.writable);
+        pipePromise.catch(function(e) {
+          try {
+            var ctrl = transform.readable._controller;
+            if (ctrl && typeof ctrl.error === "function") ctrl.error(e);
+          } catch (x) {
+          }
+        });
         return transform.readable;
       }
     }
@@ -4538,6 +4849,7 @@
         this._writePromise = null;
         this._closePromise = null;
         this._readyPromise = Promise.resolve();
+        this._writeQueue = Promise.resolve();
         this._controller = new WritableStreamDefaultController(this);
         this._start = underlyingSink.start;
         this._write = underlyingSink.write || function() {
@@ -4575,34 +4887,48 @@
         if (this._state === "errored") return Promise.reject(this._storedError);
         if (this._state === "closed") return Promise.reject(new TypeError("Stream is closed"));
         var self = this;
-        try {
-          var result = self._write(chunk, self._controller);
-          if (!result || typeof result.then !== "function") {
-            result = Promise.resolve(result);
+        var prev = this._writeQueue || Promise.resolve();
+        var result = prev.then(function() {
+          if (self._state === "errored") throw self._storedError;
+          if (self._state === "closed") throw new TypeError("Stream is closed");
+          try {
+            var r = self._write(chunk, self._controller);
+            if (!r || typeof r.then !== "function") r = Promise.resolve(r);
+            return r;
+          } catch (e) {
+            return Promise.reject(e);
           }
-          return result;
-        } catch (e) {
-          return Promise.reject(e);
-        }
+        });
+        this._writeQueue = result.catch(function() {
+        });
+        return result;
       }
       _closeStream() {
         if (this._state !== "writable") {
           return Promise.reject(new TypeError("Stream is not writable"));
         }
-        this._state = "closed";
         var self = this;
-        try {
-          var result = self._close();
-          if (!result || typeof result.then !== "function") {
-            result = Promise.resolve(result);
+        var prev = this._writeQueue || Promise.resolve();
+        var result = prev.then(function() {
+          if (self._state !== "writable") {
+            throw new TypeError("Stream is not writable");
           }
-          return result.then(function() {
+          self._state = "closed";
+          var r;
+          try {
+            r = self._close();
+          } catch (e) {
+            self._closedReject(e);
+            throw e;
+          }
+          if (!r || typeof r.then !== "function") r = Promise.resolve(r);
+          return r.then(function() {
             self._closedResolve();
           });
-        } catch (e) {
-          self._closedReject(e);
-          return Promise.reject(e);
-        }
+        });
+        this._writeQueue = result.catch(function() {
+        });
+        return result;
       }
       _abortStream(reason) {
         this._state = "errored";
@@ -4872,14 +5198,32 @@
         });
         self._writable = new WritableStream({
           write: function(chunk) {
-            var decoded = decoder.decode(chunk, { stream: true });
+            var decoded;
+            try {
+              decoded = decoder.decode(chunk, { stream: true });
+            } catch (e) {
+              try {
+                self._readable._controller.error(e);
+              } catch (x) {
+              }
+              throw e;
+            }
             if (decoded) {
               self._readable._controller.enqueue(decoded);
             }
             return Promise.resolve();
           },
           close: function() {
-            var decoded = decoder.decode();
+            var decoded;
+            try {
+              decoded = decoder.decode();
+            } catch (e) {
+              try {
+                self._readable._controller.error(e);
+              } catch (x) {
+              }
+              throw e;
+            }
             if (decoded) {
               self._readable._controller.enqueue(decoded);
             }
@@ -4960,12 +5304,12 @@
         return this._type;
       }
       slice(start, end, contentType) {
-        start = start === void 0 ? 0 : start;
-        start = start | 0;
+        start = Math.trunc(Number(start === void 0 ? 0 : start));
+        if (Number.isNaN(start)) start = 0;
         if (start < 0) start = Math.max(this._size + start, 0);
         if (start > this._size) start = this._size;
-        end = end === void 0 ? this._size : end;
-        end = end | 0;
+        end = Math.trunc(Number(end === void 0 ? this._size : end));
+        if (Number.isNaN(end)) end = 0;
         if (end < 0) end = Math.max(this._size + end, 0);
         if (end > this._size) end = this._size;
         if (end < start) end = start;
@@ -5050,17 +5394,20 @@
         });
       }
       delete(name) {
+        name = String(name);
         this._entries = this._entries.filter(function(entry) {
           return entry.name !== name;
         });
       }
       get(name) {
+        name = String(name);
         var entry = this._entries.find(function(e) {
           return e.name === name;
         });
         return entry ? entry.value : null;
       }
       getAll(name) {
+        name = String(name);
         return this._entries.filter(function(e) {
           return e.name === name;
         }).map(function(e) {
@@ -5068,6 +5415,7 @@
         });
       }
       has(name) {
+        name = String(name);
         return this._entries.some(function(e) {
           return e.name === name;
         });
@@ -5115,6 +5463,9 @@
         return this._entries.map(function(e) {
           return [e.name, e.value];
         })[Symbol.iterator]();
+      }
+      [Symbol.iterator]() {
+        return this.entries();
       }
       _normalizeValue(value, filename) {
         if (value instanceof Blob2) {
@@ -5450,6 +5801,40 @@
     function toArrayBuffer(u8) {
       return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
     }
+    var USAGE_MAP = {
+      "HMAC": ["sign", "verify"],
+      "AES-CBC": ["encrypt", "decrypt", "wrapKey", "unwrapKey"],
+      "AES-GCM": ["encrypt", "decrypt", "wrapKey", "unwrapKey"],
+      "AES-CTR": ["encrypt", "decrypt", "wrapKey", "unwrapKey"],
+      "AES-KW": ["wrapKey", "unwrapKey"],
+      "PBKDF2": ["deriveBits", "deriveKey"],
+      "HKDF": ["deriveBits", "deriveKey"],
+      "ECDSA": ["sign", "verify"],
+      "ECDH": ["deriveBits", "deriveKey"]
+    };
+    function validateUsages(algoName, usages) {
+      if (!Array.isArray(usages)) return;
+      var allowed = USAGE_MAP[algoName];
+      if (!allowed) return;
+      for (var i = 0; i < usages.length; i++) {
+        if (allowed.indexOf(usages[i]) < 0) {
+          throw new SyntaxError("Invalid keyUsages for " + algoName + ": " + usages[i]);
+        }
+      }
+    }
+    function checkUsage(key, usage) {
+      if (!key || !Array.isArray(key._usages)) return;
+      if (key._usages.indexOf(usage) < 0) {
+        throw new DOMException("Key does not support " + usage, "InvalidAccessError");
+      }
+    }
+    function validateGcmTagLength(tagLength) {
+      var tl = tagLength !== void 0 ? Number(tagLength) : 128;
+      if (tl !== 32 && tl !== 64 && tl !== 96 && tl !== 104 && tl !== 112 && tl !== 120 && tl !== 128) {
+        throw new DOMException("Invalid tagLength", "OperationError");
+      }
+      return tl / 8;
+    }
     var B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     function base64UrlEncode(bytes) {
       var str = "";
@@ -5518,6 +5903,7 @@
       importKey(format, keyData, algorithm, extractable, keyUsages) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
+          validateUsages(algoName, keyUsages);
           var data;
           if (algoName === "ECDSA" || algoName === "ECDH") {
             var curve = typeof algorithm === "object" && algorithm ? algorithm.namedCurve : void 0;
@@ -5594,6 +5980,7 @@
       sign(algorithm, key, data) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
+          checkUsage(key, "sign");
           if (algoName === "ECDSA") {
             var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : void 0;
             if (!hashAlgo) {
@@ -5632,6 +6019,7 @@
       verify(algorithm, key, signature, data) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
+          checkUsage(key, "verify");
           if (algoName === "ECDSA") {
             var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : void 0;
             if (!hashAlgo) {
@@ -5678,6 +6066,7 @@
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var plaintext = toUint8Array(data);
+          checkUsage(key, "encrypt");
           if (typeof pal2.nativeAesEncrypt !== "function") {
             reject(new DOMException("Crypto extension not available", "NotSupportedError"));
             return;
@@ -5692,7 +6081,7 @@
             if (algoName === "AES-GCM") {
               var iv = toUint8Array(algorithm.iv);
               var aad = algorithm.additionalData ? toUint8Array(algorithm.additionalData) : void 0;
-              var tagLen = algorithm.tagLength !== void 0 ? algorithm.tagLength / 8 : 16;
+              var tagLen = validateGcmTagLength(algorithm.tagLength);
               var result = pal2.nativeAesEncrypt(plaintext, key._data, iv, "AES-GCM", aad, tagLen);
               resolve(toArrayBuffer(result));
               return;
@@ -5714,6 +6103,7 @@
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var ciphertext = toUint8Array(data);
+          checkUsage(key, "decrypt");
           if (typeof pal2.nativeAesDecrypt !== "function") {
             reject(new DOMException("Crypto extension not available", "NotSupportedError"));
             return;
@@ -5728,7 +6118,7 @@
             if (algoName === "AES-GCM") {
               var iv = toUint8Array(algorithm.iv);
               var aad = algorithm.additionalData ? toUint8Array(algorithm.additionalData) : void 0;
-              var tagLen = algorithm.tagLength !== void 0 ? algorithm.tagLength / 8 : 16;
+              var tagLen = validateGcmTagLength(algorithm.tagLength);
               var result = pal2.nativeAesDecrypt(ciphertext, key._data, iv, "AES-GCM", aad, tagLen);
               resolve(toArrayBuffer(result));
               return;
@@ -5870,6 +6260,11 @@
       wrapKey(format, key, wrappingKey, wrapAlgorithm) {
         return new Promise(function(resolve, reject) {
           var wrapName = typeof wrapAlgorithm === "string" ? wrapAlgorithm : wrapAlgorithm.name;
+          if (!key || !key.extractable) {
+            reject(new DOMException("Key is not extractable", "InvalidAccessError"));
+            return;
+          }
+          checkUsage(wrappingKey, "wrapKey");
           if (wrapName === "AES-KW") {
             if (format !== "raw") {
               reject(new DOMException("AES-KW supports raw format only", "NotSupportedError"));
@@ -5919,7 +6314,7 @@
             if (wrapName === "AES-GCM") {
               var iv = toUint8Array(wrapAlgorithm.iv);
               var aad = wrapAlgorithm.additionalData ? toUint8Array(wrapAlgorithm.additionalData) : void 0;
-              var tagLen = wrapAlgorithm.tagLength !== void 0 ? wrapAlgorithm.tagLength / 8 : 16;
+              var tagLen = validateGcmTagLength(wrapAlgorithm.tagLength);
               resolve(toArrayBuffer(pal2.nativeAesEncrypt(plaintext, wrappingKey._data, iv, "AES-GCM", aad, tagLen)));
               return;
             }
@@ -5937,6 +6332,7 @@
       unwrapKey(format, wrappedKey, unwrappingKey, unwrapAlgorithm, unwrappedKeyAlgorithm, extractable, keyUsages) {
         return new Promise(function(resolve, reject) {
           var unwrapName = typeof unwrapAlgorithm === "string" ? unwrapAlgorithm : unwrapAlgorithm.name;
+          checkUsage(unwrappingKey, "unwrapKey");
           if (unwrapName === "AES-KW") {
             if (format !== "raw") {
               reject(new DOMException("AES-KW supports raw format only", "NotSupportedError"));
@@ -5967,7 +6363,7 @@
             if (unwrapName === "AES-GCM") {
               var iv = toUint8Array(unwrapAlgorithm.iv);
               var aad = unwrapAlgorithm.additionalData ? toUint8Array(unwrapAlgorithm.additionalData) : void 0;
-              var tagLen = unwrapAlgorithm.tagLength !== void 0 ? unwrapAlgorithm.tagLength / 8 : 16;
+              var tagLen = validateGcmTagLength(unwrapAlgorithm.tagLength);
               plaintext = pal2.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, "AES-GCM", aad, tagLen);
             } else {
               var iv = toUint8Array(unwrapAlgorithm.iv);
@@ -5998,13 +6394,26 @@
           reject(new DOMException("Unsupported unwrap format: " + format, "NotSupportedError"));
         });
       }
-      deriveBits(algorithm, key, length) {
+      deriveBits(algorithm, key, length, skipUsage) {
         return new Promise(function(resolve, reject) {
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
+          if (typeof length !== "number" || length < 0 || length % 8 !== 0) {
+            reject(new DOMException("Invalid deriveBits length", "OperationError"));
+            return;
+          }
+          if (!skipUsage) checkUsage(key, "deriveBits");
           if (algoName === "PBKDF2") {
             var salt = toUint8Array(algorithm.salt);
             var iterations = algorithm.iterations;
-            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : "SHA-1";
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : void 0;
+            if (!hashAlgo) {
+              reject(new TypeError("hash required for PBKDF2"));
+              return;
+            }
+            if (!Number.isInteger(iterations) || iterations < 1) {
+              reject(new DOMException("Invalid iterations value", "OperationError"));
+              return;
+            }
             if (typeof pal2.nativePbkdf2 !== "function") {
               reject(new DOMException("Crypto extension not available", "NotSupportedError"));
               return;
@@ -6067,8 +6476,9 @@
       deriveKey(algorithm, key, derivedKeyType, extractable, keyUsages) {
         var self = this;
         return new Promise(function(resolve, reject) {
+          checkUsage(key, "deriveKey");
           var bitsLength = typeof derivedKeyType === "string" ? 256 : derivedKeyType.length || 256;
-          self.deriveBits(algorithm, key, bitsLength).then(function(bits) {
+          self.deriveBits(algorithm, key, bitsLength, true).then(function(bits) {
             var data = new Uint8Array(bits);
             var algoName = typeof derivedKeyType === "string" ? derivedKeyType : derivedKeyType.name;
             resolve(new CryptoKey("secret", { name: algoName }, extractable, keyUsages, data));
@@ -6143,7 +6553,9 @@
         return new Date(value.getTime());
       }
       if (value instanceof RegExp) {
-        return new RegExp(value.source, value.flags);
+        var regexp = new RegExp(value.source, value.flags);
+        regexp.lastIndex = value.lastIndex;
+        return regexp;
       }
       if (value instanceof Error) {
         var Ctor = value.constructor;
@@ -6238,7 +6650,8 @@
         }
         return result;
       }
-      if (value.constructor === Object || !value.constructor) {
+      var proto = Object.getPrototypeOf(value);
+      if (proto === Object.prototype || proto === null) {
         var result = {};
         seen.set(value, result);
         var keys = Object.keys(value);
@@ -6252,21 +6665,7 @@
         }
         return result;
       }
-      var result = {};
-      seen.set(value, result);
-      try {
-        var keys = Object.keys(value);
-        for (var i = 0; i < keys.length; i++) {
-          Object.defineProperty(result, keys[i], {
-            value: clone(value[keys[i]], seen, options),
-            writable: true,
-            enumerable: true,
-            configurable: true
-          });
-        }
-      } catch (e) {
-      }
-      return result;
+      throw new DOMException("Object with custom prototype cannot be cloned", "DataCloneError");
     }
     function cloneTypedArray(value, Ctor, seen) {
       var result = new Ctor(value);
@@ -6309,25 +6708,49 @@
       return out;
     }
     function utf8Decode(u8, start, len) {
+      var R = 65533;
       var out = "";
       var i = start, end = start + len;
       while (i < end) {
         var b = u8[i];
+        var cp, n;
         if (b < 128) {
-          out += String.fromCharCode(b);
-          i += 1;
-        } else if (b < 224) {
-          out += String.fromCharCode((b & 31) << 6 | u8[i + 1] & 63);
-          i += 2;
-        } else if (b < 240) {
-          out += String.fromCharCode((b & 15) << 12 | (u8[i + 1] & 63) << 6 | u8[i + 2] & 63);
-          i += 3;
+          cp = b;
+          n = 1;
+        } else if (b >= 194 && b <= 223) {
+          cp = b & 31;
+          n = 2;
+        } else if (b >= 224 && b <= 239) {
+          cp = b & 15;
+          n = 3;
+        } else if (b >= 240 && b <= 244) {
+          cp = b & 7;
+          n = 4;
         } else {
-          var cp = (b & 7) << 18 | (u8[i + 1] & 63) << 12 | (u8[i + 2] & 63) << 6 | u8[i + 3] & 63;
+          out += String.fromCharCode(R);
+          i += 1;
+          continue;
+        }
+        var ok = i + n <= end;
+        for (var j = 1; ok && j < n; j++) {
+          var cb = u8[i + j];
+          if (cb < 128 || cb > 191) ok = false;
+          else cp = cp << 6 | cb & 63;
+        }
+        if (ok && n === 3 && (cp < 2048 || cp >= 55296 && cp <= 57343)) ok = false;
+        if (ok && n === 4 && (cp < 65536 || cp > 1114111)) ok = false;
+        if (!ok) {
+          out += String.fromCharCode(R);
+          i += 1;
+          continue;
+        }
+        if (cp < 65536) {
+          out += String.fromCharCode(cp);
+        } else {
           var u = cp - 65536;
           out += String.fromCharCode(55296 + (u >> 10)) + String.fromCharCode(56320 + (u & 1023));
-          i += 4;
         }
+        i += n;
       }
       return out;
     }
@@ -6530,6 +6953,10 @@
           for (var i2 = 0; i2 < v.length; i2++) w(v[i2]);
           return;
         }
+        var vproto = Object.getPrototypeOf(v);
+        if (vproto !== Object.prototype && vproto !== null) {
+          throw new DOMException("Object with custom prototype cannot be cloned", "DataCloneError");
+        }
         refs.set(v, next++);
         bytes.u8(29);
         var keys;
@@ -6643,6 +7070,9 @@
             refs.push(null);
             var b = rd();
             var off = r.u32(), len = r.u32();
+            if (off + len > b.byteLength) {
+              throw new DOMException("Bad serialized data", "DataCloneError");
+            }
             var dv = new DataView(b, off, len);
             refs[idx] = dv;
             return dv;
@@ -6651,6 +7081,9 @@
             if (tag >= 15 && tag <= 25) {
               var Ctor = TA_CTORS[tag - 15];
               var n = r.u32();
+              if (n % Ctor.BYTES_PER_ELEMENT !== 0) {
+                throw new DOMException("Bad serialized data", "DataCloneError");
+              }
               var ta = new Ctor(r.bytes(n));
               refs.push(ta);
               return ta;
@@ -6689,8 +7122,19 @@
               }
               return o;
             }
-            if (tag === 30) return refs[r.u32()];
-            if (tag === 31) return BigInt(r.str());
+            if (tag === 30) {
+              var ridx = r.u32();
+              if (ridx >= refs.length) throw new DOMException("Bad serialized data", "DataCloneError");
+              return refs[ridx];
+            }
+            if (tag === 31) {
+              var bigStr = r.str();
+              try {
+                return BigInt(bigStr);
+              } catch (e2) {
+                throw new DOMException("Bad serialized data", "DataCloneError");
+              }
+            }
             if (tag === 32) {
               var pid = r.u32(), ppeer = r.u32(), pth = r.str();
               var portRef;
@@ -6730,6 +7174,8 @@
       this._id = id;
       this._onmsg = null;
       this._onerror = null;
+      this._onmsgErr = null;
+      this._listeners = /* @__PURE__ */ new Map();
       workers.set(id, this);
       var w = this;
       Object.defineProperty(this, "onmessage", {
@@ -6750,7 +7196,77 @@
         },
         configurable: true
       });
+      Object.defineProperty(this, "onmessageerror", {
+        get: function() {
+          return w._onmsgErr;
+        },
+        set: function(fn) {
+          w._onmsgErr = fn;
+        },
+        configurable: true
+      });
     }
+    Worker.prototype.addEventListener = function(type, callback, options) {
+      if (typeof type !== "string") return;
+      if (typeof callback !== "function" && !(callback && typeof callback.handleEvent === "function")) return;
+      if (!this._listeners.has(type)) this._listeners.set(type, []);
+      var list = this._listeners.get(type);
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].callback === callback) return;
+      }
+      list.push({ callback, once: !!(options && options.once) });
+    };
+    Worker.prototype.removeEventListener = function(type, callback) {
+      if (typeof type !== "string") return;
+      var list = this._listeners.get(type);
+      if (!list) return;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].callback === callback) {
+          list.splice(i, 1);
+          return;
+        }
+      }
+    };
+    Worker.prototype.dispatchEvent = function(event) {
+      var type = event && event.type;
+      if (typeof type !== "string") return false;
+      var handlers = [];
+      var list = this._listeners.get(type);
+      if (list) handlers = handlers.concat(list.slice());
+      if (type === "message" && typeof this._onmsg === "function") handlers.push(this._onmsg);
+      if (type === "error" && typeof this._onerror === "function") handlers.push(this._onerror);
+      if (type === "messageerror" && typeof this._onmsgErr === "function") handlers.push(this._onmsgErr);
+      for (var i = 0; i < handlers.length; i++) {
+        var entry = handlers[i];
+        try {
+          var cb = typeof entry === "function" ? entry : entry.handleEvent;
+          if (typeof cb === "function") cb.call(this, event);
+        } catch (err) {
+          if (typeof globalThis.reportError === "function") globalThis.reportError(err);
+          else if (globalThis.console) console.error("Error in worker event listener:", err);
+        }
+        if (entry && entry.once && list) {
+          var idx = list.indexOf(entry);
+          if (idx >= 0) list.splice(idx, 1);
+        }
+      }
+      return true;
+    };
+    Worker.prototype._deliverError = function(msg) {
+      var ev;
+      try {
+        ev = new ErrorEvent("error", { message: String(msg), error: new Error(String(msg)), cancelable: true });
+      } catch (err) {
+        try {
+          ev = new Event("error");
+        } catch (e2) {
+          ev = { type: "error" };
+        }
+        ev.message = String(msg);
+      }
+      ev.data = { type: "error", error: String(msg) };
+      this.dispatchEvent(ev);
+    };
     Worker.prototype.postMessage = function(value, transfer) {
       var ports = [];
       var abTransfer;
@@ -6783,6 +7299,9 @@
       pal2.workerTerminate(this._id);
       workers.delete(this._id);
     };
+    function isWorkerError(d) {
+      return d && typeof d === "object" && d.type === "error" && typeof d.error === "string";
+    }
     globalThis.Worker = Worker;
     var hostDispatch = self.__qwrt_dispatch__;
     globalThis.__qwrt_dispatch__ = function(data, source) {
@@ -6794,7 +7313,18 @@
       try {
         d = __qwrt_deserialize__(data);
       } catch (err) {
-        reportError(err);
+        var we = workers.get(source);
+        if (we) {
+          var errEv;
+          try {
+            errEv = new MessageEvent("messageerror");
+          } catch (e2) {
+            errEv = new Event("messageerror");
+          }
+          we.dispatchEvent(errEv);
+        } else {
+          reportError(err);
+        }
         return;
       }
       if (globalThis.__qwrt_deliver_port_msg__ && globalThis.__qwrt_deliver_port_msg__(d)) return;
@@ -6817,6 +7347,10 @@
           reportError(err);
           return;
         }
+        if (isWorkerError(inner)) {
+          w._deliverError(inner.error);
+          return;
+        }
         var ev2;
         try {
           ev2 = new MessageEvent("message", { data: inner, ports });
@@ -6824,18 +7358,13 @@
           reportError(err);
           return;
         }
-        var h2 = inner && inner.type === "error" ? w._onerror : w._onmsg;
-        if (h2) {
-          try {
-            h2.call(self, ev2);
-          } catch (err) {
-            reportError(err);
-          }
-        }
+        w.dispatchEvent(ev2);
         return;
       }
-      var handler = d && d.type === "error" ? w._onerror : w._onmsg;
-      if (!handler) return;
+      if (isWorkerError(d)) {
+        w._deliverError(d.error);
+        return;
+      }
       var e;
       try {
         e = new MessageEvent("message", { data: d });
@@ -6843,11 +7372,7 @@
         reportError(err);
         return;
       }
-      try {
-        handler.call(self, e);
-      } catch (err) {
-        reportError(err);
-      }
+      w.dispatchEvent(e);
     };
   }
 
@@ -6862,7 +7387,7 @@
       qwrtContext: 1
     };
     globalThis.__qwrt_ctx_capture__ = function() {
-      var props = {};
+      var props = /* @__PURE__ */ Object.create(null);
       var skipped = [];
       var keys = Object.keys(globalThis);
       for (var i2 = 0; i2 < keys.length; i2++) {
@@ -6875,7 +7400,12 @@
           continue;
         }
         try {
-          props[n] = __qwrt_serialize__(v);
+          Object.defineProperty(props, n, {
+            value: __qwrt_serialize__(v),
+            writable: true,
+            enumerable: true,
+            configurable: true
+          });
         } catch (e) {
           skipped.push(n);
         }
@@ -6896,7 +7426,12 @@
           continue;
         }
         try {
-          globalThis[n] = v;
+          Object.defineProperty(globalThis, n, {
+            value: v,
+            writable: true,
+            enumerable: true,
+            configurable: true
+          });
         } catch (e) {
         }
       }

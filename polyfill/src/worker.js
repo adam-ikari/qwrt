@@ -43,6 +43,8 @@ export function setupWorker(pal) {
     this._id = id;
     this._onmsg = null;
     this._onerror = null;
+    this._onmsgErr = null;
+    this._listeners = new Map();      /* type -> [{callback, once}] (EventTarget 支持) */
     workers.set(id, this);
     var w = this;
     Object.defineProperty(this, 'onmessage', {
@@ -55,7 +57,73 @@ export function setupWorker(pal) {
       set: function (fn) { w._onerror = fn; },
       configurable: true,
     });
+    Object.defineProperty(this, 'onmessageerror', {
+      get: function () { return w._onmsgErr; },
+      set: function (fn) { w._onmsgErr = fn; },
+      configurable: true,
+    });
   }
+
+  Worker.prototype.addEventListener = function (type, callback, options) {
+    if (typeof type !== 'string') return;
+    if (typeof callback !== 'function' &&
+        !(callback && typeof callback.handleEvent === 'function')) return;
+    if (!this._listeners.has(type)) this._listeners.set(type, []);
+    var list = this._listeners.get(type);
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].callback === callback) return;
+    }
+    list.push({ callback: callback, once: !!(options && options.once) });
+  };
+
+  Worker.prototype.removeEventListener = function (type, callback) {
+    if (typeof type !== 'string') return;
+    var list = this._listeners.get(type);
+    if (!list) return;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].callback === callback) { list.splice(i, 1); return; }
+    }
+  };
+
+  Worker.prototype.dispatchEvent = function (event) {
+    var type = event && event.type;
+    if (typeof type !== 'string') return false;
+    var handlers = [];
+    var list = this._listeners.get(type);
+    if (list) handlers = handlers.concat(list.slice());
+    if (type === 'message' && typeof this._onmsg === 'function') handlers.push(this._onmsg);
+    if (type === 'error' && typeof this._onerror === 'function') handlers.push(this._onerror);
+    if (type === 'messageerror' && typeof this._onmsgErr === 'function') handlers.push(this._onmsgErr);
+    for (var i = 0; i < handlers.length; i++) {
+      var entry = handlers[i];
+      try {
+        var cb = typeof entry === 'function' ? entry : entry.handleEvent;
+        if (typeof cb === 'function') cb.call(this, event);
+      } catch (err) {
+        if (typeof globalThis.reportError === 'function') globalThis.reportError(err);
+        else if (globalThis.console) console.error('Error in worker event listener:', err);
+      }
+      if (entry && entry.once && list) {
+        var idx = list.indexOf(entry);
+        if (idx >= 0) list.splice(idx, 1);
+      }
+    }
+    return true;
+  };
+
+  /* C 侧 worker 错误通知（wire format {type:'error', error:<msg>}）→
+   * ErrorEvent('error')，并保留 e.data 兼容历史 onerror 契约。 */
+  Worker.prototype._deliverError = function (msg) {
+    var ev;
+    try {
+      ev = new ErrorEvent('error', { message: String(msg), error: new Error(String(msg)), cancelable: true });
+    } catch (err) {
+      try { ev = new Event('error'); } catch (e2) { ev = { type: 'error' }; }
+      ev.message = String(msg);
+    }
+    ev.data = { type: 'error', error: String(msg) };
+    this.dispatchEvent(ev);
+  };
 
   Worker.prototype.postMessage = function (value, transfer) {
     /* 拆出 transfer 列表里的 MessagePort（其余 ArrayBuffer 照常序列化），
@@ -97,6 +165,14 @@ export function setupWorker(pal) {
     workers.delete(this._id);
   };
 
+  /* 判断是否为 C 侧 worker 错误通知：{type:'error', error:<string>}。
+   * 要求 error 为字符串以尽量排除用户消息误路由；彻底区分需 C 侧 wire marker
+   * （见报告）。 */
+  function isWorkerError(d) {
+    return d && typeof d === 'object' &&
+           d.type === 'error' && typeof d.error === 'string';
+  }
+
   globalThis.Worker = Worker;
 
   // Route inbound messages: source 0 = host JSON, > 0 = worker bytes.
@@ -108,7 +184,19 @@ export function setupWorker(pal) {
     }
     var d;
     try { d = __qwrt_deserialize__(data); }
-    catch (err) { reportError(err); return; }
+    catch (err) {
+      /* 反序列化失败：按规范触发 worker 的 messageerror 事件 */
+      var we = workers.get(source);
+      if (we) {
+        var errEv;
+        try { errEv = new MessageEvent('messageerror'); }
+        catch (e2) { errEv = new Event('messageerror'); }
+        we.dispatchEvent(errEv);
+      } else {
+        reportError(err);
+      }
+      return;
+    }
     /* 跨线程 port 消息：路由到本地 port 对象，不是 Worker 实例的 onmessage */
     if (globalThis.__qwrt_deliver_port_msg__ &&
         globalThis.__qwrt_deliver_port_msg__(d)) return;
@@ -125,15 +213,14 @@ export function setupWorker(pal) {
       var inner;
       try { inner = __qwrt_deserialize__(d.__qwrt_payload); }
       catch (err) { reportError(err); return; }
+      if (isWorkerError(inner)) { w._deliverError(inner.error); return; }
       var ev2;
       try { ev2 = new MessageEvent('message', { data: inner, ports: ports }); }
       catch (err) { reportError(err); return; }
-      var h2 = (inner && inner.type === 'error') ? w._onerror : w._onmsg;
-      if (h2) { try { h2.call(self, ev2); } catch (err) { reportError(err); } }
+      w.dispatchEvent(ev2);
       return;
     }
-    var handler = (d && d.type === 'error') ? w._onerror : w._onmsg;
-    if (!handler) return;
+    if (isWorkerError(d)) { w._deliverError(d.error); return; }
     var e;
     try {
       e = new MessageEvent('message', { data: d });
@@ -141,7 +228,6 @@ export function setupWorker(pal) {
       reportError(err);
       return;
     }
-    try { handler.call(self, e); }
-    catch (err) { reportError(err); }
+    w.dispatchEvent(e);
   };
 }

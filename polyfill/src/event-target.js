@@ -6,6 +6,9 @@
  */
 
 export function setupEventTarget() {
+  /* listener 抛错上报的递归深度防护：reportError → dispatch error 事件 →
+   * 若 error 监听器再抛错会再次 reportError，须封顶防无限递归 */
+  var _listenerErrorDepth = 0;
   /**
    * Event class
    *
@@ -13,9 +16,8 @@ export function setupEventTarget() {
    */
   class Event {
     constructor(type, options) {
-      if (typeof type !== 'string') {
-        throw new TypeError('Event type must be a string');
-      }
+      /* WebIDL: type 是 DOMString，非字符串需 String() 转换（new Event(123) → '123'） */
+      type = String(type);
 
       this._type = type;
       this._bubbles = options?.bubbles ?? false;
@@ -243,7 +245,11 @@ export function setupEventTarget() {
               callback.call(this, event);
             }
           } catch (err) {
-            if (globalThis.console) {
+            /* 规范：listener 抛错应按未捕获错误上报（触发全局 onerror） */
+            if (_listenerErrorDepth < 5 && typeof globalThis.reportError === 'function') {
+              _listenerErrorDepth++;
+              try { globalThis.reportError(err); } finally { _listenerErrorDepth--; }
+            } else if (globalThis.console) {
               console.error('Error in event listener:', err);
             }
           }

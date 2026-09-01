@@ -45,10 +45,12 @@ export function setupAbort() {
      */
     throwIfAborted() {
       if (this._aborted) {
-        throw new DOMException(
-          this._reason || 'The operation was aborted',
-          'AbortError'
-        );
+        /* 抛原始 reason；仅当 reason 未设置时才兜底 AbortError */
+        var reason = this._reason;
+        if (reason === undefined) {
+          reason = new DOMException('The operation was aborted', 'AbortError');
+        }
+        throw reason;
       }
     }
 
@@ -91,6 +93,9 @@ export function setupAbort() {
      */
     static abort(reason) {
       const signal = new AbortSignal();
+      if (reason === undefined) {
+        reason = new DOMException('The operation was aborted', 'AbortError');
+      }
       signal._aborted = true;
       signal._reason = reason;
       return signal;
@@ -123,6 +128,7 @@ export function setupAbort() {
       }
 
       const result = new AbortSignal();
+      const listeners = [];
 
       for (const signal of signals) {
         if (!(signal instanceof AbortSignal)) {
@@ -130,15 +136,21 @@ export function setupAbort() {
         }
 
         if (signal.aborted) {
-          // Already aborted - abort result immediately
+          /* 已 aborted - 立即 abort result，并清理前面已注册的 listener */
           result._abort(signal.reason);
+          for (const l of listeners) l.signal.removeEventListener('abort', l.fn);
           return result;
         }
 
-        signal.addEventListener('abort', function() {
-          result._abort(signal.reason);
-        });
+        const fn = function() { result._abort(signal.reason); };
+        signal.addEventListener('abort', fn);
+        listeners.push({ signal: signal, fn: fn });
       }
+
+      /* result abort 后移除所有 listener：防泄漏 */
+      result.addEventListener('abort', function() {
+        for (const l of listeners) l.signal.removeEventListener('abort', l.fn);
+      }, { once: true });
 
       return result;
     }
@@ -167,6 +179,10 @@ export function setupAbort() {
      * @param reason - Optional reason for abort
      */
     abort(reason) {
+      /* 无参 abort：signal.reason 默认 AbortError DOMException */
+      if (reason === undefined) {
+        reason = new DOMException('The operation was aborted', 'AbortError');
+      }
       this._signal._abort(reason);
     }
   }

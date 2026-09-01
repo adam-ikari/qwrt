@@ -42,7 +42,9 @@ export function setupStreams(pal) {
     }
 
     enqueue(chunk) {
-      if (this._stream._state !== 'readable') return;
+      if (this._closeRequested || this._stream._state !== 'readable') {
+        throw new TypeError('Cannot enqueue after close or error');
+      }
       this._stream._queue.push(chunk);
       this._stream._notifyReaders();
     }
@@ -292,7 +294,9 @@ export function setupStreams(pal) {
     }
 
     enqueue(chunk) {
-      if (this._stream._state !== 'readable') return;
+      if (this._closeRequested || this._stream._state !== 'readable') {
+        throw new TypeError('Cannot enqueue after close or error');
+      }
       if (chunk instanceof ArrayBuffer) {
         chunk = new Uint8Array(chunk);
       } else if (ArrayBuffer.isView(chunk)) {
@@ -420,16 +424,27 @@ export function setupStreams(pal) {
         : (this._queue.length < this._hwm);
       if (!needsMore) return;
       this._pulling = true;
+      var result;
       try {
-        var result = this._pull(this._controller);
-        if (result && typeof result.catch === 'function') {
-          result.catch(function(e) {
-            this._controller.error(e);
-          }.bind(this));
-        }
+        result = this._pull(this._controller);
       } catch (e) {
+        this._pulling = false;
         this._controller.error(e);
-      } finally {
+        return;
+      }
+      var self = this;
+      if (result && typeof result.then === 'function') {
+        /* 异步 pull：_pulling 在 promise settle 后才复位，避免并发重复拉取。
+         * 注意：settle 后不再递归拉取——拉取由 read()/_notifyReaders 按需触发
+         * （on-demand），否则 default pull（不产数据的 Promise.resolve）会形成
+         * 无限微任务循环饿死宿主事件循环。 */
+        result.then(function() {
+          self._pulling = false;
+        }, function(e) {
+          self._pulling = false;
+          self._controller.error(e);
+        });
+      } else {
         this._pulling = false;
       }
     }
@@ -451,11 +466,25 @@ export function setupStreams(pal) {
     }
 
     cancel(reason) {
-      if (this._state !== 'readable') return Promise.resolve();
+      var self = this;
+      if (this._state === 'errored') {
+        return Promise.reject(this._storedError);
+      }
+      if (this._state !== 'readable') {
+        return Promise.resolve();
+      }
       this._state = 'closed';
       this._queue = [];
-      try { this._cancel(reason); } catch (e) {}
       this._notifyReaders();
+      var result;
+      try {
+        result = this._cancel(reason);
+      } catch (e) {
+        return Promise.reject(e);
+      }
+      if (result && typeof result.then === 'function') {
+        return result.then(function() { return undefined; });
+      }
       return Promise.resolve();
     }
 
@@ -471,8 +500,16 @@ export function setupStreams(pal) {
       var flags = { b1: false, b2: false };
       var sourceCancelled = false;
 
+      /* 有分支仍要数据（且未达水位）才继续拉 —— 背压：队列满时暂停从源读取 */
+      function shouldPull() {
+        return ((!flags.b1 && !branch1Closed && branch1Controller &&
+                 branch1Controller.desiredSize > 0) ||
+                (!flags.b2 && !branch2Closed && branch2Controller &&
+                 branch2Controller.desiredSize > 0));
+      }
+
       function pullAndDispatch() {
-        if (reading) return;
+        if (reading || !shouldPull()) return;
         reading = true;
         reader.read().then(function(result) {
           reading = false;
@@ -484,7 +521,7 @@ export function setupStreams(pal) {
           if (!flags.b1 && !branch1Closed && branch1Controller) branch1Controller.enqueue(result.value);
           if (!flags.b2 && !branch2Closed && branch2Controller) branch2Controller.enqueue(result.value);
           /* If at least one live branch still wants data, keep pulling */
-          if ((!flags.b1 && !branch1Closed) || (!flags.b2 && !branch2Closed)) {
+          if (shouldPull()) {
             pullAndDispatch();
           }
         }).catch(function(e) {
@@ -536,6 +573,7 @@ export function setupStreams(pal) {
       var preventClose = !!options.preventClose;
       var preventAbort = !!options.preventAbort;
       var preventCancel = !!options.preventCancel;
+      var signal = options.signal || null;
       var reader, writer;
 
       // getReader/getWriter can throw synchronously when the source is
@@ -548,8 +586,18 @@ export function setupStreams(pal) {
         return Promise.reject(e);
       }
 
+      var abortReason = null;
+      function cleanup(e) {
+        try { reader.releaseLock(); } catch (x) {}
+        if (!preventAbort) { try { writer.abort(e); } catch (x) {} }
+        if (!preventCancel) { try { reader.cancel(e); } catch (x) {} }
+        try { writer.releaseLock(); } catch (x) {}
+      }
+
       function pump() {
+        if (abortReason) return Promise.reject(abortReason);
         return reader.read().then(function(result) {
+          if (abortReason) throw abortReason;
           if (result.done) {
             reader.releaseLock();
             if (preventClose) {
@@ -561,21 +609,41 @@ export function setupStreams(pal) {
         });
       }
 
-      return pump().then(function() {
-        // 正常收尾:writer.close() 已完成(或 preventClose),释放 dest writer 锁
-        try { writer.releaseLock(); } catch (x) {}
-      }).catch(function(e) {
-        try { reader.releaseLock(); } catch (x) {}
-        if (!preventAbort) {
-          try { writer.abort(e); } catch (x) {}
+      var rejectPipe = null;
+      var onAbort = null;
+      if (signal) {
+        if (signal.aborted) {
+          var r0 = signal.reason;
+          if (r0 === undefined) r0 = new DOMException('The operation was aborted', 'AbortError');
+          cleanup(r0);
+          return Promise.reject(r0);
         }
-        if (!preventCancel) {
-          try { reader.cancel(e); } catch (x) {}
-        }
-        // 出错路径同样释放 dest writer 锁(规范 ReadableStreamPipeTo 收尾必释放)
-        try { writer.releaseLock(); } catch (x) {}
-        throw e;
+        onAbort = function() {
+          var r = signal.reason;
+          if (r === undefined) r = new DOMException('The operation was aborted', 'AbortError');
+          abortReason = r;
+          cleanup(r);
+          if (rejectPipe) rejectPipe(r);
+        };
+        signal.addEventListener('abort', onAbort);
+      }
+
+      /* options.signal 支持：中止时立即以 reason 拒绝（即使 pump 阻塞在
+       * 不 settle 的 sink write 上），并清理 writer/reader。 */
+      var result = new Promise(function(resolve, reject) {
+        rejectPipe = reject;
+        pump().then(function() {
+          // 正常收尾:writer.close() 已完成(或 preventClose),释放 dest writer 锁
+          try { writer.releaseLock(); } catch (x) {}
+          if (signal) signal.removeEventListener('abort', onAbort);
+          resolve();
+        }).catch(function(e) {
+          cleanup(e);
+          if (signal) signal.removeEventListener('abort', onAbort);
+          reject(abortReason || e);
+        });
       });
+      return result;
     }
 
     pipeThrough(transform) {
@@ -586,7 +654,15 @@ export function setupStreams(pal) {
       if (this.locked || transform.readable.locked || transform.writable.locked) {
         throw new TypeError('pipeThrough: streams must not be locked');
       }
-      this.pipeTo(transform.writable);
+      var pipePromise = this.pipeTo(transform.writable);
+      /* 源出错/pipeTo reject：transform.readable 必须进入 errored，
+       * 否则消费者在 readable 侧永久挂起。 */
+      pipePromise.catch(function(e) {
+        try {
+          var ctrl = transform.readable._controller;
+          if (ctrl && typeof ctrl.error === 'function') ctrl.error(e);
+        } catch (x) {}
+      });
       return transform.readable;
     }
   }
@@ -665,6 +741,7 @@ export function setupStreams(pal) {
       this._writePromise = null;
       this._closePromise = null;
       this._readyPromise = Promise.resolve();
+      this._writeQueue = Promise.resolve();   /* write 串行化队列 */
 
       this._controller = new WritableStreamDefaultController(this);
 
@@ -700,37 +777,52 @@ export function setupStreams(pal) {
     _writeChunk(chunk) {
       if (this._state === 'errored') return Promise.reject(this._storedError);
       if (this._state === 'closed') return Promise.reject(new TypeError('Stream is closed'));
-
       var self = this;
-      try {
-        var result = self._write(chunk, self._controller);
-        if (!result || typeof result.then !== 'function') {
-          result = Promise.resolve(result);
+      var prev = this._writeQueue || Promise.resolve();
+      var result = prev.then(function() {
+        if (self._state === 'errored') throw self._storedError;
+        if (self._state === 'closed') throw new TypeError('Stream is closed');
+        try {
+          var r = self._write(chunk, self._controller);
+          if (!r || typeof r.then !== 'function') r = Promise.resolve(r);
+          return r;
+        } catch (e) {
+          return Promise.reject(e);
         }
-        return result;
-      } catch (e) {
-        return Promise.reject(e);
-      }
+      });
+      /* 队列以本次 write 的 settle 推进；失败也继续（后续 write 检查状态） */
+      this._writeQueue = result.catch(function() {});
+      return result;
     }
 
     _closeStream() {
       if (this._state !== 'writable') {
         return Promise.reject(new TypeError('Stream is not writable'));
       }
-      this._state = 'closed';
       var self = this;
-      try {
-        var result = self._close();
-        if (!result || typeof result.then !== 'function') {
-          result = Promise.resolve(result);
+      /* 等待排队的 write 全部 settle 后再执行 sink.close()（规范 close 排在
+       * 所有 write 之后）。否则异步 write（串行化队列）未完成时 close 抢先跑，
+       * 使后续 write 的 enqueue 落在已关闭的可读侧而丢失数据。 */
+      var prev = this._writeQueue || Promise.resolve();
+      var result = prev.then(function() {
+        if (self._state !== 'writable') {
+          throw new TypeError('Stream is not writable');
         }
-        return result.then(function() {
+        self._state = 'closed';
+        var r;
+        try {
+          r = self._close();
+        } catch (e) {
+          self._closedReject(e);
+          throw e;
+        }
+        if (!r || typeof r.then !== 'function') r = Promise.resolve(r);
+        return r.then(function() {
           self._closedResolve();
         });
-      } catch (e) {
-        self._closedReject(e);
-        return Promise.reject(e);
-      }
+      });
+      this._writeQueue = result.catch(function() {});
+      return result;
     }
 
     _abortStream(reason) {
@@ -1026,14 +1118,27 @@ export function setupStreams(pal) {
 
       self._writable = new WritableStream({
         write: function(chunk) {
-          var decoded = decoder.decode(chunk, { stream: true });
+          var decoded;
+          try {
+            decoded = decoder.decode(chunk, { stream: true });
+          } catch (e) {
+            /* fatal 解码错误：error readable（规范 TextDecoderStream） */
+            try { self._readable._controller.error(e); } catch (x) {}
+            throw e;
+          }
           if (decoded) {
             self._readable._controller.enqueue(decoded);
           }
           return Promise.resolve();
         },
         close: function() {
-          var decoded = decoder.decode();
+          var decoded;
+          try {
+            decoded = decoder.decode();
+          } catch (e) {
+            try { self._readable._controller.error(e); } catch (x) {}
+            throw e;
+          }
           if (decoded) {
             self._readable._controller.enqueue(decoded);
           }

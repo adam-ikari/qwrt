@@ -53,6 +53,49 @@ function installCryptoSubtle(pal) {
     return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
   }
 
+  /* 各算法允许的 key usages（WebCrypto 规范） */
+  var USAGE_MAP = {
+    'HMAC': ['sign', 'verify'],
+    'AES-CBC': ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
+    'AES-GCM': ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
+    'AES-CTR': ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
+    'AES-KW': ['wrapKey', 'unwrapKey'],
+    'PBKDF2': ['deriveBits', 'deriveKey'],
+    'HKDF': ['deriveBits', 'deriveKey'],
+    'ECDSA': ['sign', 'verify'],
+    'ECDH': ['deriveBits', 'deriveKey'],
+  };
+
+  /* importKey 校验 keyUsages 与算法兼容性 */
+  function validateUsages(algoName, usages) {
+    if (!Array.isArray(usages)) return;
+    var allowed = USAGE_MAP[algoName];
+    if (!allowed) return;
+    for (var i = 0; i < usages.length; i++) {
+      if (allowed.indexOf(usages[i]) < 0) {
+        throw new SyntaxError('Invalid keyUsages for ' + algoName + ': ' + usages[i]);
+      }
+    }
+  }
+
+  /* 运行时校验 key 的 usages 是否含所需操作 */
+  function checkUsage(key, usage) {
+    if (!key || !Array.isArray(key._usages)) return;
+    if (key._usages.indexOf(usage) < 0) {
+      throw new DOMException('Key does not support ' + usage, 'InvalidAccessError');
+    }
+  }
+
+  /* AES-GCM tagLength 范围校验（bits）：返回字节数 */
+  function validateGcmTagLength(tagLength) {
+    var tl = tagLength !== undefined ? Number(tagLength) : 128;
+    if (tl !== 32 && tl !== 64 && tl !== 96 && tl !== 104 &&
+        tl !== 112 && tl !== 120 && tl !== 128) {
+      throw new DOMException('Invalid tagLength', 'OperationError');
+    }
+    return tl / 8;
+  }
+
   var B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
   function base64UrlEncode(bytes) {
@@ -128,6 +171,7 @@ function installCryptoSubtle(pal) {
     importKey(format, keyData, algorithm, extractable, keyUsages) {
       return new Promise(function(resolve, reject) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;
+        validateUsages(algoName, keyUsages);
         var data;
 
         if (algoName === 'ECDSA' || algoName === 'ECDH') {
@@ -209,6 +253,7 @@ function installCryptoSubtle(pal) {
     sign(algorithm, key, data) {
       return new Promise(function(resolve, reject) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;
+        checkUsage(key, 'sign');
 
         if (algoName === 'ECDSA') {
           var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : undefined;
@@ -248,6 +293,7 @@ function installCryptoSubtle(pal) {
     verify(algorithm, key, signature, data) {
       return new Promise(function(resolve, reject) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;
+        checkUsage(key, 'verify');
 
         if (algoName === 'ECDSA') {
           var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : undefined;
@@ -285,6 +331,7 @@ function installCryptoSubtle(pal) {
       return new Promise(function(resolve, reject) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;
         var plaintext = toUint8Array(data);
+        checkUsage(key, 'encrypt');
 
         if (typeof pal.nativeAesEncrypt !== 'function') {
           reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
@@ -301,7 +348,7 @@ function installCryptoSubtle(pal) {
           if (algoName === 'AES-GCM') {
             var iv = toUint8Array(algorithm.iv);
             var aad = algorithm.additionalData ? toUint8Array(algorithm.additionalData) : undefined;
-            var tagLen = algorithm.tagLength !== undefined ? algorithm.tagLength / 8 : 16;
+            var tagLen = validateGcmTagLength(algorithm.tagLength);
             var result = pal.nativeAesEncrypt(plaintext, key._data, iv, 'AES-GCM', aad, tagLen);
             resolve(toArrayBuffer(result));
             return;
@@ -325,6 +372,7 @@ function installCryptoSubtle(pal) {
       return new Promise(function(resolve, reject) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;
         var ciphertext = toUint8Array(data);
+        checkUsage(key, 'decrypt');
 
         if (typeof pal.nativeAesDecrypt !== 'function') {
           reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
@@ -341,7 +389,7 @@ function installCryptoSubtle(pal) {
           if (algoName === 'AES-GCM') {
             var iv = toUint8Array(algorithm.iv);
             var aad = algorithm.additionalData ? toUint8Array(algorithm.additionalData) : undefined;
-            var tagLen = algorithm.tagLength !== undefined ? algorithm.tagLength / 8 : 16;
+            var tagLen = validateGcmTagLength(algorithm.tagLength);
             var result = pal.nativeAesDecrypt(ciphertext, key._data, iv, 'AES-GCM', aad, tagLen);
             resolve(toArrayBuffer(result));
             return;
@@ -494,6 +542,12 @@ function installCryptoSubtle(pal) {
     wrapKey(format, key, wrappingKey, wrapAlgorithm) {
       return new Promise(function(resolve, reject) {
         var wrapName = typeof wrapAlgorithm === 'string' ? wrapAlgorithm : wrapAlgorithm.name;
+        /* 被包装 key 必须可导出 */
+        if (!key || !key.extractable) {
+          reject(new DOMException('Key is not extractable', 'InvalidAccessError'));
+          return;
+        }
+        checkUsage(wrappingKey, 'wrapKey');
 
         if (wrapName === 'AES-KW') {
           if (format !== 'raw') {
@@ -545,7 +599,7 @@ function installCryptoSubtle(pal) {
           if (wrapName === 'AES-GCM') {
             var iv = toUint8Array(wrapAlgorithm.iv);
             var aad = wrapAlgorithm.additionalData ? toUint8Array(wrapAlgorithm.additionalData) : undefined;
-            var tagLen = wrapAlgorithm.tagLength !== undefined ? wrapAlgorithm.tagLength / 8 : 16;
+            var tagLen = validateGcmTagLength(wrapAlgorithm.tagLength);
             resolve(toArrayBuffer(pal.nativeAesEncrypt(plaintext, wrappingKey._data, iv, 'AES-GCM', aad, tagLen)));
             return;
           }
@@ -564,6 +618,7 @@ function installCryptoSubtle(pal) {
     unwrapKey(format, wrappedKey, unwrappingKey, unwrapAlgorithm, unwrappedKeyAlgorithm, extractable, keyUsages) {
       return new Promise(function(resolve, reject) {
         var unwrapName = typeof unwrapAlgorithm === 'string' ? unwrapAlgorithm : unwrapAlgorithm.name;
+        checkUsage(unwrappingKey, 'unwrapKey');
 
         if (unwrapName === 'AES-KW') {
           if (format !== 'raw') {
@@ -595,7 +650,7 @@ function installCryptoSubtle(pal) {
           if (unwrapName === 'AES-GCM') {
             var iv = toUint8Array(unwrapAlgorithm.iv);
             var aad = unwrapAlgorithm.additionalData ? toUint8Array(unwrapAlgorithm.additionalData) : undefined;
-            var tagLen = unwrapAlgorithm.tagLength !== undefined ? unwrapAlgorithm.tagLength / 8 : 16;
+            var tagLen = validateGcmTagLength(unwrapAlgorithm.tagLength);
             plaintext = pal.nativeAesDecrypt(toUint8Array(wrappedKey), unwrappingKey._data, iv, 'AES-GCM', aad, tagLen);
           } else {
             var iv = toUint8Array(unwrapAlgorithm.iv);
@@ -629,14 +684,26 @@ function installCryptoSubtle(pal) {
       });
     }
 
-    deriveBits(algorithm, key, length) {
+    deriveBits(algorithm, key, length, skipUsage) {
       return new Promise(function(resolve, reject) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;
+        /* length 必须是 8 的倍数且非负 */
+        if (typeof length !== 'number' || length < 0 || length % 8 !== 0) {
+          reject(new DOMException('Invalid deriveBits length', 'OperationError'));
+          return;
+        }
+        if (!skipUsage) checkUsage(key, 'deriveBits');
 
         if (algoName === 'PBKDF2') {
           var salt = toUint8Array(algorithm.salt);
           var iterations = algorithm.iterations;
-          var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : 'SHA-1';
+          /* PBKDF2 hash 必需（不再默认 SHA-1）；iterations 正整数 */
+          var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : undefined;
+          if (!hashAlgo) { reject(new TypeError('hash required for PBKDF2')); return; }
+          if (!Number.isInteger(iterations) || iterations < 1) {
+            reject(new DOMException('Invalid iterations value', 'OperationError'));
+            return;
+          }
 
           if (typeof pal.nativePbkdf2 !== 'function') {
             reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
@@ -704,8 +771,9 @@ function installCryptoSubtle(pal) {
     deriveKey(algorithm, key, derivedKeyType, extractable, keyUsages) {
       var self = this;
       return new Promise(function(resolve, reject) {
+        checkUsage(key, 'deriveKey');
         var bitsLength = (typeof derivedKeyType === 'string' ? 256 : (derivedKeyType.length || 256));
-        self.deriveBits(algorithm, key, bitsLength).then(function(bits) {
+        self.deriveBits(algorithm, key, bitsLength, true).then(function(bits) {
           var data = new Uint8Array(bits);
           var algoName = typeof derivedKeyType === 'string' ? derivedKeyType : derivedKeyType.name;
           resolve(new CryptoKey('secret', { name: algoName }, extractable, keyUsages, data));

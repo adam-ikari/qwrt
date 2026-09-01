@@ -99,7 +99,9 @@ export function setupStructuredClone() {
 
     // RegExp
     if (value instanceof RegExp) {
-      return new RegExp(value.source, value.flags);
+      var regexp = new RegExp(value.source, value.flags);
+      regexp.lastIndex = value.lastIndex;
+      return regexp;
     }
 
     // Error types
@@ -221,8 +223,9 @@ export function setupStructuredClone() {
       return result;
     }
 
-    // Plain object
-    if (value.constructor === Object || !value.constructor) {
+    // Plain object: [[Prototype]] 为 Object.prototype 或 null
+    var proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
       var result = {};
       seen.set(value, result);
       var keys = Object.keys(value);
@@ -234,21 +237,8 @@ export function setupStructuredClone() {
       return result;
     }
 
-    // Objects with custom constructor — try to clone as plain object
-    // (structured clone spec: only certain types are cloneable)
-    var result = {};
-    seen.set(value, result);
-    try {
-      var keys = Object.keys(value);
-      for (var i = 0; i < keys.length; i++) {
-        /* F4 安全审计：同上，'__proto__' 键不得触发原型 setter */
-        Object.defineProperty(result, keys[i], { value: clone(value[keys[i]], seen, options),
-          writable: true, enumerable: true, configurable: true });
-      }
-    } catch (e) {
-      // If we can't enumerate, just return empty
-    }
-    return result;
+    // 自定义 class 实例 / 非普通原型对象：结构化克隆不支持 → DataCloneError
+    throw new DOMException('Object with custom prototype cannot be cloned', 'DataCloneError');
   }
 
   function cloneTypedArray(value, Ctor, seen) {
@@ -291,24 +281,39 @@ export function setupStructuredClone() {
   }
 
   function utf8Decode(u8, start, len) {
+    var R = 0xFFFD;   /* U+FFFD REPLACEMENT CHARACTER */
     var out = '';
     var i = start, end = start + len;
     while (i < end) {
       var b = u8[i];
-      if (b < 0x80) {
-        out += String.fromCharCode(b); i += 1;
-      } else if (b < 0xe0) {
-        out += String.fromCharCode(((b & 0x1f) << 6) | (u8[i + 1] & 0x3f)); i += 2;
-      } else if (b < 0xf0) {
-        out += String.fromCharCode(((b & 0x0f) << 12) | ((u8[i + 1] & 0x3f) << 6) |
-                                   (u8[i + 2] & 0x3f)); i += 3;
+      var cp, n;
+      if (b < 0x80) { cp = b; n = 1; }
+      else if (b >= 0xc2 && b <= 0xdf) { cp = b & 0x1f; n = 2; }
+      else if (b >= 0xe0 && b <= 0xef) { cp = b & 0x0f; n = 3; }
+      else if (b >= 0xf0 && b <= 0xf4) { cp = b & 0x07; n = 4; }
+      else { out += String.fromCharCode(R); i += 1; continue; }
+      /* 校验 continuation 字节（0x80-0xBF）且不越界 */
+      var ok = (i + n <= end);
+      for (var j = 1; ok && j < n; j++) {
+        var cb = u8[i + j];
+        if (cb < 0x80 || cb > 0xbf) ok = false;
+        else cp = (cp << 6) | (cb & 0x3f);
+      }
+      /* 过长编码 / 代理区码点 / 越界码点 → U+FFFD */
+      if (ok && n === 3 && (cp < 0x800 || (cp >= 0xd800 && cp <= 0xdfff))) ok = false;
+      if (ok && n === 4 && (cp < 0x10000 || cp > 0x10ffff)) ok = false;
+      if (!ok) {
+        out += String.fromCharCode(R);
+        i += 1;
+        continue;
+      }
+      if (cp < 0x10000) {
+        out += String.fromCharCode(cp);
       } else {
-        var cp = ((b & 0x07) << 18) | ((u8[i + 1] & 0x3f) << 12) |
-                 ((u8[i + 2] & 0x3f) << 6) | (u8[i + 3] & 0x3f);
         var u = cp - 0x10000;
         out += String.fromCharCode(0xd800 + (u >> 10)) + String.fromCharCode(0xdc00 + (u & 0x3ff));
-        i += 4;
       }
+      i += n;
     }
     return out;
   }
@@ -466,7 +471,12 @@ export function setupStructuredClone() {
         for (var i = 0; i < v.length; i++) w(v[i]);
         return;
       }
-      /* 普通对象或自定义构造对象——按普通对象克隆 */
+      /* 普通对象（原型为 Object.prototype/null）才可克隆；自定义 class 实例
+       * 抛 DataCloneError（structured clone 语义）。 */
+      var vproto = Object.getPrototypeOf(v);
+      if (vproto !== Object.prototype && vproto !== null) {
+        throw new DOMException('Object with custom prototype cannot be cloned', 'DataCloneError');
+      }
       refs.set(v, next++); bytes.u8(0x1D);
       var keys;
       try { keys = Object.keys(v); } catch (e) { keys = []; }
@@ -559,6 +569,10 @@ export function setupStructuredClone() {
           var idx = refs.length; refs.push(null);   /* 占位，保持索引对齐 */
           var b = rd();
           var off = r.u32(), len = r.u32();
+          /* 越界（off+len 超 buffer）→ DataCloneError 而非 RangeError */
+          if (off + len > b.byteLength) {
+            throw new DOMException('Bad serialized data', 'DataCloneError');
+          }
           var dv = new DataView(b, off, len);
           refs[idx] = dv;
           return dv;
@@ -567,6 +581,9 @@ export function setupStructuredClone() {
           if (tag >= 0x0F && tag <= 0x19) {
             var Ctor = TA_CTORS[tag - 0x0F];
             var n = r.u32();
+            if (n % Ctor.BYTES_PER_ELEMENT !== 0) {
+              throw new DOMException('Bad serialized data', 'DataCloneError');
+            }
             var ta = new Ctor(r.bytes(n));
             refs.push(ta);
             return ta;
@@ -600,8 +617,16 @@ export function setupStructuredClone() {
             }
             return o;
           }
-          if (tag === 0x1E) return refs[r.u32()];
-          if (tag === 0x1F) return BigInt(r.str());
+          if (tag === 0x1E) {
+            var ridx = r.u32();
+            if (ridx >= refs.length) throw new DOMException('Bad serialized data', 'DataCloneError');
+            return refs[ridx];
+          }
+          if (tag === 0x1F) {
+            var bigStr = r.str();
+            try { return BigInt(bigStr); }
+            catch (e) { throw new DOMException('Bad serialized data', 'DataCloneError'); }
+          }
           if (tag === 0x20) {
             /* MessagePort 引用：__qwrt_port_from_ref__ 创建/复用本地代理 */
             var pid = r.u32(), ppeer = r.u32(), pth = r.str();

@@ -103,6 +103,30 @@ export function setupFetch(pal) {
     return str;
   }
 
+  /* WHATWG method：合法 HTTP token，规范化（大写）。与 /^[A-Z]+$/ 相比接受
+   * 完整 token 字符集（如 'PATCH'、'MKCOL'），并拒绝空串/含空格等非法值。 */
+  function normalizeMethod(method) {
+    var m = String(method);
+    if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(m)) {
+      throw new TypeError('Invalid HTTP method: ' + m);
+    }
+    return m.toUpperCase();
+  }
+
+  /* Response 构造的 status 校验：整数且在 200-599（WHATWG Response 构造器）。
+   * Response.error()/opaqueredirect 走内部路径绕开（status 0）。 */
+  function validateStatus(status) {
+    if (!Number.isInteger(status) || status < 200 || status > 599) {
+      throw new RangeError('Invalid status code: ' + status);
+    }
+    return status;
+  }
+
+  /* 构造规范化后的 URL href；非法 URL 抛 TypeError（WHATWG fetch 要求绝对 URL）。 */
+  function normalizeUrl(url) {
+    return new URL(String(url)).href;
+  }
+
   // String-to-Uint8Array using TextEncoder for proper UTF-8 support
   function stringToUint8Array(str) {
     return new TextEncoder().encode(str);
@@ -195,7 +219,9 @@ export function setupFetch(pal) {
   }
 
   Headers.prototype.get = function(name) {
-    return this._map.get(normalizeName(name)) || null;
+    var value = this._map.get(normalizeName(name));
+    /* 命中但值为空串时返回 ''，未命中才返回 null */
+    return value === undefined ? null : value;
   };
 
   Headers.prototype.set = function(name, value) {
@@ -268,7 +294,7 @@ export function setupFetch(pal) {
 
     // input can be a string URL or another Request
     if (input instanceof Request) {
-      this._method = init.method || input.method;
+      this._method = normalizeMethod(init.method || input.method);
       this._url = input.url;
       this._headers = new Headers(init.headers || input.headers);
       this._body = init.body !== undefined ? init.body : input._body;
@@ -279,8 +305,8 @@ export function setupFetch(pal) {
       this._mode = init.mode || input.mode || 'cors';
       this._credentials = init.credentials || input.credentials || 'same-origin';
     } else {
-      this._method = init.method || 'GET';
-      this._url = String(input);
+      this._method = normalizeMethod(init.method || 'GET');
+      this._url = normalizeUrl(input);
       this._headers = new Headers(init.headers);
       this._body = init.body !== undefined ? init.body : null;
       this._signal = init.signal || null;
@@ -293,10 +319,6 @@ export function setupFetch(pal) {
 
     this._bodyUsed = false;
 
-    // Validate method
-    if (!/^[A-Z]+$/.test(this._method)) {
-      throw new TypeError('Invalid HTTP method: ' + this._method);
-    }
   }
 
   Object.defineProperty(Request.prototype, 'method', {
@@ -366,13 +388,15 @@ export function setupFetch(pal) {
 
   Request.prototype.arrayBuffer = function() {
     return this.text().then(function(text) {
-      return stringToUint8Array(text);
+      var u8 = stringToUint8Array(text);
+      return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
     });
   };
 
   Request.prototype.blob = function() {
-    // Blob not available in this environment; return body as string
-    return this.text();
+    return this.arrayBuffer().then(function(buf) {
+      return new Blob([buf]);
+    });
   };
 
   // ================================================================
@@ -479,8 +503,10 @@ export function setupFetch(pal) {
   function Response(body, init) {
     init = init || {};
 
-    this._status = init.status !== undefined ? Number(init.status) : 200;
-    this._statusText = init.statusText || STATUS_TEXTS[this._status] || '';
+    var status = init.status !== undefined ? Number(init.status) : 200;
+    this._status = validateStatus(status);
+    /* statusText 默认空串；STATUS_TEXTS 仅由内部 fetch 路径显式提供 */
+    this._statusText = init.statusText !== undefined ? String(init.statusText) : '';
     this._headers = new Headers(init.headers);
     this._bodyUsed = false;
     this._type = 'default';
@@ -642,17 +668,17 @@ export function setupFetch(pal) {
   };
 
   Response.prototype.blob = function() {
-    // Blob not available in this environment; return body as string
-    return this.text();
+    return this.arrayBuffer().then(function(buf) {
+      return new Blob([buf]);
+    });
   };
 
   // Static methods
 
   Response.error = function() {
-    var response = new Response(null, {
-      status: 0,
-      statusText: ''
-    });
+    /* status 0 是内部错误响应的合法值，绕开构造器 200-599 校验 */
+    var response = new Response(null, { statusText: '' });
+    response._status = 0;
     response._type = 'error';
     return response;
   };
@@ -701,7 +727,11 @@ export function setupFetch(pal) {
 
       // Check if already aborted
       if (request.signal && request.signal.aborted) {
-        reject(new DOMException('The operation was aborted.', 'AbortError'));
+        var reason = request.signal.reason;
+        if (reason === undefined) {
+          reason = new DOMException('The operation was aborted.', 'AbortError');
+        }
+        reject(reason);
         return;
       }
 
@@ -716,7 +746,7 @@ export function setupFetch(pal) {
   // before the body stream is exposed.
   function doRequest(request, resolve, reject, redirectCount) {
     // Serialize headers to JSON
-    var headersObj = {};
+    var headersObj = Object.create(null);
     request.headers.forEach(function(value, name) {
       headersObj[name] = value;
     });
@@ -732,13 +762,21 @@ export function setupFetch(pal) {
     var abandoned = false;   /* this hop's stream was abandoned due to a redirect */
 
     var resolved = false;    /* fetch promise 已 settle(防 onEnd 重复 reject) */
+    /* 首跳请求体的已序列化字节。307/308 重定向需重发 body，但流式 body 已被
+     * serializeBody 读走，不能复用原 Request._body，只能用这份字节。 */
+    var sentBodyBytes = null;
+    var sentBodyReady = false;
     if (request.signal) {
       onAbort = function() {
         aborted = true;
-        if (streamController) {
-          streamController.error(new DOMException('The operation was aborted.', 'AbortError'));
+        var reason = request.signal.reason;
+        if (reason === undefined) {
+          reason = new DOMException('The operation was aborted.', 'AbortError');
         }
-        reject(new DOMException('The operation was aborted.', 'AbortError'));
+        if (streamController) {
+          streamController.error(reason);
+        }
+        reject(reason);
       };
       request.signal.addEventListener('abort', onAbort);
     }
@@ -752,14 +790,19 @@ export function setupFetch(pal) {
     // Run cb once the request body is ready. Serialization is synchronous
     // except for stream bodies (async read); a failed read rejects the fetch.
     function whenBodyReady(cb) {
+      function deliver(bytes) {
+        sentBodyBytes = bytes;
+        sentBodyReady = true;
+        cb(bytes);
+      }
       if (requestBodyBytes && typeof requestBodyBytes.then === 'function') {
-        requestBodyBytes.then(cb, function(err) {
+        requestBodyBytes.then(deliver, function(err) {
           if (aborted) return;
           cleanupAbort();
           reject(new TypeError('fetch failed: ' + (err || 'unknown error')));
         });
       } else {
-        cb(requestBodyBytes);
+        deliver(requestBodyBytes);
       }
     }
 
@@ -822,7 +865,8 @@ export function setupFetch(pal) {
         }
         if (request.redirect === 'manual') {
           cleanupAbort();
-          var manualRes = new Response(null, { status: 0, statusText: '' });
+          var manualRes = new Response(null, { statusText: '' });
+          manualRes._status = 0;
           manualRes._type = 'opaqueredirect';
           resolve(manualRes);
           return;
@@ -853,13 +897,14 @@ export function setupFetch(pal) {
             mode: request.mode,
             credentials: request.credentials
           };
-          /* 301/302 (POST→GET) and 303 drop the body; 307/308 keep method+body */
+          /* 301/302 (POST→GET) 和 303 丢弃 body；307/308 保留 method+body。
+           * 307/308 重发已序列化字节（流式 body 首跳已读走）。 */
           if (status === 303 ||
               (status === 301 && request.method === 'POST') ||
               (status === 302 && request.method === 'POST')) {
             nextInit.method = 'GET';
           } else {
-            nextInit.body = request.body;
+            nextInit.body = sentBodyReady ? sentBodyBytes : request.body;
           }
           var nextReq = new Request(nextUrl, nextInit);
           cleanupAbort();

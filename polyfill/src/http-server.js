@@ -14,6 +14,8 @@ export function setupHttpServer(pal) {
 
   var WS_GUID = '258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5';  // RFC 6455
   var PMD_TAIL = new Uint8Array([0, 0, 0xFF, 0xFF]);  // RFC 7692 §7.2.2 inflate tail
+  /* 请求头区上限：超过即视为恶意/异常，防 raw 缓冲无界增长（内存 DoS） */
+  var MAX_HEADER_SIZE = 64 * 1024;
 
   /* Single-server enforcement: only one serve() instance at a time */
   var activeInstance = null;
@@ -108,8 +110,13 @@ export function setupHttpServer(pal) {
       var ci = l.indexOf(':');
       if (ci > 0) headers[l.substring(0, ci).toLowerCase()] = l.substring(ci + 1).trim();
     });
-    var cl = parseInt(headers['content-length'], 10);
-    var contentLength = isNaN(cl) ? 0 : cl;
+    var clRaw = (headers['content-length'] || '').trim();
+    var contentLength = 0;
+    if (clRaw !== '') {
+      /* 严格数字校验：'10foo' 之类不得按 10 解析（RFC 7230 §3.3.2） */
+      if (!/^\d+$/.test(clRaw)) return null;
+      contentLength = Number(clRaw);
+    }
     var conn = (headers['connection'] || '').toLowerCase();
     var keepAlive = version !== 'HTTP/1.0' && conn !== 'close';
     return {
@@ -185,7 +192,7 @@ export function setupHttpServer(pal) {
     if (buf.length < offset + len) return null;
     var payload = buf.slice(offset, offset + len);
     if (mask) for (var i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
-    return { fin: fin, rsv1: rsv1, opcode: opcode, payload: payload, totalLen: offset + len };
+    return { fin: fin, rsv1: rsv1, opcode: opcode, masked: masked, payload: payload, totalLen: offset + len };
   }
 
   /* ── Build WS frame (server→client: NOT masked) ── */
@@ -206,10 +213,17 @@ export function setupHttpServer(pal) {
     return frame;
   }
 
+  /* 响应头值校验：拒绝 CR/LF（防头注入）。值来自 handler 返回的 headers。 */
+  function safeHeaderValue(v) {
+    var s = String(v);
+    if (/[\r\n]/.test(s)) throw new TypeError('Invalid HTTP response header value');
+    return s;
+  }
+
   /* ── Build HTTP response bytes ── */
   function buildHTTPResponse(status, statusText, hdrs, bodyBytes) {
-    var h = 'HTTP/1.1 ' + status + ' ' + statusText + '\r\n';
-    for (var k in hdrs) h += k + ': ' + hdrs[k] + '\r\n';
+    var h = 'HTTP/1.1 ' + status + ' ' + safeHeaderValue(statusText || '') + '\r\n';
+    for (var k in hdrs) h += k + ': ' + safeHeaderValue(hdrs[k]) + '\r\n';
     h += '\r\n';
     var enc = new TextEncoder();
     var hBytes = enc.encode(h);
@@ -297,6 +311,13 @@ export function setupHttpServer(pal) {
       for (;;) {
         var frame = parseWSFrame(this.buf);
         if (!frame) break;
+        /* RFC 6455: 客户端→服务器帧必须掩码；未掩码 = 协议错误 → 1002 关闭 */
+        if (!frame.masked) {
+          try { pal.tcpWrite(this.conn, buildWSFrame(0x8, new Uint8Array([0x03, 0xEA]), 1)); } catch (e) {}
+          this.state = 3;
+          pal.tcpClose(this.conn);
+          return;
+        }
         this.buf = this.buf.slice(frame.totalLen);
 
         if (frame.opcode === 0x8) {  // Close
@@ -311,6 +332,9 @@ export function setupHttpServer(pal) {
             var ev = { code: closeCode, reason: closeReason, wasClean: true };
             try { this.onclose(ev); } catch (e) {}
           }
+        } else if (frame.opcode === 0x9) {  // Ping → Pong (RFC 6455 §5.5.2)
+          try { pal.tcpWrite(this.conn, buildWSFrame(0xA, frame.payload, 1)); } catch (e) {}
+        } else if (frame.opcode === 0xA) {  // Pong — nothing to do
         } else if (frame.opcode === 0x0) {  // Continuation
           this._fragParts.push(frame.payload);
           if (frame.fin) {
@@ -408,6 +432,13 @@ export function setupHttpServer(pal) {
           /* fall through: body complete — parse any buffered next request */
         } else {
           raw = concatBytes(raw, data);
+        }
+        /* 防内存 DoS：raw 已超出上限且无完整头部终止符 → 431 关闭 */
+        if (raw.length > MAX_HEADER_SIZE && indexOfHdrEnd(raw) < 0) {
+          try { pal.tcpWrite(conn, buildHTTPResponse(431, 'Request Header Fields Too Large',
+            { 'Content-Length': '0', 'Connection': 'close' }, new Uint8Array(0))); } catch (e) {}
+          pal.tcpClose(conn);
+          return;
         }
 
         while (true) {
@@ -536,8 +567,13 @@ export function setupHttpServer(pal) {
           try {
             var result = handler(requestObj);
             if (result && typeof result.then === 'function') {
-              result.then(function(val) { sendResponse(conn, val); },
-                          function() { sendResponse(conn, null, 500, 'Internal Server Error'); });
+              result.then(function(val) {
+                try { sendResponse(conn, val); }
+                catch (e) { sendResponse(conn, null, 500, 'Internal Server Error'); }
+              }, function() {
+                try { sendResponse(conn, null, 500, 'Internal Server Error'); }
+                catch (e) { try { pal.tcpClose(conn); } catch (x) {} }
+              });
             } else {
               sendResponse(conn, result);
             }

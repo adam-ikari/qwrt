@@ -32,8 +32,9 @@ export function setupURL() {
         if (Symbol.iterator in init) {
           // Sequence of [key, value] pairs
           for (const pair of init) {
-            if (Array.isArray(pair) && pair.length >= 2) {
-              this._params.push([String(pair[0]), String(pair[1])]);
+            if (Array.isArray(pair) && pair.length >= 1) {
+              /* 单元素 pair [name] → value ''（WHATWG） */
+              this._params.push([String(pair[0]), pair.length >= 2 ? String(pair[1]) : '']);
             }
           }
         } else {
@@ -243,7 +244,7 @@ export function setupURL() {
 
       // Regex for URL parsing
       // protocol://[user:pass@]host[:port]/path[?query][#hash]
-      const URL_REGEX = /^(?:([a-z][a-z0-9+.-]*):)?(?:\/\/(?:([^:@]*)(?::([^@]*))?@)?([^:/?#]*)(?::(\d+))?)?(\/?[^?#]*)?(?:\?([^#]*))?(?:#(.*))?$/i;
+      const URL_REGEX = /^(?:([a-z][a-z0-9+.-]*):)?(?:\/\/(?:([^:@]*)(?::([^@]*))?@)?(\[[^\]]*\]|[^:/?#]*)(?::(\d+))?)?(\/?[^?#]*)?(?:\?([^#]*))?(?:#(.*))?$/i;
 
       let match = url.match(URL_REGEX);
 
@@ -256,6 +257,22 @@ export function setupURL() {
       // If no protocol and no base, it's a relative URL without base
       if (!protocol && !baseUrl) {
         throw new TypeError('Relative URL without base: ' + url);
+      }
+      /* WHATWG "special authority ignoring"：special scheme 后无 '//' 时，
+       * 第一个路径段即 host（'http:foo' → 'http://foo/'、'http:/foo' → 'http://foo/'）。
+       * 非 special scheme（mailto:/data: 等）保持原样。 */
+      const SPECIAL_SCHEMES = { http: 1, https: 1, ws: 1, wss: 1, ftp: 1 };
+      const protoName = protocol ? protocol.toLowerCase() : '';
+      if (protoName && SPECIAL_SCHEMES[protoName] && !host && path) {
+        let rest = path;
+        if (rest[0] === '/') rest = rest.slice(1);
+        const sl = rest.indexOf('/');
+        if (sl < 0) { host = rest; path = '/'; }
+        else { host = rest.slice(0, sl); path = rest.slice(sl); }
+      }
+      /* special scheme（file 除外）必须有非空 host；空 host 抛 TypeError */
+      if (protoName && SPECIAL_SCHEMES[protoName] && !host && protoName !== 'file') {
+        throw new TypeError('Invalid URL: ' + url);
       }
 
       // If no protocol, inherit from base
@@ -284,8 +301,17 @@ export function setupURL() {
       this._protocol = (protocol || '').toLowerCase();
       this._username = username || '';
       this._password = password || '';
-      this._host = host || '';
-      this._port = port || '';
+      /* host 统一 lowercase（含 IPv6 十六进制）；port 校验 0-65535 */
+      const hostName = host ? String(host).toLowerCase() : '';
+      let portStr = port || '';
+      if (portStr !== '') {
+        const portNum = Number(portStr);
+        if (!Number.isInteger(portNum) || portNum < 0 || portNum > 65535) {
+          portStr = '';   /* 越界 → 忽略（validation error） */
+        }
+      }
+      this._host = hostName;
+      this._port = portStr;
       this._pathname = path || '/';
       this._search = query || '';
       this._hash = hash || '';
@@ -359,22 +385,42 @@ export function setupURL() {
 
     set host(v) {
       v = String(v);
-      const colonIdx = v.lastIndexOf(':');
-      if (colonIdx >= 0) {
-        this._host = v.slice(0, colonIdx);
-        this._port = v.slice(colonIdx + 1);
+      let hostPart = v, portPart = '';
+      if (v[0] === '[') {
+        /* IPv6 括号形式：[::1] 或 [::1]:8080 */
+        const close = v.indexOf(']');
+        if (close >= 0) {
+          hostPart = v.slice(0, close + 1);
+          const after = v.slice(close + 1);
+          if (after[0] === ':') portPart = after.slice(1);
+        }
       } else {
-        this._host = v;
-        this._port = '';
+        const colonIdx = v.lastIndexOf(':');
+        if (colonIdx >= 0) {
+          hostPart = v.slice(0, colonIdx);
+          portPart = v.slice(colonIdx + 1);
+        }
       }
+      if (portPart !== '') {
+        const pn = Number(portPart);
+        if (!Number.isInteger(pn) || pn < 0 || pn > 65535) return;   /* 非法 → no-op */
+      }
+      this._host = hostPart.toLowerCase();
+      this._port = portPart === '' ? '' : String(Number(portPart));
     }
 
     set hostname(v) {
-      this._host = String(v);
+      this._host = String(v).toLowerCase();
     }
 
     set port(v) {
-      this._port = String(v);
+      v = String(v);
+      if (v === '') { this._port = ''; return; }
+      const pn = Number(v);
+      if (Number.isInteger(pn) && pn >= 0 && pn <= 65535) {
+        this._port = String(pn);
+      }
+      /* 非法端口：no-op（规范） */
     }
 
     set pathname(v) {

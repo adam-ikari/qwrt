@@ -32,8 +32,8 @@ export function setupTimers(pal) {
       throw new TypeError('setTimeout callback must be a function');
     }
 
-    // Coerce delay to number, default to 0, clamp to >= 0
-    delay = Math.max(0, Number(delay) || 0);
+    // Coerce delay to number, default to 0, clamp to >= 0 and <= 2^31-1
+    delay = Math.min(2147483647, Math.max(0, Number(delay) || 0));
 
     // Start the timer via PAL
     const result = pal.timerStart(delay, 0); // repeat=0 for one-shot
@@ -91,7 +91,7 @@ export function setupTimers(pal) {
       throw new TypeError('setInterval callback must be a function');
     }
 
-    delay = Math.max(0, Number(delay) || 0);
+    delay = Math.min(2147483647, Math.max(0, Number(delay) || 0));
 
     // Use a unique negative handle that we manage
     // We'll start a setTimeout and re-schedule it each time

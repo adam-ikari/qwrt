@@ -25,7 +25,7 @@ export function setupContext(pal) {
   };
 
   globalThis.__qwrt_ctx_capture__ = function() {
-    var props = {};
+    var props = Object.create(null);
     var skipped = [];
     var keys = Object.keys(globalThis);
     for (var i = 0; i < keys.length; i++) {
@@ -34,7 +34,10 @@ export function setupContext(pal) {
       var v;
       try { v = globalThis[n]; } catch (e) { continue; }
       try {
-        props[n] = __qwrt_serialize__(v);
+        /* F4 审计：props 无原型 + defineProperty 落 own 属性，防 '__proto__' 键
+         * 触发原型链 setter。 */
+        Object.defineProperty(props, n, { value: __qwrt_serialize__(v),
+          writable: true, enumerable: true, configurable: true });
       } catch (e) {
         skipped.push(n);
       }
@@ -51,7 +54,12 @@ export function setupContext(pal) {
       if (_infra[n]) continue;
       var v;
       try { v = __qwrt_deserialize__(p[n]); } catch (e) { continue; }
-      try { globalThis[n] = v; } catch (e) {}
+      try {
+        /* F4 审计：defineProperty 落 own 数据属性，防 '__proto__'/'constructor'
+         * 键改原型/污染全局。 */
+        Object.defineProperty(globalThis, n, { value: v,
+          writable: true, enumerable: true, configurable: true });
+      } catch (e) {}
     }
     return (rec && rec.skipped) || [];
   };

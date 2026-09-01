@@ -33,6 +33,11 @@ export function setupEncoding(pal) {
     for (let i = 0; i < binaryString.length; i++) {
       const code = binaryString.charCodeAt(i);
       if (code > 255) {
+        if (typeof DOMException === 'function') {
+          throw new DOMException(
+            "Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range.",
+            'InvalidCharacterError');
+        }
         throw new Error(
           "Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range."
         );
@@ -79,8 +84,14 @@ export function setupEncoding(pal) {
       );
     }
 
-    const validChars = /^[A-Za-z0-9+/=]*$/;
+    /* '=' 只能作为尾部 padding（最多两个、位置正确）；非法 base64 → 抛错 */
+    const validChars = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
     if (!validChars.test(base64String)) {
+      if (typeof DOMException === 'function') {
+        throw new DOMException(
+          "Failed to execute 'atob': The string to be decoded is not correctly encoded.",
+          'InvalidCharacterError');
+      }
       throw new Error(
         "Failed to execute 'atob': The string to be decoded is not correctly encoded."
       );

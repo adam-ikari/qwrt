@@ -44,7 +44,16 @@ export function setupWebSocket(pal) {
       });
   }
 
-  /* Build a raw WebSocket frame (masked, for client → server). */
+  /* Concatenate fragmented payload chunks into one Uint8Array. */
+  function concatParts(parts) {
+    var total = 0;
+    for (var i = 0; i < parts.length; i++) total += parts[i].length;
+    var out = new Uint8Array(total);
+    var off = 0;
+    for (var i = 0; i < parts.length; i++) { out.set(parts[i], off); off += parts[i].length; }
+    return out;
+  }
+
   function buildFrame(opcode, payload, mask) {
     var len = payload.length;
     var headerSize = 2;
@@ -94,6 +103,9 @@ export function setupWebSocket(pal) {
       this._closeSent = false;
       this._closeCode = 1000;
       this._closeReason = '';
+      this._binaryType = 'blob';   /* 收到二进制帧的呈现形态（blob|arraybuffer） */
+      this._fragOpcode = 0;        /* 分片消息起始 opcode（0 = 无分片进行中） */
+      this._fragParts = null;      /* 分片载荷片段 */
 
       // Parse URL
       var isSecure = url.indexOf('wss://') === 0;
@@ -278,9 +290,26 @@ export function setupWebSocket(pal) {
 
     _handleFrame(fin, opcode, payload) {
       if (opcode === OPCODE_TEXT || opcode === OPCODE_BINARY) {
-        var text = new TextDecoder().decode(payload);
-        if (typeof this._onmessage === 'function') {
-          try { this._onmessage(new MessageEvent('message', { data: text })); } catch(e) {}
+        if (!fin) {
+          /* start a fragmented message */
+          this._fragOpcode = opcode;
+          this._fragParts = [payload];
+          return;
+        }
+        this._deliverMessage(opcode, payload);
+      } else if (opcode === OPCODE_CONT) {
+        if (this._fragOpcode === 0 || !this._fragParts) {
+          /* continuation without a start — protocol error */
+          this._fail('unexpected continuation frame');
+          return;
+        }
+        this._fragParts.push(payload);
+        if (fin) {
+          var fragOp = this._fragOpcode;
+          var parts = this._fragParts;
+          this._fragOpcode = 0;
+          this._fragParts = null;
+          this._deliverMessage(fragOp, concatParts(parts));
         }
       } else if (opcode === OPCODE_CLOSE) {
         var code = 1000;
@@ -292,11 +321,11 @@ export function setupWebSocket(pal) {
         }
         // Echo the close frame back (RFC 6455 §5.5.1)
         if (!this._closeSent) {
-          var closePayload = new Uint8Array(2 + reason.length);
+          var reasonBytes = new TextEncoder().encode(reason);
+          var closePayload = new Uint8Array(2 + reasonBytes.length);
           closePayload[0] = (code >> 8) & 0xFF;
           closePayload[1] = code & 0xFF;
-          for (var i = 0; i < reason.length; i++)
-            closePayload[2 + i] = reason.charCodeAt(i);
+          closePayload.set(reasonBytes, 2);
           var frame = buildFrame(OPCODE_CLOSE, closePayload, true);
           pal.tcpWrite(this._tcp, frame);
         }
@@ -312,12 +341,31 @@ export function setupWebSocket(pal) {
         pal.tcpWrite(this._tcp, pong);
       } else if (opcode === OPCODE_PONG) {
         // Nothing to do
-      } else if (opcode === OPCODE_CONT) {
-        // Continuation frame — not handled (fragmentation)
       }
     }
 
-    // ── Error handling ──
+    _deliverMessage(opcode, payload) {
+      if (opcode === OPCODE_TEXT) {
+        var text = new TextDecoder().decode(payload);
+        if (typeof this._onmessage === 'function') {
+          try { this._onmessage(new MessageEvent('message', { data: text })); } catch(e) {}
+        }
+        return;
+      }
+      /* binary frame: detached ArrayBuffer, presented per binaryType */
+      var ab = payload.slice().buffer;
+      var data;
+      if (this._binaryType === 'arraybuffer') {
+        data = ab;
+      } else if (typeof Blob !== 'undefined') {
+        data = new Blob([ab]);
+      } else {
+        data = ab;
+      }
+      if (typeof this._onmessage === 'function') {
+        try { this._onmessage(new MessageEvent('message', { data: data })); } catch(e) {}
+      }
+    }
 
     _onError(msg) {
       if (this._readyState === CLOSED) return;
@@ -325,12 +373,20 @@ export function setupWebSocket(pal) {
       if (typeof this._onerror === 'function') {
         try { this._onerror(new Event('error')); } catch(e) {}
       }
+      /* 异常关闭：规范要求 code 1006 的 close 事件 */
+      if (typeof this._onclose === 'function') {
+        try { this._onclose(new CloseEvent('close', { code: 1006, reason: '', wasClean: false })); } catch(e) {}
+      }
     }
 
     _fail(msg) {
+      if (this._readyState === CLOSED) return;
       this._readyState = CLOSED;
       if (typeof this._onerror === 'function') {
         try { this._onerror(new Event('error')); } catch(e) {}
+      }
+      if (typeof this._onclose === 'function') {
+        try { this._onclose(new CloseEvent('close', { code: 1006, reason: '', wasClean: false })); } catch(e) {}
       }
     }
 
@@ -360,11 +416,31 @@ export function setupWebSocket(pal) {
     set onerror(fn) { this._onerror = fn; }
     get onclose() { return this._onclose; }
     set onclose(fn) { this._onclose = fn; }
+    get binaryType() { return this._binaryType; }
+    set binaryType(v) { this._binaryType = String(v); }
 
     send(data) {
       if (this._readyState !== OPEN) return;
-      var encoded = new TextEncoder().encode(String(data));
-      var frame = buildFrame(OPCODE_TEXT, encoded, true);
+      var opcode = OPCODE_TEXT;
+      var payload;
+      if (typeof data === 'string') {
+        payload = new TextEncoder().encode(data);
+        opcode = OPCODE_TEXT;
+      } else if (data instanceof ArrayBuffer) {
+        payload = new Uint8Array(data);
+        opcode = OPCODE_BINARY;
+      } else if (ArrayBuffer.isView(data)) {
+        payload = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        opcode = OPCODE_BINARY;
+      } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
+        payload = data._getBytes ? data._getBytes() : new Uint8Array(0);
+        opcode = OPCODE_BINARY;
+      } else {
+        /* numbers/booleans etc → text via String() (WebIDL) */
+        payload = new TextEncoder().encode(String(data));
+        opcode = OPCODE_TEXT;
+      }
+      var frame = buildFrame(opcode, payload, true);
       pal.tcpWrite(this._tcp, frame);
     }
 

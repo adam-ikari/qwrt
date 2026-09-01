@@ -164,7 +164,7 @@ if (isWatch) {
 
   // Compile <src> with qjsc → <bcPath> bytecode file; return the bytes.
   function compileToBytecode(srcPath, bcPath) {
-    execSync(QJSC + ' -C -b -o ' + bcPath + ' ' + srcPath, { stdio: 'pipe' });
+    execSync(QJSC + ' -s -C -b -o ' + bcPath + ' ' + srcPath, { stdio: 'pipe' });
     const bytes = fs.readFileSync(bcPath);
     console.log('Compiled: ' + bcPath + ' (' + bytes.length + ' bytes)');
     return bytes;

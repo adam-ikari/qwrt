@@ -63,12 +63,12 @@ export function setupBlobFileFormData() {
     get type() { return this._type; }
 
     slice(start, end, contentType) {
-      start = start === undefined ? 0 : start;
-      start = start | 0;  /* ToInteger */
+      start = Math.trunc(Number(start === undefined ? 0 : start));
+      if (Number.isNaN(start)) start = 0;   /* NaN → 0（WebIDL long long） */
       if (start < 0) start = Math.max(this._size + start, 0);
       if (start > this._size) start = this._size;
-      end = end === undefined ? this._size : end;
-      end = end | 0;  /* ToInteger */
+      end = Math.trunc(Number(end === undefined ? this._size : end));
+      if (Number.isNaN(end)) end = 0;
       if (end < 0) end = Math.max(this._size + end, 0);
       if (end > this._size) end = this._size;
 
@@ -176,23 +176,27 @@ export function setupBlobFileFormData() {
     }
 
     delete(name) {
+      name = String(name);
       this._entries = this._entries.filter(function(entry) {
         return entry.name !== name;
       });
     }
 
     get(name) {
+      name = String(name);
       var entry = this._entries.find(function(e) { return e.name === name; });
       return entry ? entry.value : null;
     }
 
     getAll(name) {
+      name = String(name);
       return this._entries
         .filter(function(e) { return e.name === name; })
         .map(function(e) { return e.value; });
     }
 
     has(name) {
+      name = String(name);
       return this._entries.some(function(e) { return e.name === name; });
     }
 
@@ -239,6 +243,9 @@ export function setupBlobFileFormData() {
 
     entries() {
       return this._entries.map(function(e) { return [e.name, e.value]; })[Symbol.iterator]();
+    }
+    [Symbol.iterator]() {
+      return this.entries();
     }
 
     _normalizeValue(value, filename) {
