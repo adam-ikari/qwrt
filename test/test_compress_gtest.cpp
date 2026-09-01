@@ -7,6 +7,9 @@
 // host_poll_until_value 轮询标志位（与 test_polyfill_gtest 的异步模式一致）。
 //
 // 覆盖：3 种格式 × 各尺寸（10B ~ 1MB）、roundtrip 正确性、gzip 头、压缩比、二进制数据。
+// 大 payload 的二进制数据用 4096 字节模板 + Uint8Array.set 块复制生成（原生
+// memcpy 级），避免 Debug 下 O(n) 的 JS 逐字节填充循环；roundtrip 校验走
+// pal.nativeBytesEqual（C 侧 memcmp）。
 #include "test_host.h"
 #include <string>
 #include <cstdio>
@@ -31,7 +34,9 @@ protected:
         return host_value(h, expr, &out) && out == "true";
     }
 
-    /* 通用 roundtrip：format 压缩 → 拼结果 → 解压 → 与原文逐字节比对 */
+    /* 通用 roundtrip：format 压缩 → 拼结果 → 解压 → nativeBytesEqual 校验。
+     * 逐字节比较走 C 侧 memcmp（而非 JS for 循环）：unoptimized QuickJS
+     * 解释执行 1MB 逐字节循环在 Debug 下需数秒，会击穿 host_eval 超时。 */
     void test_roundtrip(const char *format, const char *data_expr) {
         char code[1024];
         std::string out;
@@ -72,7 +77,7 @@ protected:
             "      var _result=new Uint8Array(_osize);var _o=0;"
             "      for(var i=0;i<_out.length;i++){_result.set(_out[i],_o);_o+=_out[i].length;}"
             "      _rok=(_result.length===_rdata.length);"
-            "      if(_rok){for(var i=0;i<_result.length;i++){if(_result[i]!==_rdata[i]){_rok=false;break;}}}"
+            "      if(_rok){_rok=__native__.nativeBytesEqual(_result,_rdata);}"
             "      return;"
             "    }"
             "    _out.push(r.value);_osize+=r.value.length;q();});}"
@@ -245,15 +250,15 @@ TEST_F(CompressTestBase, Gzip1MBRatio) {
 
 TEST_F(CompressTestBase, GzipBinary64KB) {
     test_roundtrip("gzip",
-        "(function(){var a=new Uint8Array(65536);for(var i=0;i<a.length;i++)a[i]=i&0xff;return a;})()");
+        "(function(){var t=new Uint8Array(4096);for(var i=0;i<t.length;i++)t[i]=i&0xff;var a=new Uint8Array(65536);for(var o=0;o<a.length;o+=4096)a.set(t,o);return a;})()");
 }
 
 TEST_F(CompressTestBase, DeflateRawBinary128KB) {
     test_roundtrip("deflate-raw",
-        "(function(){var a=new Uint8Array(131072);for(var i=0;i<a.length;i++)a[i]=(i*7+13)&0xff;return a;})()");
+        "(function(){var t=new Uint8Array(4096);for(var i=0;i<t.length;i++)t[i]=(i*7+13)&0xff;var a=new Uint8Array(131072);for(var o=0;o<a.length;o+=4096)a.set(t,o);return a;})()");
 }
 
 TEST_F(CompressTestBase, GzipBinary1MB) {
     test_roundtrip("gzip",
-        "(function(){var a=new Uint8Array(1048576);for(var i=0;i<a.length;i++)a[i]=i&0x03;return a;})()");
+        "(function(){var t=new Uint8Array(4096);for(var i=0;i<t.length;i++)t[i]=i&0x03;var a=new Uint8Array(1048576);for(var o=0;o<a.length;o+=4096)a.set(t,o);return a;})()");
 }

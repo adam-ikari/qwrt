@@ -32,7 +32,8 @@ protected:
         return host_value(h, expr, &out) && out == "true";
     }
 
-    /* Roundtrip test: compress with format, decompress, verify exact match */
+    /* Roundtrip: compress with format, decompress, verify exact match via
+     * __native__.nativeBytesEqual (C-side memcmp, not a JS byte loop). */
     void test_roundtrip(const char *format, const char *data_expr) {
         char code[1024];
         std::string out;
@@ -70,7 +71,7 @@ protected:
             "      var _result=new Uint8Array(_osize);var _o=0;"
             "      for(var i=0;i<_out.length;i++){_result.set(_out[i],_o);_o+=_out[i].length;}"
             "      _rok=(_result.length===_rdata.length);"
-            "      if(_rok){for(var i=0;i<_result.length;i++){if(_result[i]!==_rdata[i]){_rok=false;break;}}}"
+            "      if(_rok){_rok=__native__.nativeBytesEqual(_result,_rdata);}"
             "      return;"
             "    }"
             "    _out.push(r.value);_osize+=r.value.length;q();});}"
@@ -124,7 +125,7 @@ protected:
             "var _c2=new Uint8Array(_sz2);var _o2=0;"
             "for(var i=0;i<_ch2.length;i++){_c2.set(_ch2[i],_o2);_o2+=_ch2[i].length;}"
             "var _det=(_c1.length===_c2.length);"
-            "if(_det){for(var i=0;i<_c1.length;i++){if(_c1[i]!==_c2[i]){_det=false;break;}}}");
+            "if(_det){_det=__native__.nativeBytesEqual(_c1,_c2);}");
         ASSERT_TRUE(host_eval(h, code, &out));
 
         EXPECT_TRUE(js_bool("_det"));
@@ -289,7 +290,7 @@ TEST_F(CompressConsistencyTest, RoundtripGzip1MB) {
 
 TEST_F(CompressConsistencyTest, RoundtripGzipBinary64KB) {
     test_roundtrip("gzip",
-        "(function(){var a=new Uint8Array(65536);for(var i=0;i<a.length;i++)a[i]=i&0xff;return a;})()");
+        "(function(){var t=new Uint8Array(4096);for(var i=0;i<t.length;i++)t[i]=i&0xff;var a=new Uint8Array(65536);for(var o=0;o<a.length;o+=4096)a.set(t,o);return a;})()");
 }
 
 /* ================================================================

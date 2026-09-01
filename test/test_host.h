@@ -95,8 +95,9 @@ static inline void host_destroy(HostCtx *h) {
 
 // 单次 eval 的短超时：host_poll_until* 应持续重试直到总预算耗尽，而不是被
 // 单次慢的 eval 拖垮——Debug 高负载下 qwrt 线程处理 1MB 压缩/解压消息队列
-// 可能数秒，5s 的单次等待会让 poll 退化成一击即败。值取 3000ms：正常 1MB
-// roundtrip 的 JS 层比较循环在 Debug 下 ~1-2s，3000ms 单次内完成不引入额外
+// 可能数秒，5s 的单次等待会让 poll 退化成一击即败。值取 3000ms：1MB
+// roundtrip 的压缩/解压在 C 侧完成、roundtrip 校验走 nativeBytesEqual
+// （memcmp），Debug 下单次 eval ~0.2-0.5s；3000ms 单次内完成不引入额外
 // 重试；高负载下超时后重试自愈。超时后残留的 eval 响应由 host_wait_msg
 // 清理，下一次 eval 从干净状态重试。
 #define HOST_POLL_SINGLE_MS 3000

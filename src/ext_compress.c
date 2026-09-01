@@ -612,6 +612,35 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 }
 
 /* ================================================================
+ * pal.nativeBytesEqual(a, b) -> boolean
+ *
+ * Deterministic O(n) binary comparison via memcmp: true iff a and b
+ * are byte-identical (same length, equal contents). Roundtrip tests
+ * use it instead of a per-byte JS comparison loop, which under Debug
+ * (unoptimized QuickJS bytecode interpreter) takes seconds for 1MB
+ * payloads. Both arguments must be ArrayBuffer or Uint8Array.
+ * ================================================================ */
+
+static JSValue js_pal_native_bytes_equal(JSContext *ctx, JSValueConst this_val,
+                                          int argc, JSValueConst *argv)
+{
+    (void)this_val;
+    if (argc < 2) {
+        return JS_ThrowTypeError(ctx, "nativeBytesEqual requires 2 arguments: a, b");
+    }
+
+    const uint8_t *a_bytes, *b_bytes;
+    size_t a_len, b_len;
+    if (compress_extract_buffer(ctx, argv[0], &a_bytes, &a_len) < 0 ||
+        compress_extract_buffer(ctx, argv[1], &b_bytes, &b_len) < 0) {
+        return JS_ThrowTypeError(ctx, "nativeBytesEqual: arguments must be ArrayBuffer or Uint8Array");
+    }
+
+    return JS_NewBool(ctx, a_len == b_len &&
+                            (a_len == 0 || memcmp(a_bytes, b_bytes, a_len) == 0));
+}
+
+/* ================================================================
  * Streaming DEFLATE / inflate contexts
  *
  * Raw-DEFLATE streams whose zlib state is retained across pushes —
@@ -931,6 +960,8 @@ static int compress_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
         JS_NewCFunction(ctx, js_pal_native_compress, "nativeCompress", 2));
     JS_SetPropertyStr(ctx, pal, "nativeDecompress",
         JS_NewCFunction(ctx, js_pal_native_decompress, "nativeDecompress", 2));
+    JS_SetPropertyStr(ctx, pal, "nativeBytesEqual",
+        JS_NewCFunction(ctx, js_pal_native_bytes_equal, "nativeBytesEqual", 2));
     JS_SetPropertyStr(ctx, pal, "deflateCreate",
         JS_NewCFunction(ctx, js_pal_deflate_create, "deflateCreate", 0));
     JS_SetPropertyStr(ctx, pal, "deflatePush",
