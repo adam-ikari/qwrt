@@ -264,6 +264,22 @@ struct qwrt_tcp_client {
 #endif
 };
 
+/* JS-visible handle wrapper for a TCP client. The JS handle object is a class
+ * instance whose opaque is a tcp_client_handle_t*. When the connection is torn
+ * down, client is set to NULL so stale JS handles (tcpWrite/tcpClose after
+ * close) become no-ops instead of dereferencing freed memory. */
+typedef struct {
+    qwrt_tcp_client_t *client;
+} tcp_client_handle_t;
+
+static void tcp_client_handle_finalizer(JSRuntime *jsrt, JSValue val)
+{
+    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    if (!rt) return;
+    tcp_client_handle_t *h = JS_GetOpaque(val, rt->tcp_client_class_id);
+    if (h) js_free_rt(jsrt, h);
+}
+
 /* ── Forward declarations ── */
 static void tcp_alloc_cb(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf);
 static void tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
@@ -278,6 +294,12 @@ static void tcp_client_free(qwrt_tcp_client_t *c) {
     if (!c || c->freed) return;
     c->freed = 1;
     c->closed = 1;
+    /* Detach the JS handle wrapper: stale JS handles must become no-ops
+     * instead of dereferencing this (possibly soon-to-be-freed) client. */
+    if (c->rt && JS_IsObject(c->handle_obj)) {
+        tcp_client_handle_t *h = JS_GetOpaque(c->handle_obj, c->rt->tcp_client_class_id);
+        if (h) h->client = NULL;
+    }
 
     if (c->jsctx) {
         JS_FreeValue(c->jsctx, c->handle_obj);
@@ -395,6 +417,12 @@ static void tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
                 if (!JS_IsException(ab) && JS_IsFunction(c->jsctx, c->ondata))
                     JS_Call(c->jsctx, c->ondata, c->handle_obj, 1, (JSValueConst[]){ab});
                 JS_FreeValue(c->jsctx, ab);
+                /* The ondata callback may have closed the connection
+                 * (tcpClose/tcp_error → tcp_client_free → mbedtls_ssl_free);
+                 * stop reading from the torn-down TLS context. The client
+                 * struct is still allocated here (uv_close defers the free),
+                 * so checking closed/freed is safe. */
+                if (c->closed || c->freed) return;
             }
             if (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
                 c->closed = 1;
@@ -532,14 +560,40 @@ JSValue js_pal_tcp_connect(JSContext *ctx, JSValueConst this_val,
     fn = JS_GetPropertyStr(ctx, argv[2], "onclose");
     if (JS_IsFunction(ctx, fn)) c->onclose = fn; else JS_FreeValue(ctx, fn);
 
-    /* Create the JS handle object */
-    JSValue obj = JS_NewObject(ctx);
+    /* Create the JS handle object: a class instance whose opaque is a
+     * tcp_client_handle_t wrapping the client pointer. On close the wrapper's
+     * client is NULLed so stale handles can't dereference freed memory. */
+    tcp_client_handle_t *h = (tcp_client_handle_t *)js_mallocz(ctx, sizeof(*h));
+    if (!h) {
+        JS_FreeCString(ctx, host);
+        JS_FreeValue(ctx, c->ondata);
+        JS_FreeValue(ctx, c->onerror);
+        JS_FreeValue(ctx, c->onclose);
+        JS_FreeValue(ctx, c->onconnect);
+        js_free(ctx, c);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    h->client = c;
+    JSValue obj = JS_NewObjectClass(ctx, rt->tcp_client_class_id);
+    if (JS_IsException(obj)) {
+        js_free(ctx, h);
+        JS_FreeCString(ctx, host);
+        JS_FreeValue(ctx, c->ondata);
+        JS_FreeValue(ctx, c->onerror);
+        JS_FreeValue(ctx, c->onclose);
+        JS_FreeValue(ctx, c->onconnect);
+        js_free(ctx, c);
+        return JS_EXCEPTION;
+    }
+    JS_SetOpaque(obj, h);
     JS_SetPropertyStr(ctx, obj, "_tcpClient", JS_NewInt64(ctx, (int64_t)(uintptr_t)c));
     c->handle_obj = JS_DupValue(ctx, obj);
 
     /* Create TCP socket */
     if (uv_tcp_init(&rt->loop, &c->tcp) != 0) {
-        js_free(ctx, c);
+        /* tcp_client_free releases the handle object, the callbacks and the
+         * client struct (tcp not active yet → immediate free). */
+        tcp_client_free(c);
         JS_FreeCString(ctx, host);
         JS_FreeValue(ctx, obj);
         return JS_ThrowTypeError(ctx, "tcpConnect: tcp init failed");
@@ -582,13 +636,12 @@ JSValue js_pal_tcp_write(JSContext *ctx, JSValueConst this_val,
     if (argc < 2 || !JS_IsObject(argv[0]))
         return JS_ThrowTypeError(ctx, "tcpWrite(handle, data) required");
 
-    JSValue pv = JS_GetPropertyStr(ctx, argv[0], "_tcpClient");
-    if (!JS_IsNumber(pv)) { JS_FreeValue(ctx, pv); return JS_UNDEFINED; }
-    int64_t ptr = 0;
-    JS_ToInt64(ctx, &ptr, pv);
-    JS_FreeValue(ctx, pv);
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)(uintptr_t)ptr;
-    if (!c || c->closed || c->freed || !c->tcp_active)
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_UNDEFINED;
+    tcp_client_handle_t *h = JS_GetOpaque(argv[0], rt->tcp_client_class_id);
+    if (!h || !h->client) return JS_UNDEFINED;  /* stale/invalid handle */
+    qwrt_tcp_client_t *c = h->client;
+    if (c->closed || c->freed || !c->tcp_active)
         return JS_UNDEFINED;
 
     /* Extract the raw bytes from the argument (string or ArrayBuffer) */
@@ -668,13 +721,12 @@ JSValue js_pal_tcp_close(JSContext *ctx, JSValueConst this_val,
     if (argc < 1 || !JS_IsObject(argv[0]))
         return JS_ThrowTypeError(ctx, "tcpClose(handle) required");
 
-    JSValue pv = JS_GetPropertyStr(ctx, argv[0], "_tcpClient");
-    if (!JS_IsNumber(pv)) { JS_FreeValue(ctx, pv); return JS_UNDEFINED; }
-    int64_t ptr = 0;
-    JS_ToInt64(ctx, &ptr, pv);
-    JS_FreeValue(ctx, pv);
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)(uintptr_t)ptr;
-    if (!c || c->closed || c->freed)
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_UNDEFINED;
+    tcp_client_handle_t *h = JS_GetOpaque(argv[0], rt->tcp_client_class_id);
+    if (!h || !h->client) return JS_UNDEFINED;  /* stale/invalid handle */
+    qwrt_tcp_client_t *c = h->client;
+    if (c->closed || c->freed)
         return JS_UNDEFINED;
 
     c->closed = 1;
@@ -699,10 +751,30 @@ struct qwrt_tcp_listener {
 #endif
 };
 
+/* JS-visible handle wrapper for a TCP listener (same stale-handle UAF
+ * protection as the client handle). */
+typedef struct {
+    qwrt_tcp_listener_t *listener;
+} tcp_listener_handle_t;
+
+static void tcp_listener_handle_finalizer(JSRuntime *jsrt, JSValue val)
+{
+    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    if (!rt) return;
+    tcp_listener_handle_t *h = JS_GetOpaque(val, rt->tcp_listener_class_id);
+    if (h) js_free_rt(jsrt, h);
+}
+
 /* ── Listener close callback (libuv) ── */
 static void tcp_listener_close_cb(uv_handle_t *handle) {
     qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)handle->data;
     if (l) {
+        /* Detach the JS handle wrapper so a stale handle (tcpCloseListener /
+         * tcpReloadTls after close) cannot dereference the freed listener. */
+        if (l->jsctx && l->rt && JS_IsObject(l->handle_obj)) {
+            tcp_listener_handle_t *h = JS_GetOpaque(l->handle_obj, l->rt->tcp_listener_class_id);
+            if (h) h->listener = NULL;
+        }
         if (l->jsctx) {
             JS_FreeValue(l->jsctx, l->handle_obj);
             JS_FreeValue(l->jsctx, l->onconnection);
@@ -799,11 +871,14 @@ static void tcp_listen_on_connection(uv_stream_t *server, int status) {
     }
 #endif
 
-    /* Create JS handle object */
+    /* Create JS handle object (class instance with a client wrapper). */
     JSContext *ctx = l->jsctx;
-    JSValue obj = JS_NewObject(ctx);
-    if (JS_IsException(obj)) { tcp_client_free(c); return; }
-
+    tcp_client_handle_t *h = (tcp_client_handle_t *)js_mallocz(ctx, sizeof(*h));
+    if (!h) { tcp_client_free(c); return; }
+    h->client = c;
+    JSValue obj = JS_NewObjectClass(ctx, rt->tcp_client_class_id);
+    if (JS_IsException(obj)) { js_free(ctx, h); tcp_client_free(c); return; }
+    JS_SetOpaque(obj, h);
     JSValue ptr_val = JS_NewInt64(ctx, (int64_t)(uintptr_t)c);
     JS_SetPropertyStr(ctx, obj, "_tcpClient", ptr_val);
     c->handle_obj = JS_DupValue(ctx, obj);
@@ -870,14 +945,31 @@ JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
     }
 #endif
 
-    /* Create JS handle with close method */
-    JSValue obj = JS_NewObject(ctx);
-    if (JS_IsException(obj)) {
+    /* Create JS handle with close method: a class instance with a wrapper so
+     * a stale handle can't dereference the freed listener. */
+    tcp_listener_handle_t *h = (tcp_listener_handle_t *)js_mallocz(ctx, sizeof(*h));
+    if (!h) {
         JS_FreeCString(ctx, hostname);
         JS_FreeValue(ctx, l->onconnection);
+#if QWRT_WITH_TLS
+        if (l->tls_ctx) { tls_server_ctx_unref(l->tls_ctx); l->tls_ctx = NULL; }
+#endif
+        js_free(ctx, l);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    h->listener = l;
+    JSValue obj = JS_NewObjectClass(ctx, rt->tcp_listener_class_id);
+    if (JS_IsException(obj)) {
+        js_free(ctx, h);
+        JS_FreeCString(ctx, hostname);
+        JS_FreeValue(ctx, l->onconnection);
+#if QWRT_WITH_TLS
+        if (l->tls_ctx) { tls_server_ctx_unref(l->tls_ctx); l->tls_ctx = NULL; }
+#endif
         js_free(ctx, l);
         return JS_EXCEPTION;
     }
+    JS_SetOpaque(obj, h);
     JSValue ptr_val = JS_NewInt64(ctx, (int64_t)(uintptr_t)l);
     JS_SetPropertyStr(ctx, obj, "_tcpListener", ptr_val);
     l->handle_obj = JS_DupValue(ctx, obj);
@@ -910,12 +1002,11 @@ static JSValue js_pal_tcp_reload_tls(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeError(ctx, "tcpReloadTls(listenerHandle, tlsObj) required");
     }
 
-    JSValue pv = JS_GetPropertyStr(ctx, argv[0], "_tcpListener");
-    if (!JS_IsNumber(pv)) { JS_FreeValue(ctx, pv); return JS_FALSE; }
-    int64_t ptr = 0;
-    JS_ToInt64(ctx, &ptr, pv);
-    JS_FreeValue(ctx, pv);
-    qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)(uintptr_t)ptr;
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_FALSE;
+    tcp_listener_handle_t *h = JS_GetOpaque(argv[0], rt->tcp_listener_class_id);
+    if (!h || !h->listener) return JS_FALSE;
+    qwrt_tcp_listener_t *l = h->listener;
 #if QWRT_WITH_TLS
     if (!l || l->closed || !l->tls_ctx) return JS_FALSE;
 
@@ -941,13 +1032,12 @@ JSValue js_pal_tcp_close_listener(JSContext *ctx, JSValueConst this_val,
     if (argc < 1 || !JS_IsObject(argv[0]))
         return JS_ThrowTypeError(ctx, "tcpCloseListener(handle) required");
 
-    JSValue pv = JS_GetPropertyStr(ctx, argv[0], "_tcpListener");
-    if (!JS_IsNumber(pv)) { JS_FreeValue(ctx, pv); return JS_UNDEFINED; }
-    int64_t ptr = 0;
-    JS_ToInt64(ctx, &ptr, pv);
-    JS_FreeValue(ctx, pv);
-    qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)(uintptr_t)ptr;
-    if (!l || l->closed) return JS_UNDEFINED;
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_UNDEFINED;
+    tcp_listener_handle_t *h = JS_GetOpaque(argv[0], rt->tcp_listener_class_id);
+    if (!h || !h->listener) return JS_UNDEFINED;
+    qwrt_tcp_listener_t *l = h->listener;
+    if (l->closed) return JS_UNDEFINED;
 
     l->closed = 1;
     uv_close((uv_handle_t *)&l->tcp, tcp_listener_close_cb);
@@ -956,6 +1046,18 @@ JSValue js_pal_tcp_close_listener(JSContext *ctx, JSValueConst this_val,
 
 /* ── Module init ── */
 void qwrt_tcp_io_init(JSContext *ctx, JSValue pal) {
+    /* Register the handle classes once per runtime (guarded by class_id == 0;
+     * qwrt_tcp_io_init can be re-invoked per context). */
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (rt && rt->tcp_client_class_id == 0) {
+        JSRuntime *jsrt = JS_GetRuntime(ctx);
+        JS_NewClassID(jsrt, &rt->tcp_client_class_id);
+        JSClassDef client_class = { .class_name = "TcpClient", .finalizer = tcp_client_handle_finalizer };
+        JS_NewClass(jsrt, rt->tcp_client_class_id, &client_class);
+        JS_NewClassID(jsrt, &rt->tcp_listener_class_id);
+        JSClassDef listener_class = { .class_name = "TcpListener", .finalizer = tcp_listener_handle_finalizer };
+        JS_NewClass(jsrt, rt->tcp_listener_class_id, &listener_class);
+    }
     JS_SetPropertyStr(ctx, pal, "tcpConnect", JS_NewCFunction(ctx, js_pal_tcp_connect, "tcpConnect", 3));
     JS_SetPropertyStr(ctx, pal, "tcpWrite", JS_NewCFunction(ctx, js_pal_tcp_write, "tcpWrite", 2));
     JS_SetPropertyStr(ctx, pal, "tcpClose", JS_NewCFunction(ctx, js_pal_tcp_close, "tcpClose", 1));

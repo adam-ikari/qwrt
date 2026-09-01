@@ -50,6 +50,10 @@ typedef struct wasm3_module_wrap_t {
                           * instance runtime; the runtime then frees the module
                           * (m3_FreeRuntime). The module finalizer frees it only
                           * when !loaded, else it would double-free/UAF. */
+    /* Once loaded, the module memory is owned by the instance runtime; hold
+     * a JS reference to that instance so Module.exports()/imports()/… cannot
+     * dereference freed module memory after the instance is collected. */
+    JSValue instance_ref;
 } wasm3_module_wrap_t;
 
 typedef struct wasm3_instance_wrap_t {
@@ -68,6 +72,9 @@ typedef struct wasm3_func_closure_t {
     u16 num_rets;
     u8 *arg_types;   /* types[i]: wasm3 type for arg i */
     u8 *ret_types;   /* types[i]: wasm3 type for ret i */
+    /* Keeps the instance (and its runtime) alive while the exported function
+     * is referenced — calling it after the instance was collected would UAF. */
+    JSValue instance_ref;
 } wasm3_func_closure_t;
 
 /* Closure for a WASM imported function — dispatches WASM calls to JS */
@@ -87,6 +94,9 @@ typedef struct wasm3_memory_wrap_t {
     u32 maximum_pages;  /* 0 = no limit */
     uint8_t *js_mem;    /* for standalone Memory (runtime==NULL), JS-owned buffer */
     size_t js_mem_size;
+    /* Keeps the instance alive while the Memory object (which wraps the
+     * instance's linear memory) is referenced. */
+    JSValue instance_ref;
 } wasm3_memory_wrap_t;
 
 typedef struct wasm3_table_wrap_t {
@@ -100,6 +110,9 @@ typedef struct wasm3_global_wrap_t {
     u8 type;           /* c_m3Type_i32, c_m3Type_i64, c_m3Type_f32, c_m3Type_f64 */
     bool is_mutable;
     M3Global *live_global;  /* for instance exports: points into wasm3 module, read live */
+    /* Keeps the instance alive while the Global wrapper (whose getter reads
+     * the live module global) is referenced. */
+    JSValue instance_ref;
     union {
         int32_t i32;
         int64_t i64;
@@ -147,6 +160,7 @@ static void wasm3_module_finalizer(JSRuntime *jsrt, JSValue val)
             wrap->wasm_buf = NULL;
         }
         wrap->module = NULL;
+        JS_FreeValueRT(jsrt, wrap->instance_ref);
         js_free_rt(jsrt, wrap);
     }
 }
@@ -539,6 +553,7 @@ static JSValue wasm3_module_constructor(JSContext *ctx, JSValueConst new_target,
     wrap->wasm_buf = wasm_buf;
     wrap->wasm_buf_size = (uint32_t)byte_len;
     wrap->loaded = 0;
+    wrap->instance_ref = JS_UNDEFINED;
 
     JSValue obj = JS_NewObjectClass(ctx, rt->wasm3_module_class_id);
     if (JS_IsException(obj)) {
@@ -699,6 +714,9 @@ static JSValue wasm3_module_custom_sections(JSContext *ctx, JSValueConst this_va
             uint8_t byte = *p++;
             section_size |= (uint32_t)(byte & 0x7f) << shift;
             shift += 7;
+            /* Cap the shift so a malicious oversized LEB128 cannot reach
+             * shift >= 32 (undefined behavior for the << below). */
+            if (shift > 28) break;
             if (!(byte & 0x80)) break;
         } while (1);
 
@@ -718,6 +736,7 @@ static JSValue wasm3_module_custom_sections(JSContext *ctx, JSValueConst this_va
                 uint8_t byte = *np++;
                 sn_len |= (uint32_t)(byte & 0x7f) << sn_shift;
                 sn_shift += 7;
+                if (sn_shift > 28) break;
                 if (!(byte & 0x80)) break;
             } while (1);
 
@@ -752,6 +771,7 @@ static void wasm3_func_closure_free(JSRuntime *jsrt, JSValue val)
     if (closure) {
         js_free_rt(jsrt, closure->arg_types);
         js_free_rt(jsrt, closure->ret_types);
+        JS_FreeValueRT(jsrt, closure->instance_ref);
         js_free_rt(jsrt, closure);
     }
 }
@@ -846,6 +866,7 @@ static void wasm3_memory_finalizer(JSRuntime *jsrt, JSValue val)
         if (wrap->js_mem) {
             js_free_rt(jsrt, wrap->js_mem);
         }
+        JS_FreeValueRT(jsrt, wrap->instance_ref);
         js_free_rt(jsrt, wrap);
     }
 }
@@ -872,6 +893,7 @@ static void wasm3_global_finalizer(JSRuntime *jsrt, JSValue val)
     if (!rt) return;
     wasm3_global_wrap_t *wrap = (wasm3_global_wrap_t *)JS_GetOpaque(val, rt->wasm3_global_class_id);
     if (wrap) {
+        JS_FreeValueRT(jsrt, wrap->instance_ref);
         js_free_rt(jsrt, wrap);
     }
 }
@@ -1227,6 +1249,11 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
         return JS_EXCEPTION;
     }
     JS_SetOpaque(obj, wrap);
+    /* Once the module is loaded into this instance runtime, the module's
+     * parsed data is owned by the runtime. Holding a reference to the instance
+     * keeps the module memory valid while the Module object is alive
+     * (Module.exports()/imports() must not dereference freed memory). */
+    mod_wrap->instance_ref = JS_DupValue(ctx, obj);
 
     /* Build exports object */
     JSValue exports = JS_NewObject(ctx);
@@ -1243,6 +1270,7 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
             mwrap->runtime = runtime;
             mwrap->current_pages = mem_size / 65536;
             mwrap->maximum_pages = mod_wrap->module->memoryInfo.maxPages;
+            mwrap->instance_ref = JS_DupValue(ctx, obj);
 
             JSValue mem_obj = JS_NewObjectClass(ctx, rt->wasm3_memory_class_id);
             JS_SetOpaque(mem_obj, mwrap);
@@ -1304,6 +1332,7 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
         gwrap->type = g->type;
         gwrap->is_mutable = g->isMutable;
         gwrap->live_global = g;  /* point to live wasm3 global for live reads/writes */
+        gwrap->instance_ref = JS_DupValue(ctx, obj);
         switch (g->type) {
         case c_m3Type_i32: gwrap->value.i32 = g->i32Value; break;
         case c_m3Type_i64: gwrap->value.i64 = g->i64Value; break;
@@ -1345,6 +1374,7 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
         closure->name = fname;
         closure->num_args = ftype->numArgs;
         closure->num_rets = ftype->numRets;
+        closure->instance_ref = JS_DupValue(ctx, obj);
 
         /* Copy arg types (after return types in the types array) */
         if (ftype->numArgs > 0) {
@@ -1428,6 +1458,7 @@ static JSValue wasm3_memory_constructor(JSContext *ctx, JSValueConst new_target,
     mwrap->maximum_pages = maximum_pages >= 0 ? (u32)maximum_pages : 0;
     mwrap->js_mem = mem;
     mwrap->js_mem_size = byte_len;
+    mwrap->instance_ref = JS_UNDEFINED;
 
     JSValue obj = JS_NewObjectClass(ctx, rt->wasm3_memory_class_id);
     JS_SetOpaque(obj, mwrap);
@@ -1694,6 +1725,7 @@ static JSValue wasm3_global_constructor(JSContext *ctx, JSValueConst new_target,
     if (!wrap) return JS_ThrowOutOfMemory(ctx);
     wrap->type = type;
     wrap->is_mutable = is_mutable;
+    wrap->instance_ref = JS_UNDEFINED;
 
     if (argc >= 2 && !JS_IsUndefined(argv[1])) {
         switch (type) {

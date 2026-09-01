@@ -25,27 +25,37 @@
 #include <mbedtls/hkdf.h>
 #include <mbedtls/nist_kw.h>
 #include <string.h>
+#include <stdlib.h>
 
 /* ================================================================
- * Shared RNG for EC key generation / signing (lazy singleton).
- * qwrt runs JS single-threaded per runtime, so no locking is needed.
+ * Per-runtime RNG for EC key generation / signing.
+ * The entropy/DRBG contexts live on qwrt_t (one per runtime) — qwrt runs
+ * JS single-threaded per runtime, but multiple runtimes (e.g. workers on
+ * their own threads) must not share one CTR_DRBG without synchronization,
+ * so the old process-level singleton was a data race. Freed in
+ * crypto_ext_destroy.
  * ================================================================ */
 
-static mbedtls_entropy_context g_ec_entropy;
-static mbedtls_ctr_drbg_context g_ec_drbg;
-static int g_ec_rng_ready = 0;
-
-static mbedtls_ctr_drbg_context *ec_rng(void)
+static mbedtls_ctr_drbg_context *ec_rng(JSContext *ctx)
 {
-    if (!g_ec_rng_ready) {
-        mbedtls_entropy_init(&g_ec_entropy);
-        mbedtls_ctr_drbg_init(&g_ec_drbg);
-        if (mbedtls_ctr_drbg_seed(&g_ec_drbg, mbedtls_entropy_func,
-                                  &g_ec_entropy, NULL, 0) != 0)
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return NULL;
+    if (!rt->ec_rng_ready) {
+        if (!rt->ec_entropy)
+            rt->ec_entropy = malloc(sizeof(mbedtls_entropy_context));
+        if (!rt->ec_drbg)
+            rt->ec_drbg = malloc(sizeof(mbedtls_ctr_drbg_context));
+        if (!rt->ec_entropy || !rt->ec_drbg)
             return NULL;
-        g_ec_rng_ready = 1;
+        mbedtls_entropy_init((mbedtls_entropy_context *)rt->ec_entropy);
+        mbedtls_ctr_drbg_init((mbedtls_ctr_drbg_context *)rt->ec_drbg);
+        if (mbedtls_ctr_drbg_seed((mbedtls_ctr_drbg_context *)rt->ec_drbg,
+                                  mbedtls_entropy_func,
+                                  rt->ec_entropy, NULL, 0) != 0)
+            return NULL;
+        rt->ec_rng_ready = 1;
     }
-    return &g_ec_drbg;
+    return (mbedtls_ctr_drbg_context *)rt->ec_drbg;
 }
 
 /* Map WebCrypto curve name to mbedTLS group + coordinate size. */
@@ -253,7 +263,6 @@ static JSValue js_pal_native_aes_crypt(JSContext *ctx, JSValueConst argv[],
 
     const char *algo = JS_ToCString(ctx, argv[3]);
     if (!algo) return JS_EXCEPTION;
-
     const uint8_t *aad = NULL;
     size_t aad_len = 0;
     if (!JS_IsUndefined(argv[4]) && !JS_IsNull(argv[4])) {
@@ -264,10 +273,14 @@ static JSValue js_pal_native_aes_crypt(JSContext *ctx, JSValueConst argv[],
     }
 
     int32_t tag_len = 16;
-    if (!JS_IsUndefined(argv[5])) {
-        JS_ToInt32(ctx, &tag_len, argv[5]);
+    if (!JS_IsUndefined(argv[5]) && !JS_IsNull(argv[5])) {
+        if (JS_ToInt32(ctx, &tag_len, argv[5]) != 0) {
+            return JS_ThrowTypeError(ctx, "nativeAes: invalid tagLen");
+        }
     }
-
+    if (tag_len < 1 || tag_len > 16) {
+        return JS_ThrowTypeError(ctx, "nativeAes: tagLen must be in [1,16]");
+    }
     mbedtls_cipher_mode_t mode;
     if (strcmp(algo, "AES-CBC") == 0)      mode = MBEDTLS_MODE_CBC;
     else if (strcmp(algo, "AES-GCM") == 0) mode = MBEDTLS_MODE_GCM;
@@ -620,7 +633,7 @@ static JSValue js_pal_native_ec_generate(JSContext *ctx, JSValueConst this_val,
     }
     JS_FreeCString(ctx, curve);
 
-    mbedtls_ctr_drbg_context *rng = ec_rng();
+    mbedtls_ctr_drbg_context *rng = ec_rng(ctx);
     if (!rng) return JS_ThrowTypeError(ctx, "nativeEcGenerate: RNG init failed");
 
     mbedtls_ecp_group grp;
@@ -693,7 +706,7 @@ static JSValue js_pal_native_ecdh(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeError(ctx, "nativeEcdh: priv/peer must be ArrayBuffer or Uint8Array");
     }
 
-    mbedtls_ctr_drbg_context *rng = ec_rng();
+    mbedtls_ctr_drbg_context *rng = ec_rng(ctx);
     if (!rng) return JS_ThrowTypeError(ctx, "nativeEcdh: RNG init failed");
 
     mbedtls_ecp_group grp;
@@ -783,7 +796,7 @@ static JSValue js_pal_native_ecdsa(JSContext *ctx, JSValueConst argv[],
         return JS_ThrowTypeError(ctx, "nativeEcdsa: buffers required");
     }
 
-    mbedtls_ctr_drbg_context *rng = ec_rng();
+    mbedtls_ctr_drbg_context *rng = ec_rng(ctx);
     if (!rng) return JS_ThrowTypeError(ctx, "nativeEcdsa: RNG init failed");
 
     mbedtls_ecp_group grp;
@@ -933,7 +946,19 @@ static int crypto_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 
 static void crypto_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
 {
-    (void)ext; (void)rt;
+    (void)ext;
+    /* Release the per-runtime EC RNG (if it was ever seeded). */
+    if (rt->ec_entropy) {
+        mbedtls_entropy_free((mbedtls_entropy_context *)rt->ec_entropy);
+        free(rt->ec_entropy);
+        rt->ec_entropy = NULL;
+    }
+    if (rt->ec_drbg) {
+        mbedtls_ctr_drbg_free((mbedtls_ctr_drbg_context *)rt->ec_drbg);
+        free(rt->ec_drbg);
+        rt->ec_drbg = NULL;
+    }
+    rt->ec_rng_ready = 0;
 }
 
 static int crypto_ext_suspend(qwrt_ext_t *ext, qwrt_t *rt)

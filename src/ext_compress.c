@@ -111,8 +111,16 @@ static int raw_inflate(JSContext *ctx,
     stream.avail_out = (mz_uint)out_size;
 
     size_t total = 0;
+    int guard = 0;
 
     do {
+        if (++guard > 100000) {
+            /* Defensive cap: a pathological stream that keeps producing
+             * output without ever reaching STREAM_END. */
+            js_free(ctx, buf);
+            mz_inflateEnd(&stream);
+            return -2;
+        }
         ret = mz_inflate(&stream, MZ_NO_FLUSH);
         if (ret == MZ_DATA_ERROR) {
             js_free(ctx, buf);
@@ -123,6 +131,15 @@ static int raw_inflate(JSContext *ctx,
             js_free(ctx, buf);
             mz_inflateEnd(&stream);
             return (ret == MZ_MEM_ERROR) ? -3 : -1;
+        }
+        if (ret == MZ_BUF_ERROR) {
+            /* miniz returns MZ_BUF_ERROR when no forward progress is
+             * possible — input exhausted before STREAM_END (truncated
+             * stream) or the output buffer is full with nothing left to
+             * emit. Without this branch the loop would spin forever. */
+            js_free(ctx, buf);
+            mz_inflateEnd(&stream);
+            return (stream.avail_in == 0) ? -2 : -1;
         }
 
         total = out_size - stream.avail_out;
@@ -417,6 +434,13 @@ static JSValue js_pal_native_compress(JSContext *ctx, JSValueConst this_val,
 
     /* in_len <= UINT_MAX guaranteed above, so (mz_ulong)cast is safe */
     size_t raw_bound = mz_deflateBound(&stream, (mz_ulong)in_len);
+    /* Guard: stream.avail_out is unsigned int (32-bit) — a deflateBound
+     * larger than UINT_MAX would be silently truncated by the (mz_uint)
+     * cast when writing stream.avail_out below. */
+    if (raw_bound > UINT_MAX) {
+        mz_deflateEnd(&stream);
+        return JS_ThrowRangeError(ctx, "nativeCompress: output too large (max 4GB)");
+    }
     size_t buf_size = hdr_size + raw_bound + trl_size;
 
     uint8_t *buf = (uint8_t *)js_malloc(ctx, buf_size);
@@ -800,11 +824,16 @@ static JSValue js_pal_deflate_push(JSContext *ctx, JSValueConst this_val,
             return JS_ThrowInternalError(ctx, "deflatePush: deflate failed (%d)", ret);
         }
         if (ret == MZ_STREAM_END) break;
-        /* All input consumed. mz_deflate(MZ_SYNC_FLUSH) flushes everything in a
-         * single call, and MZ_NO_FLUSH buffers the rest — either way there is no
-         * more output to pull once avail_in hits 0. (Calling again with SYNC_FLUSH
-         * and no input would emit empty 00 00 ff ff blocks forever.) */
-        if (c->strm.avail_in == 0) break;
+        /* MZ_SYNC_FLUSH: the flush output may span multiple calls when the
+         * output buffer fills mid-flush, so breaking the moment avail_in hits
+         * 0 would truncate the stream. But once a call leaves output space
+         * (avail_out > 0) with all input consumed, the sync flush is fully
+         * drained — calling again with no input would only emit empty
+         * 00 00 ff ff blocks forever. MZ_NO_FLUSH buffers nothing more once
+         * the input is consumed, so break immediately in that case. */
+        if (c->strm.avail_in == 0 &&
+            (flush == MZ_NO_FLUSH || c->strm.avail_out > 0))
+            break;
     }
     JSValue result = JS_NewUint8ArrayCopy(ctx, out, out_len);
     js_free(ctx, out);

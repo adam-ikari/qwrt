@@ -1,3 +1,7 @@
+# qwrt patch: add a `debugger;` opcode + JSDebuggerHooks dispatch hook to
+# quickjs-ng for the DAP step-debugger (QWRT_DEBUG_SUPPORT).
+# Base submodule: deps/quickjs-ng @ fd0a0210b7be00957751871e7e01b8291268fc29 (v0.15.1)
+# Working-tree-only (the submodule stays clean); CMake re-applies when needed.
 diff --git a/quickjs-opcode.h b/quickjs-opcode.h
 index ec2a5ad..402d288 100644
 --- a/quickjs-opcode.h

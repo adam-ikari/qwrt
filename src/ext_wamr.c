@@ -138,7 +138,28 @@ typedef struct wamr_global_closure_t {
     wasm_module_inst_t mod_inst;
     void *global_data;
     wasm_valkind_t kind;
+    /* Keeps the owning WAMR instance alive: the global wrapper reads
+     * global_data (memory inside the instance) and must not outlive it. */
+    JSValue instance_ref;
 } wamr_global_closure_t;
+
+/* Owner of an exported linear-memory ArrayBuffer. The ArrayBuffer wraps
+ * WAMR memory owned by the instance; holding a JS reference to the instance
+ * (freed when the ArrayBuffer is finalized) prevents the instance from being
+ * deinstantiated while exports.memory is still referenced. */
+typedef struct wamr_mem_owner_t {
+    JSValue instance_ref;
+} wamr_mem_owner_t;
+
+static void wamr_mem_owner_free(JSRuntime *jsrt, void *opaque, void *ptr)
+{
+    QWRT_UNUSED(ptr);
+    wamr_mem_owner_t *owner = (wamr_mem_owner_t *)opaque;
+    if (owner) {
+        JS_FreeValueRT(jsrt, owner->instance_ref);
+        js_free_rt(jsrt, owner);
+    }
+}
 
 static void wamr_global_class_finalizer(JSRuntime *jsrt, JSValue val)
 {
@@ -147,6 +168,7 @@ static void wamr_global_class_finalizer(JSRuntime *jsrt, JSValue val)
     wamr_global_closure_t *gc = (wamr_global_closure_t *)
         JS_GetOpaque(val, rt->wamr_global_class_id);
     if (gc) {
+        JS_FreeValueRT(jsrt, gc->instance_ref);
         js_free_rt(jsrt, gc);
     }
 }
@@ -533,24 +555,55 @@ static JSValue wamr_call_exported_func(JSContext *ctx, JSValueConst this_val,
     wamr_func_closure_t *fc = (wamr_func_closure_t *)opaque;
     if (!fc) return JS_ThrowTypeError(ctx, "invalid WASM function closure");
 
+    /* wargs[]/results[] are fixed-size stack arrays (16 params, 4 results);
+     * WAMR supports larger arities, so reject such signatures up front —
+     * otherwise the loops below would write out of bounds. */
+    if (fc->param_count > 16 || fc->result_count > 4) {
+        return JS_ThrowRangeError(ctx,
+            "WebAssembly function: too many parameters (>16) or results (>4)");
+    }
+
+    /* Fetch the real parameter types — previously every argument was forced
+     * to WASM_I32, corrupting f32/f64/i64 values. */
+    wasm_valkind_t ptypes[16];
+    wasm_func_get_param_types(fc->func, fc->mod_inst, ptypes);
+
     uint32_t n = fc->param_count;
     if ((uint32_t)argc < n) n = (uint32_t)argc;
 
     wasm_val_t wargs[16];
+    memset(wargs, 0, sizeof(wargs));
     uint32_t j;
     for (j = 0; j < n; j++) {
-        int64_t iv;
-        if (JS_ToInt64(ctx, &iv, argv[j]) == 0) {
-            wargs[j].kind = WASM_I32;
-            wargs[j].of.i32 = (int32_t)iv;
-        } else {
-            wargs[j].kind = WASM_I32;
-            wargs[j].of.i32 = 0;
+        wargs[j].kind = ptypes[j];
+        switch (ptypes[j]) {
+        case WASM_I32:
+            if (JS_ToInt32(ctx, &wargs[j].of.i32, argv[j]) != 0)
+                return JS_ThrowTypeError(ctx, "WebAssembly function: invalid i32 argument %u", j);
+            break;
+        case WASM_I64:
+            if (JS_ToInt64(ctx, &wargs[j].of.i64, argv[j]) != 0)
+                return JS_ThrowTypeError(ctx, "WebAssembly function: invalid i64 argument %u", j);
+            break;
+        case WASM_F32: {
+            double dv;
+            if (JS_ToFloat64(ctx, &dv, argv[j]) != 0)
+                return JS_ThrowTypeError(ctx, "WebAssembly function: invalid f32 argument %u", j);
+            wargs[j].of.f32 = (float)dv;
+            break;
+        }
+        case WASM_F64:
+            if (JS_ToFloat64(ctx, &wargs[j].of.f64, argv[j]) != 0)
+                return JS_ThrowTypeError(ctx, "WebAssembly function: invalid f64 argument %u", j);
+            break;
+        default:
+            return JS_ThrowTypeError(ctx,
+                "WebAssembly function: unsupported parameter type %d", (int)ptypes[j]);
         }
     }
+    /* Missing arguments (argc < param_count) default to zero with the correct kind. */
     for (j = n; j < fc->param_count; j++) {
-        wargs[j].kind = WASM_I32;
-        wargs[j].of.i32 = 0;
+        wargs[j].kind = ptypes[j];
     }
 
     wasm_val_t results[4];
@@ -591,6 +644,17 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
     wamr_module_wrap_t *mod_wrap = (wamr_module_wrap_t *)JS_GetOpaque(argv[0], rt->wamr_module_class_id);
     if (!mod_wrap || !mod_wrap->module) {
         return JS_ThrowTypeError(ctx, "WebAssembly.Instance: first argument must be a WebAssembly.Module");
+    }
+
+    /* The WAMR path does not support import objects: an importObject (argv[1])
+     * would be silently dropped, and WAMR instantiation of a module that
+     * declares imports would then fail with a confusing link error. Fail fast
+     * with a clear message instead of silently discarding the argument. */
+    int import_count = (int)wasm_runtime_get_import_count(mod_wrap->module);
+    if (import_count > 0) {
+        return JS_ThrowTypeError(ctx,
+            "WebAssembly.Instance: WAMR engine does not support import objects "
+            "(module declares %d import(s))", import_count);
     }
 
     /* Instantiate */
@@ -683,7 +747,19 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
             uint8_t *base = (uint8_t *)wasm_memory_get_base_address(mem);
 
             JSValue mem_obj = JS_NewObject(ctx);
-            JSValue ab = JS_NewArrayBuffer(ctx, base, byte_len, NULL, NULL, 0);
+            /* The ArrayBuffer wraps WAMR memory owned by the instance. Give
+             * it an owner that holds a JS reference to the instance, so the
+             * instance cannot be deinstantiated (freeing the memory) while
+             * exports.memory is still referenced — fixes a use-after-free. */
+            wamr_mem_owner_t *owner = (wamr_mem_owner_t *)js_malloc(ctx, sizeof(*owner));
+            if (!owner) continue;
+            owner->instance_ref = JS_DupValue(ctx, obj);
+            JSValue ab = JS_NewArrayBuffer(ctx, base, byte_len,
+                                           wamr_mem_owner_free, owner, 0);
+            if (JS_IsException(ab)) {
+                wamr_mem_owner_free(JS_GetRuntime(ctx), owner, NULL);
+                continue;
+            }
             JS_SetPropertyStr(ctx, mem_obj, "buffer", ab);
             JS_SetPropertyStr(ctx, mem_obj, "_initial",
                               JS_NewInt32(ctx, (int32_t)num_pages));
@@ -713,6 +789,10 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
                 /* Mutable: use JS_NewObjectClass with opaque, and
                  * JS_DefinePropertyGetSet for live .value access */
                 global_obj = JS_NewObjectClass(ctx, rt->wamr_global_class_id);
+                /* Hold a reference to the instance: the getter/setter read
+                 * global_data (memory inside the instance), which must not be
+                 * deinstantiated while this wrapper is alive (UAF fix). */
+                gc->instance_ref = JS_DupValue(ctx, obj);
                 JS_SetOpaque(global_obj, gc);
 
                 JSAtom value_atom = JS_NewAtom(ctx, "value");

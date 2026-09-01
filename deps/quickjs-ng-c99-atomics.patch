@@ -1,3 +1,7 @@
+# qwrt patch: force GCC/Clang __atomic_* builtins in quickjs-c-atomics.h so
+# quickjs-ng compiles under -std=c99 (no C11 <stdatomic.h>).
+# Base submodule: deps/quickjs-ng @ fd0a0210b7be00957751871e7e01b8291268fc29 (v0.15.1)
+# Working-tree-only (the submodule stays clean); CMake re-applies when needed.
 diff --git a/quickjs-c-atomics.h b/quickjs-c-atomics.h
 index 8fc6b72..b552edd 100644
 --- a/quickjs-c-atomics.h

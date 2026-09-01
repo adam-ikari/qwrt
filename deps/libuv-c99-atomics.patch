@@ -1,3 +1,7 @@
+# qwrt patch: map C11 atomic_* ops + _Atomic to GCC/Clang __atomic_* builtins
+# in libuv's uv-common.h so libuv compiles under -std=c99.
+# Base submodule: deps/libuv @ 20b08342bcdcc27497aeb87d826b97475c12aca6 (v1.52.1-72-g20b08342)
+# Working-tree-only (the submodule stays clean); CMake re-applies when needed.
 diff --git a/src/unix/async.c b/src/unix/async.c
 index bb954a12..3f54330d 100644
 --- a/src/unix/async.c

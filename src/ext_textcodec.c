@@ -97,10 +97,9 @@ static JSValue js_pal_native_btoa(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeError(ctx, "nativeBtoa requires 1 argument");
     }
 
-    const char *str = JS_ToCString(ctx, argv[0]);
+    size_t len = 0;
+    const char *str = JS_ToCStringLen(ctx, &len, argv[0]);
     if (!str) return JS_EXCEPTION;
-
-    size_t len = strlen(str);
     size_t out_len = 4 * ((len + 2) / 3);
     char *out = (char *)js_malloc(ctx, out_len + 1);
     if (!out) {
@@ -165,10 +164,9 @@ static JSValue js_pal_native_atob(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeError(ctx, "nativeAtob requires 1 argument");
     }
 
-    const char *str = JS_ToCString(ctx, argv[0]);
+    size_t len = 0;
+    const char *str = JS_ToCStringLen(ctx, &len, argv[0]);
     if (!str) return JS_EXCEPTION;
-
-    size_t len = strlen(str);
     /* Strip whitespace and validate */
     size_t clean_len = 0;
     uint8_t *clean = (uint8_t *)js_malloc(ctx, len);
@@ -217,8 +215,33 @@ static JSValue js_pal_native_atob(JSContext *ctx, JSValueConst this_val,
 
     js_free(ctx, clean);
 
-    JSValue result = JS_NewStringLen(ctx, (const char *)out, out_len);
+    /* atob returns a string where each decoded byte maps to a codepoint
+     * U+00XX. QuickJS stores strings as UTF-8, so bytes >= 0x80 must be
+     * re-encoded as 2-byte UTF-8 sequences — feeding the raw bytes to
+     * JS_NewStringLen would otherwise build an invalid UTF-8 string. */
+    size_t utf8_len = out_len;
+    for (size_t i = 0; i < out_len; i++) {
+        if (out[i] >= 0x80) utf8_len++;
+    }
+    uint8_t *utf8 = (uint8_t *)js_malloc(ctx, utf8_len);
+    if (!utf8) {
+        js_free(ctx, out);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    size_t p = 0;
+    for (size_t i = 0; i < out_len; i++) {
+        unsigned char b = out[i];
+        if (b < 0x80) {
+            utf8[p++] = b;
+        } else {
+            utf8[p++] = (uint8_t)(0xC0 | (b >> 6));
+            utf8[p++] = (uint8_t)(0x80 | (b & 0x3F));
+        }
+    }
     js_free(ctx, out);
+
+    JSValue result = JS_NewStringLen(ctx, (const char *)utf8, utf8_len);
+    js_free(ctx, utf8);
     return result;
 }
 
