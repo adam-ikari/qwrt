@@ -821,6 +821,211 @@ def test_websocket_permessage_deflate(qwrt_bin):
         srv.stop()
 
 # ---------------------------------------------------------------------------
+# SSE (EventSource) + WebSocket 客户端完整语义（真实 libuv）
+# ---------------------------------------------------------------------------
+
+@test
+def test_eventsource_client(qwrt_bin):
+    """JS EventSource → qwrt server /events：server 返回 text/event-stream 响应体；
+    客户端解析多 data 行 / 自定义 event 名 / id / 空 data 分发，随后 close() 并
+    srv.close() 排空事件循环。"""
+    p = free_port()
+    js = (
+        "const srv = serve({port: %d}, (req) => {\n"
+        "  if (req.url === '/events') {\n"
+        "    return new Response('id: 1\\nevent: custom\\ndata: alpha\\ndata: beta\\n\\n"
+        "id: 2\\ndata: gamma\\n\\n',\n"
+        "      {headers: {'Content-Type': 'text/event-stream'}});\n"
+        "  }\n"
+        "  return new Response('nope', {status: 404});\n"
+        "});\n"
+        "const es = new EventSource('http://127.0.0.1:%d/events');\n"
+        "let rec = '';\n"
+        "es.onopen = () => console.log('SSE-OPEN');\n"
+        "es.onerror = () => console.log('SSE-ERR');\n"
+        "es.onmessage = (ev) => { rec += 'M:' + ev.data + '|' + ev.lastEventId + ';'; };\n"
+        "es.addEventListener('custom', (ev) => { rec += 'C:' + ev.data.replace(/\\n/g, ';'); });\n"
+        "setTimeout(() => {\n"
+        "  console.log('SSE-REC:' + rec);\n"
+        "  es.close();\n"
+        "  srv.close();\n"
+        "}, 300);\n" % (p, p))
+    text, rc = _run_js_until(qwrt_bin, js, (b"SSE-REC:",), settle=3)
+    assert "SSE-OPEN" in text, "no open; rc=%d out=%s" % (rc, text[:400])
+    assert "SSE-REC:C:alpha;beta" in text, text[-400:]
+    assert "SSE-REC:" in text and "M:gamma|2;" in text, text[-400:]
+
+
+@test
+def test_websocket_client_eventtarget(qwrt_bin):
+    """WebSocket extends EventTarget：addEventListener('message') + onmessage 都触发；
+    close(code, reason) 的 code/reason/wasClean 传播到 onclose。"""
+    p = free_port()
+    js = (
+        "const srv = serve({port: %d, ws: {'/echo': (ws) => "
+        "{ ws.onmessage = (e) => ws.send('echo:' + e.data); }}}, "
+        "() => new Response('ok'));"
+        "const ws = new WebSocket('ws://127.0.0.1:%d/echo');"
+        "let got = [];"
+        "ws.addEventListener('message', (ev) => { got.push('L:' + ev.data); });"
+        "ws.onmessage = (ev) => { got.push('O:' + ev.data); };"
+        "ws.onopen = () => ws.send('hi');"
+        "ws.onclose = (ev) => {"
+        "  console.log('WS-ET:' + ev.code + ':' + ev.reason + ':' + ev.wasClean + ':' + got.join(','));"
+        "  srv.close(); };"
+        "setTimeout(() => { ws.close(1000, 'bye'); }, 300);"
+        % (p, p))
+    text, rc = _run_js_until(qwrt_bin, js, (b"WS-ET:",), settle=3)
+    assert "WS-ET:1000:bye:true:L:echo:hi,O:echo:hi" in text, text[-400:]
+
+
+@test
+def test_websocket_client_binarytype(qwrt_bin):
+    """binaryType：'arraybuffer' → ArrayBuffer；'blob' → Blob（字节完整）。"""
+    p = free_port()
+    js = (
+        "const srv = serve({port: %d, ws: {'/echo': (ws) => {"
+        "  ws.onmessage = (e) => { if (typeof e.data === 'string') ws.send('pong');"
+        "                          else ws.send(e.data); }; }}}, "
+        "() => new Response('ok'));"
+        "const ws = new WebSocket('ws://127.0.0.1:%d/echo');"
+        "ws.binaryType = 'arraybuffer';"
+        "ws.onopen = () => ws.send(new Uint8Array([1,2,3]).buffer);"
+        "ws.onmessage = (ev) => {"
+        "  if (ev.data instanceof ArrayBuffer) {"
+        "    console.log('WS-AB:' + Array.from(new Uint8Array(ev.data)).join(','));"
+        "    ws.binaryType = 'blob';"
+        "    ws.send(new Uint8Array([9,8]).buffer);"
+        "  } else if (ev.data instanceof Blob) {"
+        "    ev.data.arrayBuffer().then(function(buf){"
+        "      console.log('WS-BLOB:' + Array.from(new Uint8Array(buf)).join(','));"
+        "      ws.close(1000, 'ok');"
+        "    });"
+        "  }"
+        "};"
+        "ws.onclose = (ev) => { console.log('WS-BT-DONE:' + ev.code); srv.close(); };"
+        % (p, p))
+    text, rc = _run_js_until(qwrt_bin, js, (b"WS-BT-DONE:",), settle=4)
+    assert "WS-AB:1,2,3" in text, text[-400:]
+    assert "WS-BLOB:9,8" in text, text[-400:]
+    assert "WS-BT-DONE:1000" in text, text[-400:]
+
+
+def _raw_ws_handshake(c):
+    """Read a client HTTP upgrade request, reply 101 with the correct Accept."""
+    import hashlib
+    req = b""
+    while b"\r\n\r\n" not in req:
+        d = c.recv(4096)
+        if not d:
+            break
+        req += d
+    key = None
+    for ln in req.split(b"\r\n"):
+        if ln.lower().startswith(b"sec-websocket-key:"):
+            key = ln.split(b":", 1)[1].strip()
+    accept = base64.b64encode(
+        hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5").digest())
+    c.sendall(b"HTTP/1.1 101 Switching Protocols\r\n"
+              b"Upgrade: websocket\r\nConnection: Upgrade\r\n"
+              b"Sec-WebSocket-Accept: " + accept + b"\r\n\r\n")
+    return req
+
+
+@test
+def test_websocket_client_masked_frame_rejected(qwrt_bin):
+    """服务端发 masked 帧（RFC 6455 §5.1 客户端不得接受服务端 masked 帧）→
+    WebSocket 客户端必须 fail：onerror + onclose(1006, wasClean false)。"""
+    p = free_port()
+    result = {}
+
+    def server(port):
+        try:
+            s = socket.socket()
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", port))
+            s.listen(1)
+            c, _ = s.accept()
+            c.settimeout(5)
+            _raw_ws_handshake(c)
+            # masked TEXT frame "hi"
+            mask = b"\x01\x02\x03\x04"
+            payload = bytes([b ^ mask[i % 4] for i, b in enumerate(b"hi")])
+            c.sendall(b"\x81\x80" + mask + payload)
+            time.sleep(1.0)
+            c.close()
+            s.close()
+        except Exception as e:
+            result["err"] = repr(e)
+
+    t = threading.Thread(target=server, args=(p,), daemon=True)
+    t.start()
+    js = (
+        "const ws = new WebSocket('ws://127.0.0.1:%d/');"
+        "ws.onerror = () => console.log('MASK-ERR');"
+        "ws.onclose = (ev) => console.log('MASK-CLOSE:' + ev.code + ':' + ev.wasClean);"
+        % p)
+    text, rc = _run_js_until(qwrt_bin, js, (b"MASK-ERR", b"MASK-CLOSE:1006:false"))
+    assert "MASK-ERR" in text, "no onerror; rc=%d out=%s" % (rc, text[:400])
+    assert "MASK-CLOSE:1006:false" in text, "no close(1006,false); rc=%d out=%s" % (rc, text[:400])
+
+
+@test
+def test_websocket_client_send_masked(qwrt_bin):
+    """客户端 → 服务端帧必须 mask（RFC 6455 §5.1）。裸 socket 服务端校验首帧
+    mask 位与载荷，回一个未掩码 echo 验证客户端可收未掩码帧。"""
+    p = free_port()
+    result = {}
+
+    def server(port):
+        try:
+            s = socket.socket()
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", port))
+            s.listen(1)
+            c, _ = s.accept()
+            c.settimeout(5)
+            _raw_ws_handshake(c)
+            hdr = c.recv(2)
+            masked = (hdr[1] & 0x80) != 0
+            ln = hdr[1] & 0x7F
+            if ln == 126:
+                ln = int.from_bytes(c.recv(2), "big")
+            mask = c.recv(4) if masked else b""
+            payload = b""
+            while len(payload) < ln:
+                d = c.recv(ln - len(payload))
+                if not d:
+                    break
+                payload += d
+            if masked:
+                payload = bytes([payload[i] ^ mask[i % 4] for i in range(len(payload))])
+            result["masked"] = masked
+            result["opcode"] = hdr[0] & 0x0F
+            result["payload"] = payload
+            # 未掩码 echo（服务端→客户端帧不 mask）
+            c.sendall(bytes([0x81, len(payload)]) + payload)
+            time.sleep(0.5)
+            c.close()
+            s.close()
+        except Exception as e:
+            result["err"] = repr(e)
+
+    t = threading.Thread(target=server, args=(p,), daemon=True)
+    t.start()
+    js = (
+        "const ws = new WebSocket('ws://127.0.0.1:%d/');"
+        "ws.onopen = () => ws.send('hello-mask');"
+        "ws.onmessage = (ev) => console.log('SEND-ECHO:' + ev.data);"
+        "ws.onerror = () => console.log('SEND-ERR');"
+        % p)
+    text, rc = _run_js_until(qwrt_bin, js, (b"SEND-ECHO:hello-mask",), settle=3)
+    assert "SEND-ECHO:hello-mask" in text, "no echo; rc=%d out=%s" % (rc, text[:400])
+    assert result.get("masked") is True, "client frame was NOT masked: %r" % result
+    assert result.get("opcode") == 0x1, "opcode=%r" % result
+    assert result.get("payload") == b"hello-mask", "payload=%r" % result
+
+# ---------------------------------------------------------------------------
 # lifecycle / errors
 # ---------------------------------------------------------------------------
 

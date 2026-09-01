@@ -87,8 +87,9 @@ export function setupWebSocket(pal) {
 
   /* ── WebSocket class ── */
 
-  class WebSocket {
+  class WebSocket extends EventTarget {
     constructor(url) {
+      super();
       this._url = url;
       this._readyState = CONNECTING;
       this._onopen = null;
@@ -132,6 +133,32 @@ export function setupWebSocket(pal) {
         onerror: function(msg) { self._onError(msg); },
         onclose: function() { self._onTcpClose(); },
       });
+    }
+
+    /* Event handler attributes → backing event listeners (EventTarget semantics). */
+    get onopen() { return this._onopen; }
+    set onopen(fn) {
+      if (this._onopen) this.removeEventListener('open', this._onopen);
+      this._onopen = fn;
+      if (fn) this.addEventListener('open', fn);
+    }
+    get onmessage() { return this._onmessage; }
+    set onmessage(fn) {
+      if (this._onmessage) this.removeEventListener('message', this._onmessage);
+      this._onmessage = fn;
+      if (fn) this.addEventListener('message', fn);
+    }
+    get onerror() { return this._onerror; }
+    set onerror(fn) {
+      if (this._onerror) this.removeEventListener('error', this._onerror);
+      this._onerror = fn;
+      if (fn) this.addEventListener('error', fn);
+    }
+    get onclose() { return this._onclose; }
+    set onclose(fn) {
+      if (this._onclose) this.removeEventListener('close', this._onclose);
+      this._onclose = fn;
+      if (fn) this.addEventListener('close', fn);
     }
 
     // ── Data accumulation ──
@@ -184,7 +211,7 @@ export function setupWebSocket(pal) {
           this._parseHandshake();
         }
       } catch (e) {
-        this._fail(e.message);
+        this._fail(e && e.message ? e.message : String(e));
       }
     }
 
@@ -211,14 +238,26 @@ export function setupWebSocket(pal) {
         return;
       }
 
-      // Verify Sec-WebSocket-Accept
+      // Verify the upgrade headers and Sec-WebSocket-Accept
       var accept = null;
+      var protocol = '';
+      var upgradeOk = false;
+      var connectionOk = false;
       for (var j = 1; j < lines.length; j++) {
         var l = lines[j].toLowerCase();
         if (l.indexOf('sec-websocket-accept:') === 0) {
           accept = lines[j].split(':')[1].trim();
-          break;
+        } else if (l.indexOf('sec-websocket-protocol:') === 0) {
+          protocol = lines[j].split(':')[1].trim();
+        } else if (l.indexOf('upgrade:') === 0) {
+          upgradeOk = l.indexOf('websocket') >= 0;
+        } else if (l.indexOf('connection:') === 0) {
+          connectionOk = l.indexOf('upgrade') >= 0;
         }
+      }
+      if (!upgradeOk || !connectionOk) {
+        this._fail('missing Upgrade/Connection header');
+        return;
       }
 
       var self = this;
@@ -231,9 +270,8 @@ export function setupWebSocket(pal) {
         self._consume(headerEnd);
         self._handshakeDone = true;
         self._readyState = OPEN;
-        if (typeof self._onopen === 'function') {
-          try { self._onopen(new Event('open')); } catch(e) {}
-        }
+        self._protocol = protocol;
+        self.dispatchEvent(new Event('open'));
         // Process any pipelined frame bytes
         if (self._bufView) self._parseFrames();
       }).catch(function(e) {
@@ -244,6 +282,9 @@ export function setupWebSocket(pal) {
     // ── Frame parsing ──
 
     _parseFrames() {
+      /* 解析帧在 OPEN 与 CLOSING 都允许——close() 发出 close 帧后进入
+       * CLOSING，仍需接收并处理服务端回应的 close echo（onclose 由此触发）。 */
+      if (this._readyState !== OPEN && this._readyState !== CLOSING) return;
       while (this._bufView && this._bufView.length >= 2) {
         var view = this._bufView;
         var b0 = view[0];
@@ -253,6 +294,16 @@ export function setupWebSocket(pal) {
         var masked = (b1 & 0x80) !== 0;
         var len = b1 & 0x7F;
         var offset = 2;
+
+        /* No extension was negotiated, so the RSV bits must be clear. */
+        if ((b0 & 0x70) !== 0) { this._fail('RSV bits set (no extension negotiated)'); return; }
+        /* RFC 6455 §5.1: a client MUST NOT accept masked frames. */
+        if (masked) { this._fail('masked frame from server (RFC 6455 §5.1)'); return; }
+        /* Control frames must be unfragmented and ≤ 125 bytes. */
+        if ((opcode & 0x8) !== 0 && (!fin || len > 125)) {
+          this._fail('invalid control frame');
+          return;
+        }
 
         if (len === 126) {
           if (view.length < 4) break;
@@ -265,20 +316,10 @@ export function setupWebSocket(pal) {
           offset = 10;
         }
 
-        var maskKey = null;
-        if (masked) {
-          if (view.length < offset + 4) break;
-          maskKey = view.subarray(offset, offset + 4);
-          offset += 4;
-        }
-
         if (view.length < offset + len) break; // need more data
 
-        // Extract payload
+        // Extract payload (server frames are unmasked)
         var payload = view.subarray(offset, offset + len);
-        if (masked && maskKey) {
-          for (var i = 0; i < len; i++) payload[i] ^= maskKey[i % 4];
-        }
 
         // Consume the frame
         this._consume(offset + len);
@@ -330,9 +371,7 @@ export function setupWebSocket(pal) {
           pal.tcpWrite(this._tcp, frame);
         }
         this._readyState = CLOSED;
-        if (typeof this._onclose === 'function') {
-          try { this._onclose(new CloseEvent('close', { code: code, reason: reason, wasClean: true })); } catch(e) {}
-        }
+        this.dispatchEvent(new CloseEvent('close', { code: code, reason: reason, wasClean: true }));
         // Close the underlying TCP connection to drain the event loop
         pal.tcpClose(this._tcp);
       } else if (opcode === OPCODE_PING) {
@@ -345,11 +384,10 @@ export function setupWebSocket(pal) {
     }
 
     _deliverMessage(opcode, payload) {
+      if (this._readyState !== OPEN) return;
       if (opcode === OPCODE_TEXT) {
         var text = new TextDecoder().decode(payload);
-        if (typeof this._onmessage === 'function') {
-          try { this._onmessage(new MessageEvent('message', { data: text })); } catch(e) {}
-        }
+        this.dispatchEvent(new MessageEvent('message', { data: text }));
         return;
       }
       /* binary frame: detached ArrayBuffer, presented per binaryType */
@@ -362,40 +400,28 @@ export function setupWebSocket(pal) {
       } else {
         data = ab;
       }
-      if (typeof this._onmessage === 'function') {
-        try { this._onmessage(new MessageEvent('message', { data: data })); } catch(e) {}
-      }
+      this.dispatchEvent(new MessageEvent('message', { data: data }));
     }
 
     _onError(msg) {
       if (this._readyState === CLOSED) return;
-      this._readyState = CLOSED;
-      if (typeof this._onerror === 'function') {
-        try { this._onerror(new Event('error')); } catch(e) {}
-      }
-      /* 异常关闭：规范要求 code 1006 的 close 事件 */
-      if (typeof this._onclose === 'function') {
-        try { this._onclose(new CloseEvent('close', { code: 1006, reason: '', wasClean: false })); } catch(e) {}
-      }
+      this._fail(msg);
     }
 
     _fail(msg) {
       if (this._readyState === CLOSED) return;
       this._readyState = CLOSED;
-      if (typeof this._onerror === 'function') {
-        try { this._onerror(new Event('error')); } catch(e) {}
-      }
-      if (typeof this._onclose === 'function') {
-        try { this._onclose(new CloseEvent('close', { code: 1006, reason: '', wasClean: false })); } catch(e) {}
-      }
+      this.dispatchEvent(new Event('error'));
+      /* 异常关闭：规范要求 code 1006、reason 空串的 close 事件 */
+      this.dispatchEvent(new CloseEvent('close', { code: 1006, reason: '', wasClean: false }));
+      /* 释放底层 TCP，避免泄漏挂起连接 */
+      if (this._tcp) { try { pal.tcpClose(this._tcp); } catch (e) {} }
     }
 
     _onTcpClose() {
       if (this._readyState === CLOSED) return;
       this._readyState = CLOSED;
-      if (typeof this._onclose === 'function') {
-        try { this._onclose(new CloseEvent('close', { code: 1006, reason: 'connection closed', wasClean: false })); } catch(e) {}
-      }
+      this.dispatchEvent(new CloseEvent('close', { code: 1006, reason: '', wasClean: false }));
     }
 
     // ── Public API ──
@@ -403,29 +429,31 @@ export function setupWebSocket(pal) {
     get url() { return this._url; }
     get readyState() { return this._readyState; }
     get protocol() { return this._protocol; }
+    get extensions() { return ''; }
+    get bufferedAmount() { return 0; }
     get CONNECTING() { return CONNECTING; }
     get OPEN() { return OPEN; }
     get CLOSING() { return CLOSING; }
     get CLOSED() { return CLOSED; }
 
-    get onopen() { return this._onopen; }
-    set onopen(fn) { this._onopen = fn; }
-    get onmessage() { return this._onmessage; }
-    set onmessage(fn) { this._onmessage = fn; }
-    get onerror() { return this._onerror; }
-    set onerror(fn) { this._onerror = fn; }
-    get onclose() { return this._onclose; }
-    set onclose(fn) { this._onclose = fn; }
     get binaryType() { return this._binaryType; }
-    set binaryType(v) { this._binaryType = String(v); }
+    set binaryType(v) {
+      v = String(v);
+      if (v !== 'blob' && v !== 'arraybuffer') {
+        throw new TypeError('binaryType must be "blob" or "arraybuffer"');
+      }
+      this._binaryType = v;
+    }
 
     send(data) {
-      if (this._readyState !== OPEN) return;
+      if (this._readyState === CONNECTING) {
+        throw new DOMException('WebSocket is still CONNECTING', 'InvalidStateError');
+      }
+      if (this._readyState !== OPEN) return;   /* CLOSING / CLOSED → discard */
       var opcode = OPCODE_TEXT;
       var payload;
       if (typeof data === 'string') {
         payload = new TextEncoder().encode(data);
-        opcode = OPCODE_TEXT;
       } else if (data instanceof ArrayBuffer) {
         payload = new Uint8Array(data);
         opcode = OPCODE_BINARY;
@@ -436,21 +464,34 @@ export function setupWebSocket(pal) {
         payload = data._getBytes ? data._getBytes() : new Uint8Array(0);
         opcode = OPCODE_BINARY;
       } else {
-        /* numbers/booleans etc → text via String() (WebIDL) */
+        /* numbers/booleans etc → text via String() (WebIDL conversion) */
         payload = new TextEncoder().encode(String(data));
-        opcode = OPCODE_TEXT;
       }
       var frame = buildFrame(opcode, payload, true);
       pal.tcpWrite(this._tcp, frame);
     }
 
     close(code, reason) {
+      if (code !== undefined) {
+        code = Number(code);
+        if (code !== 1000 && (code < 3000 || code > 4999)) {
+          throw new DOMException('close code must be 1000 or 3000-4999', 'InvalidAccessError');
+        }
+      }
+      if (reason !== undefined && new TextEncoder().encode(String(reason)).length > 123) {
+        throw new DOMException('close reason must be at most 123 bytes', 'SyntaxError');
+      }
       if (this._readyState === CLOSING || this._readyState === CLOSED) return;
+      this._closeCode = (code === undefined) ? 1000 : code;
+      this._closeReason = (reason === undefined) ? '' : String(reason);
+      if (this._readyState === CONNECTING) {
+        /* 连接尚未建立：无法完成 close 握手 → 按规范 fail（error + close 1006）。 */
+        this._readyState = CLOSING;
+        this._fail('connection closed before establishment');
+        return;
+      }
       this._readyState = CLOSING;
       this._closeSent = true;
-      this._closeCode = code || 1000;
-      this._closeReason = reason || '';
-      // Build close frame payload
       var reasonBytes = new TextEncoder().encode(this._closeReason);
       var payload = new Uint8Array(2 + reasonBytes.length);
       payload[0] = (this._closeCode >> 8) & 0xFF;

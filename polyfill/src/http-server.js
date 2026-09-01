@@ -17,6 +17,10 @@ export function setupHttpServer(pal) {
   /* 请求头区上限：超过即视为恶意/异常，防 raw 缓冲无界增长（内存 DoS） */
   var MAX_HEADER_SIZE = 64 * 1024;
 
+  /* 请求体流高水位：handler 不读 req.body 时，body 流队列未读字节超过此值
+   * 即 error 流并关闭连接（无 tcpPause 原语，不能真正暂停底层 read）。
+   * 读得够快的 handler 队列会排空，不受影响。 */
+  var MAX_BODY_BUFFER = 1024 * 1024;
   /* Single-server enforcement: only one serve() instance at a time */
   var activeInstance = null;
 
@@ -270,8 +274,9 @@ export function setupHttpServer(pal) {
 
     WSConnection.prototype.send = function(data) {
       if (this.state !== 1) return;
-      var payload = typeof data === 'string' ?
-        new TextEncoder().encode(data) : (data || new Uint8Array(0));
+      var binary = typeof data !== 'string';
+      var payload = binary ?
+        (data || new Uint8Array(0)) : new TextEncoder().encode(data);
       var rsv1 = false;
       if (this._deflate) {
         try {
@@ -283,7 +288,7 @@ export function setupHttpServer(pal) {
           }
         } catch (e) {}
       }
-      pal.tcpWrite(this.conn, buildWSFrame(0x1, payload, 1, rsv1));
+      pal.tcpWrite(this.conn, buildWSFrame(binary ? 0x2 : 0x1, payload, 1, rsv1));
     };
 
     WSConnection.prototype.close = function(code, reason) {
@@ -405,6 +410,28 @@ export function setupHttpServer(pal) {
         }
       }
 
+      /* Feed body bytes into the request body stream with a high-water mark:
+       * if the handler is not consuming the stream and the unread queue would
+       * exceed MAX_BODY_BUFFER, error the stream and close the connection
+       * (memory-DoS guard). Returns 1 on success, 0 when the connection was
+       * torn down (caller must stop processing). */
+      function feedBody(conn, chunk) {
+        var q = bodyState.controller._stream._queue;
+        var pending = 0;
+        for (var i = 0; i < q.length; i++) pending += q[i].length;
+        if (pending + chunk.length > MAX_BODY_BUFFER) {
+          try {
+            bodyState.controller.error(new Error('request body too large: stream not consumed'));
+          } catch (e) {}
+          bodyState = null;
+          try { pal.tcpClose(conn); } catch (e) {}
+          return 0;
+        }
+        bodyState.controller.enqueue(chunk);
+        return 1;
+      }
+ 
+
       conn.ondata = function(data) {
         if (ws) {
           ws._processWSData(data);
@@ -417,7 +444,8 @@ export function setupHttpServer(pal) {
           /* pure body bytes — feed the stream directly (no string round-trip) */
           var take = Math.min(bodyState.remaining - bodyState.received, data.length);
           if (take > 0) {
-            bodyState.controller.enqueue(data.subarray(0, take));
+            /* 高水位背压：handler 未消费 body 流时队列超限 → error 流并关连接 */
+            if (!feedBody(conn, data.subarray(0, take))) return;
             bodyState.received += take;
           }
           if (take < data.length) {
@@ -530,10 +558,10 @@ export function setupHttpServer(pal) {
             var controller;
             bodyStream = new ReadableStream({ start: function(c) { controller = c; } });
             bodyState = { controller: controller, remaining: req.contentLength, received: 0 };
-            /* feed body bytes already buffered in raw */
+            /* feed body bytes already buffered in raw（首段也计入高水位） */
             var btake = Math.min(bodyState.remaining, raw.length);
             if (btake > 0) {
-              bodyState.controller.enqueue(raw.subarray(0, btake));
+              if (!feedBody(conn, raw.subarray(0, btake))) return;
               raw = raw.subarray(btake);
               bodyState.received += btake;
             }
