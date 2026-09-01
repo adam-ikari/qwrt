@@ -143,6 +143,8 @@ try {
 
 - Only HTTP/HTTPS schemes are supported (no `file://`, `data://`)
 - Redirects are NOT automatically followed — PAL returns whatever the server sends
-- Request body is always sent as a string (no FormData or Blob upload)
-- `response.blob()` returns the body as text (Blob type not fully available)
+- `Headers.get(name)` returns `null` only when the header is absent — a header present with an empty value returns `''`
+- `Request`/`Response` constructors validate their inputs: `method` must be a valid HTTP token (non-empty, no whitespace), the URL must be absolute, and `status` must be an integer in 200–599 (`Response.error()` internally uses status 0)
+- `request.arrayBuffer()` / `response.arrayBuffer()` return a real `ArrayBuffer`; `request.blob()` / `response.blob()` return a `Blob` instance
+- Request bodies accept string, `Uint8Array`, `ArrayBuffer`, or `ReadableStream` (serialized to bytes for the PAL)
 - Maximum header line length is 4096 bytes (PAL implementation limit)

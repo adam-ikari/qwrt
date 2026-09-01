@@ -80,4 +80,4 @@ Compression requires `QWRT_WITH_COMPRESS=ON` (default) at build time. When disab
 
 - Input chunks should be `Uint8Array` or `ArrayBuffer` (other chunk types are coerced via `new Uint8Array(...)`).
 - All-at-once processing: the full input is held in memory until the stream closes, so extremely large streams are not memory-bounded.
-- Decompression of malformed input errors the readable side rather than producing partial output.
+- Decompression of malformed, truncated, or empty DEFLATE input errors the readable side (with a bounded iteration cap) rather than producing partial output or hanging forever.

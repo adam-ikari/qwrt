@@ -174,12 +174,15 @@ let writer = writable.getWriter();
 await writer.write(hugeChunk1);
 await writer.write(hugeChunk2);
 ```
+Writes are serialized: each `writer.write()` call is queued and runs only after
+the previous write settles (a slow `write()` delays the following ones), and
+`writer.close()` runs after all queued writes have completed.
 
 ## Notes
 
 - `ReadableStream` is fully implemented (used by `fetch`)
 - `WritableStream` and `TransformStream` have basic implementations
-- `pipeTo` and `pipeThrough` are available but with limited error recovery
+- `pipeTo` supports `options.signal` — aborting rejects the pipe with the signal's `reason` and releases the reader/writer locks; `pipeThrough` propagates source errors to the transform's readable side
 - `ByteStreamController` is not implemented (use default controller)
 - `ReadableByteStreamController` / `tee()` are not yet supported
 - Chunks should be `Uint8Array` or `ArrayBuffer` for interoperability

@@ -29,6 +29,8 @@ cd qwrt
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
+The WinterTC polyfill ships as precompiled bytecode with the JavaScript source
+stripped (`qjsc -s`), shrinking the embedded polyfill bytecode by ~87%.
 
 ### Minimal Example
 

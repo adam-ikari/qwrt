@@ -34,6 +34,8 @@ Throws an `Error` if the script cannot be loaded or the thread fails to spawn.
 | `postMessage(value)` | `function` | Send a message to the worker. The value is [structured-cloned](/js-api/structured-clone) into bytes and delivered asynchronously. |
 | `terminate()` | `function` | Stop the worker. Stops its event loop and joins the thread (at parent teardown). |
 | `onmessage` | `callback` | Fires with a `MessageEvent` whose `data` is deserialized from the worker's reply. |
+| `onmessageerror` | `callback` | Fires with a `MessageEvent('messageerror')` when a message from the worker fails to deserialize. |
+| `addEventListener(type, cb, options?)` / `removeEventListener(type, cb)` | `function` | Standard event registration for `message`, `error`, and `messageerror` on the Worker instance. |
 | `onerror` | `callback` | Fires when the worker script throws at the top level. `event.data` is `{ type: 'error', error: <message> }`. |
 
 ```js
@@ -84,6 +86,7 @@ onmessage = (ev) => {
 ## Error handling
 
 - A top-level exception in the worker script dispatches an `ErrorEvent` (triggering `onerror` in the worker) and then reports to the parent, whose `onerror` fires with `event.data = { type: 'error', error: <message> }`.
+- A message from the worker that fails to deserialize dispatches `messageerror` on the parent Worker instance (`w.onmessageerror` or `addEventListener('messageerror', …)`).
 - Workers are independent runtimes: an uncaught error does not crash the parent.
 
 ## Notes
