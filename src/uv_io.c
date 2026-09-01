@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <ctype.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -119,6 +120,12 @@ typedef struct uv_io_http_op_t {
     char *proxy_buf;
     size_t proxy_buf_len;
 
+    /* Borrowed pointer to the runtime-cached "Proxy-Authorization: Basic <b64>"
+     * header value (from rt->proxy_auth_value), or NULL when the proxy URL has
+     * no userinfo. Emitted on CONNECT and plain-http absolute-form requests.
+     * NOT owned by the op — freed by rt teardown after all ops are gone. */
+    char *proxy_auth;
+
 #if QWRT_WITH_TLS
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config ssl_conf;
@@ -206,7 +213,15 @@ typedef struct uv_io_http_op_t {
                               * first and never lets an uncounted close drain
                               * closes_pending (else op frees before the counted
                               * TCP close callback runs → UAF). */
-} uv_io_http_op_t;
+
+    /* Per-op abort registry linkage: rt->http_ops is a singly-linked list of
+     * LIVE streaming ops. op_id is assigned on start (rt->http_op_seq) and
+     * handed to JS as the abort handle; uv_io_http_abort_by_id looks the op up
+     * here. uv_io_http_cleanup unlinks the op before free, so a stale JS handle
+     * can never reach freed memory. */
+    struct uv_io_http_op_t *next;
+    uint64_t op_id;
+ } uv_io_http_op_t;
 
 
 /* ================================================================
@@ -622,23 +637,49 @@ static int uv_io_parse_url(const char *url, uv_io_url_t *out)
  * rejected (failing closed) rather than silently bypassing the proxy.
  * ================================================================ */
 
-/* Does host match one NO_PROXY entry? Suffix match on dot boundaries;
- * a leading dot in the entry is ignored. Exact match also passes. */
-static int uv_io_no_proxy_entry_match(const char *host, const char *entry)
+/* Does host[:port] match one NO_PROXY entry? Suffix match on dot boundaries;
+ * a leading dot in the entry is ignored. Exact match also passes. An entry
+ * may carry a ":port" suffix ("example.com:8080") — then the request port
+ * must match too. "*" excludes everything. */
+static int uv_io_no_proxy_entry_match(const char *host, int port, const char *entry)
 {
     size_t hl, el;
+    const char *colon;
+    int entry_port = 0, has_port = 0;
+
     if (!host || !entry || !*entry) return 0;
     if (strcmp(entry, "*") == 0) return 1;
-    if (entry[0] == '.') entry++;
+
+    /* Split an optional trailing ":port" off the entry. IPv6 literals in
+     * NO_PROXY are bracketed ("[::1]"), so the LAST colon is the port sep. */
+    colon = strrchr(entry, ':');
+    if (colon && colon[1] != '\0' &&
+        strspn(colon + 1, "0123456789") == strlen(colon + 1)) {
+        char *end = NULL;
+        long p = strtol(colon + 1, &end, 10);
+        if (end != colon + 1 && p > 0 && p <= 65535) {
+            has_port = 1;
+            entry_port = (int)p;
+        }
+    }
+    if (has_port) {
+        if (port != entry_port) return 0;
+        /* compare host part only */
+        el = (size_t)(colon - entry);
+    } else {
+        el = strlen(entry);
+    }
+    if (el == 0) return 0;
+
+    if (entry[0] == '.') { entry++; el--; }
     hl = strlen(host);
-    el = strlen(entry);
     if (el > hl) return 0;
-    if (strcmp(host + hl - el, entry) != 0) return 0;
+    if (strncmp(host + hl - el, entry, el) != 0) return 0;
     /* "x.com" must not match "ax.com"; equal length = exact match */
     return (hl == el || host[hl - el - 1] == '.');
 }
 
-static int uv_io_host_in_no_proxy(const char *host)
+static int uv_io_host_in_no_proxy(const char *host, int port)
 {
     const char *np = getenv("NO_PROXY");
     const char *p, *entry;
@@ -664,7 +705,7 @@ static int uv_io_host_in_no_proxy(const char *host)
                 char *e = b + strlen(b);
                 while (e > b && (e[-1] == ' ' || e[-1] == '\t')) e--;
                 *e = '\0';
-                if (*b && uv_io_no_proxy_entry_match(host, b)) return 1;
+                if (*b && uv_io_no_proxy_entry_match(host, port, b)) return 1;
             }
         }
         if (*p == ',') p++;
@@ -672,9 +713,67 @@ static int uv_io_host_in_no_proxy(const char *host)
     return 0;
 }
 
-/* Parse "http://host[:port]" from env. Returns 0 and fills host/port on
- * success; -1 on malformed value or unsupported scheme (failing closed). */
-static int uv_io_parse_proxy_url(const char *url, char **host_out, int *port_out)
+/* RFC 4648 base64 encode (no padding variant used by Basic auth is the
+ * padded one; standard table). Returns malloc'd string or NULL on OOM. */
+static char *uv_io_base64_encode(const unsigned char *data, size_t len)
+{
+    static const char tbl[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t out_len = ((len + 2) / 3) * 4;
+    char *out = (char *)malloc(out_len + 1);
+    size_t i, o = 0;
+    if (!out) return NULL;
+    for (i = 0; i + 2 < len; i += 3) {
+        unsigned v = ((unsigned)data[i] << 16) |
+                     ((unsigned)data[i + 1] << 8) | (unsigned)data[i + 2];
+        out[o++] = tbl[(v >> 18) & 0x3F];
+        out[o++] = tbl[(v >> 12) & 0x3F];
+        out[o++] = tbl[(v >> 6) & 0x3F];
+        out[o++] = tbl[v & 0x3F];
+    }
+    if (i < len) {
+        unsigned v = (unsigned)data[i] << 16;
+        if (i + 1 < len) v |= (unsigned)data[i + 1] << 8;
+        out[o++] = tbl[(v >> 18) & 0x3F];
+        out[o++] = tbl[(v >> 12) & 0x3F];
+        out[o++] = (i + 1 < len) ? tbl[(v >> 6) & 0x3F] : '=';
+        out[o++] = '=';
+    }
+    out[o] = '\0';
+    return out;
+}
+
+/* Percent-decode a userinfo string ("user%40x:pa%25ss" -> "user@x:pa%ss").
+ * Returns malloc'd decoded string (may shrink) or NULL on OOM. */
+static char *uv_io_percent_decode(const char *s)
+{
+    size_t len = strlen(s);
+    char *out = (char *)malloc(len + 1);
+    size_t i, o = 0;
+    if (!out) return NULL;
+    for (i = 0; i < len; i++) {
+        if (s[i] == '%' && i + 2 < len &&
+            isxdigit((unsigned char)s[i + 1]) && isxdigit((unsigned char)s[i + 2])) {
+            int hi = (s[i + 1] <= '9') ? (s[i + 1] - '0')
+                     : ((s[i + 1] | 0x20) - 'a' + 10);
+            int lo = (s[i + 2] <= '9') ? (s[i + 2] - '0')
+                     : ((s[i + 2] | 0x20) - 'a' + 10);
+            out[o++] = (char)((hi << 4) | lo);
+            i += 2;
+        } else {
+            out[o++] = s[i];
+        }
+    }
+    out[o] = '\0';
+    return out;
+}
+
+/* Parse "http://[user:pass@]host[:port]" from env. Returns 0 and fills
+ * host/port on success; -1 on malformed value or unsupported scheme
+ * (failing closed). userinfo_out receives the decoded "user:pass" (malloc'd)
+ * or NULL when absent — caller frees it. */
+static int uv_io_parse_proxy_url(const char *url, char **host_out, int *port_out,
+                                 char **userinfo_out)
 {
     const char *p;
     const char *host_start, *port_start = NULL;
@@ -682,14 +781,35 @@ static int uv_io_parse_proxy_url(const char *url, char **host_out, int *port_out
     long port = 80;
     char *host;
 
+    if (userinfo_out) *userinfo_out = NULL;
     if (strncmp(url, "http://", 7) != 0) return -1;   /* https-pfx unsupported */
     p = url + 7;
     if (!*p) return -1;
-    host_start = p;
-    while (*p && *p != ':' && *p != '/') {
-        if (*p == '@') return -1;                     /* userinfo unsupported */
-        p++;
+
+    /* Optional userinfo up to '@'. A lone '@' or one without ':' still forms a
+     * valid Basic credential (password empty), so accept any non-empty part. */
+    {
+        const char *at = strchr(p, '@');
+        if (at) {
+            size_t ulen = (size_t)(at - p);
+            char *raw = (char *)malloc(ulen + 1);
+            if (!raw) return -1;
+            memcpy(raw, p, ulen);
+            raw[ulen] = '\0';
+            char *decoded = uv_io_percent_decode(raw);
+            free(raw);
+            if (!decoded) return -1;
+            if (userinfo_out) {
+                *userinfo_out = decoded;
+            } else {
+                free(decoded);
+            }
+            p = at + 1;
+        }
     }
+
+    host_start = p;
+    while (*p && *p != ':' && *p != '/') p++;
     len = (size_t)(p - host_start);
     if (len == 0 || len > 253) return -1;
     if (*p == ':') {
@@ -713,11 +833,14 @@ static int uv_io_parse_proxy_url(const char *url, char **host_out, int *port_out
 
 /* Decide whether this op goes through a proxy, from env. Called once after
  * URL parsing. On failure (bad proxy URL) the op errors out — failing closed
- * keeps traffic from silently bypassing the configured proxy. */
+ * keeps traffic from silently bypassing the configured proxy. When the proxy
+ * URL carries userinfo, the "Proxy-Authorization: Basic …" header is computed
+ * once per proxy URL and cached on the runtime for its whole lifetime. */
 static int uv_io_http_apply_proxy(uv_io_http_op_t *op)
 {
     const char *val;
-    if (uv_io_host_in_no_proxy(op->host)) return 0;
+    char *userinfo = NULL;
+    if (uv_io_host_in_no_proxy(op->host, op->port)) return 0;
     if (op->use_tls) {
         val = getenv("HTTPS_PROXY");
         if (!val || !*val) val = getenv("https_proxy");
@@ -726,10 +849,35 @@ static int uv_io_http_apply_proxy(uv_io_http_op_t *op)
         if (!val || !*val) val = getenv("http_proxy");
     }
     if (!val || !*val) return 0;
-    if (uv_io_parse_proxy_url(val, &op->proxy_host, &op->proxy_port) < 0) {
+    if (uv_io_parse_proxy_url(val, &op->proxy_host, &op->proxy_port,
+                              &userinfo) < 0) {
+        free(userinfo);
         return -1;
     }
     op->proxy_active = 1;
+
+    /* Proxy authentication (cache per proxy URL for the runtime lifetime). */
+    if (userinfo) {
+        if (!op->rt->proxy_auth_url || strcmp(op->rt->proxy_auth_url, val) != 0) {
+            char *b64 = uv_io_base64_encode((const unsigned char *)userinfo,
+                                            strlen(userinfo));
+            free(op->rt->proxy_auth_url);
+            free(op->rt->proxy_auth_value);
+            op->rt->proxy_auth_url = strdup(val);
+            if (b64) {
+                size_t n = strlen(b64) + 7;   /* "Basic " + b64 + NUL */
+                op->rt->proxy_auth_value = (char *)malloc(n);
+                if (op->rt->proxy_auth_value) {
+                    snprintf(op->rt->proxy_auth_value, n, "Basic %s", b64);
+                }
+                free(b64);
+            } else {
+                op->rt->proxy_auth_value = NULL;
+            }
+        }
+        op->proxy_auth = op->rt->proxy_auth_value;
+    }
+    free(userinfo);
     return 0;
 }
 
@@ -772,19 +920,30 @@ static int uv_io_http_send_connect(uv_io_http_op_t *op, const char **err)
     uv_buf_t buf;
     int n;
     char *req;
-    size_t cap = strlen(op->host) + 64;
+    const char *auth = op->proxy_auth;
+    size_t auth_extra = auth ? (strlen(auth) + 32) : 0;
+    size_t cap = strlen(op->host) + 96 + auth_extra;
 
     req = (char *)malloc(cap);
     if (!req) { *err = "out of memory"; return -1; }
     if (op->port != 443) {
-        n = snprintf(req, cap, "CONNECT %s:%d HTTP/1.1\r\n"
-                                "Host: %s:%d\r\n\r\n",
+        n = snprintf(req, cap, "CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n",
                      op->host, op->port, op->host, op->port);
     } else {
-        n = snprintf(req, cap, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n",
+        n = snprintf(req, cap, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n",
                      op->host, op->host);
     }
     if (n <= 0 || (size_t)n >= cap) { free(req); *err = "connect build failed"; return -1; }
+    if (auth) {
+        int n2 = snprintf(req + n, cap - n, "Proxy-Authorization: %s\r\n", auth);
+        if (n2 <= 0 || (size_t)n2 >= cap - n) { free(req); *err = "connect build failed"; return -1; }
+        n += n2;
+    }
+    {
+        int n3 = snprintf(req + n, cap - n, "\r\n");
+        if (n3 <= 0 || (size_t)n3 >= cap - n) { free(req); *err = "connect build failed"; return -1; }
+        n += n3;
+    }
 
     op->req_buf = req;
     op->req_buf_len = (size_t)n;
@@ -802,7 +961,7 @@ static int uv_io_http_send_connect(uv_io_http_op_t *op, const char **err)
         return -1;
     }
     return 0;
-    }
+}
 #endif /* QWRT_WITH_TLS */
 /* ================================================================
  * Storage operations (in-memory, synchronous callback)
@@ -1628,6 +1787,16 @@ static void uv_io_http_cleanup(uv_io_http_op_t *op)
         op->rt->active_stream = NULL;
     }
 
+    /* Unlink from the per-op abort registry. Streaming ops register here at
+     * start; removing the node now means uv_io_http_abort_by_id can never
+     * resolve a stale handle to this (about-to-be-freed) op. */
+    if (op->rt && op->rt->http_ops) {
+        struct uv_io_http_op_t **pp = &op->rt->http_ops;
+        while (*pp && *pp != op) pp = &(*pp)->next;
+        if (*pp == op) *pp = op->next;
+        op->next = NULL;
+    }
+
     /* Untrack all handles that belong to this op. The TCP close callback
      * (uv_io_http_close_cb / uv_io_http_stream_close_cb) untracks the TCP
      * handle, but the timer close callback (uv_io_http_timer_close_cb) does
@@ -2036,7 +2205,8 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
      * 长度计入容量；随后的 snprintf 仍逐段检查返回值 —— 任何截断立即失败，
      * 而不是累加返回值越过 req_cap（原代码 pos 无界增长 → 越界写）。 */
     size_t req_cap = 1024 + (op->body_len > 0 ? op->body_len : 0) +
-                     strlen(path) + strlen(host) + 64;
+                     strlen(path) + strlen(host) + 64 +
+                     (op->proxy_auth ? strlen(op->proxy_auth) + 32 : 0);
     char *req_buf = (char *)malloc(req_cap);
     if (!req_buf) {
         free(proxy_target);
@@ -2064,6 +2234,16 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     n = snprintf(req_buf + pos, req_cap - pos, "Connection: close\r\n");
     if (n < 0 || (size_t)n >= req_cap - pos) goto req_too_large;
     pos += (size_t)n;
+
+    /* Proxy authentication: plain-http via proxy carries the cached
+     * Proxy-Authorization header so authenticated proxies accept the request
+     * (CONNECT requests carry it separately in uv_io_http_send_connect). */
+    if (op->proxy_active && op->proxy_auth) {
+        n = snprintf(req_buf + pos, req_cap - pos,
+                     "Proxy-Authorization: %s\r\n", op->proxy_auth);
+        if (n < 0 || (size_t)n >= req_cap - pos) goto req_too_large;
+        pos += (size_t)n;
+    }
 
     /* Parse and add custom headers from headers_json.
      * Simple approach: scan for "key":"value" patterns. */
@@ -2427,13 +2607,34 @@ static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
     }
     if (i + 3 >= op->proxy_buf_len) return;  /* headers not complete yet */
 
-    /* 2xx required ("HTTP/1.x 2xx ...") */
+    /* 2xx required ("HTTP/1.x 2xx ..."). A non-2xx (e.g. 407 Proxy
+     * Authentication Required, 403 Forbidden) is surfaced to the caller as a
+     * POSITIVE status code in the error status so fetch can report the
+     * proxy's actual refusal instead of a generic network error. The
+     * streaming path forwards it via on_end; fetch.js maps status > 0 to a
+     * "proxy error HTTP n" message. */
     if (op->proxy_buf_len < 12 ||
         strncmp(op->proxy_buf, "HTTP/", 5) != 0 ||
         (op->proxy_buf[9] != '2')) {
         uv_read_stop((uv_stream_t *)&op->tcp);
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
-                                "proxy CONNECT refused or malformed response");
+        int proxy_status = 0;
+        if (op->proxy_buf_len >= 12 &&
+            op->proxy_buf[9] >= '0' && op->proxy_buf[9] <= '9' &&
+            op->proxy_buf[10] >= '0' && op->proxy_buf[10] <= '9' &&
+            op->proxy_buf[11] >= '0' && op->proxy_buf[11] <= '9') {
+            proxy_status = (op->proxy_buf[9] - '0') * 100 +
+                           (op->proxy_buf[10] - '0') * 10 +
+                           (op->proxy_buf[11] - '0');
+        }
+        if (proxy_status > 0) {
+            char msg[64];
+            snprintf(msg, sizeof(msg),
+                     "proxy CONNECT refused (HTTP %d)", proxy_status);
+            uv_io_http_finish_error(op, proxy_status, msg);
+        } else {
+            uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+                                    "proxy CONNECT refused or malformed response");
+        }
         return;
     }
 
@@ -2742,21 +2943,15 @@ static void uv_io_http_stream_cleanup(uv_io_http_op_t *op)
     }
 }
 
-/*
- * Abort the currently-active streaming HTTP request (if any).
- * Delivers an on_end error to the stream consumer (so the fetch Promise
- * rejects) and tears down the TCP connection + timers. Must be called on
- * the loop thread (host calls it from the poll loop's cancel branch,
- * which runs on the owner thread).
- */
-void uv_io_http_abort(qwrt_t *rt)
+/* Abort a single in-flight streaming HTTP op: mark it aborted (so any
+ * in-flight connect/read/timer callback that fires after we begin teardown
+ * becomes a no-op instead of touching the op), deliver an on_end cancellation
+ * error to the JS consumer (so the fetch Promise rejects rather than hangs),
+ * then tear down the TCP + timers. The op is unlinked from rt->http_ops by
+ * uv_io_http_cleanup when its close callbacks drain. Must be called on the
+ * loop thread (JS pal calls / teardown run there). */
+static void uv_io_http_abort_op(uv_io_http_op_t *op)
 {
-    uv_io_http_op_t *op = rt->active_stream;
-    if (!op) return;
-
-    /* Mark aborted so any in-flight callbacks (connect, read, timer) that
-     * fire after we begin teardown become no-ops instead of touching the op
-     * (which may be freed by the TCP close callback). */
     op->aborted = 1;
 
     /* Deliver a cancellation error to the JS consumer before teardown so
@@ -2769,6 +2964,38 @@ void uv_io_http_abort(qwrt_t *rt)
     /* Tear down handles (clears active_stream, closes TCP/timers, frees op
      * via the TCP close callback). */
     uv_io_http_stream_cleanup(op);
+}
+
+/*
+ * Abort a specific in-flight streaming HTTP request by op id. No-op for an
+ * unknown/stale id (the op already finished and unlinked itself). Must be
+ * called on the loop thread (pal.httpRequestAbort runs there via JS).
+ */
+void uv_io_http_abort_by_id(qwrt_t *rt, uint64_t op_id)
+{
+    uv_io_http_op_t *op = rt->http_ops;
+    while (op && op->op_id != op_id) op = op->next;
+    if (op) {
+        uv_io_http_abort_op(op);
+    }
+}
+
+/*
+ * Abort every in-flight streaming HTTP request (runtime teardown). Iterates
+ * the registry so concurrent fetches are all torn down, not just the most
+ * recent one. Delivers an on_end error to each stream consumer and tears down
+ * the TCP connections + timers. Must be called on the loop thread (host calls
+ * it from qwrt teardown, which runs on the owner thread).
+ */
+void uv_io_http_abort(qwrt_t *rt)
+{
+    uv_io_http_op_t *op = rt->http_ops;
+    /* Each abort unlinks the op from the registry (via cleanup), so walk and
+     * re-read the head each iteration rather than chasing ->next. */
+    while (rt->http_ops) {
+        op = rt->http_ops;
+        uv_io_http_abort_op(op);
+    }
 }
 
 /* ================================================================
@@ -2907,6 +3134,20 @@ static int uv_io_http_stream_process_data(uv_io_http_op_t *op,
             if (op->stream_ops.on_data) {
                 op->stream_ops.on_data(op->stream_ops.user_data, data, len);
             }
+            /* Content-Length completion: once body_expected bytes have been
+             * delivered, the message body is complete even if the server
+             * keeps the connection alive (no EOF follows). Truncated bodies
+             * (EOF before body_expected) are caught in the read callback. */
+            if (op->body_expected > 0) {
+                op->body_received += len;
+                if (op->body_received >= op->body_expected) {
+                    if (op->stream_ops.on_end) {
+                        op->stream_ops.on_end(op->stream_ops.user_data, 0);
+                    }
+                    uv_io_http_stream_cleanup(op);
+                    return 1;
+                }
+            }
         }
         return 0;
     }
@@ -2963,8 +3204,9 @@ static int uv_io_http_stream_process_data(uv_io_http_op_t *op,
         }
     }
 
-    /* Scan headers for Transfer-Encoding: chunked */
+    /* Scan headers for Content-Length and Transfer-Encoding: chunked. */
     op->chunked = 0;
+    op->body_expected = 0;
     size_t header_end_offset = (size_t)(hdr_end - op->resp_headers);
     const char *hdrs = op->resp_headers + (line_end - op->resp_headers) + 2;
     const char *hdrs_end = op->resp_headers + header_end_offset - 4;
@@ -2985,6 +3227,18 @@ static int uv_io_http_stream_process_data(uv_io_http_op_t *op,
             if (eol - val >= 7 && strncasecmp(val, "chunked", 7) == 0) {
                 op->chunked = 1;
             }
+        }
+
+        /* Content-Length (case-insensitive). When both Content-Length and
+         * chunked are present, chunked wins (RFC 7230 §3.3.3): body delivery
+         * checks op->chunked first, so body_expected only governs the
+         * non-chunked path. */
+        if (eol - hp > 15 && strncasecmp(hp, "Content-Length:", 15) == 0) {
+            const char *val = hp + 15;
+            while (val < eol && (*val == ' ' || *val == '\t')) val++;
+            unsigned long long cl = strtoull(val, NULL, 10);
+            /* Clamp to SIZE_MAX to avoid truncation on 32-bit platforms */
+            op->body_expected = cl > SIZE_MAX ? SIZE_MAX : (size_t)cl;
         }
 
         hp = eol + 2;
@@ -3050,6 +3304,11 @@ static void uv_io_http_stream_read_cb(uv_stream_t *stream, ssize_t nread,
                 if (op->headers_parsed) {
                     if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
                         op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                    } else if (op->body_expected > 0 &&
+                               op->body_received < op->body_expected) {
+                        /* Content-Length promised more bytes than arrived —
+                         * truncated body must not resolve as success. */
+                        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
                     } else {
                         op->stream_ops.on_end(op->stream_ops.user_data, 0);
                     }
@@ -3104,6 +3363,11 @@ static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
             if (op->stream_ops.on_end) {
                 if (op->headers_parsed) {
                     if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
+                        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                    } else if (op->body_expected > 0 &&
+                               op->body_received < op->body_expected) {
+                        /* Content-Length promised more bytes than arrived —
+                         * truncated body must not resolve as success. */
                         op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
                     } else {
                         op->stream_ops.on_end(op->stream_ops.user_data, 0);
@@ -3455,18 +3719,20 @@ static void uv_io_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
     }
 }
 
-void uv_io_http_request_stream(qwrt_t *rt,
-                                        const char *url, const char *method,
-                                        const char *headers, const char *body,
-                                        size_t body_len,
-                                        qwrt_io_stream_ops_t *ops)
+uint64_t uv_io_http_request_stream(qwrt_t *rt,
+                                    const char *url, const char *method,
+                                    const char *headers, const char *body,
+                                    size_t body_len,
+                                    qwrt_io_stream_ops_t *ops)
 {
+    /* Returns the op id (uint64) handed to JS as the abort handle, or 0 on a
+     * synchronous failure (JS treats 0 as "no op to abort"). */
 
     if (!url || !ops) {
         if (ops && ops->on_end) {
             ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
         }
-        return;
+        return 0;
     }
 
     uv_io_http_op_t *op = (uv_io_http_op_t *)calloc(1, sizeof(*op));
@@ -3474,7 +3740,7 @@ void uv_io_http_request_stream(qwrt_t *rt,
         if (ops->on_end) {
             ops->on_end(ops->user_data, QWRT_ERR_GENERIC);
         }
-        return;
+        return 0;
     }
 
     op->cb = NULL;  /* streaming uses ops callbacks instead */
@@ -3492,7 +3758,7 @@ void uv_io_http_request_stream(qwrt_t *rt,
                 ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
             }
             free(op);
-            return;
+            return 0;
         }
         op->host    = parts.host;
         op->port    = parts.port;
@@ -3508,7 +3774,7 @@ void uv_io_http_request_stream(qwrt_t *rt,
         if (ops->on_end) {
             ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
         }
-        return;
+        return 0;
     }
 
     /* If TLS is requested, check compile-time support */
@@ -3520,7 +3786,7 @@ void uv_io_http_request_stream(qwrt_t *rt,
         if (ops->on_end) {
             ops->on_end(ops->user_data, QWRT_ERR_NETWORK);
         }
-        return;
+        return 0;
 #endif
     }
 
@@ -3558,17 +3824,21 @@ void uv_io_http_request_stream(qwrt_t *rt,
         if (ops->on_end) {
             ops->on_end(ops->user_data, QWRT_ERR_NETWORK);
         }
-        return;
+        return 0;
     }
 
     /*
      * Only now is the op committed to async I/O (getaddrinfo submitted) with
      * a callback that will run later. Track it as the active stream so
-     * uv_io_http_abort can reach it. host is single-run, so at most one
-     * stream is active at a time; any prior active_stream should already have
-     * been cleared by its own stream_cleanup.
+     * uv_io_http_abort can reach it (teardown), and register it in the
+     * per-op abort registry so pal.httpRequestAbort(op_id) can target this
+     * exact op even when several fetches are in flight.
      */
+    op->op_id = ++rt->http_op_seq;
+    op->next = rt->http_ops;
+    rt->http_ops = op;
     rt->active_stream = op;
+    return op->op_id;
 }
 
 /* ── 同步辅助：bridge.c 直接调用（非 static，避免 -Wunused-function） ── */

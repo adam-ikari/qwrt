@@ -401,100 +401,16 @@ export function setupFetch(pal) {
 
   // ================================================================
   // ReadableStream (streaming implementation)
-  // Supports proper streaming via controller.enqueue/close/error.
-  // The start(controller) callback can enqueue chunks, and the PAL
-  // streaming callbacks deliver data incrementally.
+  // Uses the GLOBAL streams.js ReadableStream (registered on globalThis by
+  // setupStreams) so fetch response bodies interoperate with the rest of the
+  // runtime: response.body.pipeTo(dest), tee(), and for-await all work. The
+  // class is resolved lazily — setupStreams runs at init time (index.js),
+  // before any fetch() call.
   // ================================================================
 
-  function ReadableStream(underlyingSource) {
-    this._reader = null;
-    this._locked = false;
-    this._controller = {
-      _stream: this,
-      _closed: false,
-      _pendingReads: [],
-      _enqueuedChunks: [],
-      enqueue: function(chunk) {
-        if (this._closed) return;
-        if (this._pendingReads.length > 0) {
-          var pending = this._pendingReads.shift();
-          pending._resolve({done: false, value: chunk});
-        } else {
-          this._enqueuedChunks.push(chunk);
-        }
-      },
-      close: function() {
-        if (this._closed) return;
-        this._closed = true;
-        while (this._pendingReads.length > 0) {
-          var pending = this._pendingReads.shift();
-          pending._resolve({done: true, value: undefined});
-        }
-        if (this._stream._reader) {
-          this._stream._reader._closed = true;
-        }
-      },
-      error: function(e) {
-        if (this._closed) return;
-        this._closed = true;
-        while (this._pendingReads.length > 0) {
-          var pending = this._pendingReads.shift();
-          pending._reject(e);
-        }
-        if (this._stream._reader) {
-          this._stream._reader._closed = true;
-          this._stream._reader._error = e;
-        }
-      }
-    };
-
-    if (underlyingSource && typeof underlyingSource.start === 'function') {
-      underlyingSource.start(this._controller);
-    }
+  function makeReadableStream(underlyingSource) {
+    return new globalThis.ReadableStream(underlyingSource);
   }
-
-  function ReadableStreamDefaultReader(stream) {
-    if (stream._locked) throw new TypeError('ReadableStream already locked');
-    stream._locked = true;
-    this._stream = stream;
-    this._closed = false;
-    this._error = null;
-    stream._reader = this;
-  }
-
-  ReadableStream.prototype.getReader = function() {
-    if (this._locked) throw new TypeError('ReadableStream already locked');
-    return new ReadableStreamDefaultReader(this);
-  };
-
-  ReadableStreamDefaultReader.prototype.read = function() {
-    var self = this;
-    if (self._error) {
-      return Promise.reject(self._error);
-    }
-    if (self._closed) {
-      return Promise.resolve({done: true, value: undefined});
-    }
-    var ctrl = self._stream._controller;
-    if (ctrl._enqueuedChunks.length > 0) {
-      var chunk = ctrl._enqueuedChunks.shift();
-      return Promise.resolve({done: false, value: chunk});
-    }
-    if (ctrl._closed) {
-      self._closed = true;
-      return Promise.resolve({done: true, value: undefined});
-    }
-    // No data yet — create a pending read
-    return new Promise(function(resolve, reject) {
-      ctrl._pendingReads.push({_resolve: resolve, _reject: reject});
-    });
-  };
-
-  ReadableStreamDefaultReader.prototype.releaseLock = function() {
-    this._stream._locked = false;
-    this._stream._reader = null;
-    this._closed = true;
-  };
 
   // ================================================================
   // Response class
@@ -546,7 +462,7 @@ export function setupFetch(pal) {
       // Create a ReadableStream from the body string for non-streaming responses
       var bodyStr = consumeBody(this._body);
       var arr = stringToUint8Array(bodyStr);
-      return new ReadableStream({
+      return makeReadableStream({
         start: function(controller) {
           controller.enqueue(arr);
           controller.close();
@@ -760,6 +676,11 @@ export function setupFetch(pal) {
     var onAbort;
     var streamController = null;
     var abandoned = false;   /* this hop's stream was abandoned due to a redirect */
+    var streamCancelled = false; /* consumer cancelled the response body stream */
+    /* 本跳底层传输的 abort 句柄：pal.httpRequestStream 返回的 op id。
+     * 信号 abort / body cancel 时调 pal.httpRequestAbort(opId) 真正中止
+     * libuv 连接（关闭 socket、触发 on_end），而非只丢弃回调。0 = 无 op。 */
+    var opId = 0;
 
     var resolved = false;    /* fetch promise 已 settle(防 onEnd 重复 reject) */
     /* 首跳请求体的已序列化字节。307/308 重定向需重发 body，但流式 body 已被
@@ -774,7 +695,13 @@ export function setupFetch(pal) {
           reason = new DOMException('The operation was aborted.', 'AbortError');
         }
         if (streamController) {
-          streamController.error(reason);
+          try { streamController.error(reason); } catch (e) {}
+        }
+        /* 连接级中止：让 C 层关闭底层 socket（on_end 触发，aborted 已置位
+         * 故 fetch promise 不会重复 reject）。opId 为 0（请求体还在序列化、
+         * op 未创建）时由 whenBodyReady 的 aborted 检查跳过创建。 */
+        if (opId && typeof pal.httpRequestAbort === 'function') {
+          try { pal.httpRequestAbort(opId); } catch (e) {}
         }
         reject(reason);
       };
@@ -836,10 +763,19 @@ export function setupFetch(pal) {
       return;
     }
 
-    // Create a ReadableStream that will receive chunks from PAL callbacks
-    var readableStream = new ReadableStream({
+    // Create a ReadableStream that will receive chunks from PAL callbacks.
+    // cancel() fires when the consumer cancels the body (reader.cancel /
+    // pipeTo abort): abort the underlying transfer so no more onData arrives
+    // and the socket is torn down, not just the JS-side stream.
+    var readableStream = makeReadableStream({
       start: function(controller) {
         streamController = controller;
+      },
+      cancel: function(reason) {
+        streamCancelled = true;
+        if (opId && typeof pal.httpRequestAbort === 'function') {
+          try { pal.httpRequestAbort(opId); } catch (e) {}
+        }
       }
     });
 
@@ -928,32 +864,42 @@ export function setupFetch(pal) {
     }
 
     function onData(chunk) {
-      if (aborted || abandoned) return;
-      if (streamController) {
-        // chunk is an ArrayBuffer from the bridge; convert to Uint8Array
-        var arr;
-        if (chunk instanceof ArrayBuffer) {
-          arr = new Uint8Array(chunk);
-        } else if (chunk instanceof Uint8Array) {
-          arr = chunk;
-        } else {
-          // String fallback
-          arr = stringToUint8Array(String(chunk));
-        }
-        streamController.enqueue(arr);
+      if (aborted || abandoned || streamCancelled || !streamController) return;
+      // chunk is an ArrayBuffer from the bridge; convert to Uint8Array
+      var arr;
+      if (chunk instanceof ArrayBuffer) {
+        arr = new Uint8Array(chunk);
+      } else if (chunk instanceof Uint8Array) {
+        arr = chunk;
+      } else {
+        // String fallback
+        arr = stringToUint8Array(String(chunk));
       }
+      /* 全局 ReadableStream 的 controller.enqueue 在流被 cancel/close/error
+       * 后会抛 TypeError；body 被消费端放弃后不应让桥接回调崩掉。 */
+      try { streamController.enqueue(arr); } catch (e) {}
     }
 
     function onEnd(errorStatus) {
       // Clean up abort listener
       cleanupAbort();
 
-      if (aborted || abandoned) return;
+      if (aborted || abandoned || streamCancelled) return;
 
-      /* 网络错误(连接/握手/TLS 失败)且 fetch promise 尚未 settle:必须
-       * reject,否则 fetch 永远 pending。 */
+      /* 网络错误(连接/握手/TLS 失败/代理拒绝)且 fetch promise 尚未 settle:
+       * 必须 reject，否则 fetch 永远 pending。errorStatus 语义：
+       *   0      — 正常完成；
+       *   < 0    — qwrt 错误码（网络/TLS/无效参数…）；
+       *   > 0    — 代理拒绝时透传的 HTTP 状态（407/403，来自 CONNECT 失败）。 */
       if (errorStatus !== 0 && !resolved) {
-        reject(new TypeError('fetch failed: network error ' + errorStatus));
+        if (errorStatus > 0) {
+          reject(new TypeError('fetch failed: proxy error HTTP ' + errorStatus));
+        } else if (errorStatus === -6) {
+          /* QWRT_ERR_INVALID_ARG：多为无效/不支持的代理 URL（含 https:// 代理） */
+          reject(new TypeError('fetch failed: invalid proxy URL'));
+        } else {
+          reject(new TypeError('fetch failed: network error ' + errorStatus));
+        }
         return;
       }
 
@@ -969,9 +915,12 @@ export function setupFetch(pal) {
     // Call PAL streaming HTTP once the request body is ready.
     whenBodyReady(function(bytes) {
       if (aborted) return;
-      pal.httpRequestStream(request.url, request.method, headersJson, bytes, onHeaders, onData, onEnd);
+      /* 返回值 = 底层传输的 op id（C 层 uv_io_http_request_stream）。0 = 同步
+       * 失败（op 未创建）。信号 abort / body cancel 用它精确定位并关闭连接。 */
+      opId = pal.httpRequestStream(request.url, request.method, headersJson, bytes, onHeaders, onData, onEnd) || 0;
     });
   }
+
 
   // ================================================================
   // Register on globalThis

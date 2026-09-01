@@ -1656,89 +1656,9 @@
         return new Blob([buf]);
       });
     };
-    function ReadableStream2(underlyingSource) {
-      this._reader = null;
-      this._locked = false;
-      this._controller = {
-        _stream: this,
-        _closed: false,
-        _pendingReads: [],
-        _enqueuedChunks: [],
-        enqueue: function(chunk) {
-          if (this._closed) return;
-          if (this._pendingReads.length > 0) {
-            var pending = this._pendingReads.shift();
-            pending._resolve({ done: false, value: chunk });
-          } else {
-            this._enqueuedChunks.push(chunk);
-          }
-        },
-        close: function() {
-          if (this._closed) return;
-          this._closed = true;
-          while (this._pendingReads.length > 0) {
-            var pending = this._pendingReads.shift();
-            pending._resolve({ done: true, value: void 0 });
-          }
-          if (this._stream._reader) {
-            this._stream._reader._closed = true;
-          }
-        },
-        error: function(e) {
-          if (this._closed) return;
-          this._closed = true;
-          while (this._pendingReads.length > 0) {
-            var pending = this._pendingReads.shift();
-            pending._reject(e);
-          }
-          if (this._stream._reader) {
-            this._stream._reader._closed = true;
-            this._stream._reader._error = e;
-          }
-        }
-      };
-      if (underlyingSource && typeof underlyingSource.start === "function") {
-        underlyingSource.start(this._controller);
-      }
+    function makeReadableStream(underlyingSource) {
+      return new globalThis.ReadableStream(underlyingSource);
     }
-    function ReadableStreamDefaultReader(stream) {
-      if (stream._locked) throw new TypeError("ReadableStream already locked");
-      stream._locked = true;
-      this._stream = stream;
-      this._closed = false;
-      this._error = null;
-      stream._reader = this;
-    }
-    ReadableStream2.prototype.getReader = function() {
-      if (this._locked) throw new TypeError("ReadableStream already locked");
-      return new ReadableStreamDefaultReader(this);
-    };
-    ReadableStreamDefaultReader.prototype.read = function() {
-      var self = this;
-      if (self._error) {
-        return Promise.reject(self._error);
-      }
-      if (self._closed) {
-        return Promise.resolve({ done: true, value: void 0 });
-      }
-      var ctrl = self._stream._controller;
-      if (ctrl._enqueuedChunks.length > 0) {
-        var chunk = ctrl._enqueuedChunks.shift();
-        return Promise.resolve({ done: false, value: chunk });
-      }
-      if (ctrl._closed) {
-        self._closed = true;
-        return Promise.resolve({ done: true, value: void 0 });
-      }
-      return new Promise(function(resolve, reject) {
-        ctrl._pendingReads.push({ _resolve: resolve, _reject: reject });
-      });
-    };
-    ReadableStreamDefaultReader.prototype.releaseLock = function() {
-      this._stream._locked = false;
-      this._stream._reader = null;
-      this._closed = true;
-    };
     function Response2(body, init) {
       init = init || {};
       var status = init.status !== void 0 ? Number(init.status) : 200;
@@ -1783,7 +1703,7 @@
         if (this._body == null) return null;
         var bodyStr = consumeBody(this._body);
         var arr = stringToUint8Array(bodyStr);
-        return new ReadableStream2({
+        return makeReadableStream({
           start: function(controller) {
             controller.enqueue(arr);
             controller.close();
@@ -1962,6 +1882,8 @@
       var onAbort;
       var streamController = null;
       var abandoned = false;
+      var streamCancelled = false;
+      var opId = 0;
       var resolved = false;
       var sentBodyBytes = null;
       var sentBodyReady = false;
@@ -1973,7 +1895,16 @@
             reason = new DOMException("The operation was aborted.", "AbortError");
           }
           if (streamController) {
-            streamController.error(reason);
+            try {
+              streamController.error(reason);
+            } catch (e) {
+            }
+          }
+          if (opId && typeof pal2.httpRequestAbort === "function") {
+            try {
+              pal2.httpRequestAbort(opId);
+            } catch (e) {
+            }
           }
           reject(reason);
         };
@@ -2024,9 +1955,18 @@
         });
         return;
       }
-      var readableStream = new ReadableStream2({
+      var readableStream = makeReadableStream({
         start: function(controller) {
           streamController = controller;
+        },
+        cancel: function(reason) {
+          streamCancelled = true;
+          if (opId && typeof pal2.httpRequestAbort === "function") {
+            try {
+              pal2.httpRequestAbort(opId);
+            } catch (e) {
+            }
+          }
         }
       });
       function onHeaders(status, headersJsonStr) {
@@ -2100,24 +2040,31 @@
         resolve(resp);
       }
       function onData(chunk) {
-        if (aborted || abandoned) return;
-        if (streamController) {
-          var arr;
-          if (chunk instanceof ArrayBuffer) {
-            arr = new Uint8Array(chunk);
-          } else if (chunk instanceof Uint8Array) {
-            arr = chunk;
-          } else {
-            arr = stringToUint8Array(String(chunk));
-          }
+        if (aborted || abandoned || streamCancelled || !streamController) return;
+        var arr;
+        if (chunk instanceof ArrayBuffer) {
+          arr = new Uint8Array(chunk);
+        } else if (chunk instanceof Uint8Array) {
+          arr = chunk;
+        } else {
+          arr = stringToUint8Array(String(chunk));
+        }
+        try {
           streamController.enqueue(arr);
+        } catch (e) {
         }
       }
       function onEnd(errorStatus) {
         cleanupAbort();
-        if (aborted || abandoned) return;
+        if (aborted || abandoned || streamCancelled) return;
         if (errorStatus !== 0 && !resolved) {
-          reject(new TypeError("fetch failed: network error " + errorStatus));
+          if (errorStatus > 0) {
+            reject(new TypeError("fetch failed: proxy error HTTP " + errorStatus));
+          } else if (errorStatus === -6) {
+            reject(new TypeError("fetch failed: invalid proxy URL"));
+          } else {
+            reject(new TypeError("fetch failed: network error " + errorStatus));
+          }
           return;
         }
         if (streamController) {
@@ -2130,7 +2077,7 @@
       }
       whenBodyReady(function(bytes) {
         if (aborted) return;
-        pal2.httpRequestStream(request.url, request.method, headersJson, bytes, onHeaders, onData, onEnd);
+        opId = pal2.httpRequestStream(request.url, request.method, headersJson, bytes, onHeaders, onData, onEnd) || 0;
       });
     }
     globalThis.Headers = Headers;
@@ -2192,6 +2139,141 @@
       }
     };
     globalThis.qwrt.storage = storage;
+  }
+
+  // src/local-storage.js
+  function setupLocalStorage(pal2) {
+    if (typeof pal2.workerId === "function") return;
+    if (typeof globalThis.localStorage !== "undefined") return;
+    var path;
+    try {
+      path = pal2.localStoragePath();
+    } catch (e) {
+      return;
+    }
+    var map = /* @__PURE__ */ Object.create(null);
+    var keys = [];
+    var total = 0;
+    var QUOTA = 5 * 1024 * 1024;
+    function has(key2) {
+      return Object.prototype.hasOwnProperty.call(map, key2);
+    }
+    function load() {
+      var raw, obj, ks, i;
+      try {
+        raw = pal2.fsReadSync(path);
+      } catch (e) {
+        return;
+      }
+      try {
+        obj = JSON.parse(raw);
+      } catch (e) {
+        return;
+      }
+      if (!obj || typeof obj !== "object" || Array.isArray(obj)) return;
+      ks = Object.keys(obj);
+      for (i = 0; i < ks.length; i++) {
+        if (!Object.prototype.hasOwnProperty.call(obj, ks[i])) continue;
+        map[ks[i]] = String(obj[ks[i]]);
+        keys.push(ks[i]);
+        total += ks[i].length + map[ks[i]].length;
+      }
+    }
+    function persist() {
+      pal2.fsWriteSync(path, JSON.stringify(map));
+    }
+    function getItem(key2) {
+      key2 = String(key2);
+      return has(key2) ? map[key2] : null;
+    }
+    function setItem(key2, value) {
+      key2 = String(key2);
+      value = String(value);
+      var existed = has(key2);
+      var oldValue = existed ? map[key2] : null;
+      var add = existed ? value.length - oldValue.length : key2.length + value.length;
+      if (total + add > QUOTA) {
+        throw new DOMException(
+          "Failed to execute 'setItem' on 'Storage': setting the value of '" + key2 + "' exceeded the quota.",
+          "QuotaExceededError"
+        );
+      }
+      if (!existed) keys.push(key2);
+      map[key2] = value;
+      total += add;
+      try {
+        persist();
+      } catch (e) {
+        if (existed) {
+          map[key2] = oldValue;
+        } else {
+          delete map[key2];
+          keys.pop();
+        }
+        total -= add;
+        throw e;
+      }
+    }
+    function removeItem(key2) {
+      key2 = String(key2);
+      if (!has(key2)) return;
+      var oldValue = map[key2];
+      var idx = keys.indexOf(key2);
+      if (idx >= 0) keys.splice(idx, 1);
+      total -= key2.length + oldValue.length;
+      delete map[key2];
+      try {
+        persist();
+      } catch (e) {
+        if (idx >= 0) keys.splice(idx, 0, key2);
+        map[key2] = oldValue;
+        total += key2.length + oldValue.length;
+        throw e;
+      }
+    }
+    function clear() {
+      var oldMap = map, oldKeys = keys, oldTotal = total;
+      map = /* @__PURE__ */ Object.create(null);
+      keys = [];
+      total = 0;
+      try {
+        persist();
+      } catch (e) {
+        map = oldMap;
+        keys = oldKeys;
+        total = oldTotal;
+        throw e;
+      }
+    }
+    function key(index) {
+      index = index >>> 0;
+      return index < keys.length ? keys[index] : null;
+    }
+    var storage = {};
+    Object.defineProperties(storage, {
+      length: {
+        get: function() {
+          return keys.length;
+        },
+        enumerable: false,
+        configurable: true
+      },
+      key: { value: key, writable: true, enumerable: false, configurable: true },
+      getItem: { value: getItem, writable: true, enumerable: false, configurable: true },
+      setItem: { value: setItem, writable: true, enumerable: false, configurable: true },
+      removeItem: { value: removeItem, writable: true, enumerable: false, configurable: true },
+      clear: { value: clear, writable: true, enumerable: false, configurable: true }
+    });
+    load();
+    try {
+      Object.defineProperty(globalThis, "localStorage", {
+        value: storage,
+        writable: false,
+        enumerable: true,
+        configurable: true
+      });
+    } catch (e) {
+    }
   }
 
   // src/text-encoding.js
@@ -2863,17 +2945,39 @@
   // src/event-source.js
   function setupEventSource(pal2) {
     if (typeof pal2.httpRequestStream !== "function") return;
-    class EventSource {
+    function computeOrigin(url) {
+      var m = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)/i.exec(url);
+      if (!m) return "null";
+      var scheme = m[1].toLowerCase();
+      var hostPort = m[2];
+      var defaultPort = scheme === "https" ? 443 : scheme === "http" ? 80 : null;
+      var colon = hostPort.lastIndexOf(":");
+      if (colon >= 0 && defaultPort !== null && hostPort.slice(colon + 1) === String(defaultPort)) {
+        return scheme + "://" + hostPort.slice(0, colon);
+      }
+      return scheme + "://" + hostPort;
+    }
+    class EventSource extends EventTarget {
       constructor(url, eventSourceInitDict) {
+        super();
+        url = String(url);
+        if (!/^https?:\/\//i.test(url)) {
+          throw new DOMException("EventSource: invalid URL '" + url + "'", "SyntaxError");
+        }
         this._url = url;
+        this._withCredentials = !!(eventSourceInitDict && eventSourceInitDict.withCredentials);
         this._reconnectDelay = 3e3;
         this._lastEventId = "";
+        this._lastIdBuffer = "";
+        this._dataLines = [];
+        this._eventType = "";
         this._readyState = 0;
         this._closed = false;
         this._buffer = "";
-        this.onopen = null;
-        this.onmessage = null;
-        this.onerror = null;
+        this._origin = computeOrigin(url);
+        this._onopen = null;
+        this._onmessage = null;
+        this._onerror = null;
         this._connect();
       }
       get CONNECTING() {
@@ -2892,94 +2996,152 @@
         return this._readyState;
       }
       get withCredentials() {
-        return false;
+        return this._withCredentials;
+      }
+      /* Event handler attributes → backing event listeners (EventTarget semantics). */
+      get onopen() {
+        return this._onopen;
+      }
+      set onopen(fn) {
+        if (this._onopen) this.removeEventListener("open", this._onopen);
+        this._onopen = fn;
+        if (fn) this.addEventListener("open", fn);
+      }
+      get onmessage() {
+        return this._onmessage;
+      }
+      set onmessage(fn) {
+        if (this._onmessage) this.removeEventListener("message", this._onmessage);
+        this._onmessage = fn;
+        if (fn) this.addEventListener("message", fn);
+      }
+      get onerror() {
+        return this._onerror;
+      }
+      set onerror(fn) {
+        if (this._onerror) this.removeEventListener("error", this._onerror);
+        this._onerror = fn;
+        if (fn) this.addEventListener("error", fn);
       }
       _connect() {
         if (this._closed) return;
         this._readyState = 0;
         this._buffer = "";
+        this._dataLines = [];
+        this._eventType = "";
+        this._lastIdBuffer = "";
+        this._decoder = new TextDecoder("utf-8");
+        var headers = { "Accept": "text/event-stream", "Cache-Control": "no-cache" };
+        if (this._lastEventId !== "") headers["Last-Event-ID"] = this._lastEventId;
         var self = this;
-        var headersJson = JSON.stringify({
-          "Accept": "text/event-stream",
-          "Cache-Control": "no-cache"
-        });
         function onHeaders(status) {
+          if (self._closed) return;
           if (status === 200) {
             self._readyState = 1;
-            if (typeof self.onopen === "function") {
-              try {
-                self.onopen(new Event("open"));
-              } catch (e) {
-              }
-            }
+            self.dispatchEvent(new Event("open"));
+          } else {
+            self._failConnection();
           }
         }
         function onData(chunk) {
-          if (self._readyState !== 1) return;
-          var uint8 = new Uint8Array(chunk);
-          var text = "";
-          for (var i = 0; i < uint8.length; i++) {
-            text += String.fromCharCode(uint8[i]);
-          }
-          self._buffer += text;
+          if (self._closed || self._readyState !== 1) return;
+          var uint8 = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+          self._buffer += self._decoder.decode(uint8, { stream: true });
           self._processBuffer();
         }
-        function onEnd(errorStatus) {
+        function onEnd() {
           if (self._closed) return;
-          self._readyState = 2;
-          var ev = new Event("error");
-          if (typeof self.onerror === "function") {
-            try {
-              self.onerror(ev);
-            } catch (e) {
-            }
-          }
-          if (!self._closed) {
-            setTimeout(function() {
-              self._connect();
-            }, self._reconnectDelay);
-          }
+          self._reestablish();
         }
-        pal2.httpRequestStream(this._url, "GET", headersJson, "", onHeaders, onData, onEnd);
+        try {
+          pal2.httpRequestStream(
+            this._url,
+            "GET",
+            JSON.stringify(headers),
+            "",
+            onHeaders,
+            onData,
+            onEnd
+          );
+        } catch (e) {
+          self._reestablish();
+        }
       }
       _processBuffer() {
-        var lines = this._buffer.split("\n");
+        var lines = this._buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
         this._buffer = lines.pop() || "";
-        var eventType = null;
-        var data = [];
-        var id = null;
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i];
-          if (line === "") {
-            if (data.length > 0) {
-              var msgEvent = new MessageEvent(eventType || "message", {
-                data: data.join("\n"),
-                lastEventId: id || this._lastEventId
-              });
-              if (typeof this.onmessage === "function") {
-                try {
-                  this.onmessage(msgEvent);
-                } catch (e) {
-                }
-              }
-              this._lastEventId = id || this._lastEventId;
+        for (var i = 0; i < lines.length; i++) this._processLine(lines[i]);
+      }
+      _processLine(line) {
+        if (line === "") {
+          this._dispatchEventNow();
+          return;
+        }
+        if (line[0] === ":") return;
+        var colon = line.indexOf(":");
+        var field, value;
+        if (colon >= 0) {
+          field = line.slice(0, colon);
+          value = line.slice(colon + 1);
+          if (value[0] === " ") value = value.slice(1);
+        } else {
+          field = line;
+          value = "";
+        }
+        switch (field) {
+          case "event":
+            this._eventType = value;
+            break;
+          case "data":
+            this._dataLines.push(value);
+            break;
+          case "id":
+            if (value.indexOf("\0") < 0) this._lastIdBuffer = value;
+            break;
+          case "retry":
+            if (/^[0-9]+$/.test(value)) {
+              var ms = parseInt(value, 10);
+              if (!isNaN(ms)) this._reconnectDelay = ms;
             }
-            eventType = null;
-            data = [];
-            id = null;
-          } else if (line.startsWith("data:")) {
-            data.push(line.slice(5).trim());
-          } else if (line.startsWith("event:")) {
-            eventType = line.slice(6).trim();
-          } else if (line.startsWith("id:")) {
-            id = line.slice(3).trim();
-          } else if (line.startsWith("retry:")) {
-            var ms = parseInt(line.slice(6).trim(), 10);
-            if (!isNaN(ms) && ms > 0) this._reconnectDelay = ms;
-          }
+            break;
+          default:
+            break;
         }
       }
+      _dispatchEventNow() {
+        this._lastEventId = this._lastIdBuffer;
+        if (this._dataLines.length === 0) {
+          this._eventType = "";
+          return;
+        }
+        var data = this._dataLines.join("\n");
+        var type = this._eventType || "message";
+        this._dataLines = [];
+        this._eventType = "";
+        if (this._readyState !== 2) {
+          this.dispatchEvent(new MessageEvent(type, {
+            data,
+            lastEventId: this._lastEventId,
+            origin: this._origin
+          }));
+        }
+      }
+      _failConnection() {
+        if (this._closed || this._readyState === 2) return;
+        this._readyState = 2;
+        this.dispatchEvent(new Event("error"));
+      }
+      _reestablish() {
+        if (this._closed || this._readyState === 2) return;
+        this._readyState = 0;
+        this.dispatchEvent(new Event("error"));
+        var self = this;
+        setTimeout(function() {
+          if (!self._closed && self._readyState === 0) self._connect();
+        }, this._reconnectDelay);
+      }
       close() {
+        if (this._closed) return;
         this._closed = true;
         this._readyState = 2;
         this._buffer = "";
@@ -3054,8 +3216,9 @@
       }
       return frame.buffer;
     }
-    class WebSocket {
+    class WebSocket extends EventTarget {
       constructor(url) {
+        super();
         this._url = url;
         this._readyState = CONNECTING;
         this._onopen = null;
@@ -3104,6 +3267,39 @@
           }
         });
       }
+      /* Event handler attributes → backing event listeners (EventTarget semantics). */
+      get onopen() {
+        return this._onopen;
+      }
+      set onopen(fn) {
+        if (this._onopen) this.removeEventListener("open", this._onopen);
+        this._onopen = fn;
+        if (fn) this.addEventListener("open", fn);
+      }
+      get onmessage() {
+        return this._onmessage;
+      }
+      set onmessage(fn) {
+        if (this._onmessage) this.removeEventListener("message", this._onmessage);
+        this._onmessage = fn;
+        if (fn) this.addEventListener("message", fn);
+      }
+      get onerror() {
+        return this._onerror;
+      }
+      set onerror(fn) {
+        if (this._onerror) this.removeEventListener("error", this._onerror);
+        this._onerror = fn;
+        if (fn) this.addEventListener("error", fn);
+      }
+      get onclose() {
+        return this._onclose;
+      }
+      set onclose(fn) {
+        if (this._onclose) this.removeEventListener("close", this._onclose);
+        this._onclose = fn;
+        if (fn) this.addEventListener("close", fn);
+      }
       // ── Data accumulation ──
       _appendData(data) {
         var incoming = new Uint8Array(data);
@@ -3142,7 +3338,7 @@
             this._parseHandshake();
           }
         } catch (e) {
-          this._fail(e.message);
+          this._fail(e && e.message ? e.message : String(e));
         }
       }
       // ── Handshake ──
@@ -3163,12 +3359,24 @@
           return;
         }
         var accept = null;
+        var protocol = "";
+        var upgradeOk = false;
+        var connectionOk = false;
         for (var j = 1; j < lines.length; j++) {
           var l = lines[j].toLowerCase();
           if (l.indexOf("sec-websocket-accept:") === 0) {
             accept = lines[j].split(":")[1].trim();
-            break;
+          } else if (l.indexOf("sec-websocket-protocol:") === 0) {
+            protocol = lines[j].split(":")[1].trim();
+          } else if (l.indexOf("upgrade:") === 0) {
+            upgradeOk = l.indexOf("websocket") >= 0;
+          } else if (l.indexOf("connection:") === 0) {
+            connectionOk = l.indexOf("upgrade") >= 0;
           }
+        }
+        if (!upgradeOk || !connectionOk) {
+          this._fail("missing Upgrade/Connection header");
+          return;
         }
         var self = this;
         computeAccept(this._key).then(function(expected) {
@@ -3179,12 +3387,8 @@
           self._consume(headerEnd);
           self._handshakeDone = true;
           self._readyState = OPEN;
-          if (typeof self._onopen === "function") {
-            try {
-              self._onopen(new Event("open"));
-            } catch (e) {
-            }
-          }
+          self._protocol = protocol;
+          self.dispatchEvent(new Event("open"));
           if (self._bufView) self._parseFrames();
         }).catch(function(e) {
           self._fail("SHA-1 failed: " + (e && e.message ? e.message : String(e)));
@@ -3192,6 +3396,7 @@
       }
       // ── Frame parsing ──
       _parseFrames() {
+        if (this._readyState !== OPEN && this._readyState !== CLOSING) return;
         while (this._bufView && this._bufView.length >= 2) {
           var view = this._bufView;
           var b0 = view[0];
@@ -3201,6 +3406,18 @@
           var masked = (b1 & 128) !== 0;
           var len = b1 & 127;
           var offset = 2;
+          if ((b0 & 112) !== 0) {
+            this._fail("RSV bits set (no extension negotiated)");
+            return;
+          }
+          if (masked) {
+            this._fail("masked frame from server (RFC 6455 \xA75.1)");
+            return;
+          }
+          if ((opcode & 8) !== 0 && (!fin || len > 125)) {
+            this._fail("invalid control frame");
+            return;
+          }
           if (len === 126) {
             if (view.length < 4) break;
             len = view[2] << 8 | view[3];
@@ -3211,17 +3428,8 @@
             for (var i = 0; i < 8; i++) len = len << 8 | view[2 + i];
             offset = 10;
           }
-          var maskKey = null;
-          if (masked) {
-            if (view.length < offset + 4) break;
-            maskKey = view.subarray(offset, offset + 4);
-            offset += 4;
-          }
           if (view.length < offset + len) break;
           var payload = view.subarray(offset, offset + len);
-          if (masked && maskKey) {
-            for (var i = 0; i < len; i++) payload[i] ^= maskKey[i % 4];
-          }
           this._consume(offset + len);
           this._handleFrame(fin, opcode, payload);
         }
@@ -3265,12 +3473,7 @@
             pal2.tcpWrite(this._tcp, frame);
           }
           this._readyState = CLOSED;
-          if (typeof this._onclose === "function") {
-            try {
-              this._onclose(new CloseEvent("close", { code, reason, wasClean: true }));
-            } catch (e) {
-            }
-          }
+          this.dispatchEvent(new CloseEvent("close", { code, reason, wasClean: true }));
           pal2.tcpClose(this._tcp);
         } else if (opcode === OPCODE_PING) {
           var pong = buildFrame(OPCODE_PONG, payload, true);
@@ -3279,14 +3482,10 @@
         }
       }
       _deliverMessage(opcode, payload) {
+        if (this._readyState !== OPEN) return;
         if (opcode === OPCODE_TEXT) {
           var text = new TextDecoder().decode(payload);
-          if (typeof this._onmessage === "function") {
-            try {
-              this._onmessage(new MessageEvent("message", { data: text }));
-            } catch (e) {
-            }
-          }
+          this.dispatchEvent(new MessageEvent("message", { data: text }));
           return;
         }
         var ab = payload.slice().buffer;
@@ -3298,41 +3497,20 @@
         } else {
           data = ab;
         }
-        if (typeof this._onmessage === "function") {
-          try {
-            this._onmessage(new MessageEvent("message", { data }));
-          } catch (e) {
-          }
-        }
+        this.dispatchEvent(new MessageEvent("message", { data }));
       }
       _onError(msg) {
         if (this._readyState === CLOSED) return;
-        this._readyState = CLOSED;
-        if (typeof this._onerror === "function") {
-          try {
-            this._onerror(new Event("error"));
-          } catch (e) {
-          }
-        }
-        if (typeof this._onclose === "function") {
-          try {
-            this._onclose(new CloseEvent("close", { code: 1006, reason: "", wasClean: false }));
-          } catch (e) {
-          }
-        }
+        this._fail(msg);
       }
       _fail(msg) {
         if (this._readyState === CLOSED) return;
         this._readyState = CLOSED;
-        if (typeof this._onerror === "function") {
+        this.dispatchEvent(new Event("error"));
+        this.dispatchEvent(new CloseEvent("close", { code: 1006, reason: "", wasClean: false }));
+        if (this._tcp) {
           try {
-            this._onerror(new Event("error"));
-          } catch (e) {
-          }
-        }
-        if (typeof this._onclose === "function") {
-          try {
-            this._onclose(new CloseEvent("close", { code: 1006, reason: "", wasClean: false }));
+            pal2.tcpClose(this._tcp);
           } catch (e) {
           }
         }
@@ -3340,12 +3518,7 @@
       _onTcpClose() {
         if (this._readyState === CLOSED) return;
         this._readyState = CLOSED;
-        if (typeof this._onclose === "function") {
-          try {
-            this._onclose(new CloseEvent("close", { code: 1006, reason: "connection closed", wasClean: false }));
-          } catch (e) {
-          }
-        }
+        this.dispatchEvent(new CloseEvent("close", { code: 1006, reason: "", wasClean: false }));
       }
       // ── Public API ──
       get url() {
@@ -3356,6 +3529,12 @@
       }
       get protocol() {
         return this._protocol;
+      }
+      get extensions() {
+        return "";
+      }
+      get bufferedAmount() {
+        return 0;
       }
       get CONNECTING() {
         return CONNECTING;
@@ -3369,43 +3548,25 @@
       get CLOSED() {
         return CLOSED;
       }
-      get onopen() {
-        return this._onopen;
-      }
-      set onopen(fn) {
-        this._onopen = fn;
-      }
-      get onmessage() {
-        return this._onmessage;
-      }
-      set onmessage(fn) {
-        this._onmessage = fn;
-      }
-      get onerror() {
-        return this._onerror;
-      }
-      set onerror(fn) {
-        this._onerror = fn;
-      }
-      get onclose() {
-        return this._onclose;
-      }
-      set onclose(fn) {
-        this._onclose = fn;
-      }
       get binaryType() {
         return this._binaryType;
       }
       set binaryType(v) {
-        this._binaryType = String(v);
+        v = String(v);
+        if (v !== "blob" && v !== "arraybuffer") {
+          throw new TypeError('binaryType must be "blob" or "arraybuffer"');
+        }
+        this._binaryType = v;
       }
       send(data) {
+        if (this._readyState === CONNECTING) {
+          throw new DOMException("WebSocket is still CONNECTING", "InvalidStateError");
+        }
         if (this._readyState !== OPEN) return;
         var opcode = OPCODE_TEXT;
         var payload;
         if (typeof data === "string") {
           payload = new TextEncoder().encode(data);
-          opcode = OPCODE_TEXT;
         } else if (data instanceof ArrayBuffer) {
           payload = new Uint8Array(data);
           opcode = OPCODE_BINARY;
@@ -3417,17 +3578,30 @@
           opcode = OPCODE_BINARY;
         } else {
           payload = new TextEncoder().encode(String(data));
-          opcode = OPCODE_TEXT;
         }
         var frame = buildFrame(opcode, payload, true);
         pal2.tcpWrite(this._tcp, frame);
       }
       close(code, reason) {
+        if (code !== void 0) {
+          code = Number(code);
+          if (code !== 1e3 && (code < 3e3 || code > 4999)) {
+            throw new DOMException("close code must be 1000 or 3000-4999", "InvalidAccessError");
+          }
+        }
+        if (reason !== void 0 && new TextEncoder().encode(String(reason)).length > 123) {
+          throw new DOMException("close reason must be at most 123 bytes", "SyntaxError");
+        }
         if (this._readyState === CLOSING || this._readyState === CLOSED) return;
+        this._closeCode = code === void 0 ? 1e3 : code;
+        this._closeReason = reason === void 0 ? "" : String(reason);
+        if (this._readyState === CONNECTING) {
+          this._readyState = CLOSING;
+          this._fail("connection closed before establishment");
+          return;
+        }
         this._readyState = CLOSING;
         this._closeSent = true;
-        this._closeCode = code || 1e3;
-        this._closeReason = reason || "";
         var reasonBytes = new TextEncoder().encode(this._closeReason);
         var payload = new Uint8Array(2 + reasonBytes.length);
         payload[0] = this._closeCode >> 8 & 255;
@@ -3454,6 +3628,7 @@
     var WS_GUID = "258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5";
     var PMD_TAIL = new Uint8Array([0, 0, 255, 255]);
     var MAX_HEADER_SIZE = 64 * 1024;
+    var MAX_BODY_BUFFER = 1024 * 1024;
     var activeInstance = null;
     var b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     function b64encode(buf) {
@@ -3697,7 +3872,8 @@
       }
       WSConnection.prototype.send = function(data) {
         if (this.state !== 1) return;
-        var payload = typeof data === "string" ? new TextEncoder().encode(data) : data || new Uint8Array(0);
+        var binary = typeof data !== "string";
+        var payload = binary ? data || new Uint8Array(0) : new TextEncoder().encode(data);
         var rsv1 = false;
         if (this._deflate) {
           try {
@@ -3709,7 +3885,7 @@
           } catch (e) {
           }
         }
-        pal2.tcpWrite(this.conn, buildWSFrame(1, payload, 1, rsv1));
+        pal2.tcpWrite(this.conn, buildWSFrame(binary ? 2 : 1, payload, 1, rsv1));
       };
       WSConnection.prototype.close = function(code, reason) {
         if (this.state >= 2) return;
@@ -3833,6 +4009,25 @@
             }, idleTimeout);
           }
         }
+        function feedBody(conn2, chunk) {
+          var q = bodyState.controller._stream._queue;
+          var pending = 0;
+          for (var i = 0; i < q.length; i++) pending += q[i].length;
+          if (pending + chunk.length > MAX_BODY_BUFFER) {
+            try {
+              bodyState.controller.error(new Error("request body too large: stream not consumed"));
+            } catch (e) {
+            }
+            bodyState = null;
+            try {
+              pal2.tcpClose(conn2);
+            } catch (e) {
+            }
+            return 0;
+          }
+          bodyState.controller.enqueue(chunk);
+          return 1;
+        }
         conn.ondata = function(data) {
           if (ws) {
             ws._processWSData(data);
@@ -3843,7 +4038,7 @@
           if (bodyState) {
             var take = Math.min(bodyState.remaining - bodyState.received, data.length);
             if (take > 0) {
-              bodyState.controller.enqueue(data.subarray(0, take));
+              if (!feedBody(conn, data.subarray(0, take))) return;
               bodyState.received += take;
             }
             if (take < data.length) {
@@ -3968,7 +4163,7 @@
               bodyState = { controller, remaining: req.contentLength, received: 0 };
               var btake = Math.min(bodyState.remaining, raw.length);
               if (btake > 0) {
-                bodyState.controller.enqueue(raw.subarray(0, btake));
+                if (!feedBody(conn, raw.subarray(0, btake))) return;
                 raw = raw.subarray(btake);
                 bodyState.received += btake;
               }
@@ -7476,6 +7671,7 @@
   setupNavigatorReportError();
   setupFS(pal);
   setupStorage(pal);
+  setupLocalStorage(pal);
   setupTextEncoding(pal);
   setupCrypto(pal);
   setupCryptoSubtle(pal);

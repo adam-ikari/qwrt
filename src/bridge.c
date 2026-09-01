@@ -25,6 +25,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 /* ================================================================
  * Forward declarations
@@ -37,6 +39,7 @@ static JSValue js_pal_timer_stop(JSContext *ctx, JSValueConst this_val, int argc
 static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_http_request(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_http_request_abort(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_read_binary(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_write(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
@@ -49,6 +52,8 @@ static JSValue js_pal_storage_del(JSContext *ctx, JSValueConst this_val, int arg
 static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_post_message(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_fs_read_sync(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_fs_write_sync(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_local_storage_path(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_port_create(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_spawn_worker(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_worker_post(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
@@ -790,15 +795,38 @@ static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val,
     ops.on_end = bridge_stream_on_end;
     ops.user_data = bs;
 
-    uv_io_http_request_stream(rt, url, method, headers, body, body_len, &ops);
+    uint64_t op_id = uv_io_http_request_stream(rt, url, method, headers,
+                                               body, body_len, &ops);
 
     JS_FreeCString(ctx, url);
     JS_FreeCString(ctx, method);
     JS_FreeCString(ctx, headers);
     if (body_is_cstr) JS_FreeCString(ctx, body);
 
-    return JS_UNDEFINED;
+    /* Returns the op id — the abort handle for pal.httpRequestAbort.
+     * 0 means the request failed synchronously (no op was created). */
+    return JS_NewInt64(ctx, (int64_t)op_id);
 }
+
+/* pal.httpRequestAbort(opId): abort a specific in-flight streaming HTTP op.
+ * No-op for an unknown/stale id. Runs on the loop thread (JS). */
+static JSValue js_pal_http_request_abort(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) {
+        return JS_ThrowTypeError(ctx, "pal.http_request_abort not available");
+    }
+    if (argc < 1 || JS_IsUndefined(argv[0]) || JS_IsNull(argv[0])) {
+        return JS_UNDEFINED;
+    }
+    int64_t op_id = 0;
+    if (JS_ToInt64(ctx, &op_id, argv[0]) != 0 || op_id <= 0) {
+        return JS_UNDEFINED;
+    }
+    uv_io_http_abort_by_id(rt, (uint64_t)op_id);
+    return JS_UNDEFINED;
+ }
 
 static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
@@ -1394,6 +1422,148 @@ static JSValue js_pal_fs_read_sync(JSContext *ctx, JSValueConst this_val,
     return ret;
 }
 
+/* 递归创建目录链（mkdir -p），含最终目录组件。仅用于 fsWriteSync 的父目录
+ * 预建（localStorage 首次写入 ~/.qwrt/ 时该目录可能尚不存在）。 */
+static int bridge_mkdir_p(const char *dir)
+{
+    size_t len = strlen(dir);
+    if (len == 0) return -1;
+    char *tmp = (char *)malloc(len + 2);
+    if (!tmp) return -1;
+    memcpy(tmp, dir, len + 1);
+    /* 末尾补 '/', 使下方循环也创建最终目录组件（否则只建祖先目录） */
+    if (tmp[len - 1] != '/') {
+        tmp[len] = '/';
+        tmp[len + 1] = '\0';
+    }
+    for (char *p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+                free(tmp);
+                return -1;
+            }
+            *p = '/';
+        }
+    }
+    free(tmp);
+    return 0;
+}
+
+/* 同步写文件原语（localStorage 持久化用）：原子写 —— 先写临时文件再 rename。
+ * polyfill 的异步 fs.writeFile 无法在 setItem 返回前完成落盘，故补此同步原语。
+ * 返回 void；失败抛 TypeError（调用方按需回滚内存态）。 */
+static JSValue js_pal_fs_write_sync(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    if (argc < 1) return JS_EXCEPTION;
+    const char *path = JS_ToCString(ctx, argv[0]);
+    if (!path) return JS_EXCEPTION;
+    if (!bridge_validate_path(path)) {
+        JS_FreeCString(ctx, path);
+        return JS_ThrowTypeError(ctx, "Path traversal detected");
+    }
+
+    const char *data = NULL;
+    size_t data_len = 0;
+    if (argc >= 2 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+        data = JS_ToCStringLen(ctx, &data_len, argv[1]);
+        if (!data) {
+            JS_FreeCString(ctx, path);
+            return JS_EXCEPTION;
+        }
+    }
+
+    /* 父目录 mkdir -p（首次写入 ~/.qwrt/ 时目录不存在） */
+    const char *slash = strrchr(path, '/');
+    if (slash && slash != path) {
+        size_t dlen = (size_t)(slash - path);
+        char *dir = (char *)malloc(dlen + 1);
+        if (!dir) {
+            JS_FreeCString(ctx, path);
+            if (data) JS_FreeCString(ctx, data);
+            return JS_ThrowOutOfMemory(ctx);
+        }
+        memcpy(dir, path, dlen);
+        dir[dlen] = '\0';
+        int rc = bridge_mkdir_p(dir);
+        free(dir);
+        if (rc != 0) {
+            JS_FreeCString(ctx, path);
+            if (data) JS_FreeCString(ctx, data);
+            return JS_ThrowTypeError(ctx, "fsWriteSync: cannot create parent dir for %s", path);
+        }
+    }
+
+    /* 原子写：写 path.tmp 再 rename 到 path */
+    size_t path_len = strlen(path);
+    char *tmp_path = (char *)malloc(path_len + 8);
+    if (!tmp_path) {
+        JS_FreeCString(ctx, path);
+        if (data) JS_FreeCString(ctx, data);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    memcpy(tmp_path, path, path_len);
+    memcpy(tmp_path + path_len, ".tmp", 5);   /* 含 '\0' */
+
+    FILE *f = fopen(tmp_path, "wb");
+    if (!f) {
+        JSValue err = JS_ThrowTypeError(ctx, "fsWriteSync: cannot open %s", tmp_path);
+        free(tmp_path);
+        JS_FreeCString(ctx, path);
+        if (data) JS_FreeCString(ctx, data);
+        return err;
+    }
+    size_t n = fwrite(data ? data : "", 1, data ? data_len : 0, f);
+    int ferr = fclose(f);
+    if (n != (data ? data_len : 0) || ferr != 0) {
+        JSValue err = JS_ThrowTypeError(ctx, "fsWriteSync: write failed for %s", tmp_path);
+        remove(tmp_path);
+        free(tmp_path);
+        JS_FreeCString(ctx, path);
+        if (data) JS_FreeCString(ctx, data);
+        return err;
+    }
+    if (rename(tmp_path, path) != 0) {
+        JSValue err = JS_ThrowTypeError(ctx, "fsWriteSync: rename failed for %s", path);
+        remove(tmp_path);
+        free(tmp_path);
+        JS_FreeCString(ctx, path);
+        if (data) JS_FreeCString(ctx, data);
+        return err;
+    }
+    free(tmp_path);
+    JS_FreeCString(ctx, path);
+    if (data) JS_FreeCString(ctx, data);
+    return JS_UNDEFINED;
+}
+
+/* pal.localStoragePath() -> string
+ * localStorage 持久化文件路径：环境变量 QWRT_LOCALSTORAGE_FILE 优先，否则
+ * 默认 ~/.qwrt/localstorage.json（跨项目持久化；HOME 不可用回退当前目录
+ * .qwrt-localstorage.json）。 */
+static JSValue js_pal_local_storage_path(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
+    const char *env = getenv("QWRT_LOCALSTORAGE_FILE");
+    if (env && *env) {
+        return JS_NewString(ctx, env);
+    }
+    const char *home = getenv("HOME");
+    if (home && *home) {
+        size_t n = strlen(home) + strlen("/.qwrt/localstorage.json") + 1;
+        char *buf = (char *)malloc(n);
+        if (!buf) return JS_ThrowOutOfMemory(ctx);
+        snprintf(buf, n, "%s/.qwrt/localstorage.json", home);
+        JSValue ret = JS_NewString(ctx, buf);
+        free(buf);
+        return ret;
+    }
+    return JS_NewString(ctx, ".qwrt-localstorage.json");
+}
+
 /* 父侧 pal.spawnWorker：脚本字符串 → 阻塞创建 worker 线程，返回 worker id */
 static JSValue js_pal_spawn_worker(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
@@ -1634,9 +1804,11 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
     /* Async functions (return Promises) — stubs until Task 3 */
     JS_SetPropertyStr(jsctx, pal, "httpRequest", JS_NewCFunction(jsctx, js_pal_http_request, "httpRequest", 4));
     JS_SetPropertyStr(jsctx, pal, "httpRequestStream", JS_NewCFunction(jsctx, js_pal_http_request_stream, "httpRequestStream", 7));
+    JS_SetPropertyStr(jsctx, pal, "httpRequestAbort", JS_NewCFunction(jsctx, js_pal_http_request_abort, "httpRequestAbort", 1));
     JS_SetPropertyStr(jsctx, pal, "fsRead", JS_NewCFunction(jsctx, js_pal_fs_read, "fsRead", 1));
     JS_SetPropertyStr(jsctx, pal, "fsReadBinary", JS_NewCFunction(jsctx, js_pal_fs_read_binary, "fsReadBinary", 1));
     JS_SetPropertyStr(jsctx, pal, "fsReadSync", JS_NewCFunction(jsctx, js_pal_fs_read_sync, "fsReadSync", 1));
+    JS_SetPropertyStr(jsctx, pal, "fsWriteSync", JS_NewCFunction(jsctx, js_pal_fs_write_sync, "fsWriteSync", 2));
     JS_SetPropertyStr(jsctx, pal, "fsWrite", JS_NewCFunction(jsctx, js_pal_fs_write, "fsWrite", 2));
     JS_SetPropertyStr(jsctx, pal, "fsExists", JS_NewCFunction(jsctx, js_pal_fs_exists, "fsExists", 1));
     JS_SetPropertyStr(jsctx, pal, "fsRemove", JS_NewCFunction(jsctx, js_pal_fs_remove, "fsRemove", 1));
@@ -1644,6 +1816,7 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
     JS_SetPropertyStr(jsctx, pal, "storageGet", JS_NewCFunction(jsctx, js_pal_storage_get, "storageGet", 1));
     JS_SetPropertyStr(jsctx, pal, "storageSet", JS_NewCFunction(jsctx, js_pal_storage_set, "storageSet", 2));
     JS_SetPropertyStr(jsctx, pal, "storageDel", JS_NewCFunction(jsctx, js_pal_storage_del, "storageDel", 1));
+    JS_SetPropertyStr(jsctx, pal, "localStoragePath", JS_NewCFunction(jsctx, js_pal_local_storage_path, "localStoragePath", 0));
 
     /* Sync CSPRNG */
     JS_SetPropertyStr(jsctx, pal, "randomBytes", JS_NewCFunction(jsctx, js_pal_random_bytes, "randomBytes", 1));

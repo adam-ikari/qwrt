@@ -184,6 +184,19 @@ struct qwrt_t {
     /* uv_io.c 当前活动的流式 HTTP op（http_abort 借它触达 in-flight 句柄） */
     struct uv_io_http_op_t *active_stream;
 
+    /* 活跃流式 HTTP op 注册表：per-op abort（pal.httpRequestAbort(opId)）按
+     * op_id 查找。active_stream 是单槽"最近一个 op"，覆盖不了并发 fetch；
+     * registry 允许任意数量的 in-flight 流各自被精确中止。op 终结
+     * （uv_io_http_cleanup）时从链表摘除，故 abort 永远只命中存活 op。 */
+    struct uv_io_http_op_t *http_ops;
+    uint64_t http_op_seq;   /* 单调递增 op id 分配器（0 = 无效 id） */
+
+    /* Proxy-Authorization 缓存：同一代理 URL（含 user:pass userinfo）的
+     * "Basic base64(user:pass)" 头在整个 runtime 生命周期只计算一次。
+     * qwrt.c teardown 释放。op 持有借用指针（op->proxy_auth），teardown 前
+     * 所有 in-flight op 已中止清理，故无悬垂。 */
+    char *proxy_auth_url;    /* 已计算缓存的代理 URL（含凭据），NULL = 未缓存 */
+    char *proxy_auth_value;  /* "Basic <b64>" 头值，NULL = 代理无凭据 */
     qwrt_ctx_t *contexts[QWRT_MAX_CONTEXTS];  /* array of context pointers */
     int context_count;
     int active_ctx_id;   /* -1 if no active context */
@@ -383,17 +396,22 @@ void uv_io_fs_write(qwrt_t *rt, const char *path,
                     qwrt_io_done_t cb, void *cb_data);
 void uv_io_fs_exists(qwrt_t *rt, const char *path,
                      qwrt_io_done_t cb, void *cb_data);
+void uv_io_http_abort(qwrt_t *rt);
+/* Abort a specific in-flight streaming HTTP op by id (pal.httpRequestAbort).
+ * Safe to call with a stale/unknown id: no-op. */
+void uv_io_http_abort_by_id(qwrt_t *rt, uint64_t op_id);
+void uv_io_http_request(qwrt_t *rt, const char *url, const char *method,
+                        const char *headers, const char *body, size_t body_len,
+                        qwrt_io_done_t cb, void *cb_data);
+/* Returns the op id (uint64) of the started streaming request, or 0 if it
+ * failed synchronously (invalid args / OOM / bad proxy URL / no TLS). */
+uint64_t uv_io_http_request_stream(qwrt_t *rt, const char *url, const char *method,
+                                   const char *headers, const char *body,
+                                   size_t body_len, qwrt_io_stream_ops_t *ops);
 void uv_io_fs_remove(qwrt_t *rt, const char *path,
                      qwrt_io_done_t cb, void *cb_data);
 void uv_io_fs_list(qwrt_t *rt, const char *path,
                    qwrt_io_done_t cb, void *cb_data);
-void uv_io_http_abort(qwrt_t *rt);
-void uv_io_http_request(qwrt_t *rt, const char *url, const char *method,
-                        const char *headers, const char *body, size_t body_len,
-                        qwrt_io_done_t cb, void *cb_data);
-void uv_io_http_request_stream(qwrt_t *rt, const char *url, const char *method,
-                               const char *headers, const char *body,
-                               size_t body_len, qwrt_io_stream_ops_t *ops);
 
 /* uv_io.c — synchronous helpers the bridge inlines (time_now uses uv_now on
  * rt->loop; hrtime/log/random_bytes are standalone). */

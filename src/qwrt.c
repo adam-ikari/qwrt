@@ -306,6 +306,13 @@ void qwrt_thread_teardown(qwrt_t *rt)
     rt->store = NULL;
     rt->store_count = 0;
 
+    /* 6.5) 释放 Proxy-Authorization 缓存（uv_io_http_apply_proxy 分配）。
+     * 所有 in-flight op 已在上文步骤 1.5 中止清理，无 op 再借用该指针。 */
+    free(rt->proxy_auth_url);
+    free(rt->proxy_auth_value);
+    rt->proxy_auth_url = NULL;
+    rt->proxy_auth_value = NULL;
+
     /* 7) 关闭 loop：close 全部 handle → 处理 close 回调 → loop_close
      *（libuv 里 stop 过但仍 open 的 handle 也会让 uv_loop_close EBUSY，
      * 所以必须 walk-close 而非只关 wake）。 */
