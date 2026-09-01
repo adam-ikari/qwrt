@@ -115,7 +115,6 @@ static qwrt_ctx_t *qwrt_ctx_create_at(qwrt_t *rt, int slot)
 
     /* Initialize context fields */
     ctx->context_id = slot;
-    ctx->active = 0;
     ctx->suspended = 0;
     ctx->handle_count = 0;
     /* Extensions: point at the compile-time QWRT_EXTENSIONS table (no per-context

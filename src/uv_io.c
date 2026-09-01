@@ -198,6 +198,14 @@ typedef struct uv_io_http_op_t {
                               * 0, so a handle still in libuv's closing queue is
                               * never freed prematurely (would be UAF: libuv
                               * dereferences the handle struct inside op). */
+    int closes_uncounted;    /* refcount of MID-LIFE uv_close'd handles (closed
+                              * while tearing_down == 0, e.g. a failed connect
+                              * timer). Their close callbacks may fire AFTER
+                              * teardown begins (tearing_down == 1), so they must
+                              * consume a separate counter — close_done checks it
+                              * first and never lets an uncounted close drain
+                              * closes_pending (else op frees before the counted
+                              * TCP close callback runs → UAF). */
 } uv_io_http_op_t;
 
 
@@ -1135,9 +1143,14 @@ static void uv_io_fs_read_open_cb(uv_fs_t *req)
             op->buf_cap = PAL_UV_FS_BUF_INIT;
             op->buf = (char *)malloc(op->buf_cap);
             if (!op->buf) {
-                op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+                /* 先置 op->cb = NULL 再调 cb：否则 uv_fs_close 后 close_cb
+                 * （uv_io_fs_read_close_cb）会二次回调同一 cb（double-free/
+                 * UAF）。仿 fs_read_cb 的错误路径（cb = NULL → close → cb）。 */
+                qwrt_io_done_t cb = op->cb;
+                op->cb = NULL;
                 uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                              uv_io_fs_read_close_cb);
+                cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
                 return;
             }
         }
@@ -1649,24 +1662,40 @@ static void uv_io_http_cleanup(uv_io_http_op_t *op)
     free(op);
 }
 
-/* Close a uv handle that belongs to op, bumping the close refcount. op is freed
- * only after every close handle's close callback has fired (see close_done), so
- * libuv never touches a handle struct inside an already-freed op. */
 static void uv_io_http_close_handle(uv_io_http_op_t *op, uv_handle_t *h,
                                      uv_close_cb cb)
 {
-    /* Only teardown-phase closes count toward the refcount; mid-life closes
-     * (tearing_down == 0) just close the handle without touching closes_pending. */
+    /* Only teardown-phase closes count toward the teardown refcount; mid-life
+     * closes (tearing_down == 0) increment a separate uncounted counter so
+     * their close callbacks — which may fire after teardown begins — never
+     * drain closes_pending (which would free op before the counted handles'
+     * close callbacks run → UAF). */
     if (op->tearing_down)
         op->closes_pending++;
+    else
+        op->closes_uncounted++;
     uv_close(h, cb);
 }
 
 /* Called from a handle's close callback: one fewer pending close. Frees op when
- * the last one fires. Safe for any of op's handles (tcp, connect_timer,
- * idle_timer) - all set .data = op. No-op for mid-life closes (tearing_down 0). */
+ * the last teardown close fires. Safe for any of op's handles (tcp,
+ * connect_timer, idle_timer) - all set .data = op. An uncounted (mid-life)
+ * close consumes one closes_uncounted and does NOT touch closes_pending, even
+ * when its close callback runs after teardown started. */
 static void uv_io_http_close_done(uv_io_http_op_t *op)
 {
+    if (op->closes_uncounted > 0) {
+        /* mid-life（uncounted）close 回调 */
+        op->closes_uncounted--;
+        /* 若这是最后一个 uncounted，且 teardown 已开始但计数 close 已全部
+         * 发出（pending == 0 —— finalize 因 uncounted>0 未 free 的场景），
+         * 由我们补上 cleanup，避免泄漏。 */
+        if (op->tearing_down && op->closes_uncounted == 0 &&
+            op->closes_pending == 0) {
+            uv_io_http_cleanup(op);
+        }
+        return;
+    }
     if (op->tearing_down && --op->closes_pending == 0) {
         uv_io_http_cleanup(op);
     }
@@ -1678,7 +1707,7 @@ static void uv_io_http_close_done(uv_io_http_op_t *op)
  * teardown paths, which could free op while a timer close was still pending. */
 static void uv_io_http_finalize(uv_io_http_op_t *op)
 {
-    if (op->closes_pending == 0) {
+    if (op->closes_pending == 0 && op->closes_uncounted == 0) {
         uv_io_http_cleanup(op);
     }
 }
@@ -1799,17 +1828,17 @@ static void uv_io_http_finish_success(uv_io_http_op_t *op)
  * ================================================================ */
 
 static int process_chunked_body(uv_io_http_op_t *op,
-                                const char *body_start, size_t body_len)
+                                size_t body_offset, size_t body_len)
 {
     /* Decoded chunks are written into resp_buf at
      * [header_end_offset + chunk_write_pos, ...). Raw encoded bytes are read
-     * from body_start + chunk_raw_consumed up to body_start + body_len. Both
-     * offsets persist across reads (multi-read chunked decode): process_data
-     * keeps appending raw bytes at resp_buf_len, and each call resumes where
-     * the last left off. We do NOT shrink resp_buf_len to the decoded length
-     * mid-decode (that was the bug: it caused the next read to append onto the
-     * decoded region and re-parse decoded bytes as framing, losing the body). */
+     * from resp_buf + body_offset + chunk_raw_consumed up to
+     * resp_buf + body_offset + body_len. body_offset 是 resp_buf 内的相对偏移
+     * （= header_end_offset），不是指针：本函数内 realloc(op->resp_buf) 会搬移
+     * 内存，调用方按旧指针传入的 body_start 会悬空（UAF）。每次进入都从
+     * op->resp_buf 按偏移重建源指针，realloc 分支同样重建。 */
     size_t write_pos = op->header_end_offset + op->chunk_write_pos;
+    const char *body_start = op->resp_buf + body_offset;
     const char *p = body_start + op->chunk_raw_consumed;
     const char *end = body_start + body_len;
 
@@ -1883,6 +1912,12 @@ static int process_chunked_body(uv_io_http_op_t *op,
                 if (!new_buf) return -1;
                 op->resp_buf = new_buf;
                 op->resp_buf_cap = new_cap;
+                /* realloc 可能搬移内存：body_start/p/end 都是按旧指针算的，
+                 * 必须按偏移从新 resp_buf 重建（否则继续解引用悬空指针）。 */
+                size_t consumed = (size_t)(p - body_start);
+                body_start = op->resp_buf + body_offset;
+                p = body_start + consumed;
+                end = body_start + body_len;
             }
 
             /* memmove, not memcpy: decoded bytes are compacted back into
@@ -1997,7 +2032,11 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
         path = proxy_target;
     }
 
-    size_t req_cap = 1024 + (op->body_len > 0 ? op->body_len : 0);
+    /* 请求行长度随 path/host 增长（URL path 不受固定 1024 限制），把它们的
+     * 长度计入容量；随后的 snprintf 仍逐段检查返回值 —— 任何截断立即失败，
+     * 而不是累加返回值越过 req_cap（原代码 pos 无界增长 → 越界写）。 */
+    size_t req_cap = 1024 + (op->body_len > 0 ? op->body_len : 0) +
+                     strlen(path) + strlen(host) + 64;
     char *req_buf = (char *)malloc(req_cap);
     if (!req_buf) {
         free(proxy_target);
@@ -2006,19 +2045,25 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     }
 
     size_t pos = 0;
-    pos += snprintf(req_buf + pos, req_cap - pos,
-                    "%s %s HTTP/1.1\r\nHost: %s\r\n",
-                    method, path, host);
+    int n = snprintf(req_buf + pos, req_cap - pos,
+                     "%s %s HTTP/1.1\r\nHost: %s\r\n",
+                     method, path, host);
     free(proxy_target);
+    if (n < 0 || (size_t)n >= req_cap - pos) goto req_too_large;
+    pos += (size_t)n;
 
     /* Add Content-Length if we have a body */
     if (op->body && op->body_len > 0) {
-        pos += snprintf(req_buf + pos, req_cap - pos,
-                        "Content-Length: %zu\r\n", op->body_len);
+        n = snprintf(req_buf + pos, req_cap - pos,
+                     "Content-Length: %zu\r\n", op->body_len);
+        if (n < 0 || (size_t)n >= req_cap - pos) goto req_too_large;
+        pos += (size_t)n;
     }
 
     /* Add Connection: close so server closes after response */
-    pos += snprintf(req_buf + pos, req_cap - pos, "Connection: close\r\n");
+    n = snprintf(req_buf + pos, req_cap - pos, "Connection: close\r\n");
+    if (n < 0 || (size_t)n >= req_cap - pos) goto req_too_large;
+    pos += (size_t)n;
 
     /* Parse and add custom headers from headers_json.
      * Simple approach: scan for "key":"value" patterns. */
@@ -2125,6 +2170,11 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     op->write_req.data = op;
     uv_write(&op->write_req, (uv_stream_t *)&op->tcp, &write_buf, 1,
              uv_io_http_write_cb);
+    return;
+
+req_too_large:
+    free(req_buf);
+    uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "request too large");
 }
 
 /* ================================================================
@@ -2448,9 +2498,9 @@ static int uv_io_http_process_data(uv_io_http_op_t *op, const char *data,
 
             if (op->chunked) {
                 /* Process any body data already in the buffer */
-                const char *body_start = op->resp_buf + op->header_end_offset;
                 size_t body_len = op->resp_buf_len - op->header_end_offset;
-                int result = process_chunked_body(op, body_start, body_len);
+                int result = process_chunked_body(op, op->header_end_offset,
+                                                  body_len);
                 if (result == 1) {
                     /* Chunked body complete */
                     uv_io_http_finish_success(op);
@@ -2477,9 +2527,9 @@ static int uv_io_http_process_data(uv_io_http_op_t *op, const char *data,
 
     /* Headers already parsed — process additional body data */
     if (op->chunked) {
-        const char *body_start = op->resp_buf + op->header_end_offset;
         size_t body_len = op->resp_buf_len - op->header_end_offset;
-        int result = process_chunked_body(op, body_start, body_len);
+        int result = process_chunked_body(op, op->header_end_offset,
+                                          body_len);
         if (result == 1) {
             uv_io_http_finish_success(op);
             return 1;

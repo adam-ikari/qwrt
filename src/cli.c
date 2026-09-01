@@ -49,7 +49,7 @@ static int json_unescape(const char *s, char *out, size_t out_cap) {
     }
     s++;
     size_t n = 0;
-    while (*s && *s != '"' && n + 1 < out_cap) {
+    while (*s && *s != '"' && n + 3 < out_cap) {
         if (*s != '\\') {
             out[n++] = *s++;
             continue;
@@ -107,7 +107,10 @@ static void cli_message_cb(qwrt_t *rt, const char *json, size_t len, void *data)
     (void)data;
     cli_host_t *h = (cli_host_t *)qwrt_get_runtime_data(rt);
     if (!h) return;
-    int is_error = strstr(json, "\"ok\":false") != NULL;
+    /* 精确判断：信封由 JSON.stringify 生成，无空格，恒以 {"ok":true 或
+     * {"ok":false 开头。不能用 strstr 子串匹配 —— 错误消息/成功值的正文里
+     * 可能含 "ok":false 字样导致误判。 */
+    int is_error = (strncmp(json, "{\"ok\":false", 11) == 0);
     /* The envelope is {"ok":true,"v":"..."} or {"ok":false,"e":"..."}.
      * v/e hold JSON strings (the bootstrap wraps eval's value in
      * JSON.stringify). The key with its quotes and colon is 4 chars
@@ -259,9 +262,33 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     qwrt_set_runtime_data(rt, &host);
 
     char *cmd_json = json_escape(code);
-    char *cmd = malloc(strlen(code) * 2 + 64);
-    sprintf(cmd, "{\"cmd\":\"eval\",\"code\":%s}", cmd_json);
+    if (!cmd_json) {
+        fprintf(stderr, "qwrt: out of memory\n");
+        qwrt_wait_idle(rt);
+        qwrt_free(rt);
+        return 1;
+    }
+    /* json_escape 上界 strlen*6+3，故按 cmd_json 实际长度 + 固定信封开销
+     * 分配（原 strlen*2+64 会溢出）。snprintf 检查返回值防截断。 */
+    size_t cmd_cap = strlen(cmd_json) + 64;
+    char *cmd = malloc(cmd_cap);
+    if (!cmd) {
+        free(cmd_json);
+        fprintf(stderr, "qwrt: out of memory\n");
+        qwrt_wait_idle(rt);
+        qwrt_free(rt);
+        return 1;
+    }
+    int wrote = snprintf(cmd, cmd_cap, "{\"cmd\":\"eval\",\"code\":%s}",
+                         cmd_json);
     free(cmd_json);
+    if (wrote < 0 || (size_t)wrote >= cmd_cap) {
+        free(cmd);
+        fprintf(stderr, "qwrt: out of memory\n");
+        qwrt_wait_idle(rt);
+        qwrt_free(rt);
+        return 1;
+    }
     qwrt_post_message(rt, cmd, strlen(cmd));
     free(cmd);
 
@@ -315,11 +342,33 @@ static int repl_loop(void) {
         }
 
         __atomic_store_n(&host.done, 0, __ATOMIC_RELEASE);
-        char *cmd = malloc(strlen(line) * 2 + 64);
-        sprintf(cmd, "{\"cmd\":\"eval\",\"code\":%s}", json_escape(line));
+        char *escaped = json_escape(line);
+        if (!escaped) {
+            fprintf(stderr, "qwrt: out of memory\n");
+            exit_code = 1;
+            continue;
+        }
+        /* 按转义后实际长度 + 固定信封开销分配（原 strlen*2+64 溢出，
+         * 且原内联 json_escape 的返回值从未释放 —— 泄漏）。 */
+        size_t cmd_cap = strlen(escaped) + 64;
+        char *cmd = malloc(cmd_cap);
+        if (!cmd) {
+            free(escaped);
+            fprintf(stderr, "qwrt: out of memory\n");
+            exit_code = 1;
+            continue;
+        }
+        int wrote = snprintf(cmd, cmd_cap, "{\"cmd\":\"eval\",\"code\":%s}",
+                             escaped);
+        free(escaped);
+        if (wrote < 0 || (size_t)wrote >= cmd_cap) {
+            free(cmd);
+            fprintf(stderr, "qwrt: out of memory\n");
+            exit_code = 1;
+            continue;
+        }
         qwrt_post_message(rt, cmd, strlen(cmd));
         free(cmd);
-
         while (!__atomic_load_n(&host.done, __ATOMIC_ACQUIRE))
             sched_yield();
 
@@ -371,7 +420,19 @@ int main(int argc, char **argv) {
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
         fseek(f, 0, SEEK_SET);
+        if (sz < 0) {
+            /* ftell 失败（如管道/非普通文件）—— sz=-1 转 size_t 后为
+             * SIZE_MAX，malloc 巨大缓冲并 fread 崩溃。 */
+            fprintf(stderr, "qwrt: cannot size '%s'\n", script_path);
+            fclose(f);
+            return 1;
+        }
         char *code = malloc((size_t)sz + 1);
+        if (!code) {
+            fprintf(stderr, "qwrt: out of memory\n");
+            fclose(f);
+            return 1;
+        }
         if (fread(code, 1, (size_t)sz, f) != (size_t)sz) {
             fprintf(stderr, "qwrt: read error\n");
             fclose(f);

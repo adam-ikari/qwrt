@@ -122,6 +122,20 @@ static qwrt_cb_data_t *alloc_cb_data(qwrt_ctx_t *cctx, JSValue resolve, JSValue 
     return cbd;
 }
 
+/* 调用 fn(this_val, argv) 并丢弃返回值；若 JS_Call 抛异常，用 JS_GetException
+ * 取出并释放 pending exception（否则异常对象悬挂在异常槽里，污染后续调用 /
+ * 泄漏）。用于 resolve/reject 回调、流式 on_headers/on_data/on_end、消息派发
+ * 等"调用后不检查返回值"的异步回调。args 由调用方自行释放。 */
+static void qwrt_js_call_cleanup(JSContext *ctx, JSValueConst fn,
+                                 JSValueConst this_val, int argc,
+                                 JSValueConst *argv)
+{
+    JSValue ret = JS_Call(ctx, fn, this_val, argc, argv);
+    if (JS_IsException(ret))
+        JS_GetException(ctx);
+    JS_FreeValue(ctx, ret);
+}
+
 /* ================================================================
  * Free callback data — shared with context.c for cleanup
  * ================================================================ */
@@ -156,8 +170,7 @@ static void qwrt_timer_cb(uv_timer_t *t)
     JSContext *jsctx = cbd->ctx->jsctx;
 
     JSValue arg = JS_UNDEFINED;
-    JSValue ret = JS_Call(jsctx, cbd->resolve, JS_UNDEFINED, 1, &arg);
-    JS_FreeValue(jsctx, ret);
+    qwrt_js_call_cleanup(jsctx, cbd->resolve, JS_UNDEFINED, 1, &arg);
 
     if (cbd->repeat) {
         /* repeating: stays armed via the uv repeat interval; resolve is a
@@ -478,8 +491,7 @@ static void bridge_io_done(void *opaque, int status, const char *data, size_t le
     }
 
     if (!JS_IsException(result)) {
-        JSValue ret = JS_Call(ctx, fn, JS_UNDEFINED, 1, &result);
-        JS_FreeValue(ctx, ret);
+        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
     }
     JS_FreeValue(ctx, result);
 
@@ -556,8 +568,7 @@ static void bridge_io_done_binary_zc(void *opaque, int status, const char *data,
     }
 
     if (!JS_IsException(result)) {
-        JSValue ret = JS_Call(ctx, fn, JS_UNDEFINED, 1, &result);
-        JS_FreeValue(ctx, ret);
+        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
     }
     JS_FreeValue(ctx, result);
     qwrt_free_cb_data(ctx, cd);
@@ -585,8 +596,7 @@ static void storage_get_done(void *opaque, int status, const char *data, size_t 
     }
 
     if (!JS_IsException(result)) {
-        JSValue ret = JS_Call(ctx, fn, JS_UNDEFINED, 1, &result);
-        JS_FreeValue(ctx, ret);
+        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
     }
     JS_FreeValue(ctx, result);
 
@@ -617,8 +627,7 @@ static void bridge_stream_on_headers(void *ud, int status, const char *headers_j
         JS_FreeValue(bs->ctx, args[1]);
         return;
     }
-    JSValue ret = JS_Call(bs->ctx, bs->on_headers, JS_UNDEFINED, 2, args);
-    JS_FreeValue(bs->ctx, ret);
+    qwrt_js_call_cleanup(bs->ctx, bs->on_headers, JS_UNDEFINED, 2, args);
     JS_FreeValue(bs->ctx, args[0]);
     JS_FreeValue(bs->ctx, args[1]);
 }
@@ -634,8 +643,7 @@ static void bridge_stream_on_data(void *ud, const char *data, size_t len)
         JS_FreeValue(bs->ctx, buf);
         return;
     }
-    JSValue ret = JS_Call(bs->ctx, bs->on_data, JS_UNDEFINED, 1, &buf);
-    JS_FreeValue(bs->ctx, ret);
+    qwrt_js_call_cleanup(bs->ctx, bs->on_data, JS_UNDEFINED, 1, &buf);
     JS_FreeValue(bs->ctx, buf);
 }
 
@@ -644,8 +652,7 @@ static void bridge_stream_on_end(void *ud, int error_status)
     bridge_stream_ctx_t *bs = (bridge_stream_ctx_t *)ud;
     if (JS_IsFunction(bs->ctx, bs->on_end)) {
         JSValue arg = JS_NewInt32(bs->ctx, error_status);
-        JSValue ret = JS_Call(bs->ctx, bs->on_end, JS_UNDEFINED, 1, &arg);
-        JS_FreeValue(bs->ctx, ret);
+        qwrt_js_call_cleanup(bs->ctx, bs->on_end, JS_UNDEFINED, 1, &arg);
         JS_FreeValue(bs->ctx, arg);
     }
     JS_FreeValue(bs->ctx, bs->on_headers);
@@ -1284,8 +1291,11 @@ static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int ar
 
 /* 全局递增 port id 池（跨线程原子分配；0 保留给无效 id）。每个
  * MessageChannel 分配一对连续 id（id1=port1, id2=port2，纠缠对）。
- * id 只用于跨线程路由标记，具体路由在 JS 层 polyfill 完成。 */
-static _Atomic uint32_t g_qwrt_next_port_id = 1;
+ * id 只用于跨线程路由标记，具体路由在 JS 层 polyfill 完成。
+ * 项目严格 -std=c99 + CMAKE_C_EXTENSIONS OFF：不能裸用 C11 _Atomic
+ * （libuv/quickjs 都靠补丁把 _Atomic 换成 __atomic_* 宏）。这里用普通
+ * uint32_t + 内建原子操作（__atomic_fetch_add），见 js_pal_port_create。 */
+static uint32_t g_qwrt_next_port_id = 1;
 
 /* portCreate() -> {id1, id2}：分配一对全局唯一纠缠 port id。 */
 static JSValue js_pal_port_create(JSContext *ctx, JSValueConst this_val,
@@ -1593,8 +1603,7 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
             data = JS_NewArrayBufferCopy(ctx, (const uint8_t *)m->data, m->len);
         }
         JSValue args[2] = { data, src };
-        JSValue r = JS_Call(ctx, fn, JS_UNDEFINED, 2, args);
-        JS_FreeValue(ctx, r);
+        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 2, args);
         JS_FreeValue(ctx, data);
         JS_FreeValue(ctx, src);
     }

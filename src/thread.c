@@ -51,6 +51,13 @@ static void qwrt_idle_walk_cb(uv_handle_t *h, void *arg)
 static int qwrt_loop_idle(qwrt_t *rt)
 {
     if (qwrt_msg_has_pending(rt)) return 0;   /* inbound queue non-empty */
+    /* 先排空 JS 微任务/待执行 job：promise 回调可能在上一轮事件里排了 job，
+     * 且 job 执行本身又能排新 job（.then 链）。flush 后若仍有残留 job
+     * （JS_IsJobPending），必须判 busy —— 否则 wait_idle 会提前 teardown，
+     * promise 回调（bridge_io_done 的 JS_Call resolve 等）访问已释放的
+     * JSRuntime → UAF/回调丢失。 */
+    qwrt_flush_microtasks(rt);
+    if (JS_IsJobPending(rt->jsrt)) return 0;
     qwrt_idle_state_t st;
     st.rt = rt;
     st.busy = 0;

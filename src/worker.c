@@ -209,6 +209,14 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
     w->id = slot + 1;              /* id = 槽位+1；0 保留给宿主 source（不冲突） */
     w->self = self;
     w->script = strdup(script);
+    if (!w->script) {
+        /* OOM：strdup 失败 → 返回前清理。不能带着 NULL script 继续 ——
+         * qwrt_eval_internal(rt, NULL) 会 strlen(NULL) → UB。 */
+        free(self);
+        free(w);
+        if (out_err) *out_err = QWRT_ERR_NO_MEMORY;
+        return NULL;
+    }
     /* lock-free MPSC: self's inbound queue head == tail == sentinel (calloc zeroed) */
     self->msg_head = &self->msg_stub;
     self->msg_tail = &self->msg_stub;

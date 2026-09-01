@@ -119,7 +119,6 @@ int qwrt_runtime_init(qwrt_t *rt)
         rt->jsrt = NULL;
         return -1;
     }
-    ctx->active = 1;
     rt->active_ctx_id = ctx->context_id;
 
 #ifdef QWRT_DEBUG_SUPPORT
@@ -249,6 +248,14 @@ void qwrt_thread_teardown(qwrt_t *rt)
     while ((m = qwrt_msg_pop(rt)) != NULL) {}
     if (rt->msg_head != &rt->msg_stub) qwrt_msg_free(rt->msg_head);
     rt->msg_head = &rt->msg_stub;
+
+    /* 1.5) abort in-flight streaming HTTP op（若存在）。uv_io_http_abort 会
+     * 同步触发 on_end（JS_Call，bridge_stream_on_end 释放 bs）并关闭
+     * tcp/timer 句柄；必须赶在销毁 contexts / 释放 JSRuntime 之前，否则
+     * on_end 访问已释放的 ctx。abort 排的 JS job 由步骤 2 的循环消化。 */
+    if (rt->active_stream) {
+        uv_io_http_abort(rt);
+    }
 
     /* 2) 排空 pending JS jobs BEFORE freeing contexts/runtime，否则
      * JS_FreeRuntime 会在非空 gc_obj_list 上断言（Promise 反应引用着

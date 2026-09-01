@@ -112,7 +112,6 @@ typedef struct qwrt_msg_s {
 typedef struct qwrt_ctx_s {
     JSContext *jsctx;
     int context_id;
-    int active;          /* 1 if this is the active context */
     int suspended;       /* 1 if context is suspended */
 
     void *handles[QWRT_MAX_HANDLES];
@@ -220,6 +219,20 @@ struct qwrt_t {
     JSClassID compress_deflate_class_id;
     JSClassID compress_inflate_class_id;
 #endif
+#ifdef QWRT_WITH_CRYPTO_EXT
+    /* Per-runtime EC RNG (mbedtls_entropy_context / mbedtls_ctr_drbg_context).
+     * Lazy-seeded on first EC op; one DRBG per runtime so concurrent
+     * runtimes (workers on their own threads) never share a CTR_DRBG
+     * without synchronization. Freed in crypto_ext_destroy. */
+    void *ec_entropy;
+    void *ec_drbg;
+    int ec_rng_ready;
+#endif
+
+    /* tcp_io.c TCP client/listener handle classes (production builds only;
+     * tcp_io.c is excluded from mock-libuv test builds). */
+    JSClassID tcp_client_class_id;
+    JSClassID tcp_listener_class_id;
 
     /* http-server ext-level state (serve() teardown) */
     void *http_server_state;
