@@ -3,6 +3,8 @@
 // 轮询（每次 host_eval 都跑一轮 loop + 冲刷微任务）。
 #include "test_host.h"
 #include <cstring>
+#include <cstdlib>
+#include <unistd.h>
 
 class PolyfillTest : public ::testing::Test {
 protected:
@@ -222,6 +224,158 @@ TEST_F(PolyfillTest, Storage) {
         "qwrt.storage.delete('pf_key').then(function(){ _delOk = 'yes'; });\n"
         "0", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_delOk", "yes", &v));
+}
+
+/* localStorage（Web Storage Storage 接口，同步 + 持久化）。
+ * 用 QWRT_LOCALSTORAGE_FILE 指向独立临时文件，避免触碰默认 ~/.qwrt/
+ * localstorage.json。 */
+TEST_F(PolyfillTest, LocalStorageBasic) {
+    char tmpl[] = "/tmp/qwrt_ls_basic_XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    ASSERT_GE(fd, 0);
+    ::close(fd);
+    ::remove(tmpl);   /* 从空文件开始（mkstemp 建的空文件，读空串解析失败→空） */
+    setenv("QWRT_LOCALSTORAGE_FILE", tmpl, 1);
+    /* runtime 在 polyfill 注入时解析持久化路径，必须先设好 env 再建 host */
+    host_destroy(h);
+    h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string v;
+
+    /* getItem/setItem/removeItem/length/key + 键/值强制 String */
+    ASSERT_TRUE(host_value(h,
+        "var r = [];\n"
+        "r.push(localStorage.getItem('k1'));\n"          /* 缺失 → null */
+        "localStorage.setItem('k1', 'v1');\n"
+        "localStorage.setItem(42, 'v42');\n"             /* 键强制 '42' */
+        "localStorage.setItem('k3', 3);\n"               /* 值强制 '3' */
+        "r.push(localStorage.getItem('k1'));\n"
+        "r.push(localStorage.length);\n"
+        "r.push(localStorage.key(0));\n"
+        "r.push(localStorage.key(1));\n"
+        "r.push(localStorage.key(99));\n"                /* 越界 → null */
+        "r.push(localStorage.getItem('42'));\n"
+        "r.push(localStorage.getItem('k3'));\n"
+        "localStorage.removeItem('k1');\n"
+        "r.push(localStorage.getItem('k1'));\n"
+        "r.push(localStorage.length);\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_EQ("[null,\"v1\",3,\"k1\",\"42\",null,\"v42\",\"3\",null,2]", v) << "got: " << v;
+
+    /* Storage 接口实例：方法/访问器不可枚举 */
+    ASSERT_TRUE(host_value(h, "JSON.stringify(Object.keys(localStorage).length)", &v));
+    EXPECT_EQ("0", v) << "got: " << v;
+
+    /* clear() 清空 */
+    ASSERT_TRUE(host_value(h,
+        "localStorage.clear();\n"
+        "JSON.stringify([localStorage.length, localStorage.getItem('k3')])", &v));
+    EXPECT_EQ("[0,null]", v) << "got: " << v;
+
+    unsetenv("QWRT_LOCALSTORAGE_FILE");
+    ::remove(tmpl);
+}
+
+/* 持久化：setItem 后销毁 runtime，用同一文件重建 → 数据仍在（跨重启）。 */
+TEST_F(PolyfillTest, LocalStoragePersistsAcrossRestart) {
+    char tmpl[] = "/tmp/qwrt_ls_persist_XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    ASSERT_GE(fd, 0);
+    ::close(fd);
+    ::remove(tmpl);
+    setenv("QWRT_LOCALSTORAGE_FILE", tmpl, 1);
+    /* runtime 在 polyfill 注入时解析持久化路径，必须先设好 env 再建 host */
+    host_destroy(h);
+    h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string v;
+
+    ASSERT_TRUE(host_value(h,
+        "localStorage.setItem('pk', 'pv');\n"
+        "localStorage.setItem('pn', '7');\n"
+        "JSON.stringify([localStorage.length, localStorage.getItem('pk')])", &v));
+    EXPECT_EQ("[2,\"pv\"]", v) << "got: " << v;
+
+    /* 模拟重启：销毁 runtime，同一持久化文件重建 */
+    host_destroy(h);
+    h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify([localStorage.length, localStorage.getItem('pk'), "
+        "localStorage.getItem('pn')])", &v));
+    EXPECT_EQ("[2,\"pv\",\"7\"]", v) << "got: " << v;
+
+    /* 文件落盘为 JSON 对象 */
+    FILE *f = fopen(tmpl, "rb");
+    ASSERT_NE(nullptr, f);
+    char buf[256];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    EXPECT_NE(std::string::npos, std::string(buf).find("\"pk\":\"pv\"")) << "got: " << buf;
+
+    unsetenv("QWRT_LOCALSTORAGE_FILE");
+    ::remove(tmpl);
+}
+
+/* 配额（5 MiB 键+值 code units）：超限抛 QuotaExceededError，状态不变、不落盘。 */
+TEST_F(PolyfillTest, LocalStorageQuotaExceeded) {
+    char tmpl[] = "/tmp/qwrt_ls_quota_XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    ASSERT_GE(fd, 0);
+    ::close(fd);
+    ::remove(tmpl);
+    setenv("QWRT_LOCALSTORAGE_FILE", tmpl, 1);
+    /* runtime 在 polyfill 注入时解析持久化路径，必须先设好 env 再建 host */
+    host_destroy(h);
+    h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string v;
+
+    /* 单个超配额值 → 抛错，length 0，未落盘 */
+    ASSERT_TRUE(host_value(h,
+        "var big = 'x'.repeat(6 * 1024 * 1024);\n"
+        "var name = 'no-error';\n"
+        "try { localStorage.setItem('big', big); }\n"
+        "catch (e) { name = e.name; }\n"
+        "JSON.stringify([name, localStorage.length, localStorage.getItem('big')])", &v));
+    EXPECT_EQ("[\"QuotaExceededError\",0,null]", v) << "got: " << v;
+    FILE *f = fopen(tmpl, "rb");
+    EXPECT_EQ(nullptr, f) << "配额失败不应创建持久化文件";
+
+    /* 配额内多个 2MiB 键可写入；累加推过 5MiB 后抛错且长度不变 */
+    ASSERT_TRUE(host_value(h,
+        "var two = 'y'.repeat(2 * 1024 * 1024);\n"
+        "localStorage.setItem('a', two);\n"
+        "localStorage.setItem('b', two);\n"
+        "var name2 = 'no-error';\n"
+        "try { localStorage.setItem('c', two); }\n"
+        "catch (e) { name2 = e.name; }\n"
+        "JSON.stringify([name2, localStorage.length, localStorage.getItem('a') !== null])", &v));
+    EXPECT_EQ("[\"QuotaExceededError\",2,true]", v) << "got: " << v;
+
+    unsetenv("QWRT_LOCALSTORAGE_FILE");
+    ::remove(tmpl);
+}
+
+/* 默认持久化路径：无 QWRT_LOCALSTORAGE_FILE → $HOME/.qwrt/localstorage.json；
+ * HOME 缺失 → 当前目录 .qwrt-localstorage.json。 */
+TEST_F(PolyfillTest, LocalStorageDefaultPath) {
+    unsetenv("QWRT_LOCALSTORAGE_FILE");
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var p = __native__.localStoragePath();\n"
+        "JSON.stringify([typeof localStorage, p.indexOf('.qwrt/localstorage.json') >= 0])", &v));
+    EXPECT_EQ("[\"object\",true]", v) << "got: " << v;
+
+    const char *home = getenv("HOME");
+    if (home) {
+        unsetenv("HOME");
+        ASSERT_TRUE(host_value(h, "__native__.localStoragePath()", &v));
+        EXPECT_EQ(".qwrt-localstorage.json", v) << "got: " << v;
+        setenv("HOME", home, 1);
+    }
 }
 
 TEST_F(PolyfillTest, Fetch) {
@@ -1438,20 +1592,138 @@ TEST_F(PolyfillTest, CacheStorageEdgeCases) {
     ASSERT_TRUE(host_poll_until_value(h, "_cs", "\"body\"", &v, 3000)) << "got: " << v;
 }
 
-TEST_F(PolyfillTest, EventSource) {
-    std::string v;
-    /* 1. EventSource 存在（pal.httpRequestStream 常被注册，故 mock 下 EventSource
-     *    window 类也注册；但实际连接在 mock 下会失败并泄漏，因此这里只验证 API
-     *    表面，不创建连接实例）。 */
-    ASSERT_TRUE(host_value(h, "JSON.stringify(typeof EventSource)", &v));
-    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
-    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
+// ================================================================
+// EventSource — 完整 WHATWG 语义（mock 流式数据源：patch __native__.
+// httpRequestStream 捕获回调，直接喂状态码/数据块/结束，不发起真实连接）
+// ================================================================
 
-    /* 2. 原型 API 表面：构造器 / 常量（prototype getter）/ 原型方法，不触发 _connect（避免泄漏） */
+TEST_F(PolyfillTest, EventSourceParsing) {
+    std::string v;
+    /* patch httpRequestStream 捕获回调；记录消息（onmessage 只接 message 类型，
+     * addEventListener('custom') 接自定义事件名）。 */
     ASSERT_TRUE(host_value(h,
-        "JSON.stringify([EventSource.prototype.close !== undefined, \n"
-        "  EventSource.prototype.CONNECTING, EventSource.prototype.OPEN, EventSource.prototype.CLOSED])", &v));
-    EXPECT_NE(std::string::npos, v.find("[true,0,1,2]")) << "got: " << v;
+        "var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _esConns.push({url:url, headers:headers, onHeaders:onHeaders, onData:onData, onEnd:onEnd});\n"
+        "  return 0;\n"
+        "};\n"
+        "var _rec = ''; var _om = 0; var _open = 0;\n"
+        "var es = new EventSource('http://x/stream');\n"
+        "es.onopen = function(){ _open++; };\n"
+        "es.onmessage = function(){ _om++; };\n"
+        "es.addEventListener('message', function(ev){\n"
+        "  _rec += 'M[' + ev.data.replace(/\\n/g, '<LF>') + '|' + ev.lastEventId + '|' + ev.origin + '];';\n"
+        "});\n"
+        "es.addEventListener('custom', function(ev){\n"
+        "  _rec += 'C[' + ev.data.replace(/\\n/g, '<LF>') + '|' + ev.lastEventId + '];';\n"
+        "});\n"
+        "JSON.stringify(typeof EventSource)", &v));
+    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
+
+    /* 200 + 分块喂入：BOM / 注释 / CRLF / CR / LF / 多 data 行 / 空 data /
+     * 自定义 event / id / 跨 chunk 字段拆分。 */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(200, '{}');\n"
+        "_esConns[0].onData(new TextEncoder().encode('\\uFEFF:comment\\r\\nevent: custom\\rdata: alpha\\r').buffer);\n"
+        "_esConns[0].onData(new TextEncoder().encode('id: 7\\r\\ndata:  beta\\ndata:ga').buffer);\n"
+        "_esConns[0].onData(new TextEncoder().encode('mma\\n\\ndata:\\n\\ndata: multi\\n').buffer);\n"
+        "_esConns[0].onData(new TextEncoder().encode('data: line\\n\\n').buffer);\n"
+        "es.close();\n"
+        "JSON.stringify([_rec, _om, _open])", &v));
+    /* 事件1：event: custom + 多 data 行（"alpha\\n beta\\ngamma"，data: 只剥一个空格）+ id=7 */
+    EXPECT_NE(std::string::npos, v.find("C[alpha<LF> beta<LF>gamma|7]")) << "got: " << v;
+    /* 事件2：data: 空值 → 空串消息（仍触发 onmessage），lastEventId 沿用 7，origin 序列化 */
+    EXPECT_NE(std::string::npos, v.find("M[|7|http://x]")) << "got: " << v;
+    /* 事件3：跨 chunk 拆分的 data 行连接成 "multi\\nline" */
+    EXPECT_NE(std::string::npos, v.find("M[multi<LF>line|7|http://x]")) << "got: " << v;
+    /* onmessage 只统计 message 类型（2 次，custom 走 addEventListener）；open 触发一次 */
+    EXPECT_NE(std::string::npos, v.find(",2,1]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, EventSourceEventTarget) {
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _esConns.push({onHeaders:onHeaders, onData:onData, onEnd:onEnd}); return 0;\n"
+        "};\n"
+        "var es = new EventSource('http://x/s');\n"
+        "var _l = 0;\n"
+        "es.addEventListener('open', function(){ _l++; });\n"
+        "es.onopen = function(){ _l += 10; };\n"
+        "JSON.stringify([es instanceof EventTarget,\n"
+        "  typeof es.dispatchEvent, typeof es.removeEventListener,\n"
+        "  es.readyState, es.CONNECTING, es.OPEN, es.CLOSED])", &v));
+    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
+    /* EventTarget 继承 + 方法存在 + readyState 初始 CONNECTING(0) */
+    EXPECT_NE(std::string::npos, v.find("[true,\"function\",\"function\",0,0,1,2]")) << "got: " << v;
+    /* 200 → open 事件：addEventListener + onopen 都收到（1 + 10）；readyState OPEN(1) */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(200, '{}');\n"
+        "JSON.stringify([_l, es.readyState])", &v));
+    EXPECT_NE(std::string::npos, v.find("[11,1]")) << "got: " << v;
+    /* close() → CLOSED(2)；随后 onEnd 不触发重连（_esConns 仍 1 个连接） */
+    ASSERT_TRUE(host_value(h,
+        "es.close();\n"
+        "_esConns[0].onEnd(0);\n"
+        "JSON.stringify([es.readyState, _esConns.length])", &v));
+    EXPECT_NE(std::string::npos, v.find("[2,1]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, EventSourceReconnectLastEventId) {
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _esConns.push({url:url, headers:headers, onHeaders:onHeaders, onData:onData, onEnd:onEnd}); return 0;\n"
+        "};\n"
+        "var _err = 0; var _data = '';\n"
+        "var es = new EventSource('http://x/s');\n"
+        "es.onerror = function(){ _err++; };\n"
+        "es.onmessage = function(ev){ _data += ev.data + '|' + ev.lastEventId + ';'; };\n"
+        "0", &v));
+    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
+    /* 首连 200：retry: 10 缩短重连延时；id: 42 + data */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(200, '{}');\n"
+        "_esConns[0].onData(new TextEncoder().encode('retry: 10\\nid: 42\\ndata: hello\\n\\n').buffer);\n"
+        "JSON.stringify([_data, _err, es.readyState])", &v));
+    EXPECT_NE(std::string::npos, v.find("hello|42;")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find(",0,1]")) << "got: " << v;   /* 无 error，OPEN */
+    /* onEnd → 重连：error 事件 + readyState CONNECTING(0) */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onEnd(0);\n"
+        "JSON.stringify([_err, es.readyState])", &v));
+    EXPECT_NE(std::string::npos, v.find("[1,0]")) << "got: " << v;
+    /* 轮询第二次连接（retry 10ms）；第二次请求带 Last-Event-ID: 42 */
+    ASSERT_TRUE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 2000));
+    ASSERT_TRUE(host_value(h,
+        "var _h = JSON.parse(_esConns[1].headers);\n"
+        "JSON.stringify([_h['Last-Event-ID'], _esConns[1].url])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"42\",\"http://x/s\"]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, EventSourceNon200NoReconnect) {
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _esConns.push({onHeaders:onHeaders, onData:onData, onEnd:onEnd}); return 0;\n"
+        "};\n"
+        "var _err = 0; var _open = 0;\n"
+        "var es = new EventSource('http://x/s');\n"
+        "es.onerror = function(){ _err++; };\n"
+        "es.onopen = function(){ _open++; };\n"
+        "0", &v));
+    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
+    /* 非 200：不 OPEN、触发 error、readyState CLOSED；onEnd 不再补发重连 */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(404, '{}');\n"
+        "_esConns[0].onEnd(0);\n"
+        "JSON.stringify([_err, _open, es.readyState])", &v));
+    EXPECT_NE(std::string::npos, v.find("[1,0,2]")) << "got: " << v;
+    /* fail the connection = 永不重连：400ms 内连接数保持 1 */
+    EXPECT_FALSE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 400));
 }
 
 // ================================================================

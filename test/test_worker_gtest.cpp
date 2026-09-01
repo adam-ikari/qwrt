@@ -616,3 +616,18 @@ TEST(worker_, stress_transfer_roundtrip_chain) {
         "tn + ':' + (tbad || 'ok')", "30:ok", &out));
     host_destroy(h);
 }
+
+// localStorage 只在父 runtime 挂载，worker 内不挂（Web Storage 保守默认：
+// worker 无 DOM 场景，且每个 worker 是独立 JSRuntime 独立 state）。
+TEST(worker_, localStorage_not_mounted) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_localstorage.js');\n"
+        "w.onmessage = function(e){ postMessage({ls: e.data.ls}); };\n"
+        "'started'", &out));
+    ASSERT_TRUE(host_wait_msg(h, &out));   /* 等 worker 回报 */
+    EXPECT_NE(std::string::npos, out.find("\"ls\":\"undefined\"")) << "got: " << out;
+    host_destroy(h);
+}

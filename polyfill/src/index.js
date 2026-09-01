@@ -17,6 +17,9 @@
  *   pal.httpRequest(url, method, headers_json, body) -> Promise<string>
  *   pal.fsRead(path) -> Promise<string>
  *   pal.fsWrite(path, data) -> Promise<void>
+ *   pal.fsReadSync(path) -> string (sync, throws if missing)
+ *   pal.fsWriteSync(path, data) -> void (sync, atomic temp+rename)
+ *   pal.localStoragePath() -> string (QWRT_LOCALSTORAGE_FILE or ~/.qwrt/localstorage.json)
  *   pal.fsExists(path) -> Promise<boolean>
  *   pal.fsRemove(path) -> Promise<void>
  *   pal.fsList(path) -> Promise<string> (JSON array)
@@ -36,6 +39,7 @@ import { setupEncoding } from './encoding.js';
 import { setupFetch } from './fetch.js';
 import { setupFS } from './fs.js';
 import { setupStorage } from './storage.js';
+import { setupLocalStorage } from './local-storage.js';
 import { setupTextEncoding } from './text-encoding.js';
 import { setupCrypto } from './crypto.js';
 import { setupErrorEvents } from './error-events.js';
@@ -91,6 +95,12 @@ setupNavigatorReportError();
 
 setupFS(pal);
 setupStorage(pal);
+
+// ================================================================
+// Web Storage (localStorage — Storage interface, synchronous + persisted)
+// ================================================================
+
+setupLocalStorage(pal);
 setupTextEncoding(pal);
 setupCrypto(pal);
 setupCryptoSubtle(pal);
