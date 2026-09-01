@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """qwrt HTTP Server end-to-end tests (pure-JS serve() implementation).
 
-Drives the real qwrt CLI (real libuv, QWRT_BUILD_TESTS=OFF) against uvhttp
+Drives the real qwrt CLI (real libuv, QWRT_BUILD_TESTS=OFF) against the pure-JS serve()
 HTTP/HTTPS/WebSocket listeners on localhost, using only the Python stdlib
 (http.client, ssl, raw sockets with a hand-rolled WebSocket client).
 
 Coverage (plan T7.3 matrix):
   plain HTTP : handler returning string / Response object / async Promise /
                rejected Promise (500) / invalid type (500)
-  methods    : POST/PUT/DELETE/PATCH round-trip (llhttp->uvhttp enum map)
+  methods    : POST/PUT/DELETE/PATCH round-trip
   HTTPS      : mbedTLS listener, self-signed certs
   WebSocket  : echo with small + large frames (fragmentation/126/127 len)
   static     : file serving from options.static root
@@ -68,7 +68,7 @@ def raw_request(port, method, path, body=None, headers=None, tls_ctx=None,
     """Low-level HTTP/1.1 request; returns (status, headers, body).
 
     Reads exactly Content-Length bytes of body instead of waiting for EOF
-    (uvhttp keeps the connection alive and never half-closes it, so EOF-based
+    (serve() keeps the connection alive and never half-closes it, so EOF-based
     reads would time out on keep-alive sockets).
     """
     raw = socket.create_connection(("127.0.0.1", port), timeout=5)

@@ -3,7 +3,7 @@
  *
  * Provides pal.tcpConnect/tcpWrite/tcpClose so the JS polyfill can implement
  * application-layer protocols (e.g. RFC 6455 WebSocket) on top of raw TCP,
- * without coupling the WS client to uvhttp's WS client library.
+ * without coupling the WS client to a C-level WS client library.
  *
  * Design: C handles the libuv async I/O (DNS, connect, read, write, close);
  * the JS layer handles protocol framing, masking, and handshake parsing.

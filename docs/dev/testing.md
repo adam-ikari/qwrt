@@ -56,7 +56,7 @@ cd build && ctest -R test262
 
 ¹ WASM streaming 3 用例来自 `test/test_wasm_streaming_gtest.cpp`：compileStreaming/instantiateStreaming 语义等价实现 + 非法 source 拒绝。
 ² CLI end-to-end 来自 `test/test_cli_gtest.cpp`（fork 真实 qwrt 可执行文件，断言 stdout/stderr/退出码）。
-³ HTTPServer e2e 来自 `test/test_httpserver_e2e.py`（真实 libuv 构建 + uvhttp listener）。
+³ HTTPServer e2e 来自 `test/test_httpserver_e2e.py`（真实 libuv 构建 + 纯 JS serve() listener）。
 
 ## Memory Safety
 

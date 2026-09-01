@@ -2,7 +2,7 @@
 slug: mindmap
 title: Feature mindmap
 role: feature mindmap
-updated: "2026-08-20T00:11:11"
+updated: "2026-09-01T09:15:17"
 ---
 
 # Feature mindmap
@@ -33,7 +33,7 @@ mindmap
       crypto (mbedTLS)
       textcodec (UTF-8/Base64)
       WebAssembly (WAMR/wasm3)
-      HTTPServer (uvhttp)
+      HTTPServer (纯 JS serve())
     CLI
       REPL / script / eval
       WinterCG bridge

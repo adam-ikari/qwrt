@@ -2,7 +2,7 @@
 slug: background
 title: Project background
 role: project background
-updated: "2026-08-20T00:10:46"
+updated: "2026-09-01T09:15:17"
 ---
 
 # Project background
@@ -19,7 +19,7 @@ updated: "2026-08-20T00:10:46"
 - WinterTC 兼容：覆盖 Web 平台通用标准 API（fetch、streams、crypto、Worker、URL 等）
 - 轻量：QuickJS-ng 引擎，低启动时间、低内存占用，严格 C99
 - 确定性测试：mock_libuv 离线 gtest 全覆盖，CI 门禁（test262 + e2e）
-- 原生扩展：压缩（miniz）、加密（mbedTLS）、WebAssembly（WAMR/wasm3）、HTTP（uvhttp）
+- 原生扩展：压缩（miniz）、加密（mbedTLS）、WebAssembly（WAMR/wasm3）；HTTP 服务为纯 JS serve()（raw TCP + mbedTLS）
 
 ## Non-goals
 

@@ -5,9 +5,8 @@
  * The WebSocket protocol (handshake, frame masking, frame parsing,
  * close handshake, ping/pong) is implemented entirely in JS.
  *
- * This is decoupled from the C-level uvhttp server — the WS client
- * and server have no architectural relationship; they both implement
- * the same RFC 6455 at different layers.
+ * The WS client and server are architecturally independent — both
+ * implement the same RFC 6455 at different layers.
  */
 
 export function setupWebSocket(pal) {

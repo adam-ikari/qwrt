@@ -2,7 +2,7 @@
 slug: flow
 title: Key flows
 role: key flows
-updated: "2026-08-20T00:11:50"
+updated: "2026-09-01T09:15:17"
 ---
 
 # Key flows
@@ -33,4 +33,4 @@ sequenceDiagram
 
 - Worker 生命周期：qwrt 内部新建线程 → QuickJS 独立 JSRuntime → __qwrt_dispatch__ 消息通道
 - MessagePort 跨线程：pal.portCreate() 分配全局 port id 对 → 序列化到字节通 → 接收侧 __qwrt_port_from_ref__ 重建代理
-- HTTPServer 请求：uvhttp accept → 解析 → qwrt eval JS handler（fetch 风格）→ JS 构造 Response → 回写 uvhttp 响应
+- HTTPServer 请求：serve() raw TCP accept → JS 解析 HTTP/1.1 → JS handler（fetch 风格）→ JS 构造 Response → 经 tcp/TLS 原语回写

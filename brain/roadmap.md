@@ -2,7 +2,7 @@
 slug: roadmap
 title: Roadmap
 role: milestones
-updated: "2026-08-20T00:10:30"
+updated: "2026-09-01T09:15:17"
 ---
 
 # Roadmap
@@ -45,4 +45,4 @@ gantt
 - WinterTC gtest coverage expansion (Phase 3-style)
 - Completement missing API surfaces (EventSource, PerformanceObserver, etc.)
 - test262 regression baseline
-- uvhttp router_cache ABI fix (#349) integrated
+

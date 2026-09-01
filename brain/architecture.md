@@ -2,7 +2,7 @@
 slug: architecture
 title: System architecture
 role: system architecture
-updated: "2026-08-20T00:11:27"
+updated: "2026-09-01T09:15:17"
 ---
 
 # System architecture
@@ -20,11 +20,11 @@ graph TD
   H[Host C application] -->|qwrt_* C API| R[qwrt core<br/>src/qwrt.c + bridge.c]
   R -->|libuv loop| L[libuv]
   R --> Q[QuickJS-ng runtime]
-  Q -->|bundle| P[polyfill ES modules<br/>fetch/streams/worker/crypto/...]
-  Q -->|extensions| E[PAL extensions<br/>compress / crypto / textcodec / wamr / uvhttp]
+  Q -->|bundle| P[polyfill ES modules<br/>fetch/streams/worker/crypto/http-server/...]
+  Q -->|extensions| E[PAL extensions<br/>compress / crypto / textcodec / wamr]
   P -->|pal.* API| R
+  P -->|pal.tcp*/tls*| U[serve(): raw TCP + mbedTLS<br/>HTTP1.1/HTTPS/WS/static/gzip]
   R -->|Worker| W[Worker thread<br/>src/worker.c + MessagePort routing]
-  L -->|uvhttp| U[uvhttp server<br/>HTTP1.1/HTTPS/WS/static/gzip]
   T[test/ gtest + mock_libuv] -->|offline| R
 ```
 
@@ -32,5 +32,5 @@ graph TD
 
 - 严格 C99，宿主零事件循环参与（qwrt 自持线程）
 - 确定性离线测试:mock_libuv 替换真实 libuv，无网络/无真实时间依赖
-- 子模块策略:deps/ 全部 pin 版本(quickjs-ng/wamr/uvhttp/mbedtls/...)；UVHTTP 集成走 upstream PR
+- 子模块策略:deps/ 全部 pin 版本(quickjs-ng/wamr/mbedtls/...)
 - polyfill 产物(disting/polyfill.js + src/polyfill_default.c)纳入 git(git add -f)
