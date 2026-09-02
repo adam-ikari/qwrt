@@ -7787,6 +7787,10 @@
     };
   }
 
+  // src/grpc-stack-stub.js
+  function setupGrpcStack() {
+  }
+
   // src/index.js
   setupConsole(pal);
   setupPerformance(pal);
@@ -7810,6 +7814,7 @@
   setupNavigatorReportError();
   setupFS(pal);
   setupStorage(pal);
+  setupGrpcStack();
   setupLocalStorage(pal);
   setupTextEncoding(pal);
   setupCrypto(pal);

@@ -80,6 +80,23 @@ function findQjsc() {
 // Whether non-UTF encoding support is compiled in (matches CMake option)
 const QWRT_POLYFILL_MODE = (process.env.QWRT_POLYFILL_MODE || 'C').toUpperCase();
 const QWRT_WITH_NONUTF_ENCODINGS = process.env.QWRT_WITH_NONUTF_ENCODINGS === '1';
+// gRPC/HTTP2 stack (http2.js + hpack.js + protobuf.js + flatbuffers.js + grpc.js).
+// Off by default: it is ~3.5k lines of JS that only upstream-calling scripts use.
+const QWRT_WITH_GRPC = process.env.QWRT_WITH_GRPC === '1';
+
+/*
+ * QWRT_WITH_GRPC gates the gRPC/HTTP2 stack (grpc.js + http2.js + hpack.js +
+ * protobuf.js + flatbuffers.js, ~3.5k lines) by swapping the virtual
+ * `@qwrt/grpc-stack` module for an empty stub.
+ *
+ * A `define` + `if (QWRT_WITH_GRPC)` guard is not enough: esbuild keeps the
+ * `if (false) { … }` body verbatim unless minifying, so the imports stay
+ * referenced and the whole stack ships in every build. `alias` removes it from
+ * the module graph instead (and works with buildSync, unlike `plugins`).
+ */
+const grpcStackEntry = QWRT_WITH_GRPC
+  ? path.join(__dirname, 'src', 'grpc-stack.js')
+  : path.join(__dirname, 'src', 'grpc-stack-stub.js');
 
 // Common esbuild options
 const esbuildOptions = {
@@ -93,6 +110,7 @@ const esbuildOptions = {
   define: {
     'QWRT_WITH_NONUTF_ENCODINGS': QWRT_WITH_NONUTF_ENCODINGS ? '1' : '0',
   },
+  alias: { '@qwrt/grpc-stack': grpcStackEntry },
 };
 
 /**

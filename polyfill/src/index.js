@@ -58,6 +58,10 @@ import { setupCryptoSubtle } from './crypto-subtle.js';
 import { setupStructuredClone } from './structured-clone.js';
 import { setupWorker } from './worker.js';
 import { setupContext } from './context.js';
+// Virtual module: build.js aliases this to the real gRPC/HTTP2 stack when
+// QWRT_WITH_GRPC=1, or to an empty stub when it is 0 — which is what keeps
+// http2/hpack/protobuf/flatbuffers/grpc out of the default bundle.
+import { setupGrpcStack } from '@qwrt/grpc-stack';
 
 // ================================================================
 // Core APIs (WinterTC standard)
@@ -95,6 +99,17 @@ setupNavigatorReportError();
 
 setupFS(pal);
 setupStorage(pal);
+
+// ================================================================
+// gRPC / HTTP2 stack (globalThis.grpc / protobuf / flatbuffers / qwrt.http2)
+//
+// Serialization policy: protobuf is the default codec on every call, so a qwrt
+// client interoperates with any standard gRPC peer. flatbuffers is an opt-in
+// internal fast path ({serialization:'flatbuffers'}) for qwrt↔qwrt traffic; a
+// standard peer cannot decode it. See src/grpc.js header.
+// ================================================================
+
+setupGrpcStack();
 
 // ================================================================
 // Web Storage (localStorage — Storage interface, synchronous + persisted)
