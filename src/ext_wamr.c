@@ -538,30 +538,34 @@ static JSValue wamr_wasm_streaming(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeError(ctx,
             "WebAssembly.*Streaming requires at least 1 argument");
     }
-    /* async IIFE：resolve source → arrayBuffer() → compile / instantiate */
+    /* async IIFE：resolve source → arrayBuffer() → compile / instantiate。
+     * options（AOT 旁路 {aot, aotFail}）原样透传给 compile/instantiate。 */
     const char *compile_prog =
-        "(async function(src) {                                           "
+        "(async function(src, options) {                                  "
         "  var r = (src && typeof src.then === 'function') ? await src : src;"
         "  if (!r || typeof r.arrayBuffer !== 'function')                 "
         "    throw new TypeError('streaming source must provide arrayBuffer()');"
         "  var buf = await r.arrayBuffer();                               "
-        "  return WebAssembly.compile(buf);                               "
+        "  return WebAssembly.compile(buf, options);                      "
         "})";
     const char *instantiate_prog =
-        "(async function(src, imports) {                                  "
+        "(async function(src, imports, options) {                         "
         "  var r = (src && typeof src.then === 'function') ? await src : src;"
         "  if (!r || typeof r.arrayBuffer !== 'function')                 "
         "    throw new TypeError('streaming source must provide arrayBuffer()');"
         "  var buf = await r.arrayBuffer();                               "
-        "  return WebAssembly.instantiate(buf, imports);                  "
+        "  return WebAssembly.instantiate(buf, imports, options);         "
         "})";
     const char *prog = magic ? instantiate_prog : compile_prog;
     JSValue fn = JS_Eval(ctx, prog, strlen(prog), "<wasm-streaming>",
                          JS_EVAL_TYPE_GLOBAL);
     if (JS_IsException(fn)) return fn;
-    JSValue imports = (argc >= 2) ? argv[1] : JS_UNDEFINED;
-    JSValue args[2] = { argv[0], imports };
-    JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 2, args);
+    /* 三个位置参数（src, [imports], [options]）按 argc 透传 */
+    JSValue args[3];
+    args[0] = argv[0];
+    args[1] = (argc >= 2) ? argv[1] : JS_UNDEFINED;
+    args[2] = (argc >= 3) ? argv[2] : JS_UNDEFINED;
+    JSValue result = JS_Call(ctx, fn, JS_UNDEFINED, 3, args);
     JS_FreeValue(ctx, fn);
     return result;
 }
@@ -1648,6 +1652,45 @@ static JSValue wamr_global_constructor(JSContext *ctx, JSValueConst new_target,
     return obj;
 }
 
+/* WAMR AOT bypass (Tier 0/1): WebAssembly.compile / instantiate /
+ * compileStreaming / instantiateStreaming 接受非标准可选 options 参数
+ * {aot: aotBytes, aotFail?: fn}。提供 .aot 字节时 AOT 优先（wasm_runtime_load
+ * 按 \0aot 魔数自动分派到 AOT 加载器）；AOT 加载失败（版本/arch/ABI/损坏）
+ * 则静默回退解释器路径（fail-open，用可移植 .wasm 字节），并调用 aotFail(e)
+ *（若有）暴露失败原因；仅提供 .aot 字节（无 .wasm 保底）时失败照抛 TypeError。
+ * 基类 C 入口（compile/instantiate）被捕获复用，非 AOT 调用与既有 promise /
+ * instance 语义完全一致。instantiate 的模块参数形式用 buffer-source 判定区分
+ * （Module 对象不是 ArrayBuffer/TypedArray；不能靠 instanceof——C 构造器未接
+ * .prototype，instanceof 会抛 TypeError）。
+ */
+static const char k_wamr_aot_shim[] =
+    "(function(wasm){"
+    "  var baseCompile = wasm.compile, baseInstantiate = wasm.instantiate;"
+    "  var isBuffer = function(v){"
+    "    return v instanceof ArrayBuffer ||"
+    "      (typeof ArrayBuffer.isView === 'function' && ArrayBuffer.isView(v));"
+    "  };"
+    "  wasm.compile = function(bytes, options){"
+    "    if (options && options.aot != null) {"
+    "      try { return baseCompile.call(wasm, options.aot); }"
+    "      catch (e) {"
+    "        if (typeof options.aotFail === 'function') options.aotFail(e);"
+    "        return baseCompile.call(wasm, bytes);"
+    "      }"
+    "    }"
+    "    return baseCompile.call(wasm, bytes);"
+    "  };"
+    "  wasm.instantiate = function(first, imports, options){"
+    "    if (options && options.aot != null && isBuffer(first)) {"
+    "      try { return Promise.resolve(baseInstantiate.call(wasm, options.aot, imports)); }"
+    "      catch (e) {"
+    "        if (typeof options.aotFail === 'function') options.aotFail(e);"
+    "      }"
+    "    }"
+    "    return baseInstantiate.call(wasm, first, imports);"
+    "  };"
+    "})(WebAssembly);";
+
 /* ================================================================
  * Extension hooks
  * ================================================================ */
@@ -1739,6 +1782,19 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 
     /* Register WebAssembly on global */
     JS_SetPropertyStr(ctx, global, "WebAssembly", wasm_obj);
+
+    /* AOT bypass shim (Tier 0/1)：给 WebAssembly.compile / instantiate 装
+     * JS wrapper，接受可选 {aot, aotFail} options（AOT 优先 + fail-open 回退），
+     * 基类 C 入口被捕获复用。streaming 两条 C 入口已在 shim 里透传 options。 */
+    {
+        JSValue shim = JS_Eval(ctx, k_wamr_aot_shim, strlen(k_wamr_aot_shim),
+                               "<wasm-aot-shim>", JS_EVAL_TYPE_GLOBAL);
+        if (JS_IsException(shim)) {
+            JS_FreeValue(ctx, global);
+            return -1;
+        }
+        JS_FreeValue(ctx, shim);
+    }
 
     JS_FreeValue(ctx, global);
 
