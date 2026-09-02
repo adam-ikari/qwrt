@@ -609,6 +609,216 @@ def test_https(qwrt_bin):
     finally:
         srv.stop()
 
+
+# ---------------------------------------------------------------------------
+# TLS client — pal.tcpConnect(host, port, cbs, {tls:true, ...}) (gRPC Phase 0)
+# ---------------------------------------------------------------------------
+
+def tls_client_fixture():
+    """Self-signed cert/key for the TLS-*client* tests. Unlike the serve() TLS
+    fixture this one carries a subjectAltName: the client path does real
+    hostname verification (VERIFY_REQUIRED + mbedtls_ssl_set_hostname), so
+    CN-only matching is not something we want the test to lean on."""
+    cert = os.path.join(tempfile.gettempdir(), "qwrt_e2e_tlscli_cert.pem")
+    key = os.path.join(tempfile.gettempdir(), "qwrt_e2e_tlscli_key.pem")
+    if not (os.path.exists(cert) and os.path.exists(key)):
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048",
+             "-keyout", key, "-out", cert, "-days", "365", "-nodes",
+             "-subj", "/CN=localhost",
+             "-addext", "subjectAltName=DNS:localhost"],
+            check=True, capture_output=True)
+    return cert, key
+
+
+class TlsEchoServer:
+    """One-shot stdlib TLS server: optional ALPN, echoes what it received.
+
+    Used as the peer because qwrt's own tlsListen has no server-side ALPN
+    (that is Phase 3 / G4) — Python's ssl module negotiates ALPN, so the
+    client-side negotiation path is actually exercised."""
+
+    def __init__(self, port, cert, key, alpn=("h2",)):
+        self.port = port
+        self.received = b""
+        self.alpn = None
+        self.error = None
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        if alpn:
+            ctx.set_alpn_protocols(list(alpn))
+        self.ctx = ctx
+        self._srv = socket.socket()
+        self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._srv.bind(("127.0.0.1", port))
+        self._srv.listen(1)
+        self._srv.settimeout(1.0)
+        self._t = threading.Thread(target=self._run, daemon=True)
+        self._t.start()
+
+    def _run(self):
+        try:
+            raw, _ = self._srv.accept()
+        except OSError as e:
+            self.error = e
+            return
+        tls = None
+        try:
+            tls = self.ctx.wrap_socket(raw, server_side=True)
+            self.alpn = tls.selected_alpn_protocol()
+            tls.settimeout(8.0)
+            self.received = tls.recv(4096)
+            tls.sendall(b"PONG:" + self.received)
+            try:
+                tls.unwrap()          # send close_notify, then plain FIN
+            except ssl.SSLError:
+                pass
+        except Exception as e:
+            self.error = e
+        finally:
+            if tls is not None:
+                try: tls.close()
+                except OSError: pass
+            try: self._srv.close()
+            except OSError: pass
+
+    def stop(self):
+        try:
+            self._srv.close()
+        except OSError:
+            pass
+        self._t.join(timeout=3)
+
+
+def _tls_client_js(port, cert, opts):
+    return (
+        "const conn = __native__.tcpConnect('localhost', %d, {"
+        "  onconnect: function () {"
+        "    console.log('TLS-CONNECT alpn=' + JSON.stringify(conn.alpn));"
+        "    __native__.tcpWrite(conn, 'PING');"
+        "  },"
+        "  ondata: function (buf) {"
+        "    console.log('TLS-DATA ' + new TextDecoder().decode(buf));"
+        "    __native__.tcpClose(conn);"
+        "  },"
+        "  onerror: function (m) { console.log('TLS-ERR ' + m); },"
+        "  onclose: function () { console.log('TLS-CLOSE'); },"
+        "}, %s);" % (port, opts)
+    )
+
+
+@test
+def test_tcpconnect_tls_alpn(qwrt_bin):
+    """TLS 客户端握手 + ALPN 'h2' 协商 + 明文字节收发（ondata 收到的是解密后的）。"""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    srv = TlsEchoServer(p, cert, key, alpn=("h2",))
+    try:
+        js = _tls_client_js(p, cert,
+                            "{tls: true, servername: 'localhost', "
+                            "alpn: ['h2'], ca: %r}" % cert)
+        text, rc = _run_js_until(qwrt_bin, js, (b"TLS-DATA", b"TLS-CONNECT"),
+                                 settle=12)
+        assert "TLS-CONNECT alpn=\"h2\"" in text, text[-500:]
+        assert "TLS-DATA PONG:PING" in text, text[-500:]
+        assert "TLS-ERR" not in text, text[-500:]
+        assert srv.received == b"PING", "server saw %r (err=%r)" % (srv.received, srv.error)
+        assert srv.alpn == "h2", "server negotiated %r" % srv.alpn
+    finally:
+        srv.stop()
+
+
+@test
+def test_tcpconnect_tls_no_alpn_peer(qwrt_bin):
+    """对端不支持 ALPN → conn.alpn 为 null，握手与数据仍正常（不硬失败）。"""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    srv = TlsEchoServer(p, cert, key, alpn=None)
+    try:
+        js = _tls_client_js(p, cert, "{tls: true, ca: %r}" % cert)
+        text, rc = _run_js_until(qwrt_bin, js, (b"TLS-DATA", b"TLS-CONNECT"),
+                                 settle=12)
+        assert "TLS-CONNECT alpn=null" in text, text[-500:]
+        assert "TLS-DATA PONG:PING" in text, text[-500:]
+        assert srv.received == b"PING", "server saw %r (err=%r)" % (srv.received, srv.error)
+    finally:
+        srv.stop()
+
+
+@test
+def test_tcpconnect_tls_alpn_disabled_and_validated(qwrt_bin):
+    """`alpn: []` = 客户端不提供 ALPN（即便对端支持）→ conn.alpn 为 null；
+    非数组 / 含非字符串 / 超 7 项的 alpn 必须同步抛错，不静默改用缺省值。"""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    srv = TlsEchoServer(p, cert, key, alpn=("h2",))
+    try:
+        js = _tls_client_js(p, cert, "{tls: true, alpn: [], ca: %r}" % cert)
+        text, rc = _run_js_until(qwrt_bin, js, (b"TLS-DATA",), settle=12)
+        assert "TLS-CONNECT alpn=null" in text, text[-500:]
+        assert "TLS-DATA PONG:PING" in text, text[-500:]
+        assert srv.alpn is None, "server negotiated %r though client offered none" % srv.alpn
+    finally:
+        srv.stop()
+
+    for bad in ("'h2'", "['h2', 42]",
+                "['a','b','c','d','e','f','g','h','i']"):
+        js = ("try { __native__.tcpConnect('localhost', 1, {},"
+              " {tls: true, alpn: %s}); console.log('ACCEPTED');"
+              "} catch (e) { console.log('THROW ' + e.message); }" % bad)
+        out = subprocess.run([qwrt_bin, "-e", js], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, timeout=10).stdout.decode()
+        assert "THROW" in out and "ACCEPTED" not in out, (bad, out[:300])
+
+
+@test
+def test_tcpconnect_tls_verify_required(qwrt_bin):
+    """不给 ca → 用系统 CA 束；自签名证书必须被拒（VERIFY_REQUIRED 不降级）。"""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    srv = TlsEchoServer(p, cert, key, alpn=("h2",))
+    try:
+        js = _tls_client_js(p, cert, "{tls: true}")
+        text, rc = _run_js_until(qwrt_bin, js, (b"TLS-ERR",), settle=12)
+        assert "TLS-ERR" in text, "untrusted cert accepted; out=%s" % text[-500:]
+        assert "TLS-DATA" not in text and "TLS-CONNECT" not in text, text[-500:]
+    finally:
+        srv.stop()
+
+
+@test
+def test_tcpconnect_tls_hostname_mismatch(qwrt_bin):
+    """servername 与证书不符 → 主机名校验失败，握手拒绝。"""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    srv = TlsEchoServer(p, cert, key, alpn=("h2",))
+    try:
+        js = _tls_client_js(p, cert,
+                            "{tls: true, servername: 'not-the-cert-name', "
+                            "ca: %r}" % cert)
+        text, rc = _run_js_until(qwrt_bin, js, (b"TLS-ERR",), settle=12)
+        assert "TLS-ERR" in text, "hostname mismatch accepted; out=%s" % text[-500:]
+        assert "TLS-DATA" not in text, text[-500:]
+    finally:
+        srv.stop()
+
+
+@test
+def test_tcpconnect_tls_nested_opts(qwrt_bin):
+    """设计文档形状 {tls:{servername,alpn,ca}} 与扁平形状等价。"""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    srv = TlsEchoServer(p, cert, key, alpn=("h2",))
+    try:
+        js = _tls_client_js(p, cert,
+                            "{tls: {servername: 'localhost', alpn: ['h2'], "
+                            "ca: %r}}" % cert)
+        text, rc = _run_js_until(qwrt_bin, js, (b"TLS-DATA",), settle=12)
+        assert "TLS-CONNECT alpn=\"h2\"" in text, text[-500:]
+        assert "TLS-DATA PONG:PING" in text, text[-500:]
+    finally:
+        srv.stop()
+
 # ---------------------------------------------------------------------------
 # WebSocket
 # ---------------------------------------------------------------------------

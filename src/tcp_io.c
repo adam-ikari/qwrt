@@ -255,7 +255,14 @@ struct qwrt_tcp_client {
     struct qwrt_tcp_client *next;
 #if QWRT_WITH_TLS
     int use_tls;
+    int tls_is_client;           /* 1 = tcpConnect client, 0 = accepted server conn */
     mbedtls_ssl_context ssl;
+    mbedtls_ssl_config tls_conf;         /* client only */
+    mbedtls_x509_crt tls_ca;             /* client only */
+    mbedtls_entropy_context tls_entropy; /* client only */
+    mbedtls_ctr_drbg_context tls_drbg;   /* client only */
+    const char *alpn_protos[8];          /* client only: NULL-terminated ALPN list */
+    char alpn_buf[160];                  /* client only: storage for alpn_protos */
     unsigned char *tls_read_buf;
     size_t tls_read_buf_len;
     size_t tls_read_consumed;
@@ -289,6 +296,13 @@ static void tcp_write_cb(uv_write_t *req, int status);
 static void tcp_close_cb(uv_handle_t *handle);
 static void tcp_error(qwrt_tcp_client_t *c, const char *msg);
 
+#if QWRT_WITH_TLS
+/* mbedTLS bio callbacks (defined with the listener path) — needed by the
+ * TLS client setup below, which runs before them in this file. */
+static int tls_send_cb(void *ctx, const unsigned char *buf, size_t len);
+static int tls_recv_cb(void *ctx, unsigned char *buf, size_t len);
+#endif
+
 /* ── Teardown ── */
 static void tcp_client_free(qwrt_tcp_client_t *c) {
     if (!c || c->freed) return;
@@ -315,8 +329,15 @@ static void tcp_client_free(qwrt_tcp_client_t *c) {
         c->tls_read_buf = NULL;
         c->tls_read_buf_len = 0;
         c->tls_read_consumed = 0;
-        tls_server_ctx_unref(c->tls_server_ctx);
-        c->tls_server_ctx = NULL;
+        if (c->tls_is_client) {
+            mbedtls_ssl_config_free(&c->tls_conf);
+            mbedtls_x509_crt_free(&c->tls_ca);
+            mbedtls_ctr_drbg_free(&c->tls_drbg);
+            mbedtls_entropy_free(&c->tls_entropy);
+        } else {
+            tls_server_ctx_unref(c->tls_server_ctx);
+            c->tls_server_ctx = NULL;
+        }
     }
 #endif
     if (c->tcp_active) {
@@ -402,6 +423,24 @@ static void tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
             ret = mbedtls_ssl_handshake(&c->ssl);
             if (ret == 0) {
                 c->tls_handshake_done = 1;
+                if (c->tls_is_client) {
+                    /* 纵深防御:authmode 已是 VERIFY_REQUIRED,握手成功即应
+                     * 验证通过;再查一次,任何非 0 结果都拒绝连接。 */
+                    if (mbedtls_ssl_get_verify_result(&c->ssl) != 0) {
+                        tcp_error(c, "TLS certificate verification failed");
+                        return;
+                    }
+                    /* 暴露协商结果(conn.alpn),由 JS 层决定是否接受。 */
+                    const char *proto = mbedtls_ssl_get_alpn_protocol(&c->ssl);
+                    JSValue av = proto ? JS_NewString(c->jsctx, proto) : JS_NULL;
+                    if (JS_IsException(av)) av = JS_NULL;
+                    JS_SetPropertyStr(c->jsctx, c->handle_obj, "alpn", av);
+                    /* onconnect 延迟到 TLS 就绪后才触发:JS 此刻写出的字节
+                     * 一定是明文(h2 前导/SETTINGS),由 mbedTLS 负责加密。 */
+                    if (JS_IsFunction(c->jsctx, c->onconnect))
+                        JS_Call(c->jsctx, c->onconnect, c->handle_obj, 0, NULL);
+                    if (c->closed || c->freed) return;
+                }
             } else if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
                 return;
             } else {
@@ -486,6 +525,28 @@ static void tcp_connect_cb(uv_connect_t *req, int status) {
         return;
     }
 
+#if QWRT_WITH_TLS
+    if (c->use_tls && c->tls_is_client) {
+        /* TLS 客户端:onconnect 必须等握手完成(见 tcp_read_cb),否则 JS
+         * 写出的协议前导会被当成明文发到 TLS 端口。先起读,再踢一次握手
+         * 发出 ClientHello(此刻无入站数据,bio 返回 WANT_READ)。 */
+        int r = uv_read_start((uv_stream_t *)&c->tcp, tcp_alloc_cb, tcp_read_cb);
+        if (r != 0) {
+            tcp_error(c, uv_strerror(r));
+            return;
+        }
+        int hr = mbedtls_ssl_handshake(&c->ssl);
+        if (hr == 0) {
+            /* 极端情况:握手无需入站数据即完成。走与 tcp_read_cb 相同的
+             * 交付路径,避免逻辑重复。 */
+            tcp_read_cb((uv_stream_t *)&c->tcp, 0, &(uv_buf_t){NULL, 0});
+        } else if (hr != MBEDTLS_ERR_SSL_WANT_READ && hr != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            tcp_error(c, "TLS handshake failed");
+        }
+        return;
+    }
+#endif
+
     /* Fire onconnect so the JS layer can send its protocol handshake */
     if (c->jsctx && JS_IsFunction(c->jsctx, c->onconnect))
         JS_Call(c->jsctx, c->onconnect, c->handle_obj, 0, NULL);
@@ -519,12 +580,171 @@ static void tcp_dns_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *res) 
     uv_freeaddrinfo(res);
 }
 
-/* ── PAL: tcpConnect(host, port, callbacks) ── */
+#if QWRT_WITH_TLS
+/* Append one protocol id to the connection's ALPN list (storage lives in the
+ * client struct because mbedtls only keeps a pointer to the list). */
+static int tls_alpn_add(qwrt_tcp_client_t *c, int *n, size_t *off, const char *proto) {
+    size_t len = strlen(proto);
+    if (!len || *n >= 7 || *off + len + 1 > sizeof(c->alpn_buf)) return -1;
+    memcpy(c->alpn_buf + *off, proto, len + 1);
+    c->alpn_protos[(*n)++] = c->alpn_buf + *off;
+    *off += len + 1;
+    return 0;
+}
+
+/* Set up a TLS client context on a not-yet-connected tcpConnect client.
+ * `tls_src` carries {servername?, alpn?[], ca?} — either the flat opts object
+ * or opts.tls itself when that is an object. Returns 0, or -1 with a pending
+ * JS exception (caller just tears the client down). */
+static int tls_client_setup(JSContext *ctx, qwrt_tcp_client_t *c,
+                            JSValueConst tls_src, const char *host) {
+    /* Mark TLS first: the struct is js_mallocz'd and every mbedtls free is a
+     * no-op on a zeroed context, so tcp_client_free cleans up a partial setup. */
+    c->use_tls = 1;
+    c->tls_is_client = 1;
+
+    mbedtls_ssl_init(&c->ssl);
+    mbedtls_ssl_config_init(&c->tls_conf);
+    mbedtls_x509_crt_init(&c->tls_ca);
+    mbedtls_entropy_init(&c->tls_entropy);
+    mbedtls_ctr_drbg_init(&c->tls_drbg);
+
+    int ret = mbedtls_ctr_drbg_seed(&c->tls_drbg, mbedtls_entropy_func,
+                                    &c->tls_entropy, NULL, 0);
+    if (ret != 0) {
+        JS_ThrowTypeError(ctx, "tcpConnect: TLS RNG seed failed (-0x%04x)", -ret);
+        return -1;
+    }
+
+    ret = mbedtls_ssl_config_defaults(&c->tls_conf, MBEDTLS_SSL_IS_CLIENT,
+                                      MBEDTLS_SSL_TRANSPORT_STREAM,
+                                      MBEDTLS_SSL_PRESET_DEFAULT);
+    if (ret != 0) {
+        JS_ThrowTypeError(ctx, "tcpConnect: TLS config failed (-0x%04x)", -ret);
+        return -1;
+    }
+    mbedtls_ssl_conf_rng(&c->tls_conf, mbedtls_ctr_drbg_random, &c->tls_drbg);
+
+    /* Trust anchors: explicit `ca` (PEM file path, or inline PEM), else the
+     * system bundle — same search order as the HTTPS client in uv_io.c. */
+    int ca_loaded = 0;
+    JSValue cav = JS_GetPropertyStr(ctx, tls_src, "ca");
+    if (JS_IsString(cav)) {
+        const char *ca = JS_ToCString(ctx, cav);
+        if (ca) {
+            if (mbedtls_x509_crt_parse_file(&c->tls_ca, ca) == 0) {
+                ca_loaded = 1;
+            } else {
+                /* mbedtls_x509_crt_parse wants a NUL-terminated PEM buffer. */
+                if (mbedtls_x509_crt_parse(&c->tls_ca, (const unsigned char *)ca,
+                                           strlen(ca) + 1) == 0)
+                    ca_loaded = 1;
+            }
+            JS_FreeCString(ctx, ca);
+        }
+        JS_FreeValue(ctx, cav);
+        if (!ca_loaded) {
+            JS_ThrowTypeError(ctx, "tcpConnect: TLS ca not readable (bad path or PEM)");
+            return -1;
+        }
+    } else {
+        JS_FreeValue(ctx, cav);
+        static const char *ca_paths[] = {
+            "/etc/ssl/certs/ca-certificates.crt",       /* Debian/Ubuntu */
+            "/etc/pki/tls/certs/ca-bundle.crt",         /* RHEL/CentOS */
+            "/etc/ssl/ca-bundle.pem",                   /* OpenSUSE */
+            "/usr/local/share/certs/ca-root-nss.crt",   /* FreeBSD */
+            NULL
+        };
+        for (const char **p = ca_paths; *p != NULL; p++) {
+            if (mbedtls_x509_crt_parse_file(&c->tls_ca, *p) == 0) { ca_loaded = 1; break; }
+        }
+    }
+    if (ca_loaded) mbedtls_ssl_conf_ca_chain(&c->tls_conf, &c->tls_ca, NULL);
+    /* 恒为 VERIFY_REQUIRED(与 uv_io.c 的 HTTPS 客户端同一纪律):没有可用 CA
+     * 时握手必然失败,而不是静默降级成接受任意证书。 */
+    mbedtls_ssl_conf_authmode(&c->tls_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+
+    /* ALPN: opts.alpn (array of ids) or the h2-first default. */
+    int n = 0;
+    size_t off = 0;
+    JSValue av = JS_GetPropertyStr(ctx, tls_src, "alpn");
+    int alpn_given = !JS_IsUndefined(av) && !JS_IsNull(av);
+    int alpn_err = alpn_given && !JS_IsArray(av);
+    if (!alpn_err && alpn_given) {
+        JSValue lv = JS_GetPropertyStr(ctx, av, "length");
+        uint32_t count = 0;
+        JS_ToUint32(ctx, &count, lv);
+        JS_FreeValue(ctx, lv);
+        for (uint32_t i = 0; i < count && !alpn_err; i++) {
+            JSValue item = JS_GetPropertyUint32(ctx, av, i);
+            const char *s = JS_IsString(item) ? JS_ToCString(ctx, item) : NULL;
+            if (!s || tls_alpn_add(c, &n, &off, s) != 0) alpn_err = 1;
+            if (s) JS_FreeCString(ctx, s);
+            JS_FreeValue(ctx, item);
+        }
+    }
+    JS_FreeValue(ctx, av);
+    if (alpn_err) {
+        JS_ThrowTypeError(ctx, "tcpConnect: TLS alpn must be an array of <=7 non-empty strings");
+        return -1;
+    }
+    if (!alpn_given && (tls_alpn_add(c, &n, &off, "h2") != 0 ||
+                        tls_alpn_add(c, &n, &off, "http/1.1") != 0)) {
+        JS_ThrowTypeError(ctx, "tcpConnect: default alpn does not fit");
+        return -1;
+    }
+    /* n == 0 只可能来自显式 `alpn: []` —— 意为「不提供 ALPN」。 */
+    if (n > 0) {
+        c->alpn_protos[n] = NULL;
+        ret = mbedtls_ssl_conf_alpn_protocols(&c->tls_conf, c->alpn_protos);
+        if (ret != 0) {
+            JS_ThrowTypeError(ctx, "tcpConnect: TLS alpn rejected (-0x%04x)", -ret);
+            return -1;
+        }
+    }
+
+    ret = mbedtls_ssl_setup(&c->ssl, &c->tls_conf);
+    if (ret != 0) {
+        JS_ThrowTypeError(ctx, "tcpConnect: TLS setup failed (-0x%04x)", -ret);
+        return -1;
+    }
+
+    /* SNI + certificate hostname verification. Failure is fatal: a client
+     * that silently skips it is a man-in-the-middle hole. */
+    char servername[256];
+    JSValue sv = JS_GetPropertyStr(ctx, tls_src, "servername");
+    const char *sn = JS_IsString(sv) ? JS_ToCString(ctx, sv) : NULL;
+    snprintf(servername, sizeof(servername), "%s", (sn && sn[0]) ? sn : host);
+    if (sn) JS_FreeCString(ctx, sn);
+    JS_FreeValue(ctx, sv);
+    /* 空 servername 会让 mbedtls 带着零长度主机名进入证书校验,语义不确定;
+     * 明确拒绝,不给"可能跳过主机名校验"留口子。 */
+    if (!servername[0]) {
+        JS_ThrowTypeError(ctx, "tcpConnect: TLS requires a non-empty servername/host");
+        return -1;
+    }
+
+    ret = mbedtls_ssl_set_hostname(&c->ssl, servername);
+    if (ret != 0) {
+        JS_ThrowTypeError(ctx, "tcpConnect: TLS hostname '%s' rejected (-0x%04x)",
+                          servername, -ret);
+        return -1;
+    }
+    mbedtls_ssl_set_bio(&c->ssl, c, tls_send_cb, tls_recv_cb, NULL);
+    return 0;
+}
+#endif
+
+/* ── PAL: tcpConnect(host, port, callbacks[, opts]) ──
+ * opts = {tls: true|{...}, servername?, alpn?[], ca?}. `tls` truthy turns the
+ * connection into a TLS client; when opts.tls is itself an object the TLS
+ * fields are read from it. Omitting opts (or falsy tls) keeps plain TCP. */
 JSValue js_pal_tcp_connect(JSContext *ctx, JSValueConst this_val,
                            int argc, JSValueConst *argv) {
     (void)this_val;
     if (argc < 3 || !JS_IsString(argv[0]) || !JS_IsNumber(argv[1]) || !JS_IsObject(argv[2]))
-        return JS_ThrowTypeError(ctx, "tcpConnect(host, port, callbacks) required");
+        return JS_ThrowTypeError(ctx, "tcpConnect(host, port, callbacks[, opts]) required");
 
     const char *host = JS_ToCString(ctx, argv[0]);
     if (!host) return JS_EXCEPTION;
@@ -588,6 +808,44 @@ JSValue js_pal_tcp_connect(JSContext *ctx, JSValueConst this_val,
     JS_SetOpaque(obj, h);
     JS_SetPropertyStr(ctx, obj, "_tcpClient", JS_NewInt64(ctx, (int64_t)(uintptr_t)c));
     c->handle_obj = JS_DupValue(ctx, obj);
+
+    /* Optional TLS (must be set up before the socket connects so the first
+     * inbound byte already feeds the handshake). */
+    int want_tls = 0;
+    JSValue tls_src = JS_UNDEFINED;
+    if (argc >= 4 && JS_IsObject(argv[3])) {
+        JSValue tv = JS_GetPropertyStr(ctx, argv[3], "tls");
+        int tb = JS_ToBool(ctx, tv);
+        if (tb > 0) {
+            want_tls = 1;
+            tls_src = JS_IsObject(tv) ? JS_DupValue(ctx, tv) : JS_DupValue(ctx, argv[3]);
+        }
+        JS_FreeValue(ctx, tv);
+        if (tb < 0) {
+            tcp_client_free(c);
+            JS_FreeCString(ctx, host);
+            JS_FreeValue(ctx, obj);
+            return JS_EXCEPTION;
+        }
+    }
+    if (want_tls) {
+#if QWRT_WITH_TLS
+        if (tls_client_setup(ctx, c, tls_src, host) != 0) {
+            JS_FreeValue(ctx, tls_src);
+            tcp_client_free(c);
+            JS_FreeCString(ctx, host);
+            JS_FreeValue(ctx, obj);
+            return JS_EXCEPTION;
+        }
+#else
+        JS_FreeValue(ctx, tls_src);
+        tcp_client_free(c);
+        JS_FreeCString(ctx, host);
+        JS_FreeValue(ctx, obj);
+        return JS_ThrowTypeError(ctx, "tcpConnect: built without TLS support");
+#endif
+    }
+    JS_FreeValue(ctx, tls_src);
 
     /* Create TCP socket */
     if (uv_tcp_init(&rt->loop, &c->tcp) != 0) {
@@ -1058,7 +1316,7 @@ void qwrt_tcp_io_init(JSContext *ctx, JSValue pal) {
         JSClassDef listener_class = { .class_name = "TcpListener", .finalizer = tcp_listener_handle_finalizer };
         JS_NewClass(jsrt, rt->tcp_listener_class_id, &listener_class);
     }
-    JS_SetPropertyStr(ctx, pal, "tcpConnect", JS_NewCFunction(ctx, js_pal_tcp_connect, "tcpConnect", 3));
+    JS_SetPropertyStr(ctx, pal, "tcpConnect", JS_NewCFunction(ctx, js_pal_tcp_connect, "tcpConnect", 4));
     JS_SetPropertyStr(ctx, pal, "tcpWrite", JS_NewCFunction(ctx, js_pal_tcp_write, "tcpWrite", 2));
     JS_SetPropertyStr(ctx, pal, "tcpClose", JS_NewCFunction(ctx, js_pal_tcp_close, "tcpClose", 1));
     JS_SetPropertyStr(ctx, pal, "tcpListen", JS_NewCFunction(ctx, js_pal_tcp_listen, "tcpListen", 4));
