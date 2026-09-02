@@ -337,6 +337,52 @@ jobs:
           EOF
 
   # ============================================================================
+  # HTTP/2 client stack perf (pure JS protocol stack, Node transport shim).
+  # ============================================================================
+  h2-client-perf:
+    runs-on: ubuntu-latest
+    name: h2-client perf (JS stack)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
+      - name: Benchmark HTTP/2 client stack
+        run: |
+          node test/bench_h2_client.mjs --duration 5 \
+            | tee /tmp/h2-perf.out
+          python3 - <<'EOF'
+          import json, sys
+          txt = open('/tmp/h2-perf.out').read()
+          data = json.loads(txt.strip().splitlines()[-1])
+          thresholds = {
+              'tiny':      2300,   # 50% of ~4600
+              'small':     2400,   # 50% of ~4800
+              'medium':    1800,   # 50% of ~3600
+              'multiplex': 7000,   # 50% of ~14000
+          }
+          failed = []
+          for name, thr in thresholds.items():
+              rps = data.get(name, {}).get('rps') or 0
+              print('%s rps=%.0f (threshold %.0f) %s' % (
+                  name, rps, thr, 'OK' if rps >= thr else 'LOW'))
+              if rps < thr:
+                  failed.append('%s=%.0f<thr=%.0f' % (name, rps, thr))
+          if failed:
+              print('PERF-REGRESSION: ' + ', '.join(failed))
+              sys.exit(1)
+          print('PERF-OK')
+          EOF
+
+  # ============================================================================
   # Coverage: gcov with WAMR default engine.
   # ============================================================================
   coverage:
