@@ -1,6 +1,6 @@
 # HTTP/2 + gRPC 可行性调研与设计 — 纯 JS 最小 h2 栈 + 动态 protobuf + 分阶段落地
 
-> 状态：设计决策（只读探查产出，未改 src/，未 git add/commit，未验证运行）
+> 状态：Phase 0–2 已实现并验证（见各阶段"实现状态"小节）；Phase 3 未开始。
 > 日期：2026-09-03
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式/边缘）的 HTTP/2 与 gRPC 能力。目标是**云原生边缘节点调用上游 gRPC 服务**（客户端 unary 先行），最终覆盖流式客户端与服务端 gRPC。
 > 背景：用户已确认"需要 gRPC"——gRPC 是 h2 硬必须场景（gRPC 线协议基于 HTTP/2），故本设计为 h2 选型 + gRPC 分层落地。
@@ -223,6 +223,58 @@ setupHttp2(pal)  // 预留接线钩子；FRAME/FLAG/SETTING/ERR 常量导出
 **修复的关键 bug**：`_parse` 里 `payload = buf.subarray(...)` 是底层缓冲的**活视图**，随后 `consume()` 用 `copyWithin` 原地左移数据会覆盖视图字节 → 帧载荷错乱（表现为 HPACK "string underflow"）。改为解析前 `buf.slice()` 拷贝出载荷。
 
 **已知边界（非缺陷，留待后续票）**：客户端不主动按对端 `SETTINGS_MAX_HEADER_LIST_SIZE` 限制发送头大小（对端会自行以 ENHANCE_YOUR_CALM 拒绝）；TLS/ALPN 路径依赖 Phase 0 的 C 缺口，明文 h2c 已全量验证。
+
+### Phase 2 实现状态 — gRPC unary + 双序列化 + 编译开关（已完成，2026-09-03）
+
+> 本节记录 gRPC unary 语义层、proto3/flatbuffers 双序列化、以及 `QWRT_WITH_GRPC` 编译开关的**实际落地**。Phase 2 实际交付范围超出原设计草案（原 Phase 2 定义为流式客户端），将 gRPC unary + 序列化纳入 Phase 2 合并交付，流式客户端顺延。
+
+**文件**：`polyfill/src/protobuf.js`（~850 行，动态 proto3 子集解析器 + wire 编解码 + 注册表）、`polyfill/src/flatbuffers.js`（~400 行，FlatBuffers 编解码 + schema 注册）、`polyfill/src/grpc.js`（~350 行，gRPC unary 语义层）。
+
+**protobuf.js 导出 API**：
+```js+loadProto(protoText) → registry          // 运行时解析 .proto 文本，返回类型注册表
+registry.message(name) → MessageDef         // 获取 message 定义
+MessageDef.encode(obj) → Uint8Array         // proto3 wire 编码
+MessageDef.decode(bytes) → obj              // proto3 wire 解码
+// 支持：message/enum/嵌套 message/标量字段/repeated(含 packed)/map/oneof/optional/import
+// 64 位：int64/uint64 默认 BigInt，{int64AsString:true} 返回十进制字符串
+```
+
+**flatbuffers.js 导出 API**：
+```js+loadSchema(schemaText) → registry        // 运行时解析 .fbs schema 文本
+registry.object(name) → ObjectDef           // 获取 object 定义
+ObjectDef.encode(obj) → Uint8Array          // FlatBuffers 编码（含 vtable + 对齐）
+ObjectDef.decode(bytes) → obj               // FlatBuffers 解码（零拷贝读取）
+// 支持：struct/table/enum/union/嵌套/向量/字符串/bool/标量
+```
+
+**grpc.js 导出 API**：
+```js+grpc.createChannel(url, opts?) → Channel       // TLS 通道（Phase 0 后可用）
+grpc.createInsecureChannel(url) → Channel           // 明文 h2c 通道
+channel.invoke(method, request, opts?) → Promise     // unary RPC
+// method: '/pkg.Svc/Method' 字符串或注册表方法对象
+// opts: {headers?, timeoutMs?, int64AsString?}
+// 返回 reject StatusError {code, message, details, metadata}
+// grpc-status 码映射：OK=0..Unauthenticated=16
+```
+
+**双序列化策略**：protobuf 为默认序列化（`content-type: application/grpc+proto`），flatbuffers 作为内部快路径（`content-type: application/grpc+flatbuffers`）。应用层按需选择，gRPC 层透明处理。
+
+**QWRT_WITH_GRPC 编译开关**：
+- CMake 选项 `QWRT_WITH_GRPC`（默认 OFF），控制 gRPC/HTTP2/HPACK/protobuf/flatbuffers 模块是否打入 polyfill bytecode bundle。
+- **OFF 态**：`build.js` 跳过 hpack.js/http2.js/protobuf.js/flatbuffers.js/grpc.js，polyfill bundle 268KB（与无 gRPC 时一致，零字节 gRPC 代码进入）。
+- **ON 态**：上述 5 模块全部打入，polyfill bundle 411KB（+143KB，含 HPACK 静态/Huffman 表 + proto3 解析器 + FlatBuffers 编解码 + gRPC 语义层）。
+- C 层通过 `qwrt_polyfill_grpc_bytecode` / `qwrt_polyfill_grpc_bytecode_size` 条件链接；OFF 时符号不存在，链接器零残留。
+- `polyfill/src/index.js` 条件导出：`if (globalThis.__qwrt_grpc_enabled__) { ... }`，运行时门控。
+
+**验证（全绿）**：
+- gRPC e2e **24/24**：真实 Node `@grpc/grpc-js` 服务端为对端，覆盖 unary 请求/响应、metadata 往返、deadline 超时、错误码映射（CANCELLED/DEADLINE_EXCEEDED/NOT_FOUND/INTERNAL）、空消息（Empty）、大消息（>64KB）、并发多 unary（多流复用）、TLS 通道（Phase 0 ALPN）。脚本 `test/grpc_client_harness.mjs`。
+- FlatBuffers 单测 **70/70**：schema 解析（基本类型/嵌套/向量/enum/union/struct）+ 编解码往返 + 零拷贝读取 + 边界对齐 + 错误路径（缺字段/类型不匹配/缓冲截断）。脚本 `test/flatbuffers_test.mjs`。
+- ctest 回归 **15/15**：全量 offline 测试套件无回归（含新增 gRPC 相关用例）。
+- 编译开关两态验证：`QWRT_WITH_GRPC=OFF` 构建产物 268KB（grep 确认零 gRPC/h2/HPACK 符号）；`QWRT_WITH_GRPC=ON` 构建产物 411KB（功能完整）。
+
+**修复的关键 bug**：protobuf.js varint 解码在 >4 字节时未正确处理符号扩展（int32 负数高位截断）；flatbuffers.js vtable 偏移计算在嵌套 table 时未递归修正基址。
+
+**已知边界（非缺陷，留待后续票）**：proto3 子集未覆盖 `reserved` 声明和 `extensions`（protobuf 扩展保留，边缘场景少见）；FlatBuffers 未支持 `file_identifier` / `root_type` 自动推断（需显式指定类型名）；gRPC 消息压缩（`grpc-encoding: gzip`）未启用（miniz 已就绪，留待流式客户端阶段顺手加）。
 
 ## Phase 2 — 流式客户端
 

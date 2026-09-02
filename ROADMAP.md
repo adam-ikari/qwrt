@@ -3,7 +3,7 @@
 > 定位：**Qwrt.js — 可嵌入 QuickJS 运行时**。
 > libuv-native、WinterTC 兼容、多上下文 + Web Workers、宿主↔运行时消息、
 > 原生扩展（TLS/crypto/compress/WASM）、独立 CLI、服务端能力（serve）。
-> 状态：滚动规划，随实际进展更新。最后更新：2026-08。
+> 状态：滚动规划，随实际进展更新。最后更新：2026-09。
 
 ## 一、现状基线（2026-08）
 
@@ -87,6 +87,15 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | D4 | **WS server 增强** ✅ | 分片 ✅、子协议协商 ✅、permessage-deflate ✅（RFC 7692：协商、RSV1 收发、上下文 takeover；C 层流式 deflate/inflate 原语 `pal.deflate*/inflate*`）。Ping/Pong 保活不做（应用层策略）。 | e2e 16/16；ASan 0 泄漏 |
 | D5 | **大响应性能** ✅ | 大文件 `fsReadBinary` 零拷贝（uv_io 直写 JS ArrayBuffer backing，无中间拷贝）；修复非 keep-alive 大响应截断（uv_close 取消未决 uv_write）与对象响应后多发 500 的 return 缺失；SIGPIPE 忽略（wrk 中断连不再崩）。 | wrk 提升；e2e 19/19；TLS 压测不崩 |
 
+
+### H. gRPC/HTTP2
+
+| # | 工作项 | 说明 | 验证 |
+|---|--------|------|------|
+| H1 | **Phase0 — pal.tcpConnect TLS 客户端 + ALPN h2 协商** ✅ | `tcpConnect` 新增可选 `opts.tls`（`{ca?, servername?, alpn:['h2']}`），照搬 `uv_io.c` TLS 客户端模板；握手后 `mbedtls_ssl_get_alpn_protocol` 校验 "h2"，否则 `onerror`。 | e2e 30/30（含 6 TLS 用例） |
+| H2 | **Phase1 — 纯 JS HTTP/2 客户端栈** ✅ | `hpack.js`（HPACK 编解码，61 项静态表 + 257 项 Huffman 表 + 动态表）+ `http2.js`（帧层 + 多路复用 + 连接/流双窗口流控 + CONTINUATION 重组 + trailers + PING/RST/GOAWAY）。 | hpack 14/14 + 帧 16/16 + e2e 22/22 |
+| H3 | **Phase2 — gRPC unary 客户端 + proto3/flatbuffers 序列化 + QWRT_WITH_GRPC 编译开关** ✅ | `protobuf.js`（动态 proto3 子集解析器 + wire 编解码）+ `flatbuffers.js`（FlatBuffers 编解码）+ `grpc.js`（unary 语义、5 字节消息前缀、trailers、grpc-status 映射、deadline、metadata）。`QWRT_WITH_GRPC` CMake 开关（默认 OFF）：ON 时将 h2/HPACK/gRPC/protobuf/flatbuffers 打入 polyfill bundle；OFF 时完全消除（零字节进 bundle）。 | grpc e2e 24/24 + flatbuffers 70/70 + ctest 15/15 无回归；OFF 构建 268KB 全消除 / ON 411KB |
+| H4 | **Phase3 — 服务端 gRPC（serve() ALPN 分发 + h2 server）** 🔲 | `tcpListen` TLS 加 ALPN `h2`；明文连接嗅探 `PRI * HTTP/2.0` 前导自动切 h2c；服务端 h2 引擎 + gRPC 服务端语义。决策点：HPACK 是否下沉 C 原语。 | 未开始 |
 ### E. 工具链
 
 | # | 工作项 | 说明 | 验证 |
