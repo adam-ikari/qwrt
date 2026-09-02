@@ -3,7 +3,10 @@
  *
  * Native crypto.subtle operations using mbedTLS.
  * Registers pal.nativeDigest, pal.nativeHmac, pal.nativeAesEncrypt,
- * pal.nativeAesDecrypt, pal.nativePbkdf2 on the JS pal object.
+ * pal.nativeAesDecrypt, pal.nativePbkdf2, pal.nativeEcGenerate,
+ * pal.nativeEcdh, pal.nativeEcdsaSign, pal.nativeEcdsaVerify,
+ * pal.nativeRsaGenerateKey, pal.nativeRsaOaepEncrypt/Decrypt,
+ * pal.nativeRsaSign, pal.nativeRsaVerify on the JS pal object.
  *
  * When QWRT_WITH_CRYPTO_EXT is defined, uses mbedTLS for real crypto.
  * When not defined, the extension compiles but does nothing —
@@ -20,6 +23,8 @@
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/ecp.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/rsa.h>
 #include <mbedtls/ecdh.h>
 #include <mbedtls/ecdsa.h>
 #include <mbedtls/hkdf.h>
@@ -876,6 +881,372 @@ static JSValue js_pal_native_ecdsa_verify(JSContext *ctx, JSValueConst this_val,
     (void)this_val; (void)argc;
     return js_pal_native_ecdsa(ctx, argv, 0);
 }
+/* ================================================================
+ * RSA — keygen / RSAES-OAEP encrypt-decrypt / RSASSA-PKCS1-v1_5
+ * ================================================================ */
+
+/* Map WebCrypto hash name to mbedTLS md type (SHA-1/256/384/512). */
+static int rsa_md_from_name(const char *name, mbedtls_md_type_t *md)
+{
+    if (strcmp(name, "SHA-1") == 0)        *md = MBEDTLS_MD_SHA1;
+    else if (strcmp(name, "SHA-256") == 0) *md = MBEDTLS_MD_SHA256;
+    else if (strcmp(name, "SHA-384") == 0) *md = MBEDTLS_MD_SHA384;
+    else if (strcmp(name, "SHA-512") == 0) *md = MBEDTLS_MD_SHA512;
+    else return -1;
+    return 0;
+}
+
+/* Number of bytes to encode a DER length (0x80|n long form for n >= 128). */
+static size_t rsa_der_len_bytes(size_t len)
+{
+    if (len < 128) return 1;
+    size_t n = 1;
+    while (len) { n++; len >>= 8; }
+    return n;
+}
+
+/* Write a DER length at out; returns bytes written. */
+static size_t rsa_der_write_len(uint8_t *out, size_t len)
+{
+    if (len < 128) { out[0] = (uint8_t)len; return 1; }
+    size_t n = 0;
+    for (size_t t = len; t; t >>= 8) n++;
+    out[0] = (uint8_t)(0x80 | n);
+    for (size_t i = 0; i < n; i++) out[n - i] = (uint8_t)(len >> (8 * i));
+    return n + 1;
+}
+
+/* Wrap a PKCS#1 RSAPrivateKey DER in a PKCS#8 PrivateKeyInfo (RFC 5208) with
+ * the rsaEncryption OID (1.2.840.113549.1.1.1), unencrypted. Returns the DER
+ * length, or 0 if it would not fit in out_size. */
+static size_t rsa_pkcs8_wrap(const uint8_t *pk1, size_t pk1_len,
+                             uint8_t *out, size_t out_size)
+{
+    static const uint8_t algid[] = {
+        0x30, 0x0d,                                        /* SEQUENCE (15B) */
+        0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d,    /* OID 1.2.840.113549.1.1.1 */
+        0x01, 0x01, 0x01,
+        0x05, 0x00                                         /* NULL */
+    };
+    size_t octet_hdr = 1 + rsa_der_len_bytes(pk1_len);      /* 0x04 + len */
+    size_t inner = 3 + sizeof(algid) + octet_hdr + pk1_len; /* version + algid + octet */
+    size_t seq_hdr = 1 + rsa_der_len_bytes(inner);
+    size_t total = seq_hdr + inner;
+    if (total > out_size) return 0;
+
+    uint8_t *p = out + total;
+    p -= pk1_len; memcpy(p, pk1, pk1_len);
+    p -= rsa_der_len_bytes(pk1_len); rsa_der_write_len(p, pk1_len);
+    *--p = 0x04;
+    p -= sizeof(algid); memcpy(p, algid, sizeof(algid));
+    *--p = 0x00; *--p = 0x01; *--p = 0x02;                 /* version INTEGER 0 */
+    p -= rsa_der_len_bytes(inner); rsa_der_write_len(p, inner);
+    *--p = 0x30;
+    return total;
+}
+
+/* ================================================================
+ * pal.nativeRsaGenerateKey(modulusLength, publicExponent)
+ *   -> { publicKeyDer, privateKeyDer }
+ *
+ * modulusLength: 2048/3072/4096. publicExponent: Uint8Array (big-endian),
+ * defaults to 65537. Returns SPKI (public) and PKCS#8 (private) DER.
+ * ================================================================ */
+
+static JSValue js_pal_native_rsa_generate_key(JSContext *ctx, JSValueConst this_val,
+                                              int argc, JSValueConst *argv)
+{
+    (void)this_val;
+    if (argc < 1) {
+        return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey requires modulusLength");
+    }
+    int32_t nbits;
+    if (JS_ToInt32(ctx, &nbits, argv[0])) return JS_EXCEPTION;
+    if (nbits < 2048 || (nbits != 2048 && nbits != 3072 && nbits != 4096)) {
+        return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey: modulusLength must be 2048/3072/4096");
+    }
+
+    int exponent = 65537;
+    if (argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+        const uint8_t *e;
+        size_t e_len;
+        if (crypto_extract_buffer(ctx, argv[1], &e, &e_len) < 0 || e_len == 0 || e_len > 4) {
+            return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey: invalid publicExponent");
+        }
+        exponent = 0;
+        for (size_t i = 0; i < e_len; i++) exponent = (exponent << 8) | e[i];
+        if (exponent < 3 || (exponent & 1) == 0) {
+            return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey: publicExponent must be odd and >= 3");
+        }
+    }
+
+    mbedtls_ctr_drbg_context *rng = ec_rng(ctx);
+    if (!rng) return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey: RNG init failed");
+
+    mbedtls_pk_context pk;
+    mbedtls_pk_init(&pk);
+    if (mbedtls_pk_setup(&pk, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)) != 0 ||
+        mbedtls_rsa_gen_key(mbedtls_pk_rsa(pk), mbedtls_ctr_drbg_random, rng,
+                            (unsigned int)nbits, exponent) != 0) {
+        mbedtls_pk_free(&pk);
+        return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey: keygen failed");
+    }
+
+    /* Serialize. mbedTLS writes DER at the END of the buffer and returns the
+     * length; the bytes start at buf + size - len. */
+    size_t pub_cap = 38 + 2 * MBEDTLS_MPI_MAX_SIZE;
+    size_t pk1_cap = 47 + 3 * MBEDTLS_MPI_MAX_SIZE + 5 * (MBEDTLS_MPI_MAX_SIZE / 2);
+    uint8_t *pub_buf = (uint8_t *)js_malloc(ctx, pub_cap);
+    uint8_t *pk1_buf = (uint8_t *)js_malloc(ctx, pk1_cap);
+    if (!pub_buf || !pk1_buf) {
+        js_free(ctx, pub_buf);
+        js_free(ctx, pk1_buf);
+        mbedtls_pk_free(&pk);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    int pub_len = mbedtls_pk_write_pubkey_der(&pk, pub_buf, pub_cap);
+    int pk1_len = mbedtls_pk_write_key_der(&pk, pk1_buf, pk1_cap);
+    mbedtls_pk_free(&pk);
+    if (pub_len <= 0 || pk1_len <= 0) {
+        js_free(ctx, pub_buf);
+        js_free(ctx, pk1_buf);
+        return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey: DER write failed");
+    }
+
+    uint8_t *priv_buf = (uint8_t *)js_malloc(ctx, (size_t)pk1_len + 32);
+    if (!priv_buf) {
+        js_free(ctx, pub_buf);
+        js_free(ctx, pk1_buf);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    size_t priv_len = rsa_pkcs8_wrap(pk1_buf + pk1_cap - (size_t)pk1_len,
+                                     (size_t)pk1_len, priv_buf, (size_t)pk1_len + 32);
+    if (priv_len == 0) {
+        js_free(ctx, pub_buf);
+        js_free(ctx, pk1_buf);
+        js_free(ctx, priv_buf);
+        return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey: PKCS#8 wrap failed");
+    }
+
+    JSValue result = JS_NewObject(ctx);
+    if (JS_IsException(result)) {
+        js_free(ctx, pub_buf);
+        js_free(ctx, pk1_buf);
+        js_free(ctx, priv_buf);
+        return result;
+    }
+    JS_SetPropertyStr(ctx, result, "publicKeyDer",
+        crypto_new_uint8array(ctx, pub_buf + pub_cap - (size_t)pub_len, (size_t)pub_len));
+    JS_SetPropertyStr(ctx, result, "privateKeyDer",
+        crypto_new_uint8array(ctx, priv_buf, priv_len));
+    js_free(ctx, pub_buf);
+    js_free(ctx, pk1_buf);
+    js_free(ctx, priv_buf);
+    return result;
+}
+
+/* ================================================================
+ * pal.nativeRsaOaepEncrypt(pubDer, data, label, hashName) -> Uint8Array
+ * pal.nativeRsaOaepDecrypt(privDer, data, label, hashName) -> Uint8Array
+ *
+ * RSAES-OAEP with MGF1 over the given hash. label may be undefined/null/empty.
+ * pubDer = SPKI, privDer = PKCS#8 (or PKCS#1, both parse fine).
+ * ================================================================ */
+
+static JSValue js_pal_native_rsa_oaep(JSContext *ctx, JSValueConst argv[], int encrypt)
+{
+    const uint8_t *der, *data;
+    size_t der_len, data_len;
+    if (crypto_extract_buffer(ctx, argv[0], &der, &der_len) < 0 ||
+        crypto_extract_buffer(ctx, argv[1], &data, &data_len) < 0) {
+        return JS_ThrowTypeError(ctx, "nativeRsaOaep: key/data must be ArrayBuffer or Uint8Array");
+    }
+
+    const uint8_t *label = NULL;
+    size_t label_len = 0;
+    if (!JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) {
+        if (crypto_extract_buffer(ctx, argv[2], &label, &label_len) < 0) {
+            return JS_ThrowTypeError(ctx, "nativeRsaOaep: label must be ArrayBuffer or Uint8Array");
+        }
+    }
+
+    const char *hash_name = JS_ToCString(ctx, argv[3]);
+    if (!hash_name) return JS_EXCEPTION;
+    mbedtls_md_type_t md_type;
+    int hres = rsa_md_from_name(hash_name, &md_type);
+    JS_FreeCString(ctx, hash_name);
+    if (hres != 0) {
+        return JS_ThrowTypeError(ctx, "nativeRsaOaep: unsupported hash");
+    }
+
+    mbedtls_ctr_drbg_context *rng = ec_rng(ctx);
+    if (!rng) return JS_ThrowTypeError(ctx, "nativeRsaOaep: RNG init failed");
+
+    mbedtls_pk_context pk;
+    mbedtls_pk_init(&pk);
+    int pret = encrypt
+        ? mbedtls_pk_parse_public_key(&pk, der, der_len)
+        : mbedtls_pk_parse_key(&pk, der, der_len, NULL, 0, mbedtls_ctr_drbg_random, rng);
+    if (pret != 0) {
+        mbedtls_pk_free(&pk);
+        return JS_ThrowTypeError(ctx, "nativeRsaOaep: key parse failed (%d)", pret);
+    }
+
+    mbedtls_rsa_context *rsa = mbedtls_pk_rsa(pk);
+    size_t rsa_len = (mbedtls_pk_get_bitlen(&pk) + 7) / 8;
+    mbedtls_rsa_set_padding(rsa, MBEDTLS_RSA_PKCS_V21, md_type);
+
+    uint8_t *out = (uint8_t *)js_malloc(ctx, rsa_len);
+    if (!out) {
+        mbedtls_pk_free(&pk);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+
+    int ret;
+    size_t olen = 0;
+    if (encrypt) {
+        ret = mbedtls_rsa_rsaes_oaep_encrypt(rsa, mbedtls_ctr_drbg_random, rng,
+                                             label, label_len, data_len, data, out);
+        olen = rsa_len;
+    } else {
+        ret = mbedtls_rsa_rsaes_oaep_decrypt(rsa, mbedtls_ctr_drbg_random, rng,
+                                             label, label_len, &olen, data, out, rsa_len);
+    }
+    mbedtls_pk_free(&pk);
+    if (ret != 0) {
+        js_free(ctx, out);
+        return JS_ThrowTypeError(ctx, encrypt ? "nativeRsaOaep: encrypt failed (%d)"
+                                              : "nativeRsaOaep: decrypt failed (%d)", ret);
+    }
+
+    JSValue result = crypto_new_uint8array(ctx, out, olen);
+    js_free(ctx, out);
+    return result;
+}
+
+static JSValue js_pal_native_rsa_oaep_encrypt(JSContext *ctx, JSValueConst this_val,
+                                              int argc, JSValueConst *argv)
+{
+    (void)this_val; (void)argc;
+    return js_pal_native_rsa_oaep(ctx, argv, 1);
+}
+
+static JSValue js_pal_native_rsa_oaep_decrypt(JSContext *ctx, JSValueConst this_val,
+                                              int argc, JSValueConst *argv)
+{
+    (void)this_val; (void)argc;
+    return js_pal_native_rsa_oaep(ctx, argv, 0);
+}
+
+/* ================================================================
+ * pal.nativeRsaSign(privDer, hashName, data) -> Uint8Array
+ * pal.nativeRsaVerify(pubDer, hashName, data, signature) -> boolean
+ *
+ * RSASSA-PKCS1-v1_5; the digest is computed here from the given hash.
+ * ================================================================ */
+
+static JSValue js_pal_native_rsa_sign(JSContext *ctx, JSValueConst this_val,
+                                      int argc, JSValueConst *argv)
+{
+    (void)this_val; (void)argc;
+    const uint8_t *priv_der, *data;
+    size_t priv_len, data_len;
+    if (crypto_extract_buffer(ctx, argv[0], &priv_der, &priv_len) < 0 ||
+        crypto_extract_buffer(ctx, argv[2], &data, &data_len) < 0) {
+        return JS_ThrowTypeError(ctx, "nativeRsaSign: key/data must be ArrayBuffer or Uint8Array");
+    }
+
+    const char *hash_name = JS_ToCString(ctx, argv[1]);
+    if (!hash_name) return JS_EXCEPTION;
+    mbedtls_md_type_t md_type;
+    int hres = rsa_md_from_name(hash_name, &md_type);
+    JS_FreeCString(ctx, hash_name);
+    if (hres != 0) {
+        return JS_ThrowTypeError(ctx, "nativeRsaSign: unsupported hash");
+    }
+
+    mbedtls_ctr_drbg_context *rng = ec_rng(ctx);
+    if (!rng) return JS_ThrowTypeError(ctx, "nativeRsaSign: RNG init failed");
+
+    const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(md_type);
+    uint8_t hash[MBEDTLS_MD_MAX_SIZE];
+    if (!md_info || mbedtls_md(md_info, data, data_len, hash) != 0) {
+        return JS_ThrowTypeError(ctx, "nativeRsaSign: digest failed");
+    }
+    size_t hash_len = mbedtls_md_get_size(md_info);
+
+    mbedtls_pk_context pk;
+    mbedtls_pk_init(&pk);
+    if (mbedtls_pk_parse_key(&pk, priv_der, priv_len, NULL, 0,
+                             mbedtls_ctr_drbg_random, rng) != 0) {
+        mbedtls_pk_free(&pk);
+        return JS_ThrowTypeError(ctx, "nativeRsaSign: key parse failed");
+    }
+    mbedtls_rsa_context *rsa = mbedtls_pk_rsa(pk);
+    size_t rsa_len = (mbedtls_pk_get_bitlen(&pk) + 7) / 8;
+
+    uint8_t *sig = (uint8_t *)js_malloc(ctx, rsa_len);
+    if (!sig) {
+        mbedtls_pk_free(&pk);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    int ret = mbedtls_rsa_pkcs1_sign(rsa, mbedtls_ctr_drbg_random, rng, md_type,
+                                     (unsigned int)hash_len, hash, sig);
+    mbedtls_pk_free(&pk);
+    if (ret != 0) {
+        js_free(ctx, sig);
+        return JS_ThrowTypeError(ctx, "nativeRsaSign: sign failed (%d)", ret);
+    }
+    JSValue result = crypto_new_uint8array(ctx, sig, rsa_len);
+    js_free(ctx, sig);
+    return result;
+}
+
+static JSValue js_pal_native_rsa_verify(JSContext *ctx, JSValueConst this_val,
+                                        int argc, JSValueConst *argv)
+{
+    (void)this_val; (void)argc;
+    const uint8_t *pub_der, *data, *sig;
+    size_t pub_len, data_len, sig_len;
+    if (crypto_extract_buffer(ctx, argv[0], &pub_der, &pub_len) < 0 ||
+        crypto_extract_buffer(ctx, argv[2], &data, &data_len) < 0 ||
+        crypto_extract_buffer(ctx, argv[3], &sig, &sig_len) < 0) {
+        return JS_ThrowTypeError(ctx, "nativeRsaVerify: key/data/sig must be ArrayBuffer or Uint8Array");
+    }
+
+    const char *hash_name = JS_ToCString(ctx, argv[1]);
+    if (!hash_name) return JS_EXCEPTION;
+    mbedtls_md_type_t md_type;
+    int hres = rsa_md_from_name(hash_name, &md_type);
+    JS_FreeCString(ctx, hash_name);
+    if (hres != 0) {
+        return JS_ThrowTypeError(ctx, "nativeRsaVerify: unsupported hash");
+    }
+
+    const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(md_type);
+    uint8_t hash[MBEDTLS_MD_MAX_SIZE];
+    if (!md_info || mbedtls_md(md_info, data, data_len, hash) != 0) {
+        return JS_ThrowTypeError(ctx, "nativeRsaVerify: digest failed");
+    }
+    size_t hash_len = mbedtls_md_get_size(md_info);
+
+    mbedtls_pk_context pk;
+    mbedtls_pk_init(&pk);
+    if (mbedtls_pk_parse_public_key(&pk, pub_der, pub_len) != 0) {
+        mbedtls_pk_free(&pk);
+        return JS_ThrowTypeError(ctx, "nativeRsaVerify: key parse failed");
+    }
+    mbedtls_rsa_context *rsa = mbedtls_pk_rsa(pk);
+    size_t rsa_len = (mbedtls_pk_get_bitlen(&pk) + 7) / 8;
+    if (sig_len != rsa_len) {
+        mbedtls_pk_free(&pk);
+        return JS_FALSE;  /* signature length mismatch — not a valid signature */
+    }
+    int ret = mbedtls_rsa_pkcs1_verify(rsa, md_type, (unsigned int)hash_len, hash, sig);
+    mbedtls_pk_free(&pk);
+    return ret == 0 ? JS_TRUE : JS_FALSE;
+}
+
 
 /* ================================================================
  * Extension hooks
@@ -924,6 +1295,16 @@ static int crypto_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
         JS_NewCFunction(ctx, js_pal_native_ecdsa_sign, "nativeEcdsaSign", 4));
     JS_SetPropertyStr(ctx, pal, "nativeEcdsaVerify",
         JS_NewCFunction(ctx, js_pal_native_ecdsa_verify, "nativeEcdsaVerify", 5));
+    JS_SetPropertyStr(ctx, pal, "nativeRsaGenerateKey",
+        JS_NewCFunction(ctx, js_pal_native_rsa_generate_key, "nativeRsaGenerateKey", 2));
+    JS_SetPropertyStr(ctx, pal, "nativeRsaOaepEncrypt",
+        JS_NewCFunction(ctx, js_pal_native_rsa_oaep_encrypt, "nativeRsaOaepEncrypt", 4));
+    JS_SetPropertyStr(ctx, pal, "nativeRsaOaepDecrypt",
+        JS_NewCFunction(ctx, js_pal_native_rsa_oaep_decrypt, "nativeRsaOaepDecrypt", 4));
+    JS_SetPropertyStr(ctx, pal, "nativeRsaSign",
+        JS_NewCFunction(ctx, js_pal_native_rsa_sign, "nativeRsaSign", 3));
+    JS_SetPropertyStr(ctx, pal, "nativeRsaVerify",
+        JS_NewCFunction(ctx, js_pal_native_rsa_verify, "nativeRsaVerify", 4));
     /* Install crypto.subtle / CryptoKey on globalThis.crypto. The polyfill
      * exposes this as pal.__installCryptoSubtle__ but does NOT call it — so
      * when this extension is not compiled in, crypto.subtle stays undefined

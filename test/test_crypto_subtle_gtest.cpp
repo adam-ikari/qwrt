@@ -595,3 +595,157 @@ crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, false, ['deriveBits
     EXPECT_NE(std::string::npos, v.find("\"len\":32")) << "got: " << v;
     EXPECT_NE(std::string::npos, v.find("\"nonzero\":true")) << "got: " << v;
 }
+
+// ================================================================
+// RSA-OAEP — generateKey / encrypt / decrypt roundtrip (2048)
+// ================================================================
+
+TEST_F(CryptoSubtleTest, RsaOaepGenerateEncryptDecryptRoundTrip) {
+    std::string v;
+    std::string code = std::string(kJsHex) + R"(
+var _e = null;
+crypto.subtle.generateKey({name:'RSA-OAEP', modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:'SHA-256'}, false, ['encrypt','decrypt'])
+  .then(function(kp){
+    var msg = new TextEncoder().encode('hello rsa oaep 2048');
+    return crypto.subtle.encrypt({name:'RSA-OAEP'}, kp.publicKey, msg).then(function(ct){
+      return crypto.subtle.decrypt({name:'RSA-OAEP'}, kp.privateKey, ct).then(function(pt){
+        _e = JSON.stringify({ctLen: ct.byteLength, match: _hx(pt) === _hx(msg),
+          pubType: kp.publicKey.type, privType: kp.privateKey.type,
+          alg: kp.publicKey.algorithm.name, hash: kp.publicKey.algorithm.hash,
+          usages: kp.privateKey.usages});
+      });
+    });
+  });
+'go'
+)";
+    ASSERT_TRUE(poll_until(h, "_e", code.c_str(), "\"match\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"ctLen\":256")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"pubType\":\"public\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"privType\":\"private\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"alg\":\"RSA-OAEP\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"hash\":\"SHA-256\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"usages\":[\"decrypt\"]")) << "got: " << v;
+}
+
+// ================================================================
+// RSASSA-PKCS1-v1_5 — generateKey / sign / verify roundtrip (2048)
+// ================================================================
+
+TEST_F(CryptoSubtleTest, RsaSsaSignVerifyRoundTrip) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_e",
+        "var _e = null;\n"
+        "crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5', modulusLength:2048, hash:'SHA-256'}, false, ['sign','verify'])\n"
+        "  .then(function(kp){\n"
+        "    var msg = new TextEncoder().encode('rsassa pkcs1 v1 5 message');\n"
+        "    return crypto.subtle.sign({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, kp.privateKey, msg).then(function(sig){\n"
+        "      return crypto.subtle.verify({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, kp.publicKey, sig, msg).then(function(ok){\n"
+        "        _e = JSON.stringify({sigLen: sig.byteLength, ok: ok,\n"
+        "          pubType: kp.publicKey.type, privType: kp.privateKey.type,\n"
+        "          alg: kp.publicKey.algorithm.name, usages: kp.privateKey.usages});\n"
+        "      });\n"
+        "    });\n"
+        "  });\n'go'",
+        "\"ok\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"sigLen\":256")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"pubType\":\"public\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"privType\":\"private\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"alg\":\"RSASSA-PKCS1-v1_5\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"usages\":[\"sign\"]")) << "got: " << v;
+}
+
+// 负例：篡改签名或消息后 verify 必须返回 false
+TEST_F(CryptoSubtleTest, RsaSsaVerifyRejectsTampered) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_e",
+        "var _e = null;\n"
+        "crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5', modulusLength:2048, hash:'SHA-256'}, false, ['sign','verify'])\n"
+        "  .then(function(kp){\n"
+        "    var msg = new TextEncoder().encode('rsa tamper test');\n"
+        "    return crypto.subtle.sign({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, kp.privateKey, msg).then(function(sig){\n"
+        "      var s2 = new Uint8Array(sig); s2[0] ^= 0x01;\n"
+        "      return crypto.subtle.verify({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, kp.publicKey, s2, msg).then(function(badSig){\n"
+        "        var t2 = new Uint8Array(msg); t2[0] ^= 0xff;\n"
+        "        return crypto.subtle.verify({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, kp.publicKey, sig, t2).then(function(badMsg){\n"
+        "          _e = JSON.stringify({badSig: badSig, badMsg: badMsg});\n"
+        "        });\n"
+        "      });\n"
+        "    });\n"
+        "  });\n'go'",
+        "\"badSig\":false", &v));
+    EXPECT_NE(std::string::npos, v.find("\"badMsg\":false")) << "got: " << v;
+}
+
+// ================================================================
+// RSA importKey/exportKey — spki（公钥）+ pkcs8（私钥）往返
+// ================================================================
+
+TEST_F(CryptoSubtleTest, RsaImportExportSpkiPkcs8) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_e",
+        "var _e = null;\n"
+        "crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5', modulusLength:2048, hash:'SHA-256'}, true, ['sign','verify'])\n"
+        "  .then(function(kp){\n"
+        "    var msg = new TextEncoder().encode('rsa spki pkcs8 roundtrip');\n"
+        "    return crypto.subtle.sign({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, kp.privateKey, msg).then(function(sig){\n"
+        "      return crypto.subtle.exportKey('spki', kp.publicKey).then(function(spki){\n"
+        "        return crypto.subtle.exportKey('pkcs8', kp.privateKey).then(function(pkcs8){\n"
+        "          return crypto.subtle.importKey('spki', spki, {name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, false, ['verify']).then(function(pubImp){\n"
+        "            return crypto.subtle.importKey('pkcs8', pkcs8, {name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, false, ['sign']).then(function(privImp){\n"
+        "              return crypto.subtle.verify({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, pubImp, sig, msg).then(function(v1){\n"
+        "                return crypto.subtle.sign({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, privImp, msg).then(function(sig2){\n"
+        "                  return crypto.subtle.verify({name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, kp.publicKey, sig2, msg).then(function(v2){\n"
+        "                    _e = JSON.stringify({spkiLen: spki.byteLength, pkcs8Len: pkcs8.byteLength,\n"
+        "                      spkiBig: spki.byteLength > 250, pkcs8Big: pkcs8.byteLength > 1100,\n"
+        "                      v1: v1, v2: v2, pubType: pubImp.type, privType: privImp.type,\n"
+        "                      pubExtractable: pubImp.extractable});\n"
+        "                  });\n"
+        "                });\n"
+        "              });\n"
+        "            });\n"
+        "          });\n"
+        "        });\n"
+        "      });\n"
+        "    });\n"
+        "  });\n'go'",
+        "\"v1\":true", &v));
+    EXPECT_NE(std::string::npos, v.find("\"v2\":true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"pubType\":\"public\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"privType\":\"private\"")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"spkiBig\":true")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("\"pkcs8Big\":true")) << "got: " << v;
+}
+
+// ================================================================
+// RSA 密钥长度边界 — 1024 拒绝；3072 可用
+// ================================================================
+
+TEST_F(CryptoSubtleTest, RsaRejectsModulus1024) {
+    std::string v;
+    ASSERT_TRUE(poll_until(h, "_e",
+        "var _e = null;\n"
+        "crypto.subtle.generateKey({name:'RSA-OAEP', modulusLength:1024, hash:'SHA-256'}, false, ['encrypt','decrypt'])\n"
+        "  .then(function(){ _e = JSON.stringify({rejected:false}); },\n"
+        "        function(err){ _e = JSON.stringify({rejected:true, name:(err && err.name)||String(err)}); });\n'go'",
+        "\"rejected\":true", &v));
+}
+
+TEST_F(CryptoSubtleTest, RsaOaep3072RoundTrip) {
+    std::string v;
+    std::string code = std::string(kJsHex) + R"(
+var _e = null;
+crypto.subtle.generateKey({name:'RSA-OAEP', modulusLength:3072, hash:'SHA-256'}, false, ['encrypt','decrypt'])
+  .then(function(kp){
+    var msg = new TextEncoder().encode('3072 oaep message');
+    return crypto.subtle.encrypt({name:'RSA-OAEP'}, kp.publicKey, msg).then(function(ct){
+      return crypto.subtle.decrypt({name:'RSA-OAEP'}, kp.privateKey, ct).then(function(pt){
+        _e = JSON.stringify({ctLen: ct.byteLength, match: _hx(pt) === _hx(msg)});
+      });
+    });
+  });
+'go'
+)";
+    if (!host_eval(h, code.c_str(), &v)) { FAIL() << "3072 setup eval failed"; }
+    ASSERT_TRUE(host_poll_until_value(h, "_e", "\"match\":true", &v, 30000));
+    EXPECT_NE(std::string::npos, v.find("\"ctLen\":384")) << "got: " << v;
+}

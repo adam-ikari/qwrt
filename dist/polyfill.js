@@ -6005,7 +6005,9 @@
       "PBKDF2": ["deriveBits", "deriveKey"],
       "HKDF": ["deriveBits", "deriveKey"],
       "ECDSA": ["sign", "verify"],
-      "ECDH": ["deriveBits", "deriveKey"]
+      "ECDH": ["deriveBits", "deriveKey"],
+      "RSA-OAEP": ["encrypt", "decrypt", "wrapKey", "unwrapKey"],
+      "RSASSA-PKCS1-v1_5": ["sign", "verify"]
     };
     function validateUsages(algoName, usages) {
       if (!Array.isArray(usages)) return;
@@ -6144,6 +6146,17 @@
             reject(new DOMException("Unsupported key format: " + format, "NotSupportedError"));
             return;
           }
+          if (algoName === "RSA-OAEP" || algoName === "RSASSA-PKCS1-v1_5") {
+            var hashName = algorithm && algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : "SHA-256";
+            if (format === "spki" || format === "pkcs8") {
+              var der = toUint8Array(keyData);
+              var ktype = format === "spki" ? "public" : "private";
+              resolve(new CryptoKey(ktype, { name: algoName, hash: hashName }, extractable, keyUsages, der));
+              return;
+            }
+            reject(new DOMException("RSA importKey supports spki/pkcs8 only (jwk not implemented)", "NotSupportedError"));
+            return;
+          }
           if (format === "raw") {
             if (keyData instanceof ArrayBuffer) {
               data = new Uint8Array(keyData);
@@ -6208,6 +6221,20 @@
             }
             return;
           }
+          if (algoName === "RSASSA-PKCS1-v1_5") {
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : key.algorithm.hash || "SHA-256";
+            if (key.type !== "private" || typeof pal2.nativeRsaSign !== "function") {
+              reject(new DOMException("Crypto extension not available or wrong key type", "NotSupportedError"));
+              return;
+            }
+            try {
+              var sig = pal2.nativeRsaSign(key._data, hashAlgo, toUint8Array(data));
+              resolve(toArrayBuffer(sig));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         });
       }
@@ -6254,6 +6281,19 @@
             }, reject);
             return;
           }
+          if (algoName === "RSASSA-PKCS1-v1_5") {
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : key.algorithm.hash || "SHA-256";
+            if (key.type !== "public" || typeof pal2.nativeRsaVerify !== "function") {
+              reject(new DOMException("Crypto extension not available or wrong key type", "NotSupportedError"));
+              return;
+            }
+            try {
+              resolve(pal2.nativeRsaVerify(key._data, hashAlgo, toUint8Array(data), toUint8Array(signature)));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           reject(new DOMException("Unsupported algorithm: " + algoName, "NotSupportedError"));
         }.bind(this));
       }
@@ -6262,6 +6302,25 @@
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var plaintext = toUint8Array(data);
           checkUsage(key, "encrypt");
+          if (algoName === "RSA-OAEP") {
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : key.algorithm.hash || "SHA-256";
+            if (key.type !== "public") {
+              reject(new DOMException("RSA-OAEP encrypt requires a public key", "InvalidAccessError"));
+              return;
+            }
+            if (typeof pal2.nativeRsaOaepEncrypt !== "function") {
+              reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+              return;
+            }
+            try {
+              var label = algorithm.label ? toUint8Array(algorithm.label) : void 0;
+              var result = pal2.nativeRsaOaepEncrypt(key._data, plaintext, label, hashAlgo);
+              resolve(toArrayBuffer(result));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           if (typeof pal2.nativeAesEncrypt !== "function") {
             reject(new DOMException("Crypto extension not available", "NotSupportedError"));
             return;
@@ -6299,6 +6358,25 @@
           var algoName = typeof algorithm === "string" ? algorithm : algorithm.name;
           var ciphertext = toUint8Array(data);
           checkUsage(key, "decrypt");
+          if (algoName === "RSA-OAEP") {
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : key.algorithm.hash || "SHA-256";
+            if (key.type !== "private") {
+              reject(new DOMException("RSA-OAEP decrypt requires a private key", "InvalidAccessError"));
+              return;
+            }
+            if (typeof pal2.nativeRsaOaepDecrypt !== "function") {
+              reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+              return;
+            }
+            try {
+              var label = algorithm.label ? toUint8Array(algorithm.label) : void 0;
+              var result = pal2.nativeRsaOaepDecrypt(key._data, ciphertext, label, hashAlgo);
+              resolve(toArrayBuffer(result));
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           if (typeof pal2.nativeAesDecrypt !== "function") {
             reject(new DOMException("Crypto extension not available", "NotSupportedError"));
             return;
@@ -6379,6 +6457,47 @@
             }
             return;
           }
+          if (algoName === "RSA-OAEP" || algoName === "RSASSA-PKCS1-v1_5") {
+            var hashAlgo = algorithm.hash ? typeof algorithm.hash === "string" ? algorithm.hash : algorithm.hash.name : "SHA-256";
+            var modulusLength = algorithm.modulusLength || 2048;
+            if (modulusLength !== 2048 && modulusLength !== 3072 && modulusLength !== 4096) {
+              reject(new DOMException("Unsupported modulusLength (must be 2048/3072/4096)", "NotSupportedError"));
+              return;
+            }
+            var pubExp = algorithm.publicExponent || new Uint8Array([1, 0, 1]);
+            if (typeof pal2.nativeRsaGenerateKey !== "function") {
+              reject(new DOMException("Crypto extension not available", "NotSupportedError"));
+              return;
+            }
+            try {
+              var kp = pal2.nativeRsaGenerateKey(modulusLength, pubExp);
+              var rsaUsages = keyUsages.filter(function(u) {
+                return algoName === "RSA-OAEP" ? u === "encrypt" || u === "decrypt" || u === "wrapKey" || u === "unwrapKey" : u === "sign" || u === "verify";
+              });
+              var rsaPub = new CryptoKey(
+                "public",
+                { name: algoName, hash: hashAlgo },
+                extractable,
+                rsaUsages.filter(function(u) {
+                  return u === "encrypt" || u === "wrapKey" || u === "verify";
+                }),
+                toUint8Array(kp.publicKeyDer)
+              );
+              var rsaPriv = new CryptoKey(
+                "private",
+                { name: algoName, hash: hashAlgo },
+                extractable,
+                rsaUsages.filter(function(u) {
+                  return u === "decrypt" || u === "unwrapKey" || u === "sign";
+                }),
+                toUint8Array(kp.privateKeyDer)
+              );
+              resolve({ publicKey: rsaPub, privateKey: rsaPriv });
+            } catch (e) {
+              reject(e);
+            }
+            return;
+          }
           if (algoName === "AES-CBC" || algoName === "AES-GCM" || algoName === "AES-CTR" || algoName === "AES-KW") {
             var length = algorithm.length || 128;
             if (length !== 128 && length !== 192 && length !== 256) {
@@ -6432,6 +6551,26 @@
               return;
             }
             reject(new DOMException("Unsupported export format: " + format, "NotSupportedError"));
+            return;
+          }
+          if (algoName === "RSA-OAEP" || algoName === "RSASSA-PKCS1-v1_5") {
+            if (format === "spki") {
+              if (key.type !== "public") {
+                reject(new DOMException("spki export requires a public key", "NotSupportedError"));
+                return;
+              }
+              resolve(toArrayBuffer(key._data));
+              return;
+            }
+            if (format === "pkcs8") {
+              if (key.type !== "private") {
+                reject(new DOMException("pkcs8 export requires a private key", "NotSupportedError"));
+                return;
+              }
+              resolve(toArrayBuffer(key._data));
+              return;
+            }
+            reject(new DOMException("RSA exportKey supports spki/pkcs8 only (jwk not implemented)", "NotSupportedError"));
             return;
           }
           if (format === "raw") {

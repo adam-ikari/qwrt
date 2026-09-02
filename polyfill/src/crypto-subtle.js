@@ -14,13 +14,18 @@
  *   - HKDF deriveBits/deriveKey (SHA-1..SHA-512)
  *   - ECDSA P-256/P-384/P-521 generateKey/importKey/exportKey(jwk)/sign/verify
  *   - ECDH deriveBits/deriveKey (P-256/P-384/P-521)
+ *   - RSA-OAEP generateKey/importKey(spki/pkcs8)/exportKey/encrypt/decrypt
+ *     (modulusLength 2048/3072/4096, MGF1 = hash, label supported)
+ *   - RSASSA-PKCS1-v1_5 generateKey/importKey(spki/pkcs8)/exportKey/sign/verify
+ *     (SHA-1/256/384/512)
  *
  * All operations delegate to native C functions via pal.nativeDigest,
  * pal.nativeHmac, pal.nativeAesEncrypt, pal.nativeAesDecrypt,
  * pal.nativePbkdf2, pal.nativeHkdf, pal.nativeAesKwWrap/Unwrap,
- * pal.nativeEcGenerate, pal.nativeEcdh, pal.nativeEcdsaSign/Verify.
- * These are registered by the crypto extension (ext_crypto.c, gated by
- * QWRT_WITH_CRYPTO_EXT).
+ * pal.nativeEcGenerate, pal.nativeEcdh, pal.nativeEcdsaSign/Verify,
+ * pal.nativeRsaGenerateKey, pal.nativeRsaOaepEncrypt/Decrypt,
+ * pal.nativeRsaSign/Verify. These are registered by the crypto extension
+ * (ext_crypto.c, gated by QWRT_WITH_CRYPTO_EXT).
  */
 
 export function setupCryptoSubtle(pal) {
@@ -64,6 +69,8 @@ function installCryptoSubtle(pal) {
     'HKDF': ['deriveBits', 'deriveKey'],
     'ECDSA': ['sign', 'verify'],
     'ECDH': ['deriveBits', 'deriveKey'],
+    'RSA-OAEP': ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'],
+    'RSASSA-PKCS1-v1_5': ['sign', 'verify'],
   };
 
   /* importKey 校验 keyUsages 与算法兼容性 */
@@ -221,6 +228,20 @@ function installCryptoSubtle(pal) {
           return;
         }
 
+        if (algoName === 'RSA-OAEP' || algoName === 'RSASSA-PKCS1-v1_5') {
+          var hashName = algorithm && algorithm.hash
+            ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name)
+            : 'SHA-256';
+          if (format === 'spki' || format === 'pkcs8') {
+            var der = toUint8Array(keyData);
+            var ktype = format === 'spki' ? 'public' : 'private';
+            resolve(new CryptoKey(ktype, { name: algoName, hash: hashName }, extractable, keyUsages, der));
+            return;
+          }
+          reject(new DOMException('RSA importKey supports spki/pkcs8 only (jwk not implemented)', 'NotSupportedError'));
+          return;
+        }
+
         if (format === 'raw') {
           if (keyData instanceof ArrayBuffer) {
             data = new Uint8Array(keyData);
@@ -286,6 +307,19 @@ function installCryptoSubtle(pal) {
           return;
         }
 
+        if (algoName === 'RSASSA-PKCS1-v1_5') {
+          var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : (key.algorithm.hash || 'SHA-256');
+          if (key.type !== 'private' || typeof pal.nativeRsaSign !== 'function') {
+            reject(new DOMException('Crypto extension not available or wrong key type', 'NotSupportedError'));
+            return;
+          }
+          try {
+            var sig = pal.nativeRsaSign(key._data, hashAlgo, toUint8Array(data));
+            resolve(toArrayBuffer(sig));
+          } catch (e) { reject(e); }
+          return;
+        }
+
         reject(new DOMException('Unsupported algorithm: ' + algoName, 'NotSupportedError'));
       });
     }
@@ -323,6 +357,18 @@ function installCryptoSubtle(pal) {
           return;
         }
 
+        if (algoName === 'RSASSA-PKCS1-v1_5') {
+          var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : (key.algorithm.hash || 'SHA-256');
+          if (key.type !== 'public' || typeof pal.nativeRsaVerify !== 'function') {
+            reject(new DOMException('Crypto extension not available or wrong key type', 'NotSupportedError'));
+            return;
+          }
+          try {
+            resolve(pal.nativeRsaVerify(key._data, hashAlgo, toUint8Array(data), toUint8Array(signature)));
+          } catch (e) { reject(e); }
+          return;
+        }
+
         reject(new DOMException('Unsupported algorithm: ' + algoName, 'NotSupportedError'));
       }.bind(this));
     }
@@ -332,6 +378,24 @@ function installCryptoSubtle(pal) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;
         var plaintext = toUint8Array(data);
         checkUsage(key, 'encrypt');
+
+        if (algoName === 'RSA-OAEP') {
+          var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : (key.algorithm.hash || 'SHA-256');
+          if (key.type !== 'public') {
+            reject(new DOMException('RSA-OAEP encrypt requires a public key', 'InvalidAccessError'));
+            return;
+          }
+          if (typeof pal.nativeRsaOaepEncrypt !== 'function') {
+            reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
+            return;
+          }
+          try {
+            var label = algorithm.label ? toUint8Array(algorithm.label) : undefined;
+            var result = pal.nativeRsaOaepEncrypt(key._data, plaintext, label, hashAlgo);
+            resolve(toArrayBuffer(result));
+          } catch (e) { reject(e); }
+          return;
+        }
 
         if (typeof pal.nativeAesEncrypt !== 'function') {
           reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
@@ -373,6 +437,24 @@ function installCryptoSubtle(pal) {
         var algoName = typeof algorithm === 'string' ? algorithm : algorithm.name;
         var ciphertext = toUint8Array(data);
         checkUsage(key, 'decrypt');
+
+        if (algoName === 'RSA-OAEP') {
+          var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : (key.algorithm.hash || 'SHA-256');
+          if (key.type !== 'private') {
+            reject(new DOMException('RSA-OAEP decrypt requires a private key', 'InvalidAccessError'));
+            return;
+          }
+          if (typeof pal.nativeRsaOaepDecrypt !== 'function') {
+            reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
+            return;
+          }
+          try {
+            var label = algorithm.label ? toUint8Array(algorithm.label) : undefined;
+            var result = pal.nativeRsaOaepDecrypt(key._data, ciphertext, label, hashAlgo);
+            resolve(toArrayBuffer(result));
+          } catch (e) { reject(e); }
+          return;
+        }
 
         if (typeof pal.nativeAesDecrypt !== 'function') {
           reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
@@ -457,6 +539,36 @@ function installCryptoSubtle(pal) {
           return;
         }
 
+        if (algoName === 'RSA-OAEP' || algoName === 'RSASSA-PKCS1-v1_5') {
+          var hashAlgo = algorithm.hash ? (typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name) : 'SHA-256';
+          var modulusLength = algorithm.modulusLength || 2048;
+          if (modulusLength !== 2048 && modulusLength !== 3072 && modulusLength !== 4096) {
+            reject(new DOMException('Unsupported modulusLength (must be 2048/3072/4096)', 'NotSupportedError'));
+            return;
+          }
+          var pubExp = algorithm.publicExponent || new Uint8Array([1, 0, 1]);
+          if (typeof pal.nativeRsaGenerateKey !== 'function') {
+            reject(new DOMException('Crypto extension not available', 'NotSupportedError'));
+            return;
+          }
+          try {
+            var kp = pal.nativeRsaGenerateKey(modulusLength, pubExp);
+            var rsaUsages = keyUsages.filter(function(u) {
+              return algoName === 'RSA-OAEP'
+                ? (u === 'encrypt' || u === 'decrypt' || u === 'wrapKey' || u === 'unwrapKey')
+                : (u === 'sign' || u === 'verify');
+            });
+            var rsaPub = new CryptoKey('public', { name: algoName, hash: hashAlgo }, extractable,
+              rsaUsages.filter(function(u) { return u === 'encrypt' || u === 'wrapKey' || u === 'verify'; }),
+              toUint8Array(kp.publicKeyDer));
+            var rsaPriv = new CryptoKey('private', { name: algoName, hash: hashAlgo }, extractable,
+              rsaUsages.filter(function(u) { return u === 'decrypt' || u === 'unwrapKey' || u === 'sign'; }),
+              toUint8Array(kp.privateKeyDer));
+            resolve({ publicKey: rsaPub, privateKey: rsaPriv });
+          } catch (e) { reject(e); }
+          return;
+        }
+
         if (algoName === 'AES-CBC' || algoName === 'AES-GCM' || algoName === 'AES-CTR' || algoName === 'AES-KW') {
           var length = algorithm.length || 128;
           if (length !== 128 && length !== 192 && length !== 256) {
@@ -514,6 +626,27 @@ function installCryptoSubtle(pal) {
             return;
           }
           reject(new DOMException('Unsupported export format: ' + format, 'NotSupportedError'));
+          return;
+        }
+
+        if (algoName === 'RSA-OAEP' || algoName === 'RSASSA-PKCS1-v1_5') {
+          if (format === 'spki') {
+            if (key.type !== 'public') {
+              reject(new DOMException('spki export requires a public key', 'NotSupportedError'));
+              return;
+            }
+            resolve(toArrayBuffer(key._data));
+            return;
+          }
+          if (format === 'pkcs8') {
+            if (key.type !== 'private') {
+              reject(new DOMException('pkcs8 export requires a private key', 'NotSupportedError'));
+              return;
+            }
+            resolve(toArrayBuffer(key._data));
+            return;
+          }
+          reject(new DOMException('RSA exportKey supports spki/pkcs8 only (jwk not implemented)', 'NotSupportedError'));
           return;
         }
 
