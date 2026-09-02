@@ -187,6 +187,43 @@ QuickJS-ng 原生支持 BigInt。策略：**int64/uint64 默认返回 BigInt；�
 
 **量级**：JS ~1700-2400 行（h2 500-700 + HPACK 300-400 + gRPC 200-300 + proto3 700-1000）+ 测试向量。**10-15 人日**（2-3 周单人）。**验收**：对真实 grpc-go / `@grpc/grpc-js` 测试服务成功调用 unary，状态/trailers/错误/deadline/TLS(若启用) 全对（§6）。
 
+### Phase 1 实现状态 — h2 引擎 + HPACK（已完成，2026-09-03）
+
+> 本节记录 h2 传输层与 HPACK 的**实际落地**（gRPC 语义层 `grpc.js`/`protobuf.js` 属后续票，未含）。
+> 文件名按任务约定用 `http2.js`（非草案里的 `h2.js`）。两模块**尚未**被 `polyfill.js`/`build.js` 引用（Phase 2 接线），故不进 bundle，`npm run build` 仍通过。
+
+**文件**：`polyfill/src/hpack.js`（~566 行，含 61 项静态表 + 257 项 Huffman 表）、`polyfill/src/http2.js`（~660 行）。
+
+**HPACK 导出 API**：
+```js
+new HPACKDecoder(maxTableSize = 4096)
+  .decode(Uint8Array | ArrayBuffer) → [[name, value], ...]   // 有状态，跨块同步动态表
+hpackEncode([[name, value], ...]) → Uint8Array               // 无状态：静态精确匹配→索引，否则名字引用/字面量(不索引)；值 Huffman 编码
+HPACK_STATIC_TABLE /* [name,value][61] */  HPACK_HUFFMAN /* [code,bits][257] */
+huffmanDecode(bytes)  decodeInt(buf,pos,bits)  encodeInt(n,bits)
+```
+
+**HTTP/2 客户端导出 API**：
+```js
+await HTTP2Client.connect({ host, port, pal, tls?, alpn?, ca?, servername?,
+                            initialWindowSize?, maxFrameSize?, maxHeaderSize? }) → client
+client.request({ method, path, authority, scheme, headers },
+               { onHeaders([[k,v]]), onData(Uint8Array), onEnd(), onError(Error) }) → stream
+stream.write(data) / stream.end(data?) / stream.cancel(code?)
+await client.ping() / await client.close()
+setupHttp2(pal)  // 预留接线钩子；FRAME/FLAG/SETTING/ERR 常量导出
+```
+覆盖：前导+SETTINGS 握手/ACK、HEADERS/CONTINUATION（收发双向 >16KB 拆分/重组）、DATA 分片、连接+流双窗口流控（收 DATA 按量补 WINDOW_UPDATE）、trailers（同流第二个 HEADERS 块）、PING/RST_STREAM/GOAWAY、多流复用（受对端 MAX_CONCURRENT_STREAMS 排队）、PADDED/PRIORITY 跳过、PUSH_PROMISE 忽略。
+
+**验证（全绿）**：
+- HPACK 单测 **14/14**：静态表/Huffman 表完整性 + **与 python `hpack` 参考实现交叉对测**（动态表引用、Huffman、驱逐、混合 4 组 RFC7541 附录C 风格向量双向：python 编码→JS 解码；JS 编码→python 解码）。脚本 `/tmp/hpack_test.mjs`。
+- h2 帧层单测 **16/16**：`_sendHeaderBlock` 发送侧 CONTINUATION 分帧（3 帧、END_HEADERS/END_STREAM 标志、流 ID、长度、重组）+ 帧解析器（SETTINGS 派发、半包缓冲）。脚本 `/tmp/h2_frame_test.mjs`。
+- h2 端到端 **22/22**：真实 Node 内置 `http2` 服务端为对端，`pal.tcp*` 用 Node `net` 垫片。覆盖 GET/POST、440B 与 300KB 请求体（发送侧流控）、200KB 响应体（接收侧流控+DATA 分片）、gRPC 风格 trailers、8 路并发流、>16KB 响应头 CONTINUATION 重组、服务端 RST→onError、客户端 cancel、PING、优雅关闭。脚本 `test/h2_client_harness.mjs`。
+
+**修复的关键 bug**：`_parse` 里 `payload = buf.subarray(...)` 是底层缓冲的**活视图**，随后 `consume()` 用 `copyWithin` 原地左移数据会覆盖视图字节 → 帧载荷错乱（表现为 HPACK "string underflow"）。改为解析前 `buf.slice()` 拷贝出载荷。
+
+**已知边界（非缺陷，留待后续票）**：客户端不主动按对端 `SETTINGS_MAX_HEADER_LIST_SIZE` 限制发送头大小（对端会自行以 ENHANCE_YOUR_CALM 拒绝）；TLS/ALPN 路径依赖 Phase 0 的 C 缺口，明文 h2c 已全量验证。
+
 ## Phase 2 — 流式客户端
 
 **目标**：三种流式 RPC 形态（server-streaming / client-streaming / bidi）在 Phase 1 引擎上复用。
