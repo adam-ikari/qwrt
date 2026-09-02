@@ -53,6 +53,7 @@ endif()
 
 if(QWRT_WITH_WAMR OR QWRT_WITH_WASM3)
     add_qwrt_gtest(test_wasm_streaming_gtest)
+    add_qwrt_gtest(test_wasm_imports_gtest)
 endif()
 
 if(QWRT_WITH_COMPRESS)

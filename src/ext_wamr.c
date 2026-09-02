@@ -44,18 +44,100 @@ static wamr_state_t g_wamr_state;
  * Opaque JS object helpers — wrap WAMR handles for GC
  * ================================================================ */
 
+typedef struct wamr_import_slot_t wamr_import_slot_t;
+typedef struct wamr_import_closure_t wamr_import_closure_t;
+typedef struct wamr_import_module_t wamr_import_module_t;
+
 typedef struct wamr_module_wrap_t {
     wasm_module_t module;
     uint8_t *wasm_buf;
     uint32_t wasm_buf_size;
+    /* WASM imports: natives are registered at load time because WAMR resolves
+     * import symbols during wasm_runtime_load (not instantiate). import_slots
+     * are the native attachments (identify each import); import_modules are
+     * the per-module-name NativeSymbol groups. Both owned here, released by
+     * wamr_free_module_imports in the module finalizer. */
+    wamr_import_slot_t **import_slots;
+    uint32_t import_slot_count;
+    wamr_import_module_t *import_modules;
+    uint32_t import_module_count;
 } wamr_module_wrap_t;
+
+/* One declared function import of a loaded module, registered as a WAMR raw
+ * native at module load time. The NativeSymbol attachment points here; the
+ * per-instance dispatch uses (module_name, field_name) to find the JS
+ * function supplied by the instance's importObject. Owned by the module wrap. */
+struct wamr_import_slot_t {
+    char *module_name;   /* js_malloc'd */
+    char *field_name;    /* js_malloc'd */
+    char *signature;     /* WAMR raw signature "(params)result" (js_malloc'd) */
+};
+
+/* Per-instance binding for one WASM imported function, built from the
+ * importObject in the Instance constructor and found by the dispatch via the
+ * import slot's (module_name, field_name). Owned by the instance wrap. */
+struct wamr_import_closure_t {
+    JSContext *ctx;
+    char *module_name;   /* js_malloc'd */
+    char *field_name;    /* js_malloc'd */
+    JSValue js_func;     /* the JS function to call */
+    uint32_t param_count;    /* <= 16 */
+    wasm_valkind_t ptypes[16];
+    uint32_t result_count;   /* 0 or 1 */
+    wasm_valkind_t rtype;
+};
+
+/* NativeSymbol group for one import module name. Registered with WAMR by the
+ * module wrap; unregistered + freed in the module finalizer. */
+struct wamr_import_module_t {
+    char *module_name;       /* js_malloc'd */
+    NativeSymbol *symbols;   /* js_malloc'd array (WAMR qsorts it in place) */
+    uint32_t count;
+};
 
 typedef struct wamr_instance_wrap_t {
     wasm_module_inst_t module_inst;
     wasm_exec_env_t exec_env;
     JSValue module_obj;  /* keep module alive — unload happens after instance dies */
+    /* Per-instance WASM import bindings (from the importObject). */
+    wamr_import_closure_t **import_closures;  /* js_malloc'd ptr array */
+    uint32_t import_closure_count;
+    /* JS exception captured when an imported JS function throws, rethrown by
+     * the exported-function caller (wamr_call_exported_func). JS_UNDEFINED
+     * when none pending. */
+    JSValue pending_exception;
 } wamr_instance_wrap_t;
 
+
+/* Release the module wrap's import registration state: unregister each native
+ * group (so WAMR's global list stops referencing the symbol arrays) and free
+ * the slots (attachments) + groups. Safe on a zeroed wrap. */
+static void wamr_free_module_imports(JSRuntime *jsrt, wamr_module_wrap_t *wrap)
+{
+    uint32_t i;
+    for (i = 0; i < wrap->import_slot_count; i++) {
+        wamr_import_slot_t *s = wrap->import_slots[i];
+        if (!s) continue;
+        js_free_rt(jsrt, s->module_name);
+        js_free_rt(jsrt, s->field_name);
+        js_free_rt(jsrt, s->signature);
+        js_free_rt(jsrt, s);
+    }
+    js_free_rt(jsrt, wrap->import_slots);
+    for (i = 0; i < wrap->import_module_count; i++) {
+        wamr_import_module_t *m = &wrap->import_modules[i];
+        if (m->module_name && m->symbols) {
+            wasm_runtime_unregister_natives(m->module_name, m->symbols);
+        }
+        js_free_rt(jsrt, m->module_name);
+        js_free_rt(jsrt, m->symbols);
+    }
+    js_free_rt(jsrt, wrap->import_modules);
+    wrap->import_slots = NULL;
+    wrap->import_slot_count = 0;
+    wrap->import_modules = NULL;
+    wrap->import_module_count = 0;
+}
 
 static void wamr_module_finalizer(JSRuntime *jsrt, JSValue val)
 {
@@ -63,6 +145,7 @@ static void wamr_module_finalizer(JSRuntime *jsrt, JSValue val)
     if (!rt) return;
     wamr_module_wrap_t *wrap = (wamr_module_wrap_t *)JS_GetOpaque(val, rt->wamr_module_class_id);
     if (wrap) {
+        wamr_free_module_imports(jsrt, wrap);
         if (wrap->module) {
             wasm_runtime_unload(wrap->module);
             wrap->module = NULL;
@@ -75,17 +158,41 @@ static void wamr_module_finalizer(JSRuntime *jsrt, JSValue val)
     }
 }
 
+/* Release the instance wrap's per-instance import bindings (closures own the
+ * dup'd JS functions) and the pending-exception value. Safe on a zeroed wrap. */
+static void wamr_free_instance_imports(JSRuntime *jsrt, wamr_instance_wrap_t *wrap)
+{
+    uint32_t i;
+    for (i = 0; i < wrap->import_closure_count; i++) {
+        wamr_import_closure_t *ic = wrap->import_closures[i];
+        if (!ic) continue;
+        JS_FreeValueRT(jsrt, ic->js_func);
+        js_free_rt(jsrt, ic->module_name);
+        js_free_rt(jsrt, ic->field_name);
+        js_free_rt(jsrt, ic);
+    }
+    js_free_rt(jsrt, wrap->import_closures);
+    JS_FreeValueRT(jsrt, wrap->pending_exception);
+    wrap->import_closures = NULL;
+    wrap->import_closure_count = 0;
+    wrap->pending_exception = JS_UNDEFINED;
+}
+
 static void wamr_instance_finalizer(JSRuntime *jsrt, JSValue val)
 {
     qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wamr_instance_wrap_t *wrap = (wamr_instance_wrap_t *)JS_GetOpaque(val, rt->wamr_instance_class_id);
     if (wrap) {
+        wamr_free_instance_imports(jsrt, wrap);
         if (wrap->exec_env) {
             wasm_runtime_destroy_exec_env(wrap->exec_env);
             wrap->exec_env = NULL;
         }
         if (wrap->module_inst) {
+            /* The wrap is reachable from module_inst via custom data; drop it
+             * before the instance is deinstantiated. */
+            wasm_runtime_set_custom_data(wrap->module_inst, NULL);
             wasm_runtime_deinstantiate(wrap->module_inst);
             wrap->module_inst = NULL;
         }
@@ -459,6 +566,11 @@ static JSValue wamr_wasm_streaming(JSContext *ctx, JSValueConst this_val,
     return result;
 }
 
+/* WASM imports: register a raw native per declared function import at module
+ * load time (WAMR links imports during load). Defined below; the Module
+ * constructor calls it. */
+static int wamr_register_module_imports(JSContext *ctx, wamr_module_wrap_t *wrap);
+
 /* ================================================================
  * WebAssembly.Module constructor
  * ================================================================ */
@@ -504,7 +616,7 @@ static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
         return JS_ThrowTypeError(ctx, "WebAssembly.Module: %s", error_buf);
     }
 
-    wamr_module_wrap_t *wrap = (wamr_module_wrap_t *)js_malloc(ctx, sizeof(wamr_module_wrap_t));
+    wamr_module_wrap_t *wrap = (wamr_module_wrap_t *)js_mallocz(ctx, sizeof(wamr_module_wrap_t));
     if (!wrap) {
         wasm_runtime_unload(module);
         wasm_runtime_free(wasm_buf);
@@ -513,6 +625,44 @@ static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
     wrap->module = module;
     wrap->wasm_buf = wasm_buf;
     wrap->wasm_buf_size = (uint32_t)byte_len;
+    /* WASM imports: WAMR resolves import symbols at load time, so register a
+     * raw native per declared function import and re-load the module — the
+     * second load links the imports into the module used by instances.
+     * Note: wasm_runtime_load rewrites its input buffer in place, so the
+     * re-load must copy the pristine bytes from the caller's buffer. */
+    if (wasm_runtime_get_import_count(module) > 0) {
+        if (wamr_register_module_imports(ctx, wrap) != 0) {
+            wasm_runtime_unload(module);
+            wasm_runtime_free(wasm_buf);
+            js_free(ctx, wrap);
+            return JS_EXCEPTION;   /* exception already thrown */
+        }
+        uint8_t *linked_buf = (uint8_t *)wasm_runtime_malloc((uint32_t)byte_len);
+        if (!linked_buf) {
+            wamr_free_module_imports(JS_GetRuntime(ctx), wrap);
+            wasm_runtime_unload(module);
+            wasm_runtime_free(wasm_buf);
+            js_free(ctx, wrap);
+            return JS_ThrowOutOfMemory(ctx);
+        }
+        memcpy(linked_buf, bytes, byte_len);
+        wasm_module_t linked = wasm_runtime_load(linked_buf, (uint32_t)byte_len,
+                                                 error_buf, sizeof(error_buf));
+        if (!linked) {
+            wasm_runtime_free(linked_buf);
+            wamr_free_module_imports(JS_GetRuntime(ctx), wrap);
+            wasm_runtime_unload(module);
+            wasm_runtime_free(wasm_buf);
+            js_free(ctx, wrap);
+            return JS_ThrowTypeError(ctx, "WebAssembly.Module: %s",
+                                     error_buf[0] ? error_buf : "import linking failed");
+        }
+        wasm_runtime_unload(module);
+        wasm_runtime_free(wasm_buf);
+        wrap->module = linked;
+        wrap->wasm_buf = linked_buf;
+        wrap->wasm_buf_size = (uint32_t)byte_len;
+    }
 
     JSValue obj = JS_NewObjectClass(ctx, rt->wamr_module_class_id);
     if (JS_IsException(obj)) {
@@ -544,6 +694,484 @@ static void wamr_func_closure_finalizer(void *opaque)
      * JSCClosureFinalizerFunc has no JSRuntime parameter. Free with free(). */
     wamr_func_closure_t *fc = (wamr_func_closure_t *)opaque;
     free(fc);
+}
+
+/* ================================================================
+ * WASM imports support — bridge WASM imported functions to JS
+ * ================================================================
+ *
+ * WAMR resolves import symbols during wasm_runtime_load, not instantiate.
+ * So the Module constructor registers a raw native for every declared
+ * function import (grouped by import module name) and re-loads the module so
+ * the resolved pointers are baked in. The Instance constructor then builds a
+ * per-instance map from importObject (module+field → JS function) and stashes
+ * it on the wrap, which is attached to the module instance via custom_data.
+ * At call time the raw-native dispatch reads its attachment (an
+ * wamr_import_slot_t identifying the import), looks up the JS function in the
+ * current instance's map, converts args/results, and calls it. */
+
+/* Build a WAMR raw-native signature string "(params)result" from a WASM
+ * function type. Returns a js_malloc'd string, or NULL on OOM / unsupported
+ * types. The result character is omitted when the function returns nothing. */
+static char *wamr_build_import_signature(JSContext *ctx, const wasm_func_type_t ft)
+{
+    uint32_t pc = wasm_func_type_get_param_count(ft);
+    uint32_t rc = wasm_func_type_get_result_count(ft);
+    size_t len = 2 + (size_t)pc + (size_t)rc + 1; /* '(' params ')' [result] NUL */
+    char *sig = (char *)js_malloc(ctx, len);
+    if (!sig) return NULL;
+    char *p = sig;
+    *p++ = '(';
+    for (uint32_t i = 0; i < pc; i++) {
+        switch (wasm_func_type_get_param_valkind(ft, i)) {
+        case WASM_I32: *p++ = 'i'; break;
+        case WASM_I64: *p++ = 'I'; break;
+        case WASM_F32: *p++ = 'f'; break;
+        case WASM_F64: *p++ = 'F'; break;
+        default: js_free(ctx, sig); return NULL;
+        }
+    }
+    *p++ = ')';
+    if (rc > 0) {
+        switch (wasm_func_type_get_result_valkind(ft, 0)) {
+        case WASM_I32: *p++ = 'i'; break;
+        case WASM_I64: *p++ = 'I'; break;
+        case WASM_F32: *p++ = 'f'; break;
+        case WASM_F64: *p++ = 'F'; break;
+        default: js_free(ctx, sig); return NULL;
+        }
+    }
+    *p = '\0';
+    return sig;
+}
+
+/* Raw-native entry point for every WASM imported function (registered via
+ * wasm_runtime_register_natives_raw, so all signatures share this C shape).
+ * WAMR args[] layout: params live in args[0..param_count-1] (i32/f32 occupy
+ * the low 32 bits of their uint64 slot, i64/f64 the full slot); the return
+ * value, if any, is written back into args[0]. */
+static void wamr_import_dispatch(wasm_exec_env_t exec_env, uint64_t *args)
+{
+    wamr_import_slot_t *slot = (wamr_import_slot_t *)
+        wasm_runtime_get_function_attachment(exec_env);
+    if (!slot) return;   /* WAMR already reported a missing native */
+
+    wasm_module_inst_t mod_inst = wasm_runtime_get_module_inst(exec_env);
+    wamr_instance_wrap_t *wrap = mod_inst
+        ? (wamr_instance_wrap_t *)wasm_runtime_get_custom_data(mod_inst)
+        : NULL;
+
+    /* Find the JS function this instance supplied for (module, field). */
+    wamr_import_closure_t *ic = NULL;
+    if (wrap) {
+        for (uint32_t i = 0; i < wrap->import_closure_count; i++) {
+            wamr_import_closure_t *c = wrap->import_closures[i];
+            if (c && strcmp(c->module_name, slot->module_name) == 0
+                    && strcmp(c->field_name, slot->field_name) == 0) {
+                ic = c;
+                break;
+            }
+        }
+    }
+    if (!ic) {
+        /* Instance not yet reachable (import called from the start function
+         * during instantiation) or the importObject lacked this binding. */
+        if (mod_inst)
+            wasm_runtime_set_exception(mod_inst,
+                "missing import function in importObject");
+        return;
+    }
+
+    JSContext *ctx = ic->ctx;
+
+    /* Convert WASM params to JS values. */
+    JSValue js_args[16];
+    uint32_t i, n = ic->param_count;
+    if (n > 16) n = 16;
+    for (i = 0; i < n; i++) {
+        uint64_t raw = args[i];
+        switch (ic->ptypes[i]) {
+        case WASM_I32:
+            js_args[i] = JS_NewInt32(ctx, (int32_t)(uint32_t)raw);
+            break;
+        case WASM_I64:
+            js_args[i] = JS_NewBigInt64(ctx, (int64_t)raw);
+            break;
+        case WASM_F32: {
+            float f;
+            memcpy(&f, &raw, sizeof(float));
+            js_args[i] = JS_NewFloat64(ctx, (double)f);
+            break;
+        }
+        case WASM_F64: {
+            double d;
+            memcpy(&d, &raw, sizeof(double));
+            js_args[i] = JS_NewFloat64(ctx, d);
+            break;
+        }
+        default:
+            js_args[i] = JS_UNDEFINED;
+            break;
+        }
+    }
+
+    JSValue result = JS_Call(ctx, ic->js_func, JS_UNDEFINED, n, js_args);
+    for (i = 0; i < n; i++)
+        JS_FreeValue(ctx, js_args[i]);
+
+    if (JS_IsException(result)) {
+        /* Consume the pending JS exception and stash it on the owning instance
+         * so the exported-function caller rethrows it (instead of a generic
+         * trap message). If the instance isn't reachable yet, drop it and let
+         * WAMR surface its own error. */
+        JSValue exc = JS_GetException(ctx);
+        if (wrap) {
+            JS_FreeValue(ctx, wrap->pending_exception);
+            wrap->pending_exception = exc;
+        } else {
+            JS_FreeValue(ctx, exc);
+        }
+        if (mod_inst)
+            wasm_runtime_set_exception(mod_inst, "JS import function threw");
+        return;
+    }
+
+    if (ic->result_count > 0) {
+        int conv_failed = 0;
+        switch (ic->rtype) {
+        case WASM_I32: {
+            int32_t v;
+            if (JS_ToInt32(ctx, &v, result) != 0)
+                conv_failed = 1;
+            else
+                args[0] = (uint64_t)(uint32_t)v;
+            break;
+        }
+        case WASM_I64: {
+            int64_t v;
+            if (JS_ToInt64Ext(ctx, &v, result) != 0)
+                conv_failed = 1;
+            else
+                args[0] = (uint64_t)v;
+            break;
+        }
+        case WASM_F32: {
+            double d;
+            if (JS_ToFloat64(ctx, &d, result) != 0) {
+                conv_failed = 1;
+            } else {
+                float f = (float)d;
+                memcpy(&args[0], &f, sizeof(float));
+            }
+            break;
+        }
+        case WASM_F64: {
+            double d;
+            if (JS_ToFloat64(ctx, &d, result) != 0) {
+                conv_failed = 1;
+            } else {
+                memcpy(&args[0], &d, sizeof(double));
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        JS_FreeValue(ctx, result);
+        if (conv_failed) {
+            JSValue exc = JS_GetException(ctx);
+            if (wrap) {
+                JS_FreeValue(ctx, wrap->pending_exception);
+                wrap->pending_exception = exc;
+            } else {
+                JS_FreeValue(ctx, exc);
+            }
+            if (mod_inst)
+                wasm_runtime_set_exception(mod_inst, "JS import function threw");
+        }
+    } else {
+        JS_FreeValue(ctx, result);
+    }
+}
+
+/* Register a raw native for every declared function import of wrap->module,
+ * grouped by import module name, so a subsequent wasm_runtime_load resolves
+ * the imports. Each NativeSymbol attachment is the import's wamr_import_slot_t
+ * (identifies module+field at dispatch time). Non-function imports (memory/
+ * global/table) are intentionally not registered — the Instance constructor
+ * rejects them with a clear error (documented limitation).
+ *
+ * On success fills wrap->import_slots / wrap->import_modules (owned by the
+ * wrap; released by wamr_free_module_imports). Returns 0, or -1 with a JS
+ * exception already thrown. */
+static int wamr_register_module_imports(JSContext *ctx, wamr_module_wrap_t *wrap)
+{
+    int32_t import_count = (int32_t)wasm_runtime_get_import_count(wrap->module);
+    if (import_count <= 0) return 0;
+
+    wamr_import_module_t *mods = NULL;
+    uint32_t n_mods = 0;
+    wamr_import_slot_t **slots = NULL;
+    uint32_t n_slots = 0;
+    int32_t i;
+
+    for (i = 0; i < import_count; i++) {
+        wasm_import_t imp;
+        wasm_runtime_get_import_type(wrap->module, i, &imp);
+        if (!imp.module_name || !imp.name) continue;
+        if (imp.kind != WASM_IMPORT_EXPORT_KIND_FUNC) continue; /* instance-time error */
+
+        wasm_func_type_t ft = imp.u.func_type;
+        wamr_import_slot_t *slot = (wamr_import_slot_t *)
+            js_mallocz(ctx, sizeof(*slot));
+        if (!slot) {
+            JS_ThrowOutOfMemory(ctx);
+            goto fail;
+        }
+        size_t mlen = strlen(imp.module_name);
+        size_t flen = strlen(imp.name);
+        slot->module_name = (char *)js_malloc(ctx, mlen + 1);
+        slot->field_name = (char *)js_malloc(ctx, flen + 1);
+        slot->signature = wamr_build_import_signature(ctx, ft);
+        if (!slot->module_name || !slot->field_name || !slot->signature) {
+            if (slot->module_name) js_free(ctx, slot->module_name);
+            if (slot->field_name) js_free(ctx, slot->field_name);
+            if (slot->signature) js_free(ctx, slot->signature);
+            js_free(ctx, slot);
+            JS_ThrowOutOfMemory(ctx);
+            goto fail;
+        }
+        memcpy(slot->module_name, imp.module_name, mlen + 1);
+        memcpy(slot->field_name, imp.name, flen + 1);
+
+        wamr_import_slot_t **ns = (wamr_import_slot_t **)js_realloc(
+            ctx, slots, sizeof(*slots) * (n_slots + 1));
+        if (!ns) {
+            js_free(ctx, slot->module_name);
+            js_free(ctx, slot->field_name);
+            js_free(ctx, slot->signature);
+            js_free(ctx, slot);
+            JS_ThrowOutOfMemory(ctx);
+            goto fail;
+        }
+        slots = ns;
+        slots[n_slots++] = slot;
+
+        /* Find (or create) the NativeSymbol group for this module name. */
+        wamr_import_module_t *m = NULL;
+        for (uint32_t mi = 0; mi < n_mods; mi++) {
+            if (strcmp(mods[mi].module_name, imp.module_name) == 0) {
+                m = &mods[mi];
+                break;
+            }
+        }
+        if (!m) {
+            wamr_import_module_t *nm = (wamr_import_module_t *)js_realloc(
+                ctx, mods, sizeof(*mods) * (n_mods + 1));
+            if (!nm) {
+                JS_ThrowOutOfMemory(ctx);
+                goto fail;
+            }
+            mods = nm;
+            m = &mods[n_mods];
+            n_mods++;
+            m->count = 0;
+            m->symbols = NULL;
+            m->module_name = (char *)js_malloc(ctx, mlen + 1);
+            if (!m->module_name) {
+                JS_ThrowOutOfMemory(ctx);
+                goto fail;
+            }
+            memcpy(m->module_name, imp.module_name, mlen + 1);
+        }
+        NativeSymbol *sym = (NativeSymbol *)js_realloc(
+            ctx, m->symbols, sizeof(NativeSymbol) * (m->count + 1));
+        if (!sym) {
+            JS_ThrowOutOfMemory(ctx);
+            goto fail;
+        }
+        m->symbols = sym;
+        NativeSymbol *entry = &m->symbols[m->count++];
+        entry->symbol = slot->field_name;
+        entry->func_ptr = (void *)wamr_import_dispatch;
+        entry->signature = slot->signature;
+        entry->attachment = slot;
+    }
+
+    for (uint32_t mi = 0; mi < n_mods; mi++) {
+        if (!wasm_runtime_register_natives_raw(mods[mi].module_name,
+                                               mods[mi].symbols,
+                                               mods[mi].count)) {
+            JS_ThrowTypeError(ctx,
+                "WebAssembly.Module: failed to register native imports for module \"%s\"",
+                mods[mi].module_name);
+            goto fail;
+        }
+    }
+
+    wrap->import_slots = slots;
+    wrap->import_slot_count = n_slots;
+    wrap->import_modules = mods;
+    wrap->import_module_count = n_mods;
+    return 0;
+
+fail:
+    for (uint32_t mi = 0; mi < n_mods; mi++) {
+        if (mods[mi].module_name && mods[mi].symbols) {
+            wasm_runtime_unregister_natives(mods[mi].module_name, mods[mi].symbols);
+        }
+        js_free(ctx, mods[mi].module_name);
+        js_free(ctx, mods[mi].symbols);
+    }
+    js_free(ctx, mods);
+    for (uint32_t si = 0; si < n_slots; si++) {
+        wamr_import_slot_t *s = slots[si];
+        if (!s) continue;
+        js_free(ctx, s->module_name);
+        js_free(ctx, s->field_name);
+        js_free(ctx, s->signature);
+        js_free(ctx, s);
+    }
+    js_free(ctx, slots);
+    return -1;
+}
+
+/* Build the per-instance import bindings: for every declared function import
+ * of `module`, look up the JS function in importObject and record a closure.
+ * Returns 0 on success (fills wrap->import_closures, owned by the wrap), or
+ * -1 with a JS exception already thrown. */
+static int wamr_build_instance_imports(JSContext *ctx, wasm_module_t module,
+                                       JSValueConst import_obj,
+                                       wamr_instance_wrap_t *wrap)
+{
+    int32_t import_count = (int32_t)wasm_runtime_get_import_count(module);
+    if (import_count <= 0) return 0;
+
+    wamr_import_closure_t **closures = NULL;
+    uint32_t n_closures = 0;
+    int32_t i;
+
+    for (i = 0; i < import_count; i++) {
+        wasm_import_t imp;
+        wasm_runtime_get_import_type(module, i, &imp);
+        if (!imp.module_name || !imp.name) continue;
+
+        /* Only function imports are implemented; memory/global/table imports
+         * fail fast with a clear message (documented limitation). */
+        if (imp.kind != WASM_IMPORT_EXPORT_KIND_FUNC) {
+            JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: WAMR engine does not support %s imports "
+                "(import \"%s\" \"%s\"); only function imports are implemented",
+                imp.kind == WASM_IMPORT_EXPORT_KIND_MEMORY ? "memory" :
+                imp.kind == WASM_IMPORT_EXPORT_KIND_GLOBAL ? "global" : "table",
+                imp.module_name, imp.name);
+            goto fail;
+        }
+
+        /* Look up the JS binding: importObject[module][field]. */
+        JSValue mod_val = JS_GetPropertyStr(ctx, import_obj, imp.module_name);
+        if (JS_IsException(mod_val) || JS_IsUndefined(mod_val)) {
+            JS_FreeValue(ctx, mod_val);
+            JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: missing import module \"%s\" in importObject "
+                "(module imports \"%s\")", imp.module_name, imp.name);
+            goto fail;
+        }
+        JSValue field_val = JS_GetPropertyStr(ctx, mod_val, imp.name);
+        JS_FreeValue(ctx, mod_val);
+        if (JS_IsException(field_val) || JS_IsUndefined(field_val)) {
+            JS_FreeValue(ctx, field_val);
+            JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: missing import \"%s.%s\" in importObject",
+                imp.module_name, imp.name);
+            goto fail;
+        }
+        if (!JS_IsFunction(ctx, field_val)) {
+            JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: import \"%s.%s\" is not a function",
+                imp.module_name, imp.name);
+            JS_FreeValue(ctx, field_val);
+            goto fail;
+        }
+
+        wasm_func_type_t ft = imp.u.func_type;
+        uint32_t pc = wasm_func_type_get_param_count(ft);
+        uint32_t rc = wasm_func_type_get_result_count(ft);
+        if (pc > 16) {
+            JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: import \"%s.%s\" has %u parameters (>16 unsupported)",
+                imp.module_name, imp.name, pc);
+            JS_FreeValue(ctx, field_val);
+            goto fail;
+        }
+        if (rc > 1) {
+            JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: import \"%s.%s\" has %u results (>1 unsupported)",
+                imp.module_name, imp.name, rc);
+            JS_FreeValue(ctx, field_val);
+            goto fail;
+        }
+
+        wamr_import_closure_t *ic = (wamr_import_closure_t *)
+            js_mallocz(ctx, sizeof(*ic));
+        if (!ic) {
+            JS_ThrowOutOfMemory(ctx);
+            JS_FreeValue(ctx, field_val);
+            goto fail;
+        }
+        ic->ctx = ctx;
+        ic->js_func = field_val;   /* transfer ownership into the closure */
+        ic->param_count = pc;
+        ic->result_count = rc;
+        if (rc > 0)
+            ic->rtype = wasm_func_type_get_result_valkind(ft, 0);
+        for (uint32_t k = 0; k < pc; k++)
+            ic->ptypes[k] = wasm_func_type_get_param_valkind(ft, k);
+
+        size_t mlen = strlen(imp.module_name);
+        size_t flen = strlen(imp.name);
+        ic->module_name = (char *)js_malloc(ctx, mlen + 1);
+        ic->field_name = (char *)js_malloc(ctx, flen + 1);
+        if (!ic->module_name || !ic->field_name) {
+            if (ic->module_name) js_free(ctx, ic->module_name);
+            if (ic->field_name) js_free(ctx, ic->field_name);
+            JS_FreeValue(ctx, ic->js_func);
+            js_free(ctx, ic);
+            JS_ThrowOutOfMemory(ctx);
+            goto fail;
+        }
+        memcpy(ic->module_name, imp.module_name, mlen + 1);
+        memcpy(ic->field_name, imp.name, flen + 1);
+
+        wamr_import_closure_t **nc = (wamr_import_closure_t **)js_realloc(
+            ctx, closures, sizeof(*closures) * (n_closures + 1));
+        if (!nc) {
+            JS_FreeValue(ctx, ic->js_func);
+            js_free(ctx, ic->module_name);
+            js_free(ctx, ic->field_name);
+            js_free(ctx, ic);
+            JS_ThrowOutOfMemory(ctx);
+            goto fail;
+        }
+        closures = nc;
+        closures[n_closures++] = ic;
+    }
+
+    wrap->import_closures = closures;
+    wrap->import_closure_count = n_closures;
+    return 0;
+
+fail:
+    for (uint32_t ci = 0; ci < n_closures; ci++) {
+        wamr_import_closure_t *c = closures[ci];
+        if (!c) continue;
+        JS_FreeValue(ctx, c->js_func);
+        js_free(ctx, c->module_name);
+        js_free(ctx, c->field_name);
+        js_free(ctx, c);
+    }
+    js_free(ctx, closures);
+    return -1;
 }
 
 static JSValue wamr_call_exported_func(JSContext *ctx, JSValueConst this_val,
@@ -610,6 +1238,17 @@ static JSValue wamr_call_exported_func(JSContext *ctx, JSValueConst this_val,
     bool ok = wasm_runtime_call_wasm_a(fc->exec_env, fc->func,
         fc->result_count, results, fc->param_count, wargs);
     if (!ok) {
+        /* If an imported JS function threw during the call, propagate the
+         * original JS exception instead of a generic WASM trap message. */
+        wamr_instance_wrap_t *wrap = fc->mod_inst
+            ? (wamr_instance_wrap_t *)wasm_runtime_get_custom_data(fc->mod_inst)
+            : NULL;
+        if (wrap && !JS_IsUndefined(wrap->pending_exception)) {
+            JSValue exc = wrap->pending_exception;
+            wrap->pending_exception = JS_UNDEFINED;
+            wasm_runtime_clear_exception(fc->mod_inst);
+            return JS_Throw(ctx, exc);
+        }
         const char *err = wasm_runtime_get_exception(fc->mod_inst);
         return JS_ThrowTypeError(ctx, "WebAssembly function: %s",
             err ? err : "trap");
@@ -646,15 +1285,32 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
         return JS_ThrowTypeError(ctx, "WebAssembly.Instance: first argument must be a WebAssembly.Module");
     }
 
-    /* The WAMR path does not support import objects: an importObject (argv[1])
-     * would be silently dropped, and WAMR instantiation of a module that
-     * declares imports would then fail with a confusing link error. Fail fast
-     * with a clear message instead of silently discarding the argument. */
+    /* Import-object support: resolve every declared import against the
+     * importObject (argv[1]) and register the JS functions as WAMR natives
+     * before instantiation. A module that declares imports without a usable
+     * importObject fails fast with a clear TypeError. */
     int import_count = (int)wasm_runtime_get_import_count(mod_wrap->module);
+    if (import_count < 0) import_count = 0;
+
+    wamr_instance_wrap_t *wrap = NULL;
     if (import_count > 0) {
-        return JS_ThrowTypeError(ctx,
-            "WebAssembly.Instance: WAMR engine does not support import objects "
-            "(module declares %d import(s))", import_count);
+        if (argc < 2 || JS_IsUndefined(argv[1])) {
+            return JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: module declares %d import(s) but no "
+                "importObject was provided", import_count);
+        }
+        if (!JS_IsObject(argv[1])) {
+            return JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: importObject must be an object");
+        }
+        wrap = (wamr_instance_wrap_t *)js_mallocz(ctx, sizeof(*wrap));
+        if (!wrap) return JS_ThrowOutOfMemory(ctx);
+        wrap->pending_exception = JS_UNDEFINED;
+        if (wamr_build_instance_imports(ctx, mod_wrap->module, argv[1], wrap) != 0) {
+            wamr_free_instance_imports(JS_GetRuntime(ctx), wrap);
+            js_free(ctx, wrap);
+            return JS_EXCEPTION;   /* exception already thrown */
+        }
     }
 
     /* Instantiate */
@@ -664,6 +1320,10 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
                                                               8 * 1024 * 1024,
                                                               error_buf, sizeof(error_buf));
     if (!module_inst) {
+        if (wrap) {
+            wamr_free_instance_imports(JS_GetRuntime(ctx), wrap);
+            js_free(ctx, wrap);
+        }
         return JS_ThrowTypeError(ctx, "WebAssembly.Instance: %s",
                                  error_buf[0] ? error_buf : "instantiation failed");
     }
@@ -672,23 +1332,35 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
     wasm_exec_env_t exec_env = wasm_runtime_create_exec_env(module_inst, 64 * 1024);
     if (!exec_env) {
         wasm_runtime_deinstantiate(module_inst);
+        if (wrap) {
+            wamr_free_instance_imports(JS_GetRuntime(ctx), wrap);
+            js_free(ctx, wrap);
+        }
         return JS_ThrowOutOfMemory(ctx);
     }
 
-    wamr_instance_wrap_t *wrap = (wamr_instance_wrap_t *)js_malloc(ctx, sizeof(wamr_instance_wrap_t));
     if (!wrap) {
-        wasm_runtime_destroy_exec_env(exec_env);
-        wasm_runtime_deinstantiate(module_inst);
-        return JS_ThrowOutOfMemory(ctx);
+        wrap = (wamr_instance_wrap_t *)js_mallocz(ctx, sizeof(*wrap));
+        if (!wrap) {
+            wasm_runtime_destroy_exec_env(exec_env);
+            wasm_runtime_deinstantiate(module_inst);
+            return JS_ThrowOutOfMemory(ctx);
+        }
+        wrap->pending_exception = JS_UNDEFINED;
     }
     wrap->module_inst = module_inst;
     wrap->exec_env = exec_env;
     wrap->module_obj = JS_DupValue(ctx, argv[0]);  /* keep module alive until instance dies */
 
+    /* Attach the wrap to the module instance so import dispatch can reach the
+     * pending-exception slot (and so exported calls can rethrow it). */
+    wasm_runtime_set_custom_data(module_inst, wrap);
+
     JSValue obj = JS_NewObjectClass(ctx, rt->wamr_instance_class_id);
     if (JS_IsException(obj)) {
         wasm_runtime_destroy_exec_env(exec_env);
         wasm_runtime_deinstantiate(module_inst);
+        wamr_free_instance_imports(JS_GetRuntime(ctx), wrap);
         js_free(ctx, wrap);
         return JS_EXCEPTION;
     }

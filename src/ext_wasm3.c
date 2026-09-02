@@ -1136,6 +1136,20 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
     JSValue import_closures_arr = JS_NewArray(ctx);
     int import_idx = 0;
     int missing_imports = 0;
+    int declared_imports = 0;
+
+    /* Count declared function imports so a missing importObject is reported as
+     * a link error instead of silently linking trap stubs. */
+    for (u32 i = 0; i < mod_wrap->module->numFunctions; i++) {
+        M3Function *f = &mod_wrap->module->functions[i];
+        if (f->import.moduleUtf8 && f->import.fieldUtf8) declared_imports++;
+    }
+
+    if (argc >= 2 && !JS_IsUndefined(argv[1]) && !JS_IsObject(argv[1])) {
+        JS_FreeValue(ctx, import_closures_arr);
+        return JS_ThrowTypeError(ctx,
+            "WebAssembly.Instance: importObject must be an object");
+    }
 
     if (argc >= 2 && JS_IsObject(argv[1])) {
         for (u32 i = 0; i < mod_wrap->module->numFunctions; i++) {
@@ -1149,6 +1163,7 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
             JSValue mod_val = JS_GetPropertyStr(ctx, argv[1], mod_name);
             if (JS_IsException(mod_val) || JS_IsUndefined(mod_val)) {
                 JS_FreeValue(ctx, mod_val);
+                missing_imports++;
                 continue;
             }
 
@@ -1158,12 +1173,20 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
 
             if (JS_IsException(field_val) || JS_IsUndefined(field_val)) {
                 JS_FreeValue(ctx, field_val);
+                missing_imports++;
+                continue;
+            }
+
+            if (!JS_IsFunction(ctx, field_val)) {
+                JS_FreeValue(ctx, field_val);
+                missing_imports++;
                 continue;
             }
 
             IM3FuncType ftype = f->funcType;
             if (!ftype) {
                 JS_FreeValue(ctx, field_val);
+                missing_imports++;
                 continue;
             }
 
@@ -1216,6 +1239,8 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
                 missing_imports++;
             }
         }
+    } else if (declared_imports > 0) {
+        missing_imports = declared_imports;
     }
 
     if (missing_imports > 0) {
