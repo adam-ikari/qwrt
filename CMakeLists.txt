@@ -25,6 +25,33 @@ option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
 option(QWRT_BUILD_EXAMPLES "Build example programs" OFF)
 
+set(QWRT_POLYFILL_MODE "C" CACHE STRING
+    "Polyfill bytecode embedding mode: C=const .rodata array (default), A=zlib-compressed + heap decompress, B=external .polyfill file, D=custom host hook")
+
+if(NOT QWRT_POLYFILL_MODE MATCHES "^(C|A|B|D)$")
+    message(FATAL_ERROR "QWRT_POLYFILL_MODE must be C, A, B, or D (got '${QWRT_POLYFILL_MODE}')")
+endif()
+
+# Map mode letter to integer for the compile-time define
+if(QWRT_POLYFILL_MODE STREQUAL "C")
+    set(_qwrt_polyfill_mode_num 0)
+elseif(QWRT_POLYFILL_MODE STREQUAL "A")
+    set(_qwrt_polyfill_mode_num 1)
+elseif(QWRT_POLYFILL_MODE STREQUAL "B")
+    set(_qwrt_polyfill_mode_num 2)
+elseif(QWRT_POLYFILL_MODE STREQUAL "D")
+    set(_qwrt_polyfill_mode_num 3)
+endif()
+
+# Mode A requires miniz (tinfl inflate) via QWRT_WITH_COMPRESS
+if(QWRT_POLYFILL_MODE STREQUAL "A" AND NOT QWRT_WITH_COMPRESS)
+    message(FATAL_ERROR "QWRT_POLYFILL_MODE=A requires QWRT_WITH_COMPRESS=ON (miniz inflate)")
+endif()
+
+if(QWRT_POLYFILL_MODE STREQUAL "B")
+    message(STATUS "Polyfill mode B: bytecode loaded from external .polyfill file (QWRT_POLYFILL_FILE)")
+endif()
+
 # WAMR and wasm3 are mutually exclusive (both register the WebAssembly global)
 if(QWRT_WITH_WAMR AND QWRT_WITH_WASM3)
     message(FATAL_ERROR
@@ -289,8 +316,8 @@ else()
 endif()
 
 add_custom_target(polyfill_rebuild
-    COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
-    COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS}"
+    COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
+    COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
     VERBATIM
 )
 
@@ -373,6 +400,7 @@ set(_qwrt_core_sources
     src/context.c
     src/extension.c
     src/polyfill_default.c
+    src/polyfill_load.c
     src/worker_boot_default.c
     src/thread.c
     src/msgq.c
@@ -443,6 +471,11 @@ endif()
 set_source_files_properties(src/ext_compress.c PROPERTIES
     COMPILE_OPTIONS "-Wno-unused-function")
 
+# polyfill_load.c includes the vendored miniz.h in mode A for tinfl inflate;
+# its static-inline helpers trigger the same -Wunused-function as ext_compress.c.
+set_source_files_properties(src/polyfill_load.c PROPERTIES
+    COMPILE_OPTIONS "-Wno-unused-function")
+
 # Warn-hardening + strict C99 for qwrt's own sources (PRIVATE so vendored deps
 # built via add_subdirectory — miniz, quickjs-ng — are unaffected; they use
 # their own C standard). _POSIX_C_SOURCE exposes strdup/putenv/etc. that qwrt
@@ -476,6 +509,7 @@ target_compile_definitions(qwrt PUBLIC
     QWRT_WITH_TEXTCODEC=$<BOOL:${QWRT_WITH_TEXTCODEC}>
     QWRT_WITH_TLS=$<BOOL:${QWRT_WITH_TLS}>
     QWRT_WITH_NONUTF_ENCODINGS=$<BOOL:${QWRT_WITH_NONUTF_ENCODINGS}>
+    QWRT_POLYFILL_MODE=${_qwrt_polyfill_mode_num}
 )
 if(QWRT_WITH_WAMR)
     target_include_directories(qwrt PUBLIC

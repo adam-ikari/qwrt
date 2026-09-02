@@ -313,6 +313,13 @@ void qwrt_thread_teardown(qwrt_t *rt)
     rt->proxy_auth_url = NULL;
     rt->proxy_auth_value = NULL;
 
+    /* 6.7) 释放 polyfill 字节码缓存（qwrt_ctx_create_at 惰性加载，各 context
+     * 共享同一份）。C mode 无堆分配（unload 是 no-op）；A/B/D 释放堆缓冲。 */
+    qwrt_polyfill_unload(rt->polyfill_owner);
+    rt->polyfill_owner = NULL;
+    rt->polyfill = NULL;
+    rt->polyfill_len = 0;
+
     /* 7) 关闭 loop：close 全部 handle → 处理 close 回调 → loop_close
      *（libuv 里 stop 过但仍 open 的 handle 也会让 uv_loop_close EBUSY，
      * 所以必须 walk-close 而非只关 wake）。 */

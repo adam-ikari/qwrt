@@ -122,9 +122,25 @@ static qwrt_ctx_t *qwrt_ctx_create_at(qwrt_t *rt, int slot)
     ctx->extensions = qwrt_default_exts;
     ctx->extensions_count = qwrt_default_exts_count;
 
-    /* Use the built-in default polyfill */
-    ctx->polyfill = qwrt_default_polyfill;
-    ctx->polyfill_len = qwrt_default_polyfill_len;
+    /* Polyfill bytecode: load once per runtime (lazily at first context
+     * creation) and share across all contexts — modes A/B hold a heap copy,
+     * mode C hands out the compile-time const array, mode D the host hook.
+     * rt->polyfill is unloaded at runtime teardown (qwrt_thread_teardown). */
+    if (!rt->polyfill) {
+        const uint8_t *data = NULL;
+        size_t len = 0;
+        void *owner = NULL;
+        if (qwrt_polyfill_load(&data, &len, &owner) != 0) {
+            JS_FreeContext(ctx->jsctx);
+            free(ctx);
+            return NULL;
+        }
+        rt->polyfill = data;
+        rt->polyfill_len = len;
+        rt->polyfill_owner = owner;
+    }
+    ctx->polyfill = rt->polyfill;
+    ctx->polyfill_len = rt->polyfill_len;
 
     /* Initialize handle arrays to zero/NULL */
     for (int i = 0; i < QWRT_MAX_HANDLES; i++) {
