@@ -46,6 +46,8 @@ typedef struct {
     mbedtls_entropy_context entropy;
     mbedtls_ctr_drbg_context ctr_drbg;
     int refs;                        /* listener + in-flight connections */
+    const char *alpn_protos[8];      /* server ALPN list (NULL-terminated) */
+    char alpn_buf[160];              /* storage for alpn_protos strings */
 } qwrt_tls_server_ctx_t;
 
 static void tls_cert_entries_free(qwrt_tls_cert_entry_t *list) {
@@ -215,6 +217,50 @@ static qwrt_tls_server_ctx_t *tls_server_ctx_new(JSContext *ctx,
         /* Certs are selected per-handshake in tls_sni_cb (default entry
          * included) so a hot reload swaps them without touching ssl_conf. */
         mbedtls_ssl_conf_sni(&tc->ssl_conf, tls_sni_cb, tc);
+        /* ALPN: optional alpn array, default ['http/1.1'] for backward compat. */
+        {
+            int n = 0;
+            size_t off = 0;
+            JSValue av = JS_GetPropertyStr(ctx, tls_obj, "alpn");
+            int alpn_given = !JS_IsUndefined(av) && !JS_IsNull(av);
+            int alpn_err = alpn_given && !JS_IsArray(av);
+            if (!alpn_err && alpn_given) {
+                JSValue lv = JS_GetPropertyStr(ctx, av, "length");
+                uint32_t count = 0;
+                JS_ToUint32(ctx, &count, lv);
+                JS_FreeValue(ctx, lv);
+                for (uint32_t i = 0; i < count && !alpn_err; i++) {
+                    JSValue item = JS_GetPropertyUint32(ctx, av, i);
+                    const char *s = JS_IsString(item) ? JS_ToCString(ctx, item) : NULL;
+                    if (!s || !s[0] || n >= 7 ||
+                        off + strlen(s) + 1 > sizeof(tc->alpn_buf))
+                        alpn_err = 1;
+                    else {
+                        size_t len = strlen(s);
+                        memcpy(tc->alpn_buf + off, s, len + 1);
+                        tc->alpn_protos[n++] = tc->alpn_buf + off;
+                        off += len + 1;
+                    }
+                    if (s) JS_FreeCString(ctx, s);
+                    JS_FreeValue(ctx, item);
+                }
+            }
+            JS_FreeValue(ctx, av);
+            if (alpn_err) break;
+            /* Default: http/1.1 only (backward compatible with existing serve()). */
+            if (!alpn_given) {
+                size_t len = strlen("http/1.1");
+                memcpy(tc->alpn_buf + off, "http/1.1", len + 1);
+                tc->alpn_protos[n++] = tc->alpn_buf + off;
+                off += len + 1;
+            }
+            if (n > 0) {
+                tc->alpn_protos[n] = NULL;
+                if (mbedtls_ssl_conf_alpn_protocols(&tc->ssl_conf,
+                                                    tc->alpn_protos) != 0)
+                    break;
+            }
+        }
         tc->refs = 1;
         return tc;
     } while (0);
@@ -440,6 +486,12 @@ static void tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
                     if (JS_IsFunction(c->jsctx, c->onconnect))
                         JS_Call(c->jsctx, c->onconnect, c->handle_obj, 0, NULL);
                     if (c->closed || c->freed) return;
+                } else {
+                    /* Server connection: expose negotiated ALPN protocol. */
+                    const char *proto = mbedtls_ssl_get_alpn_protocol(&c->ssl);
+                    JSValue av = proto ? JS_NewString(c->jsctx, proto) : JS_NULL;
+                    if (JS_IsException(av)) av = JS_NULL;
+                    JS_SetPropertyStr(c->jsctx, c->handle_obj, "alpn", av);
                 }
             } else if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
                 return;

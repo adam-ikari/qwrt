@@ -4346,7 +4346,7 @@
       var listener;
       var tls = options.tls;
       if (tls && tls.cert && tls.key)
-        listener = pal2.tcpListen(port, hostname, 128, handleConnection, { cert: tls.cert, key: tls.key });
+        listener = pal2.tcpListen(port, hostname, 128, handleConnection, tls);
       else
         listener = pal2.tcpListen(port, hostname, 128, handleConnection);
       var conns = [];

@@ -1424,6 +1424,226 @@ def test_header_proto_pollution(qwrt_bin):
 
 
 
+# ---------------------------------------------------------------------------
+# TLS server ALPN (gRPC Phase 3a: tcpListen server-side ALPN + conn.alpn)
+# ---------------------------------------------------------------------------
+
+def _tcplisten_tls_js(port, cert, key, alpn_opt):
+    """Generate JS for a tcpListen TLS echo server that logs conn.alpn."""
+    alpn_arg = ""
+    if alpn_opt is not None:
+        alpn_arg = ", alpn: [%s]" % ", ".join("'%s'" % a for a in alpn_opt)
+    return (
+        "var cert = %r; var key = %r;\n"
+        "var l = __native__.tcpListen(%d, '127.0.0.1', 16, function(conn) {\n"
+        "  conn.ondata = function(buf) {\n"
+        "    console.log('CONN-ALPN:' + JSON.stringify(conn.alpn));\n"
+        "    __native__.tcpWrite(conn, new TextEncoder().encode('ECHO:' +\n"
+        "      new TextDecoder().decode(buf)));\n"
+        "    console.log('DATA-OK');\n"
+        "  };\n"
+        "  conn.onclose = function() { console.log('CONN-CLOSE'); };\n"
+        "}, {cert: cert, key: key%s});\n"
+        "console.log('LISTENING');\n"
+    ) % (cert, key, port, alpn_arg)
+
+
+def _ssl_client_alpn(port, alpn_protos, data=b"ping"):
+    """Connect to a TLS server with ALPN, send data, return (selected_alpn, response)."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    if alpn_protos:
+        ctx.set_alpn_protocols(alpn_protos)
+    raw = socket.create_connection(("127.0.0.1", port), timeout=5)
+    tls = ctx.wrap_socket(raw, server_hostname="localhost")
+    try:
+        sel = tls.selected_alpn_protocol()
+        tls.sendall(data)
+        tls.settimeout(5)
+        resp = tls.recv(4096)
+    finally:
+        try: tls.unwrap()
+        except ssl.SSLError: pass
+        tls.close()
+    return sel, resp
+
+
+@test
+def test_tcplisten_tls_alpn_h2(qwrt_bin):
+    """Server tcpListen with alpn:['h2','http/1.1'] → client offers h2 →
+    server negotiates h2 → conn.alpn === 'h2'."""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    js = _tcplisten_tls_js(p, cert, key, ["h2", "http/1.1"])
+    import select as _sel
+    proc = subprocess.Popen([qwrt_bin, "-e", js],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = b""
+    try:
+        fd = proc.stdout.fileno()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rlist, _, _ = _sel.select([fd], [], [], 0.1)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk: break
+                out += chunk
+                if b"LISTENING" in out: break
+        assert b"LISTENING" in out, "server did not start: %s" % out[-400:]
+
+        sel_alpn, resp = _ssl_client_alpn(p, ["h2", "http/1.1"])
+        assert sel_alpn == "h2", "client selected %r, expected 'h2'" % sel_alpn
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rlist, _, _ = _sel.select([fd], [], [], 0.1)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk: break
+                out += chunk
+                if b"DATA-OK" in out: break
+        text = out.decode(errors="replace")
+        assert 'CONN-ALPN:"h2"' in text, "server conn.alpn not h2: %s" % text[-400:]
+        assert resp == b"ECHO:ping", "echo mismatch: %r" % resp
+    finally:
+        proc.terminate()
+        try: proc.wait(timeout=5)
+        except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+
+
+@test
+def test_tcplisten_tls_alpn_http11(qwrt_bin):
+    """Server tcpListen with alpn:['http/1.1'] only → client offers h2+http/1.1 →
+    server negotiates http/1.1 → conn.alpn === 'http/1.1'."""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    js = _tcplisten_tls_js(p, cert, key, ["http/1.1"])
+    import select as _sel
+    proc = subprocess.Popen([qwrt_bin, "-e", js],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = b""
+    try:
+        fd = proc.stdout.fileno()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rlist, _, _ = _sel.select([fd], [], [], 0.1)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk: break
+                out += chunk
+                if b"LISTENING" in out: break
+        assert b"LISTENING" in out, "server did not start: %s" % out[-400:]
+
+        sel_alpn, resp = _ssl_client_alpn(p, ["h2", "http/1.1"])
+        assert sel_alpn == "http/1.1", "client selected %r, expected 'http/1.1'" % sel_alpn
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rlist, _, _ = _sel.select([fd], [], [], 0.1)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk: break
+                out += chunk
+                if b"DATA-OK" in out: break
+        text = out.decode(errors="replace")
+        assert 'CONN-ALPN:"http/1.1"' in text, "server conn.alpn not http/1.1: %s" % text[-400:]
+        assert resp == b"ECHO:ping", "echo mismatch: %r" % resp
+    finally:
+        proc.terminate()
+        try: proc.wait(timeout=5)
+        except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+
+
+@test
+def test_tcplisten_tls_default_no_alpn(qwrt_bin):
+    """Server tcpListen with TLS but no alpn option → backward compat default
+    ['http/1.1'] → client offers h2+http/1.1 → negotiates http/1.1."""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    js = _tcplisten_tls_js(p, cert, key, None)  # no alpn option
+    import select as _sel
+    proc = subprocess.Popen([qwrt_bin, "-e", js],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = b""
+    try:
+        fd = proc.stdout.fileno()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rlist, _, _ = _sel.select([fd], [], [], 0.1)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk: break
+                out += chunk
+                if b"LISTENING" in out: break
+        assert b"LISTENING" in out, "server did not start: %s" % out[-400:]
+
+        sel_alpn, resp = _ssl_client_alpn(p, ["h2", "http/1.1"])
+        # Default is ['http/1.1'] so server should negotiate http/1.1
+        assert sel_alpn == "http/1.1", "client selected %r, expected 'http/1.1'" % sel_alpn
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rlist, _, _ = _sel.select([fd], [], [], 0.1)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk: break
+                out += chunk
+                if b"DATA-OK" in out: break
+        text = out.decode(errors="replace")
+        assert 'CONN-ALPN:"http/1.1"' in text, "server conn.alpn not http/1.1: %s" % text[-400:]
+        assert resp == b"ECHO:ping", "echo mismatch: %r" % resp
+    finally:
+        proc.terminate()
+        try: proc.wait(timeout=5)
+        except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+
+@test
+def test_tcplisten_tls_no_alpn_compat(qwrt_bin):
+    """Server tcpListen TLS with no alpn field (default ['http/1.1']); client
+    does NOT set ALPN → no protocol negotiated → conn.alpn is null; data
+    roundtrip still works."""
+    cert, key = tls_client_fixture()
+    p = free_port()
+    js = _tcplisten_tls_js(p, cert, key, None)  # no alpn option
+    import select as _sel
+    proc = subprocess.Popen([qwrt_bin, "-e", js],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = b""
+    try:
+        fd = proc.stdout.fileno()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rlist, _, _ = _sel.select([fd], [], [], 0.1)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk: break
+                out += chunk
+                if b"LISTENING" in out: break
+        assert b"LISTENING" in out, "server did not start: %s" % out[-400:]
+
+        # Client does NOT set ALPN (pass None → skip set_alpn_protocols)
+        sel_alpn, resp = _ssl_client_alpn(p, None)
+        assert sel_alpn is None, "client selected %r, expected None" % sel_alpn
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            rlist, _, _ = _sel.select([fd], [], [], 0.1)
+            if rlist:
+                chunk = os.read(fd, 4096)
+                if not chunk: break
+                out += chunk
+                if b"DATA-OK" in out: break
+        text = out.decode(errors="replace")
+        assert "CONN-ALPN:null" in text, "server conn.alpn not null: %s" % text[-400:]
+        assert resp == b"ECHO:ping", "echo mismatch: %r" % resp
+    finally:
+        proc.terminate()
+        try: proc.wait(timeout=5)
+        except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--qwrt-bin", required=True)
