@@ -80,13 +80,13 @@ function findQjsc() {
 // Whether non-UTF encoding support is compiled in (matches CMake option)
 const QWRT_POLYFILL_MODE = (process.env.QWRT_POLYFILL_MODE || 'C').toUpperCase();
 const QWRT_WITH_NONUTF_ENCODINGS = process.env.QWRT_WITH_NONUTF_ENCODINGS === '1';
-// gRPC/HTTP2 stack (http2.js + hpack.js + protobuf.js + flatbuffers.js + grpc.js).
+// gRPC/HTTP2 stack (http2.js + hpack.js + protobuf.js + grpc.js).
 // Off by default: it is ~3.5k lines of JS that only upstream-calling scripts use.
 const QWRT_WITH_GRPC = process.env.QWRT_WITH_GRPC === '1';
 
 /*
  * QWRT_WITH_GRPC gates the gRPC/HTTP2 stack (grpc.js + http2.js + hpack.js +
- * protobuf.js + flatbuffers.js, ~3.5k lines) by swapping the virtual
+ * protobuf.js, ~3.5k lines) by swapping the virtual
  * `@qwrt/grpc-stack` module for an empty stub.
  *
  * A `define` + `if (QWRT_WITH_GRPC)` guard is not enough: esbuild keeps the

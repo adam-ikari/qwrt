@@ -4,6 +4,8 @@ All notable changes to Qwrt.js.
 
 ## [Unreleased]
 
+### Removed
+- JS flatbuffers 退役：flatbuffers 重新定位为纯 C 层内部格式（当前无 C 消费者，不实现 C 代码）。JS 层退役理由：① JS 急切 decode 无性能优势（encode 两趟 vtable 回填+对齐，decode 遍历整表物化对象），zero-copy 随机字段访问优势仅在 C 层成立；② Worker 间为同进程共享内存通信，非 IPC 场景，无需跨进程序列化协议，flatbuffers 的跨界序列化价值在 qwrt 中不存在。gRPC 序列化改为 protobuf-only（标准互操作：grpc-go/grpc-js/grpcurl/Envoy）。删除 flatbuffers.js（1219 行）、loadFlatbuffers API、flatbuffers harness、`application/grpc+flatbuffers` content-type。纯 C 层定位：未来出现真实 C 层序列化需求时按 `docs/plans/2026-09-03-flatbuffers-runtime-builtin.md` 方案 B（惰性访问器）实施。
 ### Added
 - gRPC/HTTP2 Phase 3a（C 服务端 ALPN）：`tcpListen` 第5参 `tlsOpts` 新增可选 `alpn` 字段（字符串数组，如 `['h2','http/1.1']`），经 `mbedtls_ssl_conf_alpn_protocols` 在 TLS 握手时协商协议；缺省 `['http/1.1']`（向后兼容，现有 `serve()` HTTP/1.1 行为不变）。`serve()` 的 `tls` 选项现在透传 `alpn`/`sni` 等全部字段到 `tcpListen`（此前只取 `cert`+`key`，丢弃其余）。TLS 握手完成后，服务端连接句柄暴露 `conn.alpn` 属性（协商的协议字符串，如 `"h2"` 或 `"http/1.1"`；未协商时为 `null`），供 JS 层嗅探协议（服务端 gRPC 路由依据）。新增 e2e 测试 3 用例（`test_tcplisten_tls_alpn_h2` / `test_tcplisten_tls_alpn_http11` / `test_tcplisten_tls_default_no_alpn`），Python `ssl.set_alpn_protocols` 为对端验证协商结果。
 - CI: HTTP/2 客户端栈性能基准 h2-client-perf job（Node http2 对端 + 纯 JS 栈，阈值=基线50%）

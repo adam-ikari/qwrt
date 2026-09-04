@@ -2,7 +2,7 @@
  * gRPC client e2e harness (verification only — not part of the runtime bundle).
  *
  * Runs the REAL polyfill/src/grpc.js (+ http2.js, hpack.js, protobuf.js,
- * flatbuffers.js, esbuild-bundled to ESM) against real HTTP/2 servers. Only the
+ * esbuild-bundled to ESM) against real HTTP/2 servers. Only the
  * transport is shimmed: `pal.tcpConnect/tcpWrite/tcpClose` are backed by Node
  * `net` sockets, so the h2 engine sees the same byte stream it would in the
  * qwrt runtime.
@@ -12,8 +12,7 @@
  *      itself (no protobuf library anywhere near it). This is the deterministic,
  *      dependency-free core: it proves the 5-byte gRPC framing, the trailers
  *      status model, metadata, deadline and wire compatibility of our own
- *      protobuf.js against an independent reading of the spec. It also serves
- *      the flatbuffers path, which by design only a qwrt-aware peer can speak.
+ *      protobuf.js against an independent reading of the spec.
  *   2. @grpc/grpc-js, if resolvable (QWRT_GRPC_PEER_MODULES or a global
  *      install). A genuine standard peer — the strongest interop evidence.
  *      Skipped (loudly) when absent, since installing it needs network.
@@ -206,12 +205,6 @@ function startRawServer(handlers) {
 }
 
 const PROTO_TEXT = fs.readFileSync(path.join(__dirname, 'proto', 'helloworld.proto'), 'utf8');
-const FBS_TEXT = `
-namespace internal;
-table EchoRequest { text:string; num:int64; }
-table EchoReply { text:string; num:int64; ok:bool; }
-service Echo { Run(EchoRequest):EchoReply; Stream(EchoRequest):EchoReply; }
-`;
 
 // ════════════════════════════════════════════════════════════════════
 //  A. protobuf path against the hand-written peer (default codec)
@@ -243,7 +236,6 @@ console.log('\ngRPC client e2e (peer: hand-written node http2, protobuf default 
 await t('module mounted on globalThis', () => {
   ok(grpc && typeof grpc.createChannel === 'function', 'grpc.createChannel');
   ok(typeof grpc.loadProto === 'function', 'grpc.loadProto');
-  ok(typeof grpc.loadFlatbuffers === 'function', 'grpc.loadFlatbuffers');
   eq(grpc.Status.DEADLINE_EXCEEDED, 4, 'status table');
   eq(grpc.Status.UNAVAILABLE, 14, 'status table');
 });
@@ -352,56 +344,6 @@ await t('connection reuse: one socket serves many calls', async () => {
   const reply = await ch.invoke(sayHello, { name: 'after' });
   eq(reply.message, 'Hello after', 'still healthy afterwards');
 });
-
-// ════════════════════════════════════════════════════════════════════
-//  B. flatbuffers path (opt-in; qwrt<->qwrt internal only)
-// ════════════════════════════════════════════════════════════════════
-const fbs = grpc.loadFlatbuffers(FBS_TEXT);
-const runEcho = fbs.service('internal.Echo').method('Run');
-
-const F = {
-  '/internal.Echo/Run': (req) => {
-    const got = fbs.lookup('internal.EchoRequest').decode(req);
-    const body = fbs.lookup('internal.EchoReply').encode({ text: got.text.toUpperCase(), num: Number(got.num) * 2, ok: true });
-    return { body };
-  },
-};
-const fraw = await startRawServer(F);
-const fch = grpc.createInsecureChannel('127.0.0.1:' + fraw.port);
-
-console.log('\ngRPC client e2e (peer: flatbuffers-aware, opt-in codec)');
-
-await t('flatbuffers method carries its own codec', () => {
-  eq(runEcho.serialization, 'flatbuffers', 'bound serialization');
-  eq(runEcho.path, '/internal.Echo/Run', 'path');
-  eq(runEcho.requestType.kind, 'table', 'request type is an fbs table');
-});
-
-await t('unary call with flatbuffers payload', async () => {
-  const reply = await fch.invoke(runEcho, { text: 'ping', num: 21 });
-  eq(reply.text, 'PING', 'reply.text');
-  eq(reply.num, 42, 'reply.num');
-  eq(reply.ok, true, 'reply.ok');
-});
-
-await t('flatbuffers call advertises the flatbuffers content-type', () => {
-  eq(fraw.seen[0].headers['content-type'], 'application/grpc+flatbuffers', 'content-type');
-});
-
-await t('protobuf method rejects a flatbuffers override', async () => {
-  let err = null;
-  try { await ch.invoke(sayHello, { name: 'x' }, { serialization: 'flatbuffers' }); }
-  catch (e) { err = e; }
-  ok(err && /is bound to protobuf/.test(err.message), 'clear mismatch error, got: ' + (err && err.message));
-});
-
-await t('flatbuffers method rejects a protobuf override', async () => {
-  let err = null;
-  try { await fch.invoke(runEcho, { text: 'a', num: 1 }, { serialization: 'protobuf' }); }
-  catch (e) { err = e; }
-  ok(err && /is bound to flatbuffers/.test(err.message), 'clear mismatch error, got: ' + (err && err.message));
-});
-
 await t('streaming methods are refused, not silently truncated', async () => {
   let err = null;
   try { await ch.invoke(sayHello, { name: 'x' }, {}); } catch (e) { err = e; }
@@ -412,6 +354,7 @@ await t('streaming methods are refused, not silently truncated', async () => {
   try { await ch.invoke(sreg.service('S').method('Up'), { a: 'x' }); } catch (e) { err = e; }
   eq(err && err.code, grpc.Status.UNIMPLEMENTED, 'code');
 });
+
 
 // ════════════════════════════════════════════════════════════════════
 //  C. @grpc/grpc-js — a real standard peer (optional)
@@ -489,8 +432,7 @@ if (!peer) {
   await new Promise((res) => server.tryShutdown(res));
 }
 
-await ch.close(); await fch.close();
-raw.srv.close(); fraw.srv.close();
+await ch.close();
 
 console.log('\ngrpc: ' + passed + ' passed, ' + failed + ' failed' + (skipped ? ', ' + skipped + ' skipped' : ''));
 if (failed) { console.log('\n' + failures.join('\n')); process.exit(1); }

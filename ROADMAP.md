@@ -96,6 +96,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | H2 | **Phase1 — 纯 JS HTTP/2 客户端栈** ✅ | `hpack.js`（HPACK 编解码，61 项静态表 + 257 项 Huffman 表 + 动态表）+ `http2.js`（帧层 + 多路复用 + 连接/流双窗口流控 + CONTINUATION 重组 + trailers + PING/RST/GOAWAY）。 | hpack 14/14 + 帧 16/16 + e2e 22/22 |
 | H3 | **Phase2 — gRPC unary 客户端 + proto3/flatbuffers 序列化 + QWRT_WITH_GRPC 编译开关** ✅ | `protobuf.js`（动态 proto3 子集解析器 + wire 编解码）+ `flatbuffers.js`（FlatBuffers 编解码）+ `grpc.js`（unary 语义、5 字节消息前缀、trailers、grpc-status 映射、deadline、metadata）。`QWRT_WITH_GRPC` CMake 开关（默认 OFF）：ON 时将 h2/HPACK/gRPC/protobuf/flatbuffers 打入 polyfill bundle；OFF 时完全消除（零字节进 bundle）。 | grpc e2e 24/24 + flatbuffers 70/70 + ctest 15/15 无回归；OFF 构建 268KB 全消除 / ON 411KB |
 | H4 | **Phase3 — 服务端 gRPC（serve() ALPN 分发 + h2 server）** 🔲 | `tcpListen` TLS 加 ALPN `h2`；明文连接嗅探 `PRI * HTTP/2.0` 前导自动切 h2c；服务端 h2 引擎 + gRPC 服务端语义。决策点：HPACK 是否下沉 C 原语。 | 未开始 |
+| H5 | **flatbuffers JS 层退役** ✅ | 用户决策：flatbuffers 定位为纯 C 层内部格式（当前无 C 消费者，不实现）。JS 层退役理由：JS 急切 decode 无性能优势，zero-copy 仅在 C 层成立；Worker 间为同进程共享内存通信，非 IPC 场景，无需跨进程序列化协议。gRPC 序列化 protobuf-only；删除 flatbuffers.js / grpc loadFlatbuffers / flatbuffers harness。 | grpc_harness protobuf + grpc-js 节全绿；ctest offline 无回归 |
 ### E. 工具链
 
 | # | 工作项 | 说明 | 验证 |

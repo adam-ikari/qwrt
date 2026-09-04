@@ -4,12 +4,11 @@
  * This is the gRPC layer of the HTTP/2 design (docs/plans/
  * 2026-09-03-grpc-http2-design.md §5.1). Transport (frames, HPACK, flow
  * control, multiplexing) lives in http2.js; message codecs live in
- * protobuf.js / flatbuffers.js. This module adds only what gRPC itself
- * specifies on top:
+ * protobuf.js. This module adds only what gRPC itself specifies on top:
  *
  *   - Length-Prefixed-Message framing: [compressed-flag:1][len:4 BE][payload]
  *   - Request headers: :method POST, :path /pkg.Service/Method,
- *     content-type: application/grpc+<codec>, te: trailers,
+ *     content-type: application/grpc+proto, te: trailers,
  *     grpc-timeout, grpc-accept-encoding
  *   - Response: initial headers → DATA → **trailers** carrying grpc-status /
  *     grpc-message (plus the "Trailers-Only" single-HEADERS form)
@@ -17,17 +16,9 @@
  *   - Deadline: grpc-timeout header + a local timer that RST_STREAMs the call
  *   - Metadata: lowercase keys; `-bin` keys are base64 (Uint8Array <-> string)
  *
- * Serialization is chosen per call, and the DEFAULT IS PROTOBUF:
- *
- *   'protobuf'    → application/grpc+proto           (interop with any
- *                   standard gRPC peer — grpc-go, grpc-js, grpcurl, Envoy)
- *   'flatbuffers' → application/grpc+flatbuffers     (qwrt ↔ qwrt internal
- *                   fast path only; a standard peer has no such codec and
- *                   will reject the call)
- *
- * flatbuffers is a *supplement*, never a replacement: pick it when both ends
- * are qwrt and the payload is large or the call is hot. Anything facing the
- * wider gRPC ecosystem must stay on protobuf.
+ * Serialization = protobuf only (standard gRPC interop).  Flatbuffers was
+ * evaluated and retired from the JS layer — see ROADMAP H5 and
+ * docs/plans/2026-09-03-flatbuffers-runtime-builtin.md for rationale.
  *
  * Scope: unary client calls only. Streaming and gzip compression are later
  * phases; `grpc-encoding` is advertised as `identity` only.
@@ -35,7 +26,6 @@
 
 import { HTTP2Client, ERR } from './http2.js';
 import { parseProto } from './protobuf.js';
-import { parseSchema } from './flatbuffers.js';
 
 var _pal = null;
 
@@ -202,25 +192,9 @@ function readHeaderBlock(pairs) {
 
 /* ── codecs ── */
 
-var CONTENT_TYPE = {
-  protobuf: 'application/grpc+proto',
-  flatbuffers: 'application/grpc+flatbuffers',
-};
-
-/* Infer the codec from a message type object (MessageType.kind / TableType.kind). */
-function kindOf(t) {
-  if (!t) return null;
-  if (t.kind === 'message') return 'protobuf';
-  if (t.kind === 'table') return 'flatbuffers';
-  return null;
-}
-
 /*
- * Resolve what a call will actually use: the method object, the codec, and the
- * encode/decode pair. `opts.serialization` defaults to the codec the bound
- * method's types speak — which is 'protobuf' for anything loaded from a .proto.
- * A mismatch (e.g. {serialization:'flatbuffers'} on a .proto method) is a
- * programmer error and fails loudly rather than silently mis-wiring bytes.
+ * Resolve what a call will actually use: the method object, the
+ * encode/decode pair, and whether it is streaming.
  */
 function resolveCall(method, opts, registry) {
   var m = null;
@@ -251,20 +225,13 @@ function resolveCall(method, opts, registry) {
       respType = { decode: function (b) { return null; }, kind: 'message' };
     } else {
       throw new Error('grpc: cannot resolve request/response types for ' + m.path +
-                      ' — pass a method from loadProto()/loadFlatbuffers(), or opts.requestType/respType');
+                      ' — pass a method from loadProto(), or opts.requestType/respType');
     }
-  }
-  var inferred = kindOf(reqType) || kindOf(respType);
-  if (!inferred) throw new Error('grpc: unknown message type for ' + m.path);
-  var want = opts.serialization || m.serialization || 'protobuf';
-  if (want !== inferred) {
-    throw new Error('grpc: ' + m.path + ' is bound to ' + inferred +
-                    ' types but serialization:"' + want + '" was requested');
   }
   if (typeof reqType.encode !== 'function' || typeof respType.decode !== 'function') {
     throw new Error('grpc: message types for ' + m.path + ' lack encode/decode');
   }
-  return { path: m.path, serialization: want, reqType: reqType, respType: respType,
+  return { path: m.path, reqType: reqType, respType: respType,
            streaming: !!(m.clientStreaming || m.serverStreaming) };
 }
 
@@ -318,9 +285,8 @@ Channel.prototype._drop = function (client) {
  * @param {object} [opts]
  *   headers        gRPC metadata (keys lowercased; `-bin` values may be Uint8Array)
  *   timeoutMs      deadline; sends grpc-timeout and aborts locally on expiry
- *   serialization  'protobuf' (default) | 'flatbuffers' (qwrt↔qwrt internal only)
  *   requestType / responseType  explicit types when `method` is a bare path
- *   registry       .proto/.fbs registry to resolve a bare path against
+ *   registry       .proto registry to resolve a bare path against
  *   onMetadata     called with the peer's response metadata
  * @returns {Promise<object>} the decoded response message
  */
@@ -365,7 +331,7 @@ Channel.prototype._once = function (call, payload, opts, isRetry) {
       var splitter = new FrameSplitter(self._maxRecv, function (m) { messages.push(m); });
 
       var headers = {
-        'content-type': CONTENT_TYPE[call.serialization],
+        'content-type': 'application/grpc+proto',
         'te': 'trailers',
         'grpc-accept-encoding': 'identity',
         'user-agent': 'qwrt-grpc-js/1.0',
@@ -551,28 +517,9 @@ function createInsecureChannel(target, opts) {
 
 /* ── schema loading ── */
 
-/** Parse .proto text → registry (services carry protobuf-bound methods). */
+/** Parse .proto text → registry of bound methods. */
 function loadProto(text, opts) {
-  var reg = parseProto(text, opts);
-  // Tag proto methods so resolveCall() can prove the codec without guessing.
-  Object.keys(reg.services).forEach(function (k) {
-    var ms = reg.services[k].methods;
-    Object.keys(ms).forEach(function (n) { if (!ms[n].serialization) ms[n].serialization = 'protobuf'; });
-  });
-  return reg;
-}
-
-/**
- * Parse .fbs text → schema whose service methods bind flatbuffers tables.
- * Only for qwrt↔qwrt internal calls; see the module header for why.
- */
-function loadFlatbuffers(text) {
-  var s = parseSchema(text);
-  Object.keys(s.services).forEach(function (k) {
-    var ms = s.services[k].methods;
-    Object.keys(ms).forEach(function (n) { ms[n].serialization = 'flatbuffers'; });
-  });
-  return s;
+  return parseProto(text, opts);
 }
 
 /* ── global mount ── */
@@ -586,10 +533,10 @@ export function setupGrpc(pal) {
     StatusError: StatusError,
     Channel: Channel,
     loadProto: loadProto,
-    loadFlatbuffers: loadFlatbuffers,
     createChannel: createChannel,
     createInsecureChannel: createInsecureChannel,
   };
 }
 
-export { Channel, Status, StatusName, loadProto, loadFlatbuffers, createChannel, createInsecureChannel };
+export { Channel, Status, StatusName, loadProto, createChannel, createInsecureChannel };
+

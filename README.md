@@ -192,7 +192,7 @@ platform-backend option anymore.
 | `QWRT_WITH_CRYPTO_EXT` | ON | crypto.subtle extension (undefined when OFF) |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8/Base64 extension |
 | `QWRT_WITH_NONUTF_ENCODINGS` | OFF | non-UTF encoding labels (Latin-1, replacement) in TextDecoder |
-| `QWRT_WITH_GRPC` | OFF | gRPC/HTTP2 client (h2 + HPACK + protobuf + flatbuffers; adds ~143KB to polyfill bundle when ON) |
+| `QWRT_WITH_GRPC` | OFF | gRPC/HTTP2 client (h2 + HPACK + protobuf; adds ~143KB to polyfill bundle when ON) |
 
 ### Build Targets (`QWRT_BUILD_*`)
 
