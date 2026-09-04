@@ -12,6 +12,8 @@ Coverage:
   NO_PROXY bypass      : NO_PROXY excludes the origin; proxy must see nothing
   CONNECT tunnel       : HTTPS_PROXY triggers "CONNECT host:port"; proxy
                          replies 200 and pipes raw bytes
+  NO_PROXY IPv6        : bracketed entries ("[::1]") match bare hosts; a
+                         non-matching IPv6 origin still uses the proxy
   CONNECT refused      : proxy replies 403 -> fetch rejects with a network
                          error mentioning the proxy
 
@@ -50,14 +52,15 @@ def free_port():
 class Origin:
     """Minimal origin HTTP server: GET /hello -> 200 text/plain body."""
 
-    def __init__(self, body=b"hello-via-origin"):
+    def __init__(self, body=b"hello-via-origin", host="127.0.0.1"):
         self.body = body
         self.port = free_port()
         self.requests = []           # (method, target, headers) tuples
         self._lock = threading.Lock()
-        self._srv = socket.socket()
+        self._srv = socket.socket(socket.AF_INET6 if ":" in host
+                                  else socket.AF_INET)
         self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._srv.bind(("127.0.0.1", self.port))
+        self._srv.bind((host, self.port))
         self._srv.listen(8)
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
@@ -265,6 +268,42 @@ def test_no_proxy_bypass(qwrt_bin):
     finally:
         proxy.stop()
         origin.stop()
+
+
+@test
+def test_no_proxy_bracketed_ipv6_bypass(qwrt_bin):
+    """NO_PROXY='[::1]' must bypass the proxy for http://[::1]:port/ —
+    hosts are stored bare, so bracketed entries must be bracket-stripped."""
+    origin = Origin(host="::1")
+    proxy = Proxy()
+    try:
+        js = ("fetch('http://[::1]:%d/hello').then(function(r){return r.text();})"
+              ".then(function(t){console.log('GOT:'+t);},"
+              "function(e){console.log('ERR:'+e);});" % origin.port)
+        rc, out = run_qwrt_fetch(qwrt_bin, js, proxy_port=proxy.port,
+                                 no_proxy="[::1]")
+        assert "GOT:hello-via-origin" in out, out
+        time.sleep(0.2)
+        assert proxy.seen == [], proxy.seen
+    finally:
+        proxy.stop()
+        origin.stop()
+
+
+@test
+def test_no_proxy_ipv6_nonmatch_uses_proxy(qwrt_bin):
+    """An IPv6 origin NOT covered by NO_PROXY still goes through the proxy
+    (the request line must appear in the proxy log)."""
+    proxy = Proxy()
+    try:
+        js = ("fetch('http://[::1]:%d/hello').then(function(r){console.log('UNEXPECTED');},"
+              "function(e){console.log('ERR:'+e);});" % (proxy.port - 1))
+        rc, out = run_qwrt_fetch(qwrt_bin, js, proxy_port=proxy.port,
+                                 no_proxy="example.com")
+        assert proxy.seen and proxy.seen[0].startswith(
+            "GET http://[::1]:%d/hello HTTP/1.1" % (proxy.port - 1)), proxy.seen
+    finally:
+        proxy.stop()
 
 
 @test
