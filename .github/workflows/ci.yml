@@ -380,7 +380,59 @@ jobs:
               print('PERF-REGRESSION: ' + ', '.join(failed))
               sys.exit(1)
           print('PERF-OK')
-          EOF
+
+  # ============================================================================
+  # e2e: real-libuv CLI (QWRT_BUILD_TESTS=OFF) driving the four standalone e2e
+  # suites plus the pure-JS verification harnesses (node only, no C build).
+  # Mock-libuv builds (QWRT_BUILD_TESTS=ON) have no real networking — the CLI
+  # there cannot serve()/fetch(), hence the dedicated tests=OFF configure.
+  # ============================================================================
+  e2e:
+    runs-on: ubuntu-latest
+    name: e2e (real-libuv CLI + JS harnesses)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Install Node (harnesses + polyfill esbuild)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
+      - name: Configure (real-libuv CLI)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DQWRT_BUILD_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: JS harnesses (hpack / protobuf / h2-client / grpc)
+        run: |
+          node test/hpack_harness.mjs
+          node test/protobuf_harness.mjs
+          node test/h2_client_harness.mjs
+          node test/grpc_harness.mjs
+
+      - name: e2e — HTTPServer / fetch proxy
+        run: |
+          python3 test/test_httpserver_e2e.py --qwrt-bin ./build/qwrt
+          python3 test/test_fetch_proxy_e2e.py --qwrt-bin ./build/qwrt
+
+      - name: e2e — Service Worker (SW-0 / SW-1)
+        run: |
+          bash test/service_worker_e2e.sh ./build/qwrt
+          bash test/service_worker_sw1_e2e.sh ./build/qwrt
 
   # ============================================================================
   # Coverage: gcov with WAMR default engine.
