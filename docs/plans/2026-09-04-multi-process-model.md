@@ -5,6 +5,7 @@
 > 修订：2026-09-04 v2 —— 树形拓扑（worker 可再 spawn worker，跨子树经 LCA 转发）+ 评审修复（§6.1 CONTROL{idle} 协议、§12.3 背压声明、§3.3 握手协议定稿、§8.2 port id 直接父本地分配、§2.1 CMake 宏映射、§4.5 对齐勘误）
 > 修订：2026-09-04 v3 —— 混合模型：per-worker `mode` 显式覆盖编译默认 + 默认值调和（§1.4）；M-P1/M-P2 里程碑重排（进程 worker 先 opt-in 可用，混合默认策略落 M-P2，§11）；开放决策点新增 #8（mode API 形状）
 > 修订：2026-09-04 v4 —— 单进程组合轨道：§13 多实例生命周期（M-R1：进程内多 qwrt_t 并存 + 全局状态审计 + DAP stdio 约束）、§14 多 RT 组合模型（M-R2：contexts × workers 正交组合，worker 归 rt 不归 ctx）；§11 新增 M-R1/M-R2；开放决策点新增 #9/#10
+> 修订：2026-09-04 v5 —— W3C 合规回归：移除 v3 per-worker `mode` JS 扩展（WorkerOptions 规范面仅 {type, credentials, name}），后端选择上移为宿主 `qwrt_config_t.worker_backend`（§1.4；判据表修正：性能轴全指线程 / 安全轴唯一指进程 / 浏览器 wasm 对照）；新增 §1.5 验证门（可行性 / W3C 合规 / JS 无感 parity）；M-P1/M-P2、开放点 #1 联动；开放点 #8 撤销（随 `mode` 失效）
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式）的应用模型，从「单进程多线程」演进为「多进程隔离」。默认独立进程（`ISOLATED`），线程模型（`THREAD`）保留为编译选项回退。
 > 背景（用户决策原文）：**"修改应用模型，支持宿主 主RT 和 WorkerRT 独立进程，通过编译选项设置，默认是独立进程。进程间通讯使用Flatbuffer序列化"**
 
@@ -16,7 +17,7 @@
 5. **C 编解码器**：推荐方案 a——手写信封编解码（`src/ipc_envelope.c`，~200 行 C99），固定 schema 手写 vtable/offset/uoffset，字节级符合 fb 规范，零依赖零生成步骤。通用 fb codec（方案 b）作为信封类型扩展时的升格路径。
 6. **Worker spawn**：`exec` 自身二进制（Linux `/proc/self/exe`，回退 `QWRT_EXEC_PATH`）+ `--qwrt-worker --parent-fd N --worker-id N`。`fork()` 否决（JSRuntime 已初始化状态危险，必须在 JS 启动前 fork，exec 更干净）。**v2 树形：worker 进程内用同一形态递归 spawn 子 worker**。
 7. **主 RT spawn**：`exec` 自身二进制 `--qwrt-rt-server`。宿主 C API 契约 `qwrt_create/post_message/message_cb/wait_idle/destroy` **签名与语义不变**，ISOLATED 下内部走 IPC。主 RT 进程死亡 → 宿主自动感知（parent-fd EOF 监测）→ message_cb 收 ERROR。
-8. **分阶段（v3 重排）**：M-P0 信封编解码（含与 Python flatbuffers 交叉验证）→ M-P1 worker 进程 spawn+握手+消息往返（**opt-in 可用**：per-worker `mode:'process'` 显式选择，缺省仍线程）→ M-P2 宿主↔主RT 进程分离+C API 透明切换+**混合默认策略落地**（ISOLATED 编译下 worker 缺省走进程）→ M-P3 MessagePort 跨进程路由 → M-P4 优雅关闭/崩溃恢复/压力测试。
+8. **分阶段（v3 重排，v5 调整）**：M-P0 信封编解码（含与 Python flatbuffers 交叉验证）→ M-P1 worker 进程 spawn+握手+消息往返（**opt-in 走宿主 `qwrt_config_t.worker_backend`**，JS 面零新增——v5 移除 per-worker `mode`，§1.4）→ M-P2 宿主↔主RT 进程分离+C API 透明切换+**双后端 parity**（§1.5）→ M-P3 MessagePort 跨进程路由 → M-P4 优雅关闭/崩溃恢复/压力测试。
 9. **（v4）单进程组合轨道**：M-R1 多实例生命周期（进程内多 `qwrt_t` 并存：全局状态审计 + DAP stdio 单通道约束，§13）→ M-R2 多 RT 组合模型（contexts × workers 正交聚合，worker 归 rt 不归 context，§14）。M-R 在 THREAD 基线即可交付，是 M-P\* 进程轨道的组合语义基座。
 
 ---
@@ -76,35 +77,55 @@ graph TB
 | JS 层 | —（无感知） | —（**同样无感知**） |
 | 编译走线 | `QWRT_PROCESS_MODEL=THREAD` | `QWRT_PROCESS_MODEL=ISOLATED` |
 
-JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双模型下**完全一致**——差异只隔离在 C 层 qwrt_t 的消息后端。这是设计铁线：任何 JS 改动都视为越界，除非被 §8 MessagePort 跨进程语义或 §1.4 per-worker `mode`（v3）明确豁免。
+JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双模型下**完全一致**——差异只隔离在 C 层 qwrt_t 的消息后端。这是设计铁线：任何 JS 改动都视为越界，全文档无豁免（v3 的 per-worker `mode` 豁免已随 v5 移除，§1.4）。
 
 ---
 
-## 1.4 混合模型（v3 决策）：per-worker `mode` 覆盖与默认值调和
+## 1.4 W3C 合规与后端选择（v5 裁决）：JS 零扩展，后端由宿主 `qwrt_config_t.worker_backend` 决定
 
-编译开关（§2）定**可用能力集与编译期默认**；每个 worker 可在 JS 层用 `mode` 显式覆盖，双模式在**同一进程树内并存**（长命角色如 Service Worker 走进程，短命数据 worker 留线程）。这是全文档唯一新增的 JS 层可见扩展（豁免性质同 §8 MessagePort），其余 JS 契约不变。
+**移除 v3 的 per-worker `mode` JS 扩展**：WorkerOptions 规范面仅 `{ type, credentials, name }`——任何额外 per-worker 字段（`mode`/`isolation`）都是非标扩展，与「JS 层契约零改动」铁线（§1.3）冲突。后端选择**上移为宿主级 C 配置**：`qwrt_config_t` 新增 `worker_backend` 字段（`QWRT_WORKER_BACKEND_THREAD` / `QWRT_WORKER_BACKEND_PROCESS`），缺省随编译模型（ISOLATED→PROCESS；THREAD→THREAD，其 IPC 后端未编入、显式选 PROCESS 时求值报错，同 §5.3 不静默降级精神）。粒度=per-rt：同一 `qwrt_t` 的全部 worker 同后端，不同 rt 可不同——v3 的 per-worker 粒度、默认值调和表、双崩溃域并存一并撤销。
 
-**默认值调和规则**：
+**正交性论证**：W3C Worker 规范只定义 JS 可见 API 面，不约束执行后端——浏览器自身就是多进程/多线程混合实现且从不向 JS 暴露。**后端选择 = 引擎实现细节，与 W3C 合规完全正交**：规范面一字节不动，后端可整体替换；JS 层零新增、零条件分支。
 
-| 编译模型 | `new Worker(url)` 缺省 | `{mode:'process'}` | `{mode:'thread'}` |
+**规范面盘点**（本设计承诺任何后端下全部保持）：
+
+| API 面 | W3C 规范 | qwrt 现状（polyfill） | 后端影响 |
 |---|---|---|---|
-| ISOLATED（编译默认） | **process**（进程 worker） | process | thread（同进程线程 worker） |
-| THREAD（回退编译） | thread（现状不变） | **求值报错**（能力未编译即显式失败，同 §5.3 不静默降级精神） | thread |
+| `new Worker(url, options?)` | options ∈ {type, credentials, name} | `Worker(url)`（v1 无 options；将来按需补规范字段，不加非标字段） | 零改动 |
+| `worker.postMessage(data, transfer?)` | 消息 + transferable | worker.js → 信封透传 | 底层换 fb 信封，JS 不可见 |
+| `worker.terminate()` | 立即终止 | worker.c 槽位表 terminate | process 后端 = 结束子进程 |
+| `worker.onmessage / onerror / onmessageerror` | 事件回调属性 | worker.js defineProperty + EventTarget | 零改动 |
+| worker 侧 `self.postMessage / close / onmessage` | DedicatedWorkerGlobalScope | worker-boot.js 垫片 | 零改动 |
+| MessagePort（transfer 跨端） | transferable 端点对 | §8.2 端点注册 | 指针路由 → 信封路由（§8） |
+| structuredClone 契约 | StructuredSerialize | `__qwrt_serialize__/__qwrt_deserialize__` | payload 字节透传，零改动 |
 
-**Service Worker 定位**：推荐缺省 `mode:'process'`——SW 生命周期独立于页面/main script（离线场景可能无主页面），其崩溃不应牵连主 RT；独立进程是唯一能提供该保证的形态。
+**「何时选 PROCESS」判据（v5 修正：性能轴与安全轴剥离）**：
 
-**崩溃语义差异**（并存时同一树内两种后果）：
+| 判据 | 轴 | 指向 | 依据 |
+|---|---|---|---|
+| 动态起停 / 短命一次性任务 | 性能 | thread | 进程 spawn=exec+全套运行时初始化（ms 级）；线程起停 μs 级（§5） |
+| 高频 postMessage / 低延迟往返 | 性能 | thread | 同进程队列 ~百 ns 级；IPC 往返 μs 级 + 内核上下文切换（§12.2） |
+| 未来 SharedArrayBuffer / wasm-threads 数据并行 | 性能 | thread | 共享内存并发仅同进程可行；shm 直通已明确不做（§12.3） |
+| CPU 密集（wasm 大计算 / 原生密集） | 性能 | **与后端无关** | 计算吞吐=同引擎同 CPU，两后端相同；进程只多信封编码（ns 级）+ syscall（μs 级）。重 CPU 本身不构成选进程的理由 |
+| 长驻常驻（Service Worker 形态） | 生命周期/内存预算 | process（按宿主策略） | 独立生命周期与独立内存回收、崩溃不牵连主 RT——**生命周期理由，非性能理由** |
+| 不可信/第三方脚本（含 wasm AOT 原生码） | 安全 | **process（唯一指向进程的轴）** | C 层致命错误不可防守（§2.2），进程是唯一硬隔离边界。进程=隔离保费，不是性能选项 |
 
-| 事件 | 后果 |
-|---|---|
-| 线程 worker C 层段错误 | 同进程**全体死亡**（含主RT/宿主地址空间被杀，不可防守，§2.2） |
-| 进程 worker C 层段错误 | 仅该 worker 进程死；父进程经通道 EOF 感知 → JS 层 dispatch `error` 事件，树内其余进程继续（§9.3） |
+**与浏览器的判据对照**：浏览器对 wasm worker 用**同进程线程**执行，安全性由引擎级沙箱兜底（V8 wasm sandbox 硬化）。qwrt 的 WAMR（尤其 AOT 产物）不承诺同级沙箱硬化，故「不可信代码隔离」在 qwrt 内必须上移到进程边界——这就是 qwrt 判据表比浏览器多出安全轴的原因：浏览器把它藏在引擎沙箱里，qwrt 显式化为 `worker_backend` 选择。
 
-**实现锚点：`qwrt_t` 消息后端统一收口**：消息注入/派发在 `qwrt_t` 层定义为统一后端接口——`msgq`（线程 lock-free 队列，THREAD 模式）与 `ipc envelope`（uv_pipe 信封，ISOLATED 模式）两个实现；`qwrt_worker_create` 按「编译宏 + per-worker mode」选择后端。主RT 自身的后端切换机制见 §6.2（唯一改动点即消息注入源）。
+**崩溃域语义（随 `worker_backend`）**：PROCESS 的 rt——worker 段错误只杀 worker 进程，父经通道 EOF 感知、JS 层 dispatch `error`（§9.3）；THREAD 的 rt——致命限制照旧（§2.2）。
 
-**里程碑对应**：进程 worker 能力先行 opt-in 可用（M-P1）；「ISOLATED 编译缺省 process」的混合默认策略与宿主↔主RT 分离同期落地（M-P2，§11）。
+**实现锚点**：消息注入/派发在 `qwrt_t` 层统一后端接口——`msgq`（线程 lock-free 队列）与 `ipc envelope`（uv_pipe 信封）两个实现；`qwrt_worker_create` 按「编译宏能力集 + `config.worker_backend`」选后端。主RT 自身切换机制见 §6.2。
 
-**开放点**：`mode` 的 API 形状（字段名/取值）未定稿，见文末开放决策点 #8。
+## 1.5 验证门（可行性 / W3C 合规 / JS 无感）
+
+**可行性 = 里程碑验证门**：双后端统一消息接口 → M-R1 回归；FB 信封 → M-P0（roundtrip + Python 交叉验证 + 固定种子 fuzz 10^4 组仅返回 0/-1）；进程 worker spawn → M-P1 真两进程 postMessage 往返 e2e；宿主 config 选后端 → M-P2 同一测试宿主切 `worker_backend` 行为一致。做出来跑过即证，不靠文档论证。
+
+**W3C 合规 = 接口面三查**：
+1. 构造器 options 键白名单断言（gtest：Worker 构造器可接受键 ⊆ {type, credentials, name}，防未来非标扩展）；
+2. 规范可判定行为逐条成测试（transferable detach / MessagePort 转移 / terminate 后 postMessage 静默 / error 事件形状）；
+3. 规范未定义项标注（credentials 在 file:// 语境、type:module 现状——以 §1.4 盘点表为准）。
+
+**JS 无感 = 双后端 parity 自动化**：同一组 worker 测试脚本（复用现有 worker_echo / transfer / port / selfclose 等约 10 个）在 `worker_backend=THREAD` 与 `=PROCESS` 下各跑一遍，断言 stdout 逐行 diff 为空；性能差异明确豁免（§1.4 诚实边界）；落 M-P2 验证门。
 
 # 2. 编译选项
 
@@ -122,8 +143,9 @@ endif()
 
 - `QWRT_PROCESS_MODEL=ISOLATED`（默认）：编译 `src/ipc_*.c`（ipc_envelope、ipc_transport、ipc_process），qwrt_t 消息后端走 IPC 进程通道。
 - `QWRT_PROCESS_MODEL=THREAD`：现状不变，`src/msgq.c` 路径生效，ipc_*.c 不编入（不定义 `QWRT_PROCESS_MODEL_ISOLATED` 宏，`#if` 落到 `#else` 分支）。
+- 编译宏定**能力集与缺省**；运行期选择走宿主 `qwrt_config_t.worker_backend`（§1.4）：ISOLATED 编译缺省 PROCESS、可显式 THREAD；THREAD 编译未编入 IPC 后端，显式 PROCESS 求值报错（§5.3 不静默降级精神）。
 
-**实现约束**：两套后端共用一个 `qwrt_t` 结构和一个消息注入接口（`qwrt_msg_push` 的进程版 `qwrt_ipc_inject`），通过宏 `#if QWRT_PROCESS_MODEL_ISOLATED` 在 qwrt_t 内选择「线程队列字段」还是「IPC 通道字段」。**C 枚举字段可以条件编译，JS 层没有任何条件编译**。
+**实现约束**：两套后端共用一个 `qwrt_t` 结构和一个消息注入接口（`qwrt_msg_push` 的进程版 `qwrt_ipc_inject`），通过宏 `#if QWRT_PROCESS_MODEL_ISOLATED` 在 qwrt_t 内选择「线程队列字段」还是「IPC 通道字段」；`qwrt_worker_create` 按「编译宏能力集 + `config.worker_backend`」选后端（§1.4）。**C 枚举字段可以条件编译，JS 层没有任何条件编译**。
 
 ## 2.2 为何默认 ISOLATED
 
@@ -418,33 +440,33 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 
 - 产出：多实例全局状态审计落地（§13.2 清单）+ DAP stdio 冲突防护（第二实例默认 stdio attach 显式报错）+ 双实例回归测试。
 - 能力：一个宿主进程 N 个 `qwrt_t` 独立 `qwrt_create`/`qwrt_destroy` 互不干扰（THREAD 基线，零新机制——现状 per-rt 字段已齐）。
-- **验证门**：双实例交错 eval/postMessage/wait_idle/destroy 无串扰；DAP 约束按 §13.2 生效。
+- **验证门**：双实例交错 eval/postMessage/wait_idle/destroy 无串扰；DAP 约束按 §13.2 生效；统一消息接口（§1.4 锚点）双后端回归（§1.5）。
 
 ## M-R2：多 RT 组合模型（contexts × workers 正交组合；§14）
 
 - 产出：组合语义定稿（worker 归 rt 不归 ctx、上限沿用现状常量、destroy 链）+ 组合 gtest（§14.3）。
 - 能力：单 `qwrt_t` 内 contexts ×N 与 workers ×N 正交并存，suspend/resume/serialize 与 worker 消息交错语义明确。
-- **验证门**：§14.3 场景全绿；M-P1 合入后同场景以 `mode:'process'` worker 回归。
+- **验证门**：§14.3 场景全绿；M-P1 合入后同场景以进程后端 worker 回归（`worker_backend=PROCESS`）。
 
 ## M-P0：信封编解码器（最快独立里程碑）
 
 - 产出：`src/ipc_envelope.c/.h`（~200 行 C99，手写 vtable/offset/uoffset）+ `test/ipc_envelope_test.c`（gtest）。
 - 能力：encode/decode Envelope 全字段 + payload 零拷贝片引用 + 对齐 + vtable 缺字段默认值。
-- **验证门**：与 **Python `flatbuffers` 官方库**交叉验证——同一 schema，Python 编码 → C decode 逐字段比对；C 编码 → Python decode 比对。字节级 fb 兼容性证明，这正是「符合 fb wire format」的硬证据。
+- **验证门**：与 **Python `flatbuffers` 官方库**交叉验证——同一 schema，Python 编码 → C decode 逐字段比对；C 编码 → Python decode 比对。字节级 fb 兼容性证明，这正是「符合 fb wire format」的硬证据；另做固定种子 fuzz 10^4 组（畸形输入仅返回 0/-1，不崩不挂，§1.5）。
 
-## M-P1：worker 进程 spawn + fd 通道 + 握手 + 消息往返（v3：opt-in 可用）
+## M-P1：worker 进程 spawn + fd 通道 + 握手 + 消息往返（v5：`worker_backend` opt-in）
 
 - 产出：`src/ipc_process.c`（exec 自身 + socketpair + `--qwrt-worker --parent-fd --worker-id` 参数）、worker 进程内 `qwrt_t` 初始化、CONTROL handshake。
 - 能力：main↔worker **跨进程 postMessage 通**（worker 独立进程里 `postMessage` → 主RT 进程收；反向同理）。
-- **交付形态（v3 重排）**：本阶段进程 worker 仅 **opt-in**——per-worker `mode:'process'` 显式选择才走进程；编译/JS 缺省仍为线程 worker。混合默认策略（ISOLATED 编译缺省 process）不在本阶段，落 M-P2（§1.4）。
+- **交付形态（v5）**：opt-in = 宿主 `qwrt_config_t.worker_backend=PROCESS`（§1.4）——测试宿主/直调 C API 显式设置；ISOLATED 编译下亦可直接以编译缺省 PROCESS 验证。v3 的 JS `mode` opt-in 已移除。
 - **验证门**：e2e 两进程实际跑通消息往返 + 握手时序；THREAD 回归不走样。
 
 ## M-P2：宿主↔主RT 进程分离 + C API 透明切换
 
 - 产出：`qwrt --qwrt-rt-server --parent-fd N` serve 形态、`qwrt_create` 内部 exec + 握手、`qwrt_post_message/message_cb/wait_idle` 走 IPC。
 - 能力：宿主 C API **签名不变**、ISOLATED 下透明切换。
-- **新增（v3）**：混合默认策略落地——ISOLATED 编译下 `new Worker` 缺省 `mode:'process'`（§1.4 调和表）；THREAD 编译行为不变。
-- **验证门**：宿主程序（现有 cli 或测试宿主）在 ISOLATED 下跑通，行为与 THREAD 一致；宿主进程被杀 → 主RT 自杀（孤儿回收）。
+- **v5 注**：ISOLATED 编译下 `worker_backend` 缺省 PROCESS；宿主可显式 `THREAD`（§1.4）；THREAD 编译行为不变。
+- **验证门**：宿主程序（现有 cli 或测试宿主）在 ISOLATED 下跑通；同一测试宿主切 `worker_backend` 行为一致（双后端 parity 自动化，§1.5）；宿主进程被杀 → 主RT 自杀（孤儿回收）。
 
 ## M-P3：MessagePort 跨进程路由 + transfer 语义
 
@@ -502,7 +524,7 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 
 ## 13.3 崩溃语义（与 §1.4 衔接）
 
-多实例**不改变**线程模型致命限制：任一实例 C 层段错误仍杀全进程（§2.2——信号进程级，不可防守）。多实例提供的是「组合密度」；「崩溃域」能力仍由进程轨道（M-P\* / §1.4 `mode:'process'`）承担。
+多实例**不改变**线程模型致命限制：任一实例 C 层段错误仍杀全进程（§2.2——信号进程级，不可防守）。多实例提供的是「组合密度」；「崩溃域」能力仍由进程轨道（M-P\*）承担。
 
 ## 13.4 验证门
 
@@ -520,7 +542,7 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 | 原语 | 机制 | 隔离级别 | 归属 |
 |---|---|---|---|
 | **context** | context.c：`qwrt_ctx_spawn/suspend/resume/serialize/rebuild`（复用，零新码） | 同一 JSRuntime 堆内多 JSContext；软隔离（可挂起/序列化/重建） | 挂在 qwrt_t（`rt->contexts[]`） |
-| **worker** | worker.c 槽位表 + §1.4 `mode` 选后端 | 独立消息循环并发域（thread 或 process） | 挂在 qwrt_t（`rt->workers[]`） |
+| **worker** | worker.c 槽位表 + 消息后端（宿主 `worker_backend`，§1.4） | 独立消息循环并发域（thread 或 process） | 挂在 qwrt_t（`rt->workers[]`） |
 
 ## 14.2 组合拓扑与正交性（决策）
 
@@ -528,22 +550,22 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 宿主
  └→ qwrt_t（主 RT 角色；THREAD 基线=线程托管，M-P2 后=独立进程）
       ├→ contexts ×N（同进程同堆，qwrtContext 经 bridge 驱动，宿主只见主 context）
-      └→ workers ×N（mode:'thread' | 'process'；M-R2 先 thread，M-P1 起 process）
+      └→ workers ×N（后端=宿主 `worker_backend`，缺省随编译模型）
 ```
 
 - **正交铁则**：worker 归属 rt 不归属 context（`rt->workers[]` 与 `rt->contexts[]` 平级）。同一 rt 的所有 context 共享同一 workers 表；context 挂起/销毁**不**波及 worker——其入队消息照常派发，worker 生命周期只随 rt。首版不做 worker↔context 亲和（YAGNI：无真实需求）。
 - **上限**：`QWRT_MAX_CONTEXTS` / `QWRT_MAX_WORKERS` 沿用现状编译期常量，M-R2 不调参。
-- **与进程模型的关系**：M-R2 是单进程组合语义（THREAD 基线交付）；M-P1 只是 worker 轴的后端升级（`mode:'process'`），组合语义不变——这是「先组合、后隔离」的里程碑排序理由。
+- **与进程模型的关系**：M-R2 是单进程组合语义（THREAD 基线交付）；M-P1 只是 worker 轴的后端升级（进程后端），组合语义不变——这是「先组合、后隔离」的里程碑排序理由。
 
 ## 14.3 验证门
 
-gtest：主 rt spawn 2 context + 2 thread worker → ctx suspend/resume 与 worker postMessage 交错无死锁；ctx destroy 后 worker 消息照常派发；整树 destroy（rt destroy → workers terminate → contexts 回收）一次干净。M-P1 合入后同场景回归（其一 worker 换 `mode:'process'`）。
+gtest：主 rt spawn 2 context + 2 thread worker → ctx suspend/resume 与 worker postMessage 交错无死锁；ctx destroy 后 worker 消息照常派发；整树 destroy（rt destroy → workers terminate → contexts 回收）一次干净。M-P1 合入后同场景回归（其一 worker 换进程后端 `worker_backend=PROCESS`）。
 
 ---
 
 # 开放决策点（需用户拍板）
 
-1. **默认 ISOLATED 的性能取舍**：接受「worker 消息 P99 比线程慢约 10~50×」去换崩溃隔离？（§1.2/§12.2——虽然方向已定 ISOLATED 默认，但这里量化了成本，若边缘场景追求极致吞吐可能想关）——**倾向：维持 ISOLATED 默认**，成本在可接受区间。**v3 已裁决**：维持 ISOLATED 编译默认；性能敏感的个别 worker 用 `mode:'thread'` 显式豁免（§1.4），不做自动降级。
+1. **默认 ISOLATED 的性能取舍**：接受「worker 消息 P99 比线程慢约 10~50×」去换崩溃隔离？（§1.2/§12.2——虽然方向已定 ISOLATED 默认，但这里量化了成本，若边缘场景追求极致吞吐可能想关）——**倾向：维持 ISOLATED 默认**，成本在可接受区间。**v3 已裁决，v5 修订**：维持 ISOLATED 编译默认；性能敏感宿主实例显式 `worker_backend=THREAD`（§1.4）——v5 移除 per-worker `mode` 后豁免粒度=宿主 rt，不做 per-worker 豁免、不做自动降级。
 2. **spawn 失败是「显式报错」还是「自动回退 THREAD」**：文档推荐显式报错（不静默降级，保存隔离承诺的真实性）。需你确认不接受「部署层自动降级」。（§5.3）
 3. **`--parent-fd` + socketpair 的 fd 传递**：首版用「spawn 前建 socketpair + argv 传 fd」，**不做 CMSG_PASSFD**（简单、够用）。是否接受首版牺牲 CMSG？（§5.1）——推荐接受。
 4. **`target` 不做 -1 广播**：广播语义（同 payload 发多 target）首版不做，应用自循环。是否认可？（§4.3）
@@ -551,9 +573,8 @@ gtest：主 rt spawn 2 context + 2 thread worker → ctx suspend/resume 与 work
 6. **首版 Linux-only**：Windows 命名管道后置。是否认可？（§12.1）
 7. **localStorage 多进程并发**：首版不做文件锁（文档注记已知限制），还是加 `flock`？——倾向首版记录为已知限制，后续单点代理。（§10）
 
-8. **per-worker `mode` 的 JS API 形状**：字段名（`mode` / `isolation` / …）与取值（`'process'/'thread'` / …）未定稿；本设计暂以 `mode: 'process' | 'thread'` 行文（§1.4）。不阻塞 M-P1（内部可先用 C 层开关验证进程后端）。
-9. **DAP stdio 单通道约束**（§13.2）：进程内仅一个实例可 stdio attach，其余必须显式注入独立 fd——首版按此硬约束（attach 冲突显式报错），不做自动仲裁/通道复用。是否认可？
-10. **worker 与 context 正交（无亲和）**（§14.2）：worker 归 qwrt_t 不归 context，context 挂起/销毁不影响 worker；首版不做 worker↔context 绑定。是否认可？
+8. **DAP stdio 单通道约束**（§13.2）：进程内仅一个实例可 stdio attach，其余必须显式注入独立 fd——首版按此硬约束（attach 冲突显式报错），不做自动仲裁/通道复用。是否认可？
+9. **worker 与 context 正交（无亲和）**（§14.2）：worker 归 qwrt_t 不归 context，context 挂起/销毁不影响 worker；首版不做 worker↔context 绑定。是否认可？
 
 ---
 
