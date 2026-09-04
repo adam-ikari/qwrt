@@ -56,6 +56,7 @@ import { setupURLPattern } from './url-pattern.js';
 import { setupNavigatorReportError } from './navigator.js';
 import { setupCryptoSubtle } from './crypto-subtle.js';
 import { setupStructuredClone } from './structured-clone.js';
+import { setupServiceWorker } from './service-worker.js';
 import { setupWorker } from './worker.js';
 import { setupContext } from './context.js';
 // Virtual module: build.js aliases this to the real gRPC/HTTP2 stack when
@@ -129,6 +130,13 @@ setupStructuredClone();
 // ================================================================
 
 setupWorker(pal);
+
+// ================================================================
+// Service Worker (SW-0: registration + lifecycle + messaging; SW runs on a
+// dedicated worker thread via setupWorker's Worker class — must come after it)
+// ================================================================
+
+setupServiceWorker(pal);
 
 // ================================================================
 // Multi-context + soft suspend/resume (must run AFTER all other setups —

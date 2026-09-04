@@ -9,8 +9,92 @@
  *
  * 作用:覆盖 postMessage / __qwrt_dispatch__ / close / importScripts,
  * 使 worker 脚本里的 postMessage()/onmessage/close() 按 worker 语义工作。
+ *
+ * Service Worker 模式(SW-0,见 service-worker.js):父线程首条消息
+ * {__qwrt_sw__:'enter',url,scope} 进入 SW 模式——注入 self.registration /
+ * self.skipWaiting / self.clients;后续 {__qwrt_sw_lifecycle__:'install'|
+ * 'activate'} 触发 ExtendableEvent,waitUntil 的 promise 全部 settle 后回发
+ * {__sw_event__:true,phase:'install_done'|'activate_done'}。SW 侧控制消息
+ * 经 pal.postMessage 直发(绕过被覆盖的 postMessage,与用户消息不混淆)。
  */
 (function(pal){
+
+  /* SW 控制通道：直发序列化控制消息给父线程（不经用户 postMessage） */
+  function swEmit(obj){
+    pal.postMessage(__qwrt_serialize__(obj));
+  }
+
+  /* ExtendableEvent：install/activate 事件基类，waitUntil 延迟生命周期 */
+  /* Event 是 class，不能用 call 复用——直接原型继承包装 */
+  function makeExtendable(type){
+    var ev = new Event(type);
+    var promises = [];
+    ev.waitUntil = function(p){
+      if (p && typeof p.then === 'function') promises.push(Promise.resolve(p));
+    };
+    ev._promises = promises;
+    return ev;
+  }
+  /* 派发 install/activate 生命周期事件；handler 抛错（经全局 error 事件
+   * 上报，dispatchEvent 内部吞掉异常）或 waitUntil reject → 带 error 回发 */
+  function swDispatchLifecycle(phase){
+    var ev = makeExtendable(phase);
+    var failed = null;
+    function onErr(e){
+      if (failed) return;
+      failed = (e && ((e.error && (e.error.message || e.error)) || e.message)) || 'lifecycle handler error';
+    }
+    self.addEventListener('error', onErr);
+    try {
+      self.dispatchEvent(ev);
+    } catch (err) {
+      self.removeEventListener('error', onErr);
+      swEmit({ __sw_event__: true, phase: phase + '_done', error: String(err && err.message || err) });
+      return;
+    }
+    self.removeEventListener('error', onErr);
+    if (failed !== null) {
+      swEmit({ __sw_event__: true, phase: phase + '_done', error: String(failed) });
+      return;
+    }
+    var ps = ev._promises;
+    if (!ps.length) {
+      swEmit({ __sw_event__: true, phase: phase + '_done' });
+      return;
+    }
+    Promise.all(ps.map(function(p){
+      return p.then(function(){ return null; }, function(err){
+        return String(err && (err.message || err) || 'waitUntil rejected');
+      });
+    })).then(function(errs){
+      for (var i = 0; i < errs.length; i++) {
+        if (errs[i] !== null) {
+          swEmit({ __sw_event__: true, phase: phase + '_done', error: errs[i] });
+          return;
+        }
+      }
+      swEmit({ __sw_event__: true, phase: phase + '_done' });
+    });
+  }
+
+  /* 进入 SW 模式：注入 ServiceWorkerGlobalScope 专属全局（SW-0 最小面；
+   * fetch 拦截 SW-1 才做） */
+  function swEnter(msg){
+    self.registration = {
+      scope: msg.scope != null ? msg.scope : '/',
+      scriptURL: msg.url,
+    };
+    self.skipWaiting = function(){
+      swEmit({ __sw_event__: true, phase: 'skipWaiting' });
+      return Promise.resolve();
+    };
+    self.clients = {
+      claim: function(){ return Promise.resolve(); },
+      matchAll: function(){ return Promise.resolve([]); },
+      get: function(){ return Promise.resolve(null); },
+    };
+  }
+
   globalThis.postMessage = function(v, transfer){
     var ports = [];
     var abT;
@@ -40,6 +124,15 @@
   };
   globalThis.__qwrt_dispatch__ = function(data, source){
     var o = __qwrt_deserialize__(data);
+    /* SW 控制消息（父线程 → SW 线程），不进用户消息流 */
+    if (o && typeof o === 'object' && o.__qwrt_sw__ === 'enter') {
+      swEnter(o);
+      return;
+    }
+    if (o && typeof o === 'object' && o.__qwrt_sw_lifecycle__) {
+      swDispatchLifecycle(String(o.__qwrt_sw_lifecycle__));
+      return;
+    }
     if (globalThis.__qwrt_deliver_port_msg__ &&
         globalThis.__qwrt_deliver_port_msg__(o)) return;
     if (o && typeof o === 'object' && o.__qwrt_ports) {

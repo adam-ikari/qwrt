@@ -97,7 +97,13 @@ export function setupWorker(pal) {
     for (var i = 0; i < handlers.length; i++) {
       var entry = handlers[i];
       try {
-        var cb = typeof entry === 'function' ? entry : entry.handleEvent;
+        /* entry 两种形态：裸函数（onmessage 等内建 handler）或
+         * {callback, once}（addEventListener 存的对象，callback 可为
+         * 函数或带 handleEvent 的对象） */
+        var target = typeof entry === 'function' ? entry : entry.callback;
+        var cb = typeof target === 'function'
+          ? target
+          : (target && typeof target.handleEvent === 'function' ? target.handleEvent : undefined);
         if (typeof cb === 'function') cb.call(this, event);
       } catch (err) {
         if (typeof globalThis.reportError === 'function') globalThis.reportError(err);
