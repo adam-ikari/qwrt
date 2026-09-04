@@ -41,12 +41,29 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 1. **能力原语 vs 协议策略**：C 层只给监听/回复、文件、压缩、加密等原语；
    路由、缓存、压缩策略、静态映射一律在应用层（JS）实现。
 2. **异步优先**：所有 I/O（文件、网络、定时器）必须异步，绝不在事件循环上
-   做阻塞式 fopen/fread。这是硬约束（文件 I/O 回归异步已完成；网络 I/O 基于
-   libuv 的 uv_read/uv_write 天然异步，2MB 大响应与快速请求并发验证不互相
-   阻塞。TLS 加密为 mbedTLS 同步 CPU 操作（不阻塞等网络），需严格异步化列入 M2）。
-3. **质量门槛**：任何提交必须 gtest + e2e 全绿；性能改动附基准；asan/ubsan 清零。
-4. **可回滚**：大方向变更走独立分支，验证后合入 master。
-5. **决策入脑**：取舍写入 `brain/`（Project Brain）。
+   做阻塞式 fopen/fread。这是硬约束（文件/网络 I/O 已达成；TLS 的 mbedTLS
+   同步 CPU 操作需严格异步化，列入 M2）。
+3. **内存所有权**：跨层缓冲区一律单向转移（transfer 后原持有方不得再触碰）；
+   回调上下文生命周期由注册方保证；destroy 顺序固定（停循环 → 释放上下文 →
+   释放运行时）；确需共享的生命周期用引用计数（C2 裁决机制）。依据：A1/A2/
+   C2/D5 四次 UAF/double-free 修复，内存错误是本项目第一缺陷类别。
+4. **测试分层**：mock_libuv 只测"对 libuv 的使用契约"（离线确定性）；真实
+   后端行为（io_uring workaround 类 mock 盲区）由 e2e / 真环境压测覆盖。
+   新增或更换 libuv 后端、行为相关的 uv 修复必须过 e2e。
+5. **质量门槛**：任何提交必须 gtest + e2e 全绿**且无未处置 flaky**——预存
+   flaky（如 test_compress_gtest）只能三选一并留痕：隔离带期限 / 根因修复 /
+   显式降级；性能改动附基准；asan/ubsan 清零。
+6. **C99 约束有主**：受益者是旧 libc / 嵌入式工具链目标平台（FreeRTOS/ESP32
+   等）；代价是上游补丁（quickjs-ng/libuv 的 stdatomic 补丁）与 rebase 负债。
+   复核触发：上游全迁 C11，或目标平台清单变更。
+7. **WinterTC 验证边界自曝**：兼容性 = ECMA-429 接口矩阵 + 自建 gtest harness
+   （WPT runner 已移除，理由见 `brain/pages/wpt-runner-removed.md`）。这证明
+   接口面齐全与项目内用例通过，不证明与浏览器行为逐字节一致；行为争议以
+   规范文本裁决。重估条件：可自动化运行的官方合规套件出现。
+8. **可回滚**：大方向变更走独立分支，验证后合入 master。
+9. **SSOT 分工**：原则以本节为准；政策与裁决在 `brain/pages/`（timeline 追加 +
+   reversal，范式见 `brain/pages/oss-library-policy.md`）；`brain/roadmap.md`
+   只是指针，不复制里程碑内容。本节与 brain 决策页冲突时，以 brain 为先修订本节。
 
 ## 三、路线图（按领域，M = 里程碑）
 

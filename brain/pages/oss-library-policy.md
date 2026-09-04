@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [deps, policy, oss]
 created: "2026-09-04T13:27:08"
-updated: "2026-09-04T13:27:55"
+updated: "2026-09-04T15:29:38"
 ---
 
 <!-- compiled_truth -->
@@ -17,19 +17,28 @@ updated: "2026-09-04T13:27:55"
 2. **原位可换**：能在不违反架构铁律（C 只给 pal 原语、协议策略在 JS）与不破坏跨层接口（PAL 原语面、bridge 字节协议、polyfill 内部耦合）的前提下原位替换。需要重写消费者或跨层接口的候选直接否决。
 3. **vendor 成本可控**：C 库须 C99 兼容、零或近零传递依赖，按 deps/ 现行机制 vendor（本地快照 submodule + 随 repo 提交的补丁，见 [[quickjs-upstream-merge-strategy]]）；JS 库经 esbuild bundle 进 polyfill，首次引入 npm 供应链（license 审计、版本锁定、传递依赖）门槛高于 C 库。许可须与 MIT 兼容。
 
+## 复核机制（"保留"不是终审）
+
+三条件门槛只对引库举证、继续自制零举证，是单向失衡。因此：
+
+- **年度复核**：每年对全量自制模块重跑一次三条件举证（2026-09 为首次基线）。
+- **事件触发复核**：相关 CVE/安全公告、规范演进（WHATWG/RFC 修订影响自制实现）、或观察对象触发条件成立时，立即复核对应裁决，不等年度周期。
+- 复核结果与触发理由写入本页 timeline；翻案走 update-truth + reversal。
+
 ## 2026-09 全量审计基线（27 个自制模块）
 
-- **唯一建议替换**：`src/uv_io.c` 手写 HTTP 客户端解析 → **llhttp**。约 700 行可删（parse_http_response ×2、双份 chunked 状态机、CONNECT 解析、URL 解析），消 ~290 行重复，修复 obs-fold / 多值 Transfer-Encoding / 双 Content-Length 冲突等 5 类健壮性缺口。它是全项目唯一"自制代码本身是风险源"的形状：既不在 JS 层（拿不到规范测试），也不是薄绑定（自造状态机）。
+- **唯一建议替换（带硬触发）**：`src/uv_io.c` 手写 HTTP 客户端解析 → **llhttp**。约 700 行可删（parse_http_response ×2、双份 chunked 状态机、CONNECT 解析、URL 解析），消 ~290 行重复，修复 obs-fold / 多值 Transfer-Encoding / 双 Content-Length 冲突等 5 类健壮性缺口。它是全项目唯一"自制代码本身是风险源"的形状：既不在 JS 层（拿不到规范测试），也不是薄绑定（自造状态机）。**硬触发（满足其一即执行替换，不再 case-by-case）**：① 上述 5 类缺口任一在实际流量中确认触发缺陷；② 任何触及 parse_http_response / chunked 状态机的缺陷修复动工前，先做 llhttp 替换评估并留痕。
 - **保留 + 观察**（触发条件写死，不许"以后再说"）：
   - `polyfill/src/url.js`（499 行，缺 IDNA）：实测解析 bug 出现 → 换 whatwg-url。
   - `polyfill/src/url-pattern.js`（247 行，子集实现）：需要 Service Worker scope 级匹配语义 → 换 GoogleChromeLabs/urlpattern-polyfill。
-- **保留（替换负收益）**，共同形态是"正确的薄层"：C 层 tcp_io.c / ext_crypto.c / ext_compress.c / debugger_dap.c / wasm 引擎绑定 / msgq.c（绑定与胶水，算法全在 mbedTLS/miniz/wasm 引擎）；JS 层 streams.js / structured-clone.js / fetch.js / protobuf.js / http2.js / hpack.js / websocket.js（协议逻辑有 WHATWG/RFC 可对照且有 harness 测试，开源候选均需垫 Node API 或破坏内部耦合）与其余 ~20 个杂项胶水。
+  - `polyfill/src/hpack.js`（566 行，自维护 257 项 Huffman 表）：解码错误致实际 interop 故障，或 HPACK 规范表修订 → 复核 nghttp2 vendor 成本（当前"成本远超 660 行现实现"的否决理由随 http2.js 演进重估）。
+- **保留（替换负收益）**，共同形态是"正确的薄层"：C 层 tcp_io.c / ext_crypto.c / ext_compress.c / debugger_dap.c / wasm 引擎绑定 / msgq.c（绑定与胶水，算法全在 mbedTLS/miniz/wasm 引擎）；JS 层 streams.js / structured-clone.js / fetch.js / protobuf.js / http2.js / websocket.js（协议逻辑有 WHATWG/RFC 可对照且有 harness 测试，开源候选均需垫 Node API 或破坏内部耦合）与其余 ~20 个杂项胶水。这些裁决均受上方复核机制约束，不是终审。
 - 候选库已否决：libwebsockets（自带事件循环，架空 pal.tcp*，违架构铁律）、picohttpparser（只吃头解析，收益不足）、nghttp2（vendor + C 绑定层成本远超 660 行现实现）、protobufjs（~200KB 且假设 Node 生态）、whatwg-fetch/undici/ws polyfill（需 XHR/Node API）。
 - 顺手清理项：`polyfill/src/index.js` 的 queueMicrotask 守卫 polyfill 是死代码（quickjs-ng 内置），可删。
 
 ## 后续决策的用法
 
-新模块默认自制 + harness 测试；要引库时先对三条件逐条举证，并核对上面的基线裁决；观察对象只在触发条件成立时换，触发条件变更须走本页 update-truth。
+新模块默认自制 + harness 测试；要引库时先对三条件逐条举证，并核对上面的基线裁决；观察对象只在触发条件成立时换，触发条件变更须走本页 update-truth；"保留"裁决按复核机制周期性重举证，CVE 与规范演进立即触发。
 
 
 ## Timeline
@@ -44,4 +53,10 @@ updated: "2026-09-04T13:27:55"
   kind: decision
   summary: "固化开源库审计+评审结论为项目级引入与替换原则：默认自制+三条件门槛+2026-09 全量审计基线（uv_io.c→llhttp 唯一建议替换；url.js/url-pattern.js 观察对象带触发条件；其余保留）"
   source: "开源库替换审计会话（oss-replace-audit，5 scout 并行审计）"
+  affects: [oss-library-policy]
+
+- time: 2026-09-04T15:29:38
+  kind: decision
+  summary: "评审闭环（design-philosophy critique T3/T7）：uv_io.c→llhttp 替换裁决加硬触发（缺口实测触发 / 缺陷修复前强制评估）；新增复核机制（年度全量重举证 + CVE/规范演进事件触发）；hpack.js 从保留名单移入观察名单（interop 故障或规范表修订触发）；保留裁决明示受复核机制约束"
+  source: brain update-truth
   affects: [oss-library-policy]

@@ -2,12 +2,14 @@
 slug: roadmap
 title: Roadmap
 role: milestones
-updated: "2026-09-01T09:15:17"
+updated: "2026-09-04T15:29:38"
 ---
 
 # Roadmap
 
-## Milestones
+> **本页是指针，不是事实源。** 执行级路线图（领域工作项、里程碑节奏、验证矩阵、明确不做）以仓库根 `ROADMAP.md` 为唯一事实源；设计原则见 `ROADMAP.md` §二，政策与裁决以 `brain/pages/` 为准（范式见 [[oss-library-policy]]）。新增里程碑只更新 `ROADMAP.md`，不在本页复制。
+
+## Milestones（粗粒度历史视图）
 
 ```mermaid
 gantt
@@ -25,24 +27,4 @@ gantt
   Website + API reference :done, 2026-08-01, 2026-08-15
 ```
 
-### v0.1.0 — Initial (2026-06-22 ~ 2026-08-12)
-- Core runtime: qwrt_create/destroy/tick/eval/call, multi-context, DAP debugger
-- WinterTC: fetch, console, crypto, streams, timers, URL, encoding, Blob, EventTarget, AbortController, structuredClone
-- Extensions: compress (miniz), crypto (mbedTLS), textcodec, WAMR/wasm3
-- PAL: libuv (Linux/macOS), mock (testing), FreeRTOS (ESP32)
-- test262 CI, WPT runner, WASM playground, npm compat checker
-
-### v0.2.0 — WinterTC ~ full + HTTPServer (2026-08-12 ~ 2026-08-19)
-- WinterTC ECMA-429: BYOB streams, Crypto/SubtleCrypto/Performance globals, crypto.subtle wrapKey/unwrapKey
-- fetch redirect semantics + Request options storage
-- streams: tee() cancel propagation, pipeTo backpressure/abort/close, TextDecoderStream
-- Worker: structuredClone transferable (ArrayBuffer + MessagePort), multihop MessagePort transfer
-- HTTPServer: uvhttp-backed HTTP/1.1 + HTTPS + WebSocket + static + gzip compression
-- CLI: standalone REPL + script mode, WinterCG args/env bridge
-- Perf: HTTPServer gzip LRU cache (+2.25x /gzip)
-
-### v0.3.0 — Standard compliance deepen (next, ~2026-08-26)
-- WinterTC gtest coverage expansion (Phase 3-style)
-- Completement missing API surfaces (EventSource, PerformanceObserver, etc.)
-- test262 regression baseline
-
+各里程碑的详细交付内容、领域工作项与验证门槛见 `ROADMAP.md` §三～§六。本页甘特图仅保留粗粒度视图。
