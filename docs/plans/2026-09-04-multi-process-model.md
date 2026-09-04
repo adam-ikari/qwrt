@@ -2,16 +2,17 @@
 
 > 状态：设计决策文档（实施前）。方向已由用户拍板，本文落定各节实现细节，供分阶段实施。
 > 日期：2026-09-04
+> 修订：2026-09-04 v2 —— 树形拓扑（worker 可再 spawn worker，跨子树经 LCA 转发）+ 评审修复（§6.1 CONTROL{idle} 协议、§12.3 背压声明、§3.3 握手协议定稿、§8.2 port id 直接父本地分配、§2.1 CMake 宏映射、§4.5 对齐勘误）
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式）的应用模型，从「单进程多线程」演进为「多进程隔离」。默认独立进程（`ISOLATED`），线程模型（`THREAD`）保留为编译选项回退。
 > 背景（用户决策原文）：**"修改应用模型，支持宿主 主RT 和 WorkerRT 独立进程，通过编译选项设置，默认是独立进程。进程间通讯使用Flatbuffer序列化"**
 
 **核心结论（TL;DR）**
-1. **目标形态**：宿主进程（链接 libqwrt 的应用）+ 主 RT 进程（跑 main runtime JS）+ WorkerRT 进程 ×N（各跑一个 worker JS）。通讯拓扑 = **宿主↔主RT 一条 IPC 通道；主RT↔每个 WorkerRT 各一条；worker↔worker 不直连、经主RT 路由**。
+1. **目标形态**：宿主进程（链接 libqwrt 的应用）+ 主 RT 进程（跑 main runtime JS）+ WorkerRT 进程 ×N（各跑一个 worker JS）。通讯拓扑 = **树形：宿主↔主RT 一条通道；主RT↔第一层 WorkerRT 各一条；任意 worker 亦可 spawn 子 worker（父持子通道、父的槽位表登记），跨子树消息经最近公共祖先（LCA）逐跳转发——通道数 = O(N) 树边，不做 mesh**。
 2. **默认 ISOLATED 的动机**：崩溃隔离是第一优先——已在审计确认，同进程线程模型下 worker C 层段错误（segfault、非法内存访问）**不可防守**（JSRuntime 共享宿主进程地址空间，致命信号直接杀宿主/主RT）。进程模型把每个 runtime 的致命错误封在各自的地址空间里。附带收益：内存隔离、独立调度。
 3. **IPC 传输**：`uv_pipe_t`（libuv 原生，Unix domain socket / Windows named pipe，全双工，与现有事件循环无缝集成）。备选 socketpair/shm+信号均否决（理由见 §3）。
 4. **信封用 FlatBuffers，payload 保持现有 structured clone 字节**——JS 层**完全零改动**（`__qwrt_serialize__/__qwrt_deserialize__` 不动，Worker/postMessage/structuredClone 契约不变）。进程边界 C↔C 用 fb 信封；JS 对象图仍由现有 JS 序列化器处理。**这正是 `2026-09-03-flatbuffers-runtime-builtin.md` 定义的「跨进程 RPC」升格触发条件**，纯 C 内部格式定位应验。
 5. **C 编解码器**：推荐方案 a——手写信封编解码（`src/ipc_envelope.c`，~200 行 C99），固定 schema 手写 vtable/offset/uoffset，字节级符合 fb 规范，零依赖零生成步骤。通用 fb codec（方案 b）作为信封类型扩展时的升格路径。
-6. **Worker spawn**：`exec` 自身二进制（Linux `/proc/self/exe`，回退 `QWRT_EXEC_PATH`）+ `--qwrt-worker --parent-fd N --worker-id N`。`fork()` 否决（JSRuntime 已初始化状态危险，必须在 JS 启动前 fork，exec 更干净）。
+6. **Worker spawn**：`exec` 自身二进制（Linux `/proc/self/exe`，回退 `QWRT_EXEC_PATH`）+ `--qwrt-worker --parent-fd N --worker-id N`。`fork()` 否决（JSRuntime 已初始化状态危险，必须在 JS 启动前 fork，exec 更干净）。**v2 树形：worker 进程内用同一形态递归 spawn 子 worker**。
 7. **主 RT spawn**：`exec` 自身二进制 `--qwrt-rt-server`。宿主 C API 契约 `qwrt_create/post_message/message_cb/wait_idle/destroy` **签名与语义不变**，ISOLATED 下内部走 IPC。主 RT 进程死亡 → 宿主自动感知（parent-fd EOF 监测）→ message_cb 收 ERROR。
 8. **分阶段**：M-P0 信封编解码（含与 Python flatbuffers 交叉验证）→ M-P1 worker 进程 spawn+握手+消息往返 → M-P2 宿主↔主RT 进程分离+C API 透明切换 → M-P3 MessagePort 跨进程路由 → M-P4 优雅关闭/崩溃恢复/压力测试。
 
@@ -29,35 +30,38 @@ graph TB
     end
 
     subgraph MainRT["主 RT 进程<br/>(exec 自身 --qwrt-rt-server)"]
-        MR["qwrt_t (main runtime JS)<br/>跑 main script + 消息路由"]
+        MR["qwrt_t (main runtime JS)<br/>跑 main script + 子树路由"]
     end
 
-    subgraph W1["WorkerRT 进程 #1"]
-        WR1["qwrt_t (worker JS)"]
+    subgraph W1["WorkerRT #1（主RT 槽位 1）"]
+        WR1["qwrt_t (worker JS)<br/>workers[] 槽位表"]
     end
-    subgraph W2["WorkerRT 进程 #2"]
+    subgraph W2["WorkerRT #2（主RT 槽位 2）"]
         WR2["qwrt_t (worker JS)"]
     end
-    subgraph WN["WorkerRT 进程 #N"]
-        WRN["qwrt_t (worker JS)"]
+    subgraph W11["WorkerRT #1.1（Worker#1 槽位 1）"]
+        WR11["qwrt_t (worker JS)<br/>worker 再 spawn 的子 worker"]
     end
 
     API -- "IPC 通道 A: uv_pipe_t<br/>FlatBuffers 信封" --> MR
-    MR -- "IPC 通道 W1" --> WR1
-    MR -- "IPC 通道 W2" --> WR2
-    MR -- "IPC 通道 WN" --> WRN
-    WR1 -. "worker↔worker 无直连<br/>经主RT 路由" .-> WR2
+    MR -- "IPC 通道 W1（父子边）" --> WR1
+    MR -- "IPC 通道 W2（父子边）" --> WR2
+    WR1 -- "IPC 通道 W1.1（父子边）<br/>worker 亦可 spawn" --> WR11
+    WR2 -. "兄弟/跨子树经 LCA：<br/>W2→主RT→W1→W1.1" .-> WR11
 ```
 
 ## 1.2 通讯拓扑决策
 
-**推荐：星型拓扑，主RT 为唯一集线器（hub）**。
-- 宿主只维护**一条** IPC 通道（↔主RT），spawn 与路由复杂度全部收敛在主RT 进程内。
-- worker↔worker 不直连：worker 消息发到主RT，主RT 按信封 `target` 改写转发。
-- MessagePort/消息语义（现有 `source` 标签模型）天然映射到星型：`target` 就是现有 source 标签的对称物。
+**推荐（v2 修订）：树形拓扑——「谁 spawn 谁做父」，worker 可再 spawn worker**。
+- 宿主只维护**一条** IPC 通道（↔主RT）；主RT↔它 spawn 的每个 worker 各一条；worker 再 spawn 子 worker 时同理（父持子通道、父的 `workers[]` 槽位表登记子进程）。**架构上零新概念**：现有 worker 模型本就是「父 runtime 持 `workers[16]` 槽位表」（worker.c:182-246），v2 只是把「父」从「主RT 独占」放宽为「任意 runtime 进程」。
+- 同树内消息沿父子边路由：子→父上行、父→子下行；**兄弟/跨子树经最近公共祖先（LCA）汇合转发**（途经节点只解信封头、payload 字节不动）。
+- MessagePort/消息语义（现有 `source` 标签模型）天然映射到树形：`target` 就是现有 source 标签的对称物，路由按「树路径 + 本地槽位 id」寻址。
 
-**备选（否决）：宿主直连 worker**（宿主↔每个 worker 各一条通道）。
-- 否决理由：宿主要持有 N+1 条通道的连接/握手/生命周期管理，且 worker 创建/销毁事件要双向广播（worker 死了宿主要知道、新 worker 起了 worker 们要知道）。星型让主RT 统一做路由 + 生命周期仲裁，宿主 C API 面（§6）保持单通道语义不变。直连只省一次主RT 转发，代价是架构复杂度上升——不值。
+**备选（否决）：扁平星型（v1 草案：全部 worker 只能由主RT spawn）**。
+- 否决理由：Worker API 本就允许嵌套 `new Worker`，强令全部经主RT spawn 是无谓收紧（要为主RT 增加跨层 spawn 仲裁）；且主RT 成为全树唯一的路由/生命周期单点。树形把 spawn 与管理权自然分发给各父 runtime，通道数同为 O(N) 树边，复杂度不增。
+
+**备选（否决）：宿主直连 worker / mesh 全互联**。
+- 否决理由：宿主或全节点要持有 O(N) 条通道的连接/握手/生命周期管理，worker 创建/销毁事件要全网广播。树形让每条父子边只归其父管，宿主 C API 面（§6）保持单通道语义不变。省一次 LCA 转发，代价是架构复杂度上升——不值。
 
 ## 1.3 双模型共存
 
@@ -77,12 +81,18 @@ JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双
 
 ## 2.1 CMake 开关
 
-```
-option(QWRT_PROCESS_MODEL "应用模型：ISOLATED=独立进程(默认) / THREAD=单进程多线程" ISOLATED)
+```cmake
+set(QWRT_PROCESS_MODEL "ISOLATED" CACHE STRING
+    "应用模型：ISOLATED=独立进程(默认) / THREAD=单进程多线程")
+
+# 机制：字符串值 → 编译宏映射（源码 #if 选择的唯一依据）
+if(QWRT_PROCESS_MODEL STREQUAL "ISOLATED")
+  target_compile_definitions(qwrt PUBLIC QWRT_PROCESS_MODEL_ISOLATED=1)
+endif()
 ```
 
 - `QWRT_PROCESS_MODEL=ISOLATED`（默认）：编译 `src/ipc_*.c`（ipc_envelope、ipc_transport、ipc_process），qwrt_t 消息后端走 IPC 进程通道。
-- `QWRT_PROCESS_MODEL=THREAD`：现状不变，`src/msgq.c` 路径生效，ipc_*.c 不编入。
+- `QWRT_PROCESS_MODEL=THREAD`：现状不变，`src/msgq.c` 路径生效，ipc_*.c 不编入（不定义 `QWRT_PROCESS_MODEL_ISOLATED` 宏，`#if` 落到 `#else` 分支）。
 
 **实现约束**：两套后端共用一个 `qwrt_t` 结构和一个消息注入接口（`qwrt_msg_push` 的进程版 `qwrt_ipc_inject`），通过宏 `#if QWRT_PROCESS_MODEL_ISOLATED` 在 qwrt_t 内选择「线程队列字段」还是「IPC 通道字段」。**C 枚举字段可以条件编译，JS 层没有任何条件编译**。
 
@@ -119,7 +129,11 @@ option(QWRT_PROCESS_MODEL "应用模型：ISOLATED=独立进程(默认) / THREAD
 ## 3.3 通道生命周期
 
 - **连接**（主RT 视角）：子进程经 `--parent-fd N` 拿到已绑定 socketpair 的一端正则 fd（§5），`uv_pipe_open` 使能读。宿主侧 `uv_pipe_connect` 连对端。
-- **握手**（§6/§9 细化）：子进程就绪后发 `Envelope{kind=CONTROL, payload=handshake}`，父确认。父侧 qwrt_create 阻塞到握手完成（复用现有 `thread_ready` 原子手语语义）。
+- **握手（v2 定稿协议）**：
+  1. 子进程完成 `qwrt_t` 初始化 → 发 `Envelope{source=本地槽位id, target=1(父), kind=CONTROL, payload=Handshake{proto_version}}`；
+  2. 父校验 `proto_version` → 回 `Envelope{kind=CONTROL, payload=HandshakeAck{ok, proto_version}}`；
+  3. 父阻塞等待 ack 或超时（默认 5s，复用现有 `thread_ready` 原子手语 + 超时语义）；`ok=0`/版本不符/超时 → 关通道、spawn 显式失败（§5.3，不降级）。
+  - 时序约束：握手完成前父不得向该通道发应用消息；握手完成 → 通道进入 RUN（应用消息路由开启）。
 - **断开/重连**：跨进程通道**不重连**（应用模型内进程一死即整条链路算终结，重连是 M-P4 之后的能力）。EOF → 视为 peer 死亡 → 走孤儿回收 / 崩溃通知路径。**这就是生命周期**：BUILD → RUN → EOF/崩溃。
 
 ---
@@ -132,8 +146,8 @@ option(QWRT_PROCESS_MODEL "应用模型：ISOLATED=独立进程(默认) / THREAD
 
 ```fbs
 table Envelope {
-  source: int32;    // 0=宿主 1=主RT >1=worker id（沿用现有 source 语义）
-  target: int32;    // 0=宿主 1=主RT >1=worker id
+  source: int32;    // v2 树形：逐跳相对地址。0=宿主（仅主RT 通道上合法）1=父方向 >1=本地子槽位 id；每跳转发时由路由器改写
+  target: int32;    // 同 source 的相对语义；命中本地（自身消化或本地子槽位）即止，否则按树路径改写后逐跳转发
   kind:   int8;     // 0=MESSAGE 1=PORT_TRANSFER 2=ERROR 3=CONTROL
   payload:[ubyte];  // MESSAGE=structured clone 字节 / ERROR=错误文本 / CONTROL=控制参数
 }
@@ -146,11 +160,11 @@ root_type Envelope;
 - **payload 保持现有 structured clone 字节**（`__qwrt_serialize__/__qwrt_deserialize__` 产出）：JS 层**零改动**。JS 对象图仍由现有 JS 序列化器处理，fb 只负责「信封里装什么、捎到哪个 target」。
 - 划分逻辑：**进程边界用 fb；JS 对象图用现有 JS 序列化**。序列化责任不叠加、不混层。
 
-## 4.3 `target` 语义（给推荐：主RT 绝对路由，不用 -1 广播）
+## 4.3 `target` 语义（v2：逐跳相对寻址，无 -1 广播）
 
-- `target` 精确指路（0/1/>1），**无 -1 广播**。
-- 理由：星型拓扑下广播是「同一个 payload 发给 N 个 target」，需要主RT 复制信封 N 份——语义复杂且无真实需求（应用若要广播自己循环 post）。**主RT 绝对路由**：信封自带完整 `source`+`target`，主RT 只做「解码信封 → 按 target 改转发 → 重封装（payload 字节零拷贝透传，见 §7）」。
-- `kind=CONTROL` 的 target 恒为主RT（进程控制消息不进 JS 层）。
+- `target` 由**当前持有信封的节点**相对解释（0=宿主仅主RT 通道、1=父、>1=本地子槽位），**无 -1 广播**。
+- 理由：树形下广播 =「同一 payload 发给 N 个 target」，沿途每跳都要复制信封——语义复杂且无真实需求（应用要广播自己循环 post）。**逐跳路由**：信封自带 `source`+`target`，每跳解信封头 → 命中本地子槽位则下行、`target=1` 则上行，改写 source/target 后转发，payload 字节零拷贝透传（§7）。
+- `kind=CONTROL` 的 target 恒为父（进程控制消息不进 JS 层）。
 
 ## 4.4 C 编解码器实现策略
 
@@ -212,9 +226,10 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
       --qwrt-worker --parent-fd N --worker-id K [--polyfill path(polyfill B 模式)]
 ```
 
-- `--parent-fd N`：spawn 前用 `socketpair(AF_UNIX, SOCK_STREAM)` 建通道，父持一端（主管道，如 fd 100），子持另一端（fd N），经 argv 传 N。CDMK 简单纯粹——首版**不做 CMSG_PASSFD**，同二进制 spawn 时直接创建 socketpair、两端 fd 各据其位（inheritable），argv 传 N 即可（§5.2 解释为何够用）。
-- `--worker-id K`：沿用现有 worker 槽位 id（`QWRT_MAX_WORKERS`），即 `source` 标签。
-- **worker 进程内**：完整 `qwrt_t` 初始化（`qwrt_runtime_init` 复用，含 polyfill 注入 / 扩展 / loop），`uv_pipe_open(parent-fd)` 使能读 → 发 `CONTROL{handshake}` → 等 `__qwrt_dispatch__` 入站消息（worker-boot.js 垫片语义不变）。
+- `--parent-fd N`：spawn 前用 `socketpair(AF_UNIX, SOCK_STREAM)` 建通道，父持一端（主管道，如 fd 100），子持另一端（fd N），经 argv 传 N。机制简单纯粹——首版**不做 CMSG_PASSFD**，同二进制 spawn 时直接创建 socketpair、两端 fd 各据其位（inheritable），argv 传 N 即可（§5.2 解释为何够用）。
+- `--worker-id K`：沿用现有 worker 槽位 id（`QWRT_MAX_WORKERS`），即**本地** `source` 标签（相对直接父，各父独立编号；跨子树寻址见 §4.3 树路径）。
+- **worker 进程内**：完整 `qwrt_t` 初始化（`qwrt_runtime_init` 复用，含 polyfill 注入 / 扩展 / loop），`uv_pipe_open(parent-fd)` 使能读 → 发 `CONTROL{handshake}`（§3.3 定稿协议）→ 等 `__qwrt_dispatch__` 入站消息（worker-boot.js 垫片语义不变）。
+- **v2 树形**：worker 进程内 `new Worker` 触发 `qwrt_worker_create` 时，**worker 自己作为父**用与本节完全相同的机制 spawn 子进程（socketpair + exec + `--parent-fd`）并在自己的 `workers[]` 槽位表登记——零新增机制，只是「父」泛化。
 - polyfill：嵌入模式 C（默认，const 数组 .rodata）天然随二进制，子进程零配置。B 模式（外部 .polyfill 文件）加 `--polyfill <path>` 参数传递。
 
 ## 5.2 备选：`fork()`（否决）
@@ -237,9 +252,9 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 `qwrt_create / qwrt_post_message / message_cb / qwrt_wait_idle / qwrt_destroy` **签名与语义不变**。
 
 - ISOLATED 下 `qwrt_create` 内部：exec 自身 `--qwrt-rt-server --parent-fd N` → 起主RT 进程 → socketpair → 握手 → 返回 `qwrt_t*`（内部是 IPC 通道，不再内嵌线程）。
-- `qwrt_post_message`：把 JSON 序列化进 Envelope（source=0,target=1,kind=MESSAGE，payload=原 JSON 字节? ——按 §4.2，payload 仍是宿主侧 structured clone 字节；chat API 的 `json` 是宿主原始 JSON，直接当 payload 透传）→ 写 IPC。
+- `qwrt_post_message`：把 payload 装进 Envelope（source=0, target=1, kind=MESSAGE；payload=宿主侧 structured clone 字节，C API 的 `json` 参数是宿主原始 JSON，直接当 payload 透传）→ 写 IPC。
 - `message_cb`：IPC 收到信封 → 解出 payload 字节 → 喂给回调（语义等同当前线程后端的排空派发）。
-- `qwrt_wait_idle`：主RT 进程空转检测（复用 thread.c 的 `qwrt_loop_idle` 逻辑），通过 EOF 语义让宿主 `qwrt_wait_idle` 返回。主RT 死亡 → EOF → `qwrt_wait_idle` 立即返回 + `message_cb` 收 `{type:'error'}`。
+- `qwrt_wait_idle`（v2 定稿 CONTROL{idle} 协议）：宿主发出当前未决写计数 W → 主RT 排空入站且自身 loop idle 且子树（经各子通道 CONTROL{idle} 汇总）idle → 回 `CONTROL{idle, epoch=W}`；宿主 `qwrt_wait_idle` 阻塞在该 ack 或 EOF（主RT 死亡 → EOF → 立即返回 + `message_cb` 收 `{type:'error'}`）。复用 thread.c 的 `qwrt_loop_idle` 逻辑与 `thread_ready` 阻塞语义，协议补上「为什么宿主能等到 idle」的显式信号（v1 草案缺该定义，评审指出）。
 
 ## 6.2 主RT 进程模式
 
@@ -260,21 +275,22 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 
 ## 7.1 主RT 角色：消息路由器 + 它自己也是 JS runtime
 
-主RT 进程身兼二职：(1) 跑 main script 的 JS runtime；(2) 星型路由集线器。路由是 C 层裸逻辑（不解 JSON，只解信封），不占用 JS 执行时间。
+**v2：每个 runtime 进程都是路由器——主RT 兼跑 main script，worker 兼跑 worker script**。路由是 C 层裸逻辑（不解 payload，只解信封头），不占用 JS 执行时间。
 
 ## 7.2 路由决策：按 target 改指 + payload 零拷贝透传（给推荐）
 
-- **worker→主RT→宿主**：worker 进程发信封到主RT → 主RT 解码信封 → 若 `target==0`（宿主），**不改 payload 字节，仅改写 source/target 信封字段后转发宿主通道**。
-- **宿主→worker**：反向同理，主RT 解码信封 → 若 `target==K`，改写字段转发到 worker 的通道。
-- **worker→worker**：worker A 信封 `target==B` → 主RT 不做任何 payload 拷贝就把信封转发到 B 的通道（`source` 保持 A，`target` 在 B 无意义但保留 `source=A` 让 B 知道是谁）。
+逐跳路由示例（信封头 `source`/`target` 每跳由当前节点改写为相对下一跳，payload 字节永不动）：
+- **子→宿主**：worker W1.1 发 `target=1` 上行到父 W1 → W1 解头，`target` 非本地槽位 → 改写继续上行到主RT → 主RT 解头 `target==0` → 写宿主通道（改写 source 使宿主见「完整来源」语义不变）。
+- **宿主→嵌套子**：宿主发 target=K（主RT 槽位 K）→ 主RT 若 K 本地有槽则直接下行；若 K 是已转出的子树根，则下行给该子（父），父再按自己的本地槽位表逐级下行。
+- **兄弟/跨子树**：W1.1 → W2：上行至最近公共祖先（LCA=主RT）→ 下行至 W2。途经节点只改信封头。
 
-**核心主张：信封在原进程只 `uv_write` 排队，payload `[ubyte]` 零拷贝、字节不动，主RT 只改信封头（source/target 字段），不重新序列化 payload。**
+**核心主张：信封在原进程只 `uv_write` 排队，payload `[ubyte]` 零拷贝、字节不动，途经路由节点只改信封头（source/target 字段），不重新序列化 payload。**
 
 **「双重序列化」问题消解**：
-- 错误做法：主RT 把 payload 解码成 JS 对象再重封（双重序列化，慢且绕）。
-- 正确做法（推荐）：**主RT 只当信封路由器，不动 payload**。payload 对主RT 完全不透明——它只是要透传的字节。序列化只在信源（worker→主RT 用它的 fb 信封）和信宿（主RT→宿主转发时**重建一个信封包住同一 payload 字节**）发生，payload 自身不重编码。代价：一次 memcpy（把 payload 从入站缓冲拷进新出站信封的 payload 向量）——spring 无可避免但**远小于 JS 重编**，且可用 §12 的 shm/零拷贝作为后续优化。
+- 错误做法：途经节点把 payload 解码成 JS 对象再重封（双重序列化，慢且绕）。
+- 正确做法（推荐）：**路由节点只当信封路由器，不动 payload**。payload 对路由节点完全不透明——它只是要透传的字节。序列化只在信源（发出端 fb 信封）和信宿（转发时**重建一个信封包住同一 payload 字节**）发生，payload 自身不重编码。代价：每跳一次 memcpy（把 payload 从入站缓冲拷进新出站信封的 payload 向量）——拷贝无可避免但**远小于 JS 重编**，且可用 §12 的 shm/零拷贝作为后续优化。
 
-**明确不做**：不做 shm 直通（worker 进程跨 shm 直接写宿主 —— 违背星型 + 引入多写同步），主RT 永远是唯一读写点（单一仲裁，崩溃隔离最清晰）。
+**明确不做**：不做 shm 直通（跨子树进程 shm 直写——违背树形拓扑 + 引入多写同步），每个路由节点是其子树边界的唯一读写点（单一仲裁，崩溃隔离最清晰）。
 
 ---
 
@@ -290,9 +306,8 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 **给推荐 (b)：port 消息经 IPC 路由，port id 全局化 + peerThread 概念扩展为 peerEndpoint。**
 
 - port transfer 在进程模式下**不再是指针传递**，而是**端点注册**：
-  - `id` 沿用现有**全局原子分配器**（进程内已唯一）；跨进程后 port id **全局唯一**（每个进程的分配器独立会冲突 → 改：主RT 为全部 port id 发放，worker/宿主向主RT 请求新 id）。即 port id 由主RT 统一分配，保证跨进程唯一。
-  - `peerThread` 的线程引用扩展为 `peerEndpoint`（结构 = `{process: 进程标识, port: id}`）——不再有线程概念，而是「哪个进程的哪个 port」。
-- transfer 一个 port 到另一个进程（比如 worker→宿主）：主RT 添加一条路由表项 `(port_id → target进程, peerEndpoint)`；后续该 port 的 postMessage 消息信封 `kind=PORT_TRANSFER` 或 `target` 命中 port id，主RT 按表项改指转发，payload 仍是 structured clone 字节（对 port 消息也是同一套信封，只是 `kind=PORT_TRANSFER`）。
+  - `id` 沿用现有**全局原子分配器**，但 v2 改为**直接父本地分配**（v1 草案：主RT 为全树发放，每次 transfer 多一次主RT 往返且主RT 成 id 单点；评审否决）。port id 只需**同父兄弟间唯一**，跨进程可寻址性由「父槽位路径 + 本地 id」承担（类比进程树 PID/文件路径语义）：`peerEndpoint = {path: [自主RT 起的父槽位 id 链], port: id}`。
+- transfer 一个 port 到另一个进程（比如 worker→宿主）：**两进程的 LCA**（最坏主RT）添加路由表项 `(port path → 对端 peerEndpoint)`；后续该 port 的 postMessage 消息信封 `kind=PORT_TRANSFER` 沿树路由到 LCA，按表项改指转发，payload 仍是 structured clone 字节（对 port 消息也是同一套信封，只是 `kind=PORT_TRANSFER`）。
 - 语义保持：JS 层 `port.postMessage/onmessage/close` **不变**——跨进程后仍是「发到 port」，只是底层从指针路由变成「信封 + 主RT 路由表」。
 - 失败语义：port 归属进程死亡 → 主RT 清路由表项 → 对端 port 触发 `error`/close 事件（M-P3）。
 
