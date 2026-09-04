@@ -145,15 +145,3 @@ setupServiceWorker(pal);
 
 setupContext(pal);
 
-// ================================================================
-// Global utility: queueMicrotask
-// ================================================================
-
-if (typeof globalThis.queueMicrotask !== 'function') {
-  globalThis.queueMicrotask = function(callback) {
-    if (typeof callback !== 'function') {
-      throw new TypeError('queueMicrotask requires a function argument');
-    }
-    Promise.resolve().then(callback);
-  };
-}

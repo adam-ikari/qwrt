@@ -282,6 +282,11 @@ export function setupFetch(pal) {
     if (body === null || body === undefined) {
       return '';
     }
+    /* 字节 body（SW 回话重建的 Response / 非流式网络回退）按 UTF-8 解码，
+     * 而非 String(Uint8Array) 的逗号字节列表 */
+    if (body instanceof Uint8Array || body instanceof ArrayBuffer) {
+      return new TextDecoder().decode(body);
+    }
     return String(body);
   }
 
@@ -733,6 +738,40 @@ export function setupFetch(pal) {
       }
     }
 
+    /* SW-1：Service Worker fetch 拦截。存在 activated 控制器时把请求交给
+     * service-worker.js 的 __qwrt_sw_intercept__（request + 已序列化 body）。
+     * 返回 true = SW 接管本请求；超时 / SW 回退时由其调用 onFallback(bytes)
+     * 续走网络路径（bytes 复用，避免二次消费流式 body）。SW 明确回退后
+     * swBypassed 置位，同一请求不再重复派发（防 SW-网络-SW 死循环）。
+     * abort：SW 接管后由信号监听器把 AbortError 交给 reject（正常网络路径
+     * 同样如此），settle 后 settleHook 移除监听器。 */
+    var swBypassed = false;
+    function swDispatch(bytes, onFallback) {
+      if (swBypassed) return false;
+      if (globalThis.__qwrt_sw_mode__) return false; /* SW 线程内不递归拦截 */
+      var svc = globalThis.navigator && globalThis.navigator.serviceWorker;
+      if (!svc || typeof svc.__qwrt_sw_intercept__ !== 'function') return false;
+      var settleHook = null;
+      var oldOnAbort = onAbort;
+      if (request.signal && onAbort) {
+        onAbort = function() {
+          oldOnAbort();
+          if (!aborted) return;
+          var reason = request.signal.reason;
+          if (reason === undefined) {
+            reason = new DOMException('The operation was aborted.', 'AbortError');
+          }
+          reject(reason);
+        };
+        settleHook = cleanupAbort;
+      }
+      var taken = svc.__qwrt_sw_intercept__(request, bytes, resolve, reject,
+        function(fbBytes) { swBypassed = true; onFallback(fbBytes); },
+        settleHook) === true;
+      if (!taken && settleHook) { onAbort = oldOnAbort; }
+      return taken;
+    }
+
     // Fallback to non-streaming httpRequest if streaming not available.
     // pal.httpRequest returns a Promise<string> (resolves with the body on
     // success, rejects with an error string on failure); it does NOT provide
@@ -741,8 +780,9 @@ export function setupFetch(pal) {
     if (typeof pal.httpRequestStream !== 'function') {
       // The non-streaming PAL API accepts only a string body, so decode the
       // serialized bytes (lossless round-trip for text bodies).
-      whenBodyReady(function(bytes) {
+      whenBodyReady(function startNonStream(bytes) {
         if (aborted) { return; }
+        if (swDispatch(bytes, startNonStream)) { return; }
         cleanupAbort();
         var bodyStr = bytes ? new TextDecoder().decode(bytes) : null;
         var p = pal.httpRequest(request.url, request.method, headersJson, bodyStr);
@@ -912,9 +952,11 @@ export function setupFetch(pal) {
       }
     }
 
-    // Call PAL streaming HTTP once the request body is ready.
-    whenBodyReady(function(bytes) {
+    // Call PAL streaming HTTP once the request body is ready. SW 回退时用
+    // 同一份已序列化 body bytes 重进网络路径（流式 body 已消费，不可重读）。
+    whenBodyReady(function startNetwork(bytes) {
       if (aborted) return;
+      if (swDispatch(bytes, startNetwork)) return;
       /* 返回值 = 底层传输的 op id（C 层 uv_io_http_request_stream）。0 = 同步
        * 失败（op 未创建）。信号 abort / body cancel 用它精确定位并关闭连接。 */
       opId = pal.httpRequestStream(request.url, request.method, headersJson, bytes, onHeaders, onData, onEnd) || 0;

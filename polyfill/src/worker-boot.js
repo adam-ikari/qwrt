@@ -10,12 +10,16 @@
  * 作用:覆盖 postMessage / __qwrt_dispatch__ / close / importScripts,
  * 使 worker 脚本里的 postMessage()/onmessage/close() 按 worker 语义工作。
  *
- * Service Worker 模式(SW-0,见 service-worker.js):父线程首条消息
+ * Service Worker 模式(SW-1,见 service-worker.js):父线程首条消息
  * {__qwrt_sw__:'enter',url,scope} 进入 SW 模式——注入 self.registration /
  * self.skipWaiting / self.clients;后续 {__qwrt_sw_lifecycle__:'install'|
  * 'activate'} 触发 ExtendableEvent,waitUntil 的 promise 全部 settle 后回发
  * {__sw_event__:true,phase:'install_done'|'activate_done'}。SW 侧控制消息
- * 经 pal.postMessage 直发(绕过被覆盖的 postMessage,与用户消息不混淆)。
+ * SW-1 fetch 拦截：父线程 {__qwrt_sw_fetch__:{fetchId,request:{url,method,
+ * headers,body}}} → FetchEvent（Request 由扁平字段重建）→ fetch 监听器；
+ * respondWith(promise<Response>) settle 后回发 {__sw_event__,phase:
+ * 'fetch_response'|'fetch_fallback',fetchId, response:{status,statusText,
+ * headers,body}}。SW 内 fetch() 自带防重入标志，不递归拦截。
  */
 (function(pal){
 
@@ -76,10 +80,11 @@
       swEmit({ __sw_event__: true, phase: phase + '_done' });
     });
   }
-
-  /* 进入 SW 模式：注入 ServiceWorkerGlobalScope 专属全局（SW-0 最小面；
-   * fetch 拦截 SW-1 才做） */
+  /* 进入 SW 模式：注入 ServiceWorkerGlobalScope 专属全局。
+   * __qwrt_sw_mode__ 标志让 SW 线程内的 fetch() 绕过拦截（防自我递归，
+   * 设计 §7.2）；qwrt 单客户端（主线程），clients 按设计 §3.2 返回常量。 */
   function swEnter(msg){
+    globalThis.__qwrt_sw_mode__ = true;
     self.registration = {
       scope: msg.scope != null ? msg.scope : '/',
       scriptURL: msg.url,
@@ -88,11 +93,78 @@
       swEmit({ __sw_event__: true, phase: 'skipWaiting' });
       return Promise.resolve();
     };
+    var mainClient = { id: 'main', type: 'window', url: '' };
     self.clients = {
       claim: function(){ return Promise.resolve(); },
-      matchAll: function(){ return Promise.resolve([]); },
-      get: function(){ return Promise.resolve(null); },
+      matchAll: function(){ return Promise.resolve([mainClient]); },
+      get: function(id){ return Promise.resolve(id === 'main' ? mainClient : null); },
     };
+    mainClient.postMessage = function(data){
+      swEmit(data);
+    };
+  }
+
+  /* ---- SW-1：FetchEvent 派发 ----
+   * 父线程 {__qwrt_sw_fetch__:{fetchId,request:{url,method,headers,body}}}：
+   * 重建 Request → FetchEvent → fetch 监听器。respondWith(promise<Response>)
+   * settle 后回发 fetch_response；reject / 非序列化 / 未调用 respondWith →
+   * fetch_fallback（主线程回退网络）。无浏览器端 30s 超时——超时在主线程侧。 */
+  function serializeResponse(resp){
+    if (!resp || typeof resp !== 'object' || typeof resp.arrayBuffer !== 'function') {
+      return Promise.resolve(null);
+    }
+    return resp.arrayBuffer().then(function(buf){
+      var headers = {};
+      resp.headers.forEach(function(v, n){ headers[n] = v; });
+      return {
+        status: resp.status,
+        statusText: resp.statusText || '',
+        headers: headers,
+        body: buf ? new Uint8Array(buf) : null,
+      };
+    }, function(){
+      return null; /* body 读取失败 → 回退网络 */
+    });
+  }
+
+  function swDispatchFetch(payload){
+    var fetchId = payload.fetchId;
+    var info = payload.request;
+    var req;
+    try {
+      req = new Request(info.url, {
+        method: info.method || 'GET',
+        headers: info.headers || {},
+        body: info.body != null ? info.body : undefined,
+      });
+    } catch (err) {
+      swEmit({ __sw_event__: true, phase: 'fetch_fallback', fetchId: fetchId });
+      return;
+    }
+    var ev = makeExtendable('fetch');
+    ev.request = req;
+    ev.clientId = 'main';
+    var responded = null;
+    ev.respondWith = function(p){
+      if (responded) throw new TypeError('FetchEvent.respondWith: already called');
+      responded = Promise.resolve(p).then(serializeResponse);
+    };
+    self.dispatchEvent(ev);
+    var onX = self['onfetch'];
+    if (typeof onX === 'function') {
+      try { onX.call(self, ev); } catch (e) { /* 与 dispatchEvent 同：吞掉 */ }
+    }
+    if (!responded) {
+      swEmit({ __sw_event__: true, phase: 'fetch_fallback', fetchId: fetchId });
+      return;
+    }
+    responded.then(function(serialized){
+      if (serialized) {
+        swEmit({ __sw_event__: true, phase: 'fetch_response', fetchId: fetchId, response: serialized });
+      } else {
+        swEmit({ __sw_event__: true, phase: 'fetch_fallback', fetchId: fetchId });
+      }
+    });
   }
 
   globalThis.postMessage = function(v, transfer){
@@ -131,6 +203,10 @@
     }
     if (o && typeof o === 'object' && o.__qwrt_sw_lifecycle__) {
       swDispatchLifecycle(String(o.__qwrt_sw_lifecycle__));
+      return;
+    }
+    if (o && typeof o === 'object' && o.__qwrt_sw_fetch__) {
+      swDispatchFetch(o.__qwrt_sw_fetch__);
       return;
     }
     if (globalThis.__qwrt_deliver_port_msg__ &&

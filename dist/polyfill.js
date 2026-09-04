@@ -1543,6 +1543,9 @@
       if (body === null || body === void 0) {
         return "";
       }
+      if (body instanceof Uint8Array || body instanceof ArrayBuffer) {
+        return new TextDecoder().decode(body);
+      }
       return String(body);
     }
     function Request2(input, init) {
@@ -1931,9 +1934,48 @@
           deliver(requestBodyBytes);
         }
       }
+      var swBypassed = false;
+      function swDispatch(bytes, onFallback) {
+        if (swBypassed) return false;
+        if (globalThis.__qwrt_sw_mode__) return false;
+        var svc = globalThis.navigator && globalThis.navigator.serviceWorker;
+        if (!svc || typeof svc.__qwrt_sw_intercept__ !== "function") return false;
+        var settleHook = null;
+        var oldOnAbort = onAbort;
+        if (request.signal && onAbort) {
+          onAbort = function() {
+            oldOnAbort();
+            if (!aborted) return;
+            var reason = request.signal.reason;
+            if (reason === void 0) {
+              reason = new DOMException("The operation was aborted.", "AbortError");
+            }
+            reject(reason);
+          };
+          settleHook = cleanupAbort;
+        }
+        var taken = svc.__qwrt_sw_intercept__(
+          request,
+          bytes,
+          resolve,
+          reject,
+          function(fbBytes) {
+            swBypassed = true;
+            onFallback(fbBytes);
+          },
+          settleHook
+        ) === true;
+        if (!taken && settleHook) {
+          onAbort = oldOnAbort;
+        }
+        return taken;
+      }
       if (typeof pal2.httpRequestStream !== "function") {
-        whenBodyReady(function(bytes) {
+        whenBodyReady(function startNonStream(bytes) {
           if (aborted) {
+            return;
+          }
+          if (swDispatch(bytes, startNonStream)) {
             return;
           }
           cleanupAbort();
@@ -2075,8 +2117,9 @@
           }
         }
       }
-      whenBodyReady(function(bytes) {
+      whenBodyReady(function startNetwork(bytes) {
         if (aborted) return;
+        if (swDispatch(bytes, startNetwork)) return;
         opId = pal2.httpRequestStream(request.url, request.method, headersJson, bytes, onHeaders, onData, onEnd) || 0;
       });
     }
@@ -7501,6 +7544,8 @@
     var readyPromise = new Promise(function(resolve) {
       readyResolve = resolve;
     });
+    var fetchSeq = 0;
+    var pendingFetches = /* @__PURE__ */ new Map();
     function fire(target, event) {
       target.dispatchEvent(event);
       var h = target["on" + event.type];
@@ -7596,6 +7641,16 @@
       var f = sw._onfail;
       sw._onok = sw._onfail = null;
       if (f) f(reason instanceof Error ? reason : new Error(String(reason)));
+      flushPendingFetches();
+    }
+    function flushPendingFetches() {
+      if (!pendingFetches.size) return;
+      var entries = Array.from(pendingFetches.values());
+      pendingFetches.clear();
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].timer) clearTimeout(entries[i].timer);
+        entries[i].onFallback(entries[i].bytes);
+      }
     }
     function activateSW(sw, registration) {
       sw._previous = controller !== sw ? controller : null;
@@ -7633,12 +7688,33 @@
         if (previous && previous !== sw) {
           previous._kill();
           if (previous._state !== "redundant") previous._setState("redundant");
+          flushPendingFetches();
         }
         fire(container, new Event("controllerchange"));
         if (readyResolve) {
           var r = readyResolve;
           readyResolve = null;
           r(registration);
+        }
+      } else if (d.phase === "fetch_response" || d.phase === "fetch_fallback") {
+        var entry = pendingFetches.get(d.fetchId);
+        if (!entry) return;
+        pendingFetches.delete(d.fetchId);
+        if (entry.timer) {
+          clearTimeout(entry.timer);
+          entry.timer = null;
+        }
+        if (d.phase === "fetch_response" && d.response) {
+          var res = new Response(d.response.body != null ? d.response.body : null, {
+            status: d.response.status || 200,
+            statusText: d.response.statusText || "",
+            headers: d.response.headers
+          });
+          res._url = entry.url;
+          if (entry.onSettle) entry.onSettle();
+          entry.resolve(res);
+        } else {
+          entry.onFallback(entry.bytes);
         }
       }
     }
@@ -7667,10 +7743,47 @@
       configurable: true,
       enumerable: true
     });
+    container.__qwrt_sw_intercept__ = function(request, bytes, resolve, reject, onFallback, onSettle) {
+      var sw = controller;
+      if (!sw || sw._state !== "activated" || !sw._worker) return false;
+      var fetchId = ++fetchSeq;
+      var headers = {};
+      request.headers.forEach(function(value, name) {
+        headers[name] = value;
+      });
+      var entry = {
+        resolve,
+        onFallback,
+        onSettle,
+        bytes,
+        url: request.url,
+        timer: null
+      };
+      pendingFetches.set(fetchId, entry);
+      entry.timer = setTimeout(function() {
+        if (!pendingFetches.has(fetchId)) return;
+        pendingFetches.delete(fetchId);
+        entry.timer = null;
+        onFallback(bytes);
+      }, 3e4);
+      try {
+        sw._worker.postMessage({
+          __qwrt_sw_fetch__: {
+            fetchId,
+            request: { url: request.url, method: request.method, headers, body: bytes || null }
+          }
+        });
+      } catch (err) {
+        if (entry.timer) clearTimeout(entry.timer);
+        pendingFetches.delete(fetchId);
+        return false;
+      }
+      return true;
+    };
     container.register = function(url, options) {
       if (typeof url !== "string" || url.indexOf("file://") !== 0) {
         return Promise.reject(new Error(
-          "serviceWorker.register: only file:// script URLs are supported in SW-0"
+          "serviceWorker.register: only file:// script URLs are supported in SW-1"
         ));
       }
       var scope = options && options.scope != null ? String(options.scope) : "/";
@@ -8055,12 +8168,4 @@
   setupWorker(pal);
   setupServiceWorker(pal);
   setupContext(pal);
-  if (typeof globalThis.queueMicrotask !== "function") {
-    globalThis.queueMicrotask = function(callback) {
-      if (typeof callback !== "function") {
-        throw new TypeError("queueMicrotask requires a function argument");
-      }
-      Promise.resolve().then(callback);
-    };
-  }
 })(__native_inject__);

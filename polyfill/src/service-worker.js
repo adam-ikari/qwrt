@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: Service Worker — SW-0（注册 / 生命周期 / 消息；无 fetch 拦截）
+ * qwrt polyfill: Service Worker — SW-1（注册 / 生命周期 / 消息 + fetch 拦截）
  *
  * SW 脚本跑在独立 worker 线程（复用 Worker）。主线程状态机由 worker 侧
  * 控制消息驱动（协议见 worker-boot.js）：
@@ -20,6 +20,14 @@ export function setupServiceWorker(pal) {
   var controller = null;
   var readyResolve = null;
   var readyPromise = new Promise(function (resolve) { readyResolve = resolve; });
+
+  /* ---- SW-1：fetch 拦截状态 ----
+   * fetchSeq/pendingFetches：主线程 fetch() 被 SW 接管的在途表。
+   * entry.resolve/reject = fetch promise 的 settle 钩子；onFallback(bytes)
+   * = SW 回退/超时/SW 终止时续走网络（bytes 复用，流式 body 不可重读）；
+   * onSettle = 成功响应后移除 abort 监听（回退路径保持监听交回网络）。 */
+  var fetchSeq = 0;
+  var pendingFetches = new Map();
 
   /* dispatchEvent + onX 属性（EventTarget 类不调 onX，这里统一补） */
   function fire(target, event) {
@@ -106,6 +114,19 @@ export function setupServiceWorker(pal) {
     var f = sw._onfail;
     sw._onok = sw._onfail = null;
     if (f) f(reason instanceof Error ? reason : new Error(String(reason)));
+    /* SW 挂了：在途被拦截 fetch 全部回退网络（设计 §7.2 预期行为） */
+    flushPendingFetches();
+  }
+
+  /* SW 终止/替换时把所有在途 fetch 回退网络（计时器一并清掉） */
+  function flushPendingFetches() {
+    if (!pendingFetches.size) return;
+    var entries = Array.from(pendingFetches.values());
+    pendingFetches.clear();
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].timer) clearTimeout(entries[i].timer);
+      entries[i].onFallback(entries[i].bytes);
+    }
   }
 
   /* install 完成 → 零等待激活（旧 SW 的替换等 activate_done，保证
@@ -141,12 +162,35 @@ export function setupServiceWorker(pal) {
       if (previous && previous !== sw) {
         previous._kill();
         if (previous._state !== 'redundant') previous._setState('redundant');
+        /* 旧 SW 已终止：其未回话的在途 fetch 全部回退网络（新 SW 不认旧 id） */
+        flushPendingFetches();
       }
       fire(container, new Event('controllerchange'));
       if (readyResolve) {
         var r = readyResolve;
         readyResolve = null;
         r(registration);
+      }
+    } else if (d.phase === 'fetch_response' || d.phase === 'fetch_fallback') {
+      var entry = pendingFetches.get(d.fetchId);
+      if (!entry) return;
+      pendingFetches.delete(d.fetchId);
+      if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
+      if (d.phase === 'fetch_response' && d.response) {
+        /* SW 回话：Response 重建（body 为对端 structuredClone 的 Uint8Array）。
+         * onSettle 移除 abort 监听（promise 已 settle，不再需要）。 */
+        var res = new Response(d.response.body != null ? d.response.body : null, {
+          status: d.response.status || 200,
+          statusText: d.response.statusText || '',
+          headers: d.response.headers,
+        });
+        res._url = entry.url;
+        if (entry.onSettle) entry.onSettle();
+        entry.resolve(res);
+      } else {
+        /* SW 回退（无监听器/respondWith reject/serialize 失败）：
+         * abort 监听保持（交回网络路径），续走网络。 */
+        entry.onFallback(entry.bytes);
       }
     }
     /* phase === 'skipWaiting'：qwrt 本就零等待，忽略 */
@@ -171,10 +215,50 @@ export function setupServiceWorker(pal) {
     configurable: true, enumerable: true,
   });
 
+  /* ---- SW-1：fetch.js 网络路径前的拦截入口 ----
+   * 返回 true = 已派发 FetchEvent 到 SW 线程（fetch promise 由回话消息驱动）；
+   * 返回 false = 无 activated 控制器，fetch.js 直接走网络。
+   * 30s 超时回退（设计 §5 SW-1，与浏览器一致）。 */
+  container.__qwrt_sw_intercept__ = function (request, bytes, resolve, reject, onFallback, onSettle) {
+    var sw = controller;
+    if (!sw || sw._state !== 'activated' || !sw._worker) return false;
+    var fetchId = ++fetchSeq;
+    var headers = {};
+    request.headers.forEach(function (value, name) { headers[name] = value; });
+    var entry = {
+      resolve: resolve,
+      onFallback: onFallback,
+      onSettle: onSettle,
+      bytes: bytes,
+      url: request.url,
+      timer: null,
+    };
+    pendingFetches.set(fetchId, entry);
+    entry.timer = setTimeout(function () {
+      if (!pendingFetches.has(fetchId)) return;
+      pendingFetches.delete(fetchId);
+      entry.timer = null;
+      onFallback(bytes);
+    }, 30000);
+    try {
+      sw._worker.postMessage({
+        __qwrt_sw_fetch__: {
+          fetchId: fetchId,
+          request: { url: request.url, method: request.method, headers: headers, body: bytes || null },
+        },
+      });
+    } catch (err) {
+      if (entry.timer) clearTimeout(entry.timer);
+      pendingFetches.delete(fetchId);
+      return false;
+    }
+    return true;
+  };
+
   container.register = function (url, options) {
     if (typeof url !== 'string' || url.indexOf('file://') !== 0) {
       return Promise.reject(new Error(
-        'serviceWorker.register: only file:// script URLs are supported in SW-0'));
+        'serviceWorker.register: only file:// script URLs are supported in SW-1'));
     }
     var scope = (options && options.scope != null) ? String(options.scope) : '/';
 
