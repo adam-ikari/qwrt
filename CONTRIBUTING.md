@@ -55,11 +55,36 @@ refactor: unify WASM engine initialization
 4. Run `cd polyfill && npm run build` to bundle (esbuild) → compile to bytecode (qjsc) → regenerate `src/polyfill_default.c`
 5. Test via the host harness: `host_value(h, "typeof <global> !== 'undefined'", &out)` (see `test/test_host.h`)
 
+## Third-Party Library Policy
+
+**Default to self-made.** Introducing or replacing an open-source library is an
+exceptional move and requires ALL of the following, with evidence for each:
+
+1. **Proven positive payoff** — the self-made code is itself a risk source
+   (identified correctness gaps, duplicated implementations, maintenance debt),
+   not merely long or "less standard". Payoff must be deletable debt and
+   fixable defects, not abstract spec-compliance.
+2. **In-place replaceability** — the swap must not violate the architecture
+   rule (C provides pal primitives only; protocol policy lives in JS) nor break
+   cross-layer interfaces (PAL surface, bridge byte protocol, polyfill-internal
+   coupling). Candidates that force rewriting consumers or cross-layer
+   interfaces are rejected.
+3. **Controllable vendor cost** — C libraries: C99-compatible, zero or near-zero
+   transitive deps, vendored via the existing `deps/` mechanism (snapshot
+   submodule + repo-committed patch files). JS libraries: bundled via esbuild
+   into the polyfill; the first npm dependency opens a supply chain (license
+   audit, version pinning, transitive deps) and carries a higher bar.
+   Licenses must be MIT-compatible.
+
+The current baseline and per-module verdicts live in
+`brain/pages/oss-library-policy.md`; new verdicts are recorded there.
+
 ## Pull Request Checklist
 
 - [ ] Code compiles without warnings (`-Wall -Wextra`)
 - [ ] All existing tests pass (`ctest --output-on-failure`)
 - [ ] New features have tests
+- [ ] New library dependencies (C or JS) follow the Third-Party Library Policy above
 - [ ] No tabs in source files (spaces only)
 - [ ] No trailing whitespace
 - [ ] Commit messages follow Conventional Commits
