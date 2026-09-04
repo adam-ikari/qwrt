@@ -52,6 +52,47 @@ add_qwrt_gtest(test_bridge_http_gtest)
 add_qwrt_gtest(test_bridge_stream_gtest)
 add_qwrt_gtest(test_fetch_stream_gtest)
 add_qwrt_gtest(test_polyfill_gtest)
+add_qwrt_gtest(test_ipc_envelope_gtest)
+
+# IPC Envelope wire-format cross-verification (M-P0): the CLI helper is pure
+# C99 + ipc_envelope.c (no libuv); the python driver needs the official
+# flatbuffers package. Registered only when both are available so stock
+# `ctest -L offline` never fails on machines without `pip install flatbuffers`.
+add_executable(ipc_envelope_cli EXCLUDE_FROM_ALL ipc_envelope_cli.c
+               ../src/ipc_envelope.c)
+target_include_directories(ipc_envelope_cli PRIVATE ${PROJECT_SOURCE_DIR}/src)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(NOT Python3_Interpreter_FOUND)
+    find_program(Python3_EXECUTABLE python3)
+    if(Python3_EXECUTABLE)
+        set(Python3_Interpreter_FOUND TRUE)
+    endif()
+endif()
+if(Python3_Interpreter_FOUND)
+    execute_process(COMMAND ${Python3_EXECUTABLE} -c "import flatbuffers"
+                    RESULT_VARIABLE _fb_import_rc OUTPUT_QUIET ERROR_QUIET)
+    if(NOT _fb_import_rc EQUAL 0)
+        # CMake may resolve a venv/alternate python without user site-packages;
+        # retry with the PATH python3 before giving up.
+        find_program(_fb_py3 python3)
+        if(_fb_py3)
+            execute_process(COMMAND ${_fb_py3} -c "import flatbuffers"
+                            RESULT_VARIABLE _fb_import_rc OUTPUT_QUIET ERROR_QUIET)
+            if(_fb_import_rc EQUAL 0)
+                set(Python3_EXECUTABLE ${_fb_py3})
+            endif()
+        endif()
+    endif()
+    if(_fb_import_rc EQUAL 0)
+        add_test(NAME ipc_envelope_fbcheck
+                 COMMAND ${Python3_EXECUTABLE}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/ipc_envelope_fbcheck.py
+                         --cli $<TARGET_FILE:ipc_envelope_cli>)
+        set_tests_properties(ipc_envelope_fbcheck PROPERTIES LABELS "offline")
+    else()
+        message(STATUS "python flatbuffers missing — ipc_envelope_fbcheck skipped")
+    endif()
+endif()
 
 if(QWRT_WITH_CRYPTO_EXT)
     add_qwrt_gtest(test_crypto_subtle_gtest)

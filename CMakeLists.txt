@@ -389,7 +389,7 @@ endif()
 # Source files that are always compiled (no feature toggle):
 #   qwrt.c, bridge.c, context.c, extension.c, polyfill_default.c,
 #   worker_boot_default.c, thread.c (执行模型 A 自持线程主循环), msgq.c
-#   (入站消息 FIFO)
+#   (入站消息 FIFO), ipc_envelope.c (M-P0 进程信封 fb 编解码)
 # Extension sources are guarded by QWRT_WITH_* feature toggles so they are
 # only compiled when the corresponding feature is enabled. This avoids wasting
 # compile time on dead code (e.g. ext_wasm3.c when WASM3=OFF).
@@ -404,6 +404,7 @@ set(_qwrt_core_sources
     src/worker_boot_default.c
     src/thread.c
     src/msgq.c
+    src/ipc_envelope.c
     src/uv_io.c
     src/worker.c
 )
