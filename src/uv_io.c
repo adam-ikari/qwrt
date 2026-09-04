@@ -716,6 +716,9 @@ static int uv_io_no_proxy_entry_match(const char *host, int port, const char *en
     } else {
         el = strlen(entry);
     }
+    /* Bracketed IPv6 literals ("[::1]") must match the bare host form "::1"
+     * that uv_io_parse_url produces (hosts are stored without brackets). */
+    if (el > 1 && entry[0] == '[' && entry[el - 1] == ']') { entry++; el -= 2; }
     if (el == 0) return 0;
 
     if (entry[0] == '.') { entry++; el--; }
