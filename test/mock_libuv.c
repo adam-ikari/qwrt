@@ -188,13 +188,17 @@ int uv_loop_close(uv_loop_t *l)
 {
     if (l->active_handle_count > 0) return -1;          /* EBUSY */
     /* Free any response bytes never claimed by a stream (loop torn down
-     * before the pending response was delivered). */
+     * before the pending response was delivered) + the write capture. */
     for (int i = 0; i < l->pending_count; i++) {
         if (l->pendings[i].bytes) {
             free(l->pendings[i].bytes);
             l->pendings[i].bytes = NULL;
         }
     }
+    free(l->written);
+    l->written = NULL;
+    l->written_len = 0;
+    l->written_cap = 0;
     return 0;
 }
 
@@ -415,10 +419,35 @@ int uv_tcp_connect(uv_connect_t *req, uv_tcp_t *tcp,
     return 0;
 }
 
+int mock_tcp_record_write(uv_loop_t *l, const char *bytes, size_t len)
+{
+    size_t need = l->written_len + len + 1;
+    if (need > l->written_cap) {
+        size_t cap = l->written_cap ? l->written_cap : 256;
+        while (cap < need) cap *= 2;
+        char *nb = (char *)realloc(l->written, cap);
+        if (!nb) return -1;
+        l->written = nb;
+        l->written_cap = cap;
+    }
+    memcpy(l->written + l->written_len, bytes, len);
+    l->written_len += len;
+    l->written[l->written_len] = '\0';
+    return 0;
+}
+
+const char *mock_tcp_written(uv_loop_t *loop)
+{
+    return loop->written ? loop->written : "";
+}
+
 int uv_write(uv_write_t *req, uv_stream_t *stream,
              const uv_buf_t bufs[], unsigned int nbufs, uv_write_cb cb)
 {
-    (void)stream; (void)bufs; (void)nbufs;
+    uv_loop_t *l = ((uv_handle_t *)stream)->loop;
+    for (unsigned i = 0; i < nbufs; i++) {
+        if (bufs[i].len && mock_tcp_record_write(l, bufs[i].base, bufs[i].len) < 0) break;
+    }
     if (cb) cb(req, 0);
     return 0;
 }

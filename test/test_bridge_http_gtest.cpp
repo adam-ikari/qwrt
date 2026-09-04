@@ -81,3 +81,95 @@ TEST_F(BridgeHttpTest, HttpsFetchRejectsUntrustedPeer) {
         "function(e){_fetchErr='rejected';});'started'", &out));
     ASSERT_TRUE(host_poll_until_value(h, "_fetchErr", "rejected", &out));
 }
+
+/* ---- uv_io_parse_url 回归：userinfo 剥离 / 端口 / fragment / Host 头 ----
+ * 断言写上线上的字节（mock uv_write 捕获），而非解析器内部状态。 */
+
+static const char *kUrlResp =
+    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+
+TEST_F(BridgeHttpTest, UrlUserInfoExplicitPortFragmentOnWire) {
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, kUrlResp, strlen(kUrlResp)));
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _result = null;\n"
+        "__native__.httpRequest("
+        "'http://user:pass@api.example.com:8080/data/x?q=1#frag', "
+        "'GET', '{}', null)\n"
+        "  .then(function(d){ _result = d; })\n"
+        "  .catch(function(e){ _result = 'error:' + e; });\n"
+        "0", &out));
+
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_result", "ok", &v));
+    const char *w = mock_tcp_written(&h->rt->loop);
+    /* userinfo 不上线；fragment 不上线；query 保留；Host 带显式端口 */
+    EXPECT_NE(std::string::npos,
+              std::string(w).find("GET /data/x?q=1 HTTP/1.1\r\n"));
+    EXPECT_NE(std::string::npos,
+              std::string(w).find("Host: api.example.com:8080\r\n"));
+    EXPECT_EQ(std::string::npos, std::string(w).find("user:pass"));
+    EXPECT_EQ(std::string::npos, std::string(w).find("#frag"));
+}
+
+TEST_F(BridgeHttpTest, UrlIpv6LiteralAuthorityOnWire) {
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, kUrlResp, strlen(kUrlResp)));
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _result6 = null;\n"
+        "__native__.httpRequest('http://[2001:db8::1]:8443/x', 'GET', '{}', null)\n"
+        "  .then(function(d){ _result6 = d; })\n"
+        "  .catch(function(e){ _result6 = 'error:' + e; });\n"
+        "0", &out));
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_result6", "ok", &v));
+    std::string w(mock_tcp_written(&h->rt->loop));
+    EXPECT_NE(std::string::npos, w.find("GET /x HTTP/1.1\r\n"));
+    EXPECT_NE(std::string::npos, w.find("Host: [2001:db8::1]:8443\r\n"));
+}
+
+TEST_F(BridgeHttpTest, UrlDefaultPortOmittedInHostHeader) {
+    ASSERT_EQ(0, mock_tcp_respond(&h->rt->loop, kUrlResp, strlen(kUrlResp)));
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var _result = null;\n"
+        "__native__.httpRequest('http://api.example.com:80/a', 'GET', '{}', null)\n"
+        "  .then(function(d){ _result = d; })\n"
+        "  .catch(function(e){ _result = 'error:' + e; });\n"
+        "0", &out));
+
+    std::string v;
+    ASSERT_TRUE(host_poll_until_value(h, "_result", "ok", &v));
+    std::string w(mock_tcp_written(&h->rt->loop));
+    EXPECT_NE(std::string::npos, w.find("Host: api.example.com\r\n"));
+    EXPECT_EQ(std::string::npos, w.find("api.example.com:80"));
+    EXPECT_NE(std::string::npos, w.find("GET /a HTTP/1.1\r\n"));
+}
+
+TEST_F(BridgeHttpTest, UrlParserRejectsMalformedUrls) {
+    std::string out;
+    /* 注入/越界/空 host/坏括号/非数字端口 → promise 一律 reject */
+    const char *urls[] = {
+        "http://x:0/",
+        "http://x:99999/",
+        "http://x:12a/",
+        "http:///a",
+        "http://user@/a",
+        "http://[::1/x",
+        "http://a b/",
+        "http://x\r\nInjected: 1/",
+        "ftp://x/",
+    };
+    for (size_t i = 0; i < sizeof(urls) / sizeof(urls[0]); i++) {
+        std::string code = std::string("var _r = null;__native__.httpRequest(") +
+                           JSON_string(urls[i]) +
+                           ", 'GET', '{}', null)"
+                           ".then(function(d){_r='resolved';},"
+                           "function(e){_r='rejected:'+e;});0";
+        ASSERT_TRUE(host_eval(h, code.c_str(), &out)) << "url " << urls[i];
+        std::string v;
+        ASSERT_TRUE(host_poll_until_value(h, "_r", "rejected:", &v))
+            << "url " << urls[i];
+        EXPECT_NE(std::string::npos, v.find("invalid url")) << "url " << urls[i];
+    }
+}

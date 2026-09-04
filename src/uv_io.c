@@ -545,78 +545,125 @@ static char *uv_io_build_json_array(const char *const *items, int count,
 }
 
 /* ================================================================
- * uv_io_parse_url — Simple URL parser
+ * uv_io_parse_url — HTTP 客户端 URL 解析
  *
- * Extracts host, port, path, and TLS flag from http:// or https://
- * URLs.  Returns 0 on success, -1 on invalid scheme or alloc failure.
- * Caller must call uv_io_url_free() to release heap fields.
+ * 从 http:// 或 https:// 绝对 URL 提取 host（裸主机名，IPv6 字面量不带
+ * 方括号，供 getaddrinfo / SNI 使用）、port、path（含 query，不含 fragment）
+ * 与 TLS 标志。返回 0 成功；-1 表示非法 scheme/host/port、控制字符注入、
+ * 或分配失败。port 越界/非数字即拒绝（fail closed），而非回退默认端口。
  * ================================================================ */
 
 static int uv_io_parse_url(const char *url, uv_io_url_t *out)
 {
-    int use_tls = 0;
-    const char *p = NULL;
+    const char *p;
+    const char *end;
+    const char *frag;
 
     if (!url || !out) return -1;
 
-    if (strncmp(url, "https://", 8) == 0) {
-        use_tls = 1;
+    /* CR/LF/空格/Tab 出现在 URL 任意位置都会破坏请求行或 Host 头
+     * （头注入向量；url.js 不做百分号编码，可能原样放行）。 */
+    for (p = url; *p; p++) {
+        if (*p == '\r' || *p == '\n' || *p == ' ' || *p == '\t') return -1;
+    }
+
+    if (strncasecmp(url, "https://", 8) == 0) {
+        out->tls = 1;
         p = url + 8;
-    } else if (strncmp(url, "http://", 7) == 0) {
-        use_tls = 0;
+    } else if (strncasecmp(url, "http://", 7) == 0) {
+        out->tls = 0;
         p = url + 7;
     } else {
         return -1;
     }
 
-    out->tls = use_tls;
+    /* fragment 不上线路（WHATWG：仅拼进 href，绝不发送），视作虚拟结尾。 */
+    frag = strchr(p, '#');
+    end = frag ? frag : p + strlen(p);
 
+    /* authority 段 = p..auth_end（首个 '/' 或 '?' 之前）。 */
+    const char *auth_end = end;
+    for (const char *q = p; q < end; q++) {
+        if (*q == '/' || *q == '?') { auth_end = q; break; }
+    }
+
+    /* userinfo（最后一个 '@' 之前）丢弃：凭据不进 host/DNS/SNI。 */
     const char *host_start = p;
-    const char *host_end = NULL;
+    for (const char *q = p; q < auth_end; q++) {
+        if (*q == '@') host_start = q + 1;
+    }
+    if (host_start >= auth_end) return -1;   /* 空 host（含 http://user@/） */
+
+    /* host + port。IPv6 字面量 [..]：host 取括号内裸地址，':' 只在 ']' 后
+     * 才是端口分隔符。 */
+    const char *host_end;
     const char *port_start = NULL;
-    const char *path_start = NULL;
-
-    /* Find end of host (either : or / or end) */
-    while (*p && *p != ':' && *p != '/') {
-        p++;
-    }
-    host_end = p;
-
-    if (*p == ':') {
-        p++;
-        port_start = p;
-        while (*p && *p != '/') {
-            p++;
+    if (*host_start == '[') {
+        const char *close = NULL;
+        for (const char *q = host_start + 1; q < auth_end; q++) {
+            if (*q == ']') { close = q; break; }
         }
-    }
-
-    if (*p == '/') {
-        path_start = p;
+        if (!close) return -1;   /* 括号未闭合 */
+        host_start++;            /* 跳过 '['，存裸地址 */
+        host_end = close;
+        if (close + 1 < auth_end) {
+            if (close[1] != ':') return -1;
+            port_start = close + 2;
+        }
     } else {
-        path_start = "/";
+        host_end = host_start;
+        while (host_end < auth_end && *host_end != ':') host_end++;
+        if (host_end < auth_end) port_start = host_end + 1;
     }
 
-    /* Extract host */
+    /* 默认端口；显式端口必须为纯数字且 1..65535（空串 = 默认端口）。 */
+    int default_port = out->tls ? 443 : 80;
+    if (port_start) {
+        long port = 0;
+        const char *q = port_start;
+        if (q >= auth_end) {
+            out->port = default_port;            /* "host:/" → 默认端口 */
+        } else {
+            for (; q < auth_end; q++) {
+                if (*q < '0' || *q > '9') return -1;
+                port = port * 10 + (*q - '0');
+                if (port > 65535) return -1;
+            }
+            if (port <= 0) return -1;
+            out->port = (int)port;
+        }
+    } else {
+        out->port = default_port;
+    }
+
     size_t host_len = (size_t)(host_end - host_start);
+    if (host_len == 0) return -1;   /* "http://[]/x" */
+
     out->host = (char *)malloc(host_len + 1);
     if (!out->host) return -1;
     memcpy(out->host, host_start, host_len);
     out->host[host_len] = '\0';
 
-    /* Extract port */
-    if (port_start) {
-        long parsed = strtol(port_start, NULL, 10);
-        if (parsed <= 0 || parsed > 65535) {
-            out->port = use_tls ? 443 : 80;
-        } else {
-            out->port = (int)parsed;
+    /* path：'/' 或裸 '?'（无斜杠 query）开头；无则 "/"。只拷贝到 fragment
+     * 虚拟结尾 end，strdup 会把 fragment 带进请求行。 */
+    if (auth_end == end) {
+        out->path = strdup("/");
+    } else if (*auth_end == '/') {
+        size_t n = (size_t)(end - auth_end);
+        out->path = (char *)malloc(n + 1);
+        if (out->path) {
+            memcpy(out->path, auth_end, n);
+            out->path[n] = '\0';
         }
-    } else {
-        out->port = use_tls ? 443 : 80;
+    } else {   /* '?' 无 '/'：WHATWG pathname 为 "/"，补齐后再拼 query */
+        size_t n = (size_t)(end - auth_end);
+        out->path = (char *)malloc(n + 2);
+        if (out->path) {
+            out->path[0] = '/';
+            memcpy(out->path + 1, auth_end, n);
+            out->path[n + 1] = '\0';
+        }
     }
-
-    /* Extract path */
-    out->path = strdup(path_start);
     if (!out->path) {
         free(out->host);
         out->host = NULL;
@@ -892,19 +939,31 @@ static int uv_io_http_connect_port(uv_io_http_op_t *op)
     return op->proxy_active ? op->proxy_port : op->port;
 }
 
+/* host[:port] 上线形式（authority）：IPv6 裸字面量补方括号，端口等于默认
+ * 值时省略。返回 malloc 串，调用方 free。 */
+static char *uv_io_http_authority(const char *host, int port, int default_port)
+{
+    const char *l = strchr(host, ':') ? "[" : "";
+    const char *r = strchr(host, ':') ? "]" : "";
+    char *s;
+    size_t n = strlen(host) + 16;
+    s = (char *)malloc(n);
+    if (!s) return NULL;
+    if (port != default_port) snprintf(s, n, "%s%s%s:%d", l, host, r, port);
+    else snprintf(s, n, "%s%s%s", l, host, r);
+    return s;
+}
+
 /* Absolute-form request target for plain-http via proxy (RFC 7230 5.3.2);
  * default port 80 may be omitted. Returns malloc'd string or NULL. */
 static char *uv_io_http_proxy_request_target(uv_io_http_op_t *op)
 {
-    const char *scheme = "http://";
-    size_t n = strlen(scheme) + strlen(op->host) + 16 + strlen(op->path);
+    char *auth = uv_io_http_authority(op->host, op->port, 80);
+    if (!auth) return NULL;
+    size_t n = strlen("http://") + strlen(auth) + strlen(op->path) + 1;
     char *target = (char *)malloc(n);
-    if (!target) return NULL;
-    if (op->port != 80) {
-        snprintf(target, n, "%s%s:%d%s", scheme, op->host, op->port, op->path);
-    } else {
-        snprintf(target, n, "%s%s%s", scheme, op->host, op->path);
-    }
+    if (target) snprintf(target, n, "http://%s%s", auth, op->path);
+    free(auth);
     return target;
 }
 
@@ -921,18 +980,16 @@ static int uv_io_http_send_connect(uv_io_http_op_t *op, const char **err)
     int n;
     char *req;
     const char *auth = op->proxy_auth;
+    char *authority = uv_io_http_authority(op->host, op->port, 443);
     size_t auth_extra = auth ? (strlen(auth) + 32) : 0;
-    size_t cap = strlen(op->host) + 96 + auth_extra;
+    if (!authority) { *err = "out of memory"; return -1; }
+    size_t cap = strlen(authority) * 2 + 96 + auth_extra;
 
     req = (char *)malloc(cap);
-    if (!req) { *err = "out of memory"; return -1; }
-    if (op->port != 443) {
-        n = snprintf(req, cap, "CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n",
-                     op->host, op->port, op->host, op->port);
-    } else {
-        n = snprintf(req, cap, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n",
-                     op->host, op->host);
-    }
+    if (!req) { free(authority); *err = "out of memory"; return -1; }
+    n = snprintf(req, cap, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n",
+                 authority, authority);
+    free(authority);
     if (n <= 0 || (size_t)n >= cap) { free(req); *err = "connect build failed"; return -1; }
     if (auth) {
         int n2 = snprintf(req + n, cap - n, "Proxy-Authorization: %s\r\n", auth);
@@ -2189,6 +2246,8 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     const char *method = op->method ? op->method : "GET";
     const char *path = op->path ? op->path : "/";
     const char *host = op->host ? op->host : "localhost";
+    char *host_hdr = uv_io_http_authority(host,
+                                          op->port, op->use_tls ? 443 : 80);
     char *proxy_target = NULL;
 
     /* Plain-http via proxy: absolute-form request target (RFC 7230 5.3.2). */
@@ -2209,6 +2268,7 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
                      (op->proxy_auth ? strlen(op->proxy_auth) + 32 : 0);
     char *req_buf = (char *)malloc(req_cap);
     if (!req_buf) {
+        free(host_hdr);
         free(proxy_target);
         uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
         return;
@@ -2217,7 +2277,8 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     size_t pos = 0;
     int n = snprintf(req_buf + pos, req_cap - pos,
                      "%s %s HTTP/1.1\r\nHost: %s\r\n",
-                     method, path, host);
+                     method, path, host_hdr ? host_hdr : host);
+    free(host_hdr);
     free(proxy_target);
     if (n < 0 || (size_t)n >= req_cap - pos) goto req_too_large;
     pos += (size_t)n;

@@ -176,6 +176,12 @@ struct uv_loop_s {
      * mock 的 fs/tcp 请求同步完成，故 uv_loop_init 的 memset 后恒为 0；仅需
      * 该字段与真实 libuv 对齐，供 qwrt_loop_idle 编译并保持一致语义。 */
     union { void *unused[2]; unsigned int count; } active_reqs;
+    /* test-only: every byte handed to uv_write (HTTP request / CONNECT /
+     * TLS records), NUL-terminated for convenience. Accumulated across
+     * writes; freed and reset in uv_loop_close. */
+    char *written;
+    size_t written_len;
+    size_t written_cap;
 };
 
 static inline uv_buf_t uv_buf_init(char *base, unsigned int len)
@@ -249,6 +255,10 @@ int uv_cancel(uv_req_t *req);
  * stream to call uv_read_start claims it; uv_run delivers the bytes then
  * (unless the stream closed meanwhile) a UV_EOF read. Returns 0 on success. */
 int mock_tcp_respond(uv_loop_t *loop, const char *bytes, size_t len);
+
+/* test-only: NULL-terminated view of all bytes written via uv_write on this
+ * loop (accumulated in order). Caller must not free. */
+const char *mock_tcp_written(uv_loop_t *loop);
 
 /* ---- fs (mock) ---- */
 int uv_fs_open(uv_loop_t *loop, uv_fs_t *req, const char *path, int flags, int mode, uv_fs_cb cb);
