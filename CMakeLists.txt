@@ -208,6 +208,41 @@ if(EXISTS "${QWRT_QUICKJS_C99_PATCH}")
     endif()
 endif()
 
+# ── QuickJS-ng per-ctx job drain patch ────────────────────────────────────
+# Adds JS_DrainPendingJobsForContext(): qwrt_ctx_destroy needs to remove a
+# freed context's pending jobs from rt->job_list before JS_FreeContext, or
+# the next JS_ExecutePendingJob dereferences a dangling ctx pointer (UAF).
+# Applied unconditionally (working-tree-only; submodule stays clean).
+set(QWRT_QUICKJS_DRAIN_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-drain-jobs.patch")
+if(EXISTS "${QWRT_QUICKJS_DRAIN_PATCH}")
+    execute_process(
+        COMMAND patch -p1 --dry-run -f -i "${QWRT_QUICKJS_DRAIN_PATCH}"
+        WORKING_DIRECTORY "${QUICKJS_DIR}"
+        RESULT_VARIABLE _drain_patch_dry
+        OUTPUT_QUIET ERROR_QUIET)
+    if(_drain_patch_dry EQUAL 0)
+        execute_process(
+            COMMAND patch -p1 -f -i "${QWRT_QUICKJS_DRAIN_PATCH}"
+            WORKING_DIRECTORY "${QUICKJS_DIR}"
+            RESULT_VARIABLE _drain_patch_apply ERROR_QUIET)
+        if(NOT _drain_patch_apply EQUAL 0)
+            message(FATAL_ERROR "Failed to apply quickjs-ng drain-jobs patch")
+        endif()
+        message(STATUS "Applied quickjs-ng drain-jobs patch (deps/quickjs-ng-drain-jobs.patch)")
+    else()
+        # Already applied (e.g. reconfigure) — verify the patched symbol is present.
+        execute_process(
+            COMMAND grep -c "JS_DrainPendingJobsForContext"
+                    "${QUICKJS_DIR}/quickjs.h"
+            OUTPUT_QUIET ERROR_QUIET RESULT_VARIABLE _drain_patch_check)
+        if(NOT _drain_patch_check EQUAL 0)
+            message(FATAL_ERROR
+                "quickjs-ng drain-jobs patch does not apply cleanly and is not "
+                "already applied. Regenerate deps/quickjs-ng-drain-jobs.patch.")
+        endif()
+    endif()
+endif()
+
 # ── QuickJS-ng debugger patch ──────────────────────────────────────────────
 # When QWRT_BUILD_DEBUGGER is ON, apply deps/quickjs-ng-debugger.patch to the
 # quickjs-ng submodule working tree BEFORE add_subdirectory so the patched

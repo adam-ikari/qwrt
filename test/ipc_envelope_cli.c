@@ -87,21 +87,24 @@ int main(int argc, char **argv)
             payload = malloc(plen ? plen : 1);
             if (plen && hex_decode(phex, payload, plen) == (size_t)-1) {
                 fprintf(stderr, "bad payload hex\n");
+                free(payload);
                 return 2;
             }
         }
         if (!payload) return 2;
         uint8_t *buf = malloc(IPC_ENVELOPE_ENCODED_SIZE(plen));
-        if (!buf) return 2;
+        if (!buf) { free(payload); return 2; }
         size_t n = ipc_envelope_encode(buf, IPC_ENVELOPE_ENCODED_SIZE(plen),
                                        source, target, (int8_t)kind,
                                        payload, (uint32_t)plen);
         if (!n) {
             fprintf(stderr, "encode failed\n");
+            free(buf); free(payload);
             return 1;
         }
         print_hex(buf, n);
         printf("\n");
+        free(buf); free(payload);
         return 0;
     }
 
@@ -115,6 +118,7 @@ int main(int argc, char **argv)
             buf = malloc(blen ? blen : 1);
             if (blen && hex_decode(argv[2], buf, blen) == (size_t)-1) {
                 printf("ERR bad hex\n");
+                free(buf);
                 return 1;
             }
         }
@@ -122,11 +126,13 @@ int main(int argc, char **argv)
         ipc_envelope_view_t v;
         if (ipc_envelope_decode(buf, blen, &v) != 0) {
             printf("ERR rejected\n");
+            free(buf);
             return 1;
         }
         printf("%" PRId32 " %" PRId32 " %d ", v.source, v.target, v.kind);
         print_hex(v.payload, v.payload_len);
         printf("\n");
+        free(buf);
         return 0;
     }
 

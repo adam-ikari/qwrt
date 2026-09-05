@@ -9,6 +9,10 @@
  * 关键：只捕获"快照之后新增的"枚举全局键（_pristine 在 setup 全部完成后、
  * 基础设施挂载前拍下），因此引擎内建与 polyfill 注入的 API 天然被排除——它们
  * 在恢复时由引擎/重注入重新建立。非可克隆属性（函数等）记入 skipped 跳过。
+ *
+ * G4 设计限制（见 suspend-restore-design.md §5.1）：Object.keys 只捕获可枚举
+ * 字符串键。非枚举属性（defineProperty enumerable:false）、Symbol 键属性、
+ * getter 抛异常的属性不被捕获——恢复后丢失。用户应只用可枚举字符串键全局。
  */
 
 export function setupContext(pal) {

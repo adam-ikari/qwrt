@@ -150,7 +150,7 @@ typedef struct qwrt_msg_s {
 typedef struct qwrt_ctx_s {
     JSContext *jsctx;
     int context_id;
-    int suspended;       /* 1 if context is suspended */
+    int suspended;       /* vestigial：G1 后 suspend 即销毁 ctx（槽位 NULL 即挂起态），字段保留 ABI 兼容，恒为 0 */
 
     void *handles[QWRT_MAX_HANDLES];
     JSValue timer_resolves[QWRT_MAX_HANDLES];

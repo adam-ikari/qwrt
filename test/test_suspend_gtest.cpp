@@ -110,7 +110,12 @@ TEST(qwrt_suspend_, resume_into_fresh_slot) {
         "qwrtContext.suspend(1, '" TEST_DIR "/state_fresh.bin'); 'ok'", &out));
     ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
 
-    /* destroy 后 resume 回同槽：语义 = 从盘恢复 */
+    /* G1：suspend 成功即销毁 ctx（槽位空）→ resume 从盘重建 */
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify(qwrtContext.resume(1, '', '" TEST_DIR "/state_fresh.bin'))", &out));
+    ASSERT_EQ("1", out) << "resume id: " << out;
+
+    /* 显式 destroy 后再 resume 回同槽：occupied → empty → resume 路径 */
     ASSERT_TRUE(host_value(h, "qwrtContext.destroy(1); 'ok'", &out));
     ASSERT_TRUE(host_value(h,
         "JSON.stringify(qwrtContext.resume(1, '', '" TEST_DIR "/state_fresh.bin'))", &out));
@@ -149,8 +154,7 @@ TEST(qwrt_suspend_, resume_bad_state_path) {
         "qwrtContext.suspend(1, '" TEST_DIR "/state_gone.bin'); 'ok'", &out));
     ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
     ASSERT_EQ(0, remove(TEST_DIR "/state_gone.bin"));
-    ASSERT_TRUE(host_value(h,
-        "qwrtContext.destroy(1); 'ok'", &out));
+    /* G1：suspend 已销毁 ctx（槽位空），无需再 destroy */
 
     ASSERT_TRUE(host_value(h,
         "var caught = '';\n"
@@ -255,4 +259,154 @@ TEST(qwrt_suspend_, stress_cycle_10_rounds) {
     host_destroy(h);
     remove(TEST_DIR "/state_cyc.bin");
     remove(TEST_DIR "/state_cyc_end.bin");
+}
+
+// G2 回归：销毁带 pending job 的 context 不得 UAF。JS_FreeContext 不清
+// rt->job_list 中属于该 ctx 的 entry——修复前残留悬垂 e->ctx，下一轮
+// qwrt_flush_microtasks（每次 eval 后主循环都会跑）执行 JS_ExecutePendingJob
+// 即访问已释放内存。修复 = qwrt_ctx_destroy 在 JS_FreeContext 前调
+// JS_DrainPendingJobsForContext（quickjs-ng drain-jobs patch）摘除该 ctx 的
+// pending job。
+//
+// 关键：spawn 与 destroy 必须在**同一次 eval**内完成——两次 eval 之间主循环
+// 会 flush 微任务，把子 ctx 的 pending job 先执行掉（ctx 尚存活，无 UAF），
+// bug 无法复现。compound eval 保证 destroy 时刻 job 队列里确有该 ctx 的
+// pending job；destroy 后的下一次 eval 触发 flush，修复前此处崩溃。
+TEST(qwrt_suspend_, destroy_with_pending_job_no_uaf) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string out;
+
+    // 同一 eval：spawn（init 脚本留一个未执行的 Promise 反应）→ 立即 destroy
+    std::string code =
+        "var id = qwrtContext.spawn('Promise.resolve().then(function(){});');"
+        "qwrtContext.destroy(id); 'ok'";
+    ASSERT_TRUE(host_eval(h, code.c_str(), &out));
+    // 精确匹配 ok:true（find("ok") 会放过 {"ok":false,...} 的失败响应）
+    ASSERT_NE(std::string::npos, out.find("\"ok\":true")) << "got: " << out;
+
+    // 下一轮 eval：uv_run + flush。修复前：悬垂 e->ctx → UAF/crash；
+    // 修复后：job 已 drain，主 context 一切正常。
+    ASSERT_TRUE(host_value(h, "1 + 1", &out));
+    ASSERT_EQ("2", out) << "destroy 后主 context 异常: " << out;
+
+    // 再 spawn/destroy 一轮（槽位 1 已释放，spawn 复用），确认运行时健康
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify(qwrtContext.spawn('globalThis.x = 5;'))", &out));
+    ASSERT_EQ("1", out) << "spawn 复用槽位: " << out;
+    ASSERT_TRUE(host_value(h, "qwrtContext.destroy(1); 'ok'", &out));
+    ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
+
+    host_destroy(h);
+}
+
+// G1+G2 变体（suspend 路径）：同一次 eval 内 spawn（含用户全局 + pending
+// Promise 反应）→ suspend。G1 使 suspend 真销毁 ctx，销毁前 G2 的 drain 摘除
+// 该 ctx 的 pending job；下一轮 eval 触发 flush，修复前此处 UAF。
+TEST(qwrt_suspend_, suspend_with_pending_job_no_uaf) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string out;
+
+    // 同一 eval：spawn（用户状态 + pending Promise 反应）→ suspend 写盘。
+    // capture 同步执行不 flush，suspend 时刻 job 队列确有该 ctx 的 job。
+    std::string code =
+        "var id = qwrtContext.spawn('globalThis.pj = 7;"
+        "Promise.resolve().then(function(){});');"
+        "qwrtContext.suspend(id, '" TEST_DIR "/state_pj.bin'); 'ok'";
+    ASSERT_TRUE(host_eval(h, code.c_str(), &out));
+    ASSERT_NE(std::string::npos, out.find("\"ok\":true")) << "got: " << out;
+
+    // flush：job 已被 drain（G2），修复前此处悬垂 e->ctx → UAF/crash。
+    // 主 context 正常。
+    ASSERT_TRUE(host_value(h, "1 + 1", &out));
+    ASSERT_EQ("2", out) << "suspend 后主 context 异常: " << out;
+    // resume 重建（G1 后槽位已空）→ 再 suspend 验证用户状态完整往返；
+    // pending 的 Promise 反应不复活（G5 边界：挂起不保存运行时异步状态）。
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify(qwrtContext.resume(1, '', '" TEST_DIR "/state_pj.bin'))", &out));
+    ASSERT_EQ("1", out) << "resume id: " << out;
+    ASSERT_TRUE(host_eval(h,
+        "qwrtContext.suspend(1, '" TEST_DIR "/state_pj2.bin'); 'ok'", &out));
+    ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
+    std::string a, b;
+    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_pj.bin", &a));
+    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_pj2.bin", &b));
+    EXPECT_FALSE(a.empty());
+    EXPECT_NE(std::string::npos, b.find("pj")) << "用户状态未恢复";
+    EXPECT_EQ(a, b) << "resume 后再 suspend 状态不一致";
+
+    host_destroy(h);
+    remove(TEST_DIR "/state_pj.bin");
+    remove(TEST_DIR "/state_pj2.bin");
+}
+
+// G1 回归（设计 §8.2 suspend_releases_slot）：suspend 成功后槽位空出（ctx 已
+// 销毁、内存已释放），resume 在原槽位重建且状态完整。主 context 不受影响。
+TEST(qwrt_suspend_, suspend_releases_slot) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string out;
+
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify(qwrtContext.spawn(\"globalThis.k = 'slot'\"))", &out));
+    ASSERT_EQ("1", out);
+
+    // suspend 成功 → G1 销毁 ctx，槽位空
+    ASSERT_TRUE(host_eval(h,
+        "qwrtContext.suspend(1, '" TEST_DIR "/state_slot.bin'); 'ok'", &out));
+    ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
+
+    // resume 回同槽：重建成功，状态完整（k 回到盘上）
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify(qwrtContext.resume(1, '', '" TEST_DIR "/state_slot.bin'))", &out));
+    ASSERT_EQ("1", out) << "resume id: " << out;
+    ASSERT_TRUE(host_eval(h,
+        "qwrtContext.suspend(1, '" TEST_DIR "/state_slot3.bin'); 'ok'", &out));
+    ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
+    std::string a, b;
+    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_slot.bin", &a));
+    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_slot3.bin", &b));
+    EXPECT_FALSE(a.empty());
+    EXPECT_EQ(a, b) << "resume 后再 suspend 状态不一致";
+
+    // 主 context 正常
+    ASSERT_TRUE(host_value(h, "21 * 2", &out));
+    EXPECT_NE(std::string::npos, out.find("42")) << "got: " << out;
+
+    host_destroy(h);
+    remove(TEST_DIR "/state_slot.bin");
+    remove(TEST_DIR "/state_slot3.bin");
+}
+
+// G1 回归（设计 §8.2 suspend_then_double_suspend）：suspend 即销毁 ctx，同 id
+// 第二次 suspend 必须报 NOT_FOUND（TypeError），失败路径不写半成品文件，主
+// context 不受影响。
+TEST(qwrt_suspend_, suspend_then_double_suspend) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string out;
+
+    ASSERT_TRUE(host_value(h,
+        "JSON.stringify(qwrtContext.spawn(\"globalThis.a = 1\"))", &out));
+    ASSERT_EQ("1", out);
+
+    ASSERT_TRUE(host_eval(h,
+        "qwrtContext.suspend(1, '" TEST_DIR "/state_dbl.bin'); 'ok'", &out));
+    ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
+
+    // 第二次 suspend：槽位已空（G1 销毁）→ NOT_FOUND → TypeError
+    ASSERT_TRUE(host_value(h,
+        "var thrown = '';\n"
+        "try { qwrtContext.suspend(1, '" TEST_DIR "/state_dbl2.bin'); }"
+        "catch (e) { thrown = e.name; }\n"
+        "thrown", &out));
+    EXPECT_NE(std::string::npos, out.find("Error")) << "got: " << out;
+    EXPECT_FALSE(read_file_bytes(TEST_DIR "/state_dbl2.bin", &out))
+        << "第二次 suspend 失败却写了文件";
+
+    ASSERT_TRUE(host_value(h, "2 + 2", &out));
+    EXPECT_NE(std::string::npos, out.find("4")) << "got: " << out;
+    host_destroy(h);
+    remove(TEST_DIR "/state_dbl.bin");
 }

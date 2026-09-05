@@ -260,7 +260,12 @@ void qwrt_ctx_destroy(qwrt_t *rt, qwrt_ctx_t *ctx)
     /* Cleanup resources (timers, handles, etc.) */
     qwrt_ctx_cleanup_resources(rt, ctx);
 
-    /* Free the JSContext */
+    /* G2：先排空 rt->job_list 中属于本 ctx 的 pending job（如未执行的
+     * Promise 反应）。JS_FreeContext 不清 job 队列，残留 entry 会持悬垂
+     * ctx 指针，下一轮 JS_ExecutePendingJob 即 UAF。 */
+    if (ctx->jsctx && rt->jsrt) {
+        JS_DrainPendingJobsForContext(rt->jsrt, ctx->jsctx);
+    }
     if (ctx->jsctx) {
         JS_FreeContext(ctx->jsctx);
         ctx->jsctx = NULL;
@@ -369,6 +374,8 @@ int qwrt_ctx_serialize(qwrt_t *rt, int ctx_id, const char *state_path)
     qwrt_ctx_t *cctx = qwrt_get_ctx_by_id(rt, ctx_id);
     if (!cctx || !cctx->jsctx) return QWRT_ERR_NOT_FOUND;
     if (ctx_id == rt->active_ctx_id) return QWRT_ERR_BUSY;
+    /* G3：挂起前让扩展保存状态（当前全部 no-op，为扩展状态持久化预留） */
+    if (qwrt_ext_suspend_all(rt, cctx) < 0) return QWRT_ERR_GENERIC;
     JSContext *ctx = cctx->jsctx;
     JSValue g = JS_GetGlobalObject(ctx);
     JSValue fn = JS_GetPropertyStr(ctx, g, "__qwrt_ctx_capture__");
@@ -389,6 +396,9 @@ int qwrt_ctx_serialize(qwrt_t *rt, int ctx_id, const char *state_path)
     int rc = (data && qwrt_write_file(state_path, (const char *)data, len) == 0)
              ? QWRT_OK : QWRT_ERR_IO;
     JS_FreeValue(ctx, bytes);
+    /* G1：写盘成功后销毁 ctx 释放内存。槽位由 qwrt_ctx_destroy 置 NULL，
+     * 后续 qwrt_ctx_rebuild 在该槽位重建；写盘失败保留 ctx 供宿主重试。 */
+    if (rc == QWRT_OK) qwrt_ctx_destroy(rt, cctx);
     return rc;
 }
 
@@ -398,7 +408,7 @@ int qwrt_ctx_rebuild(qwrt_t *rt, int ctx_id, const char *script_ref, const char 
     if (ctx_id < 0 || ctx_id >= QWRT_MAX_CONTEXTS) return QWRT_ERR_INVALID_ARG;
     if (ctx_id == rt->active_ctx_id) return QWRT_ERR_BUSY;
 
-    /* 目标槽若有残留（suspended 未清 / 旧实例）先销毁 */
+    /* 目标槽若有残留（旧实例）先销毁 */
     if (rt->contexts[ctx_id]) {
         qwrt_ctx_destroy(rt, rt->contexts[ctx_id]);
     }
@@ -426,6 +436,9 @@ int qwrt_ctx_rebuild(qwrt_t *rt, int ctx_id, const char *script_ref, const char 
             rc = QWRT_ERR_IO;
         }
     }
+    /* G3：restore 成功后让扩展恢复状态（active 尚未切回主 ctx，钩子可在
+     * 子 ctx 上安全 eval）。失败按整体恢复失败处理：走下方销毁路径。 */
+    if (rc == QWRT_OK && qwrt_ext_resume_all(rt, cctx) < 0) rc = QWRT_ERR_GENERIC;
     if (rt->contexts[0]) rt->active_ctx_id = 0;
     if (rc != QWRT_OK) {
         qwrt_ctx_destroy(rt, cctx);
