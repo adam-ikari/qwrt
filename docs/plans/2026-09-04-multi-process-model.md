@@ -6,6 +6,7 @@
 > 修订：2026-09-04 v3 —— 混合模型：per-worker `mode` 显式覆盖编译默认 + 默认值调和（§1.4）；M-P1/M-P2 里程碑重排（进程 worker 先 opt-in 可用，混合默认策略落 M-P2，§11）；开放决策点新增 #8（mode API 形状）
 > 修订：2026-09-04 v4 —— 单进程组合轨道：§13 多实例生命周期（M-R1：进程内多 qwrt_t 并存 + 全局状态审计 + DAP stdio 约束）、§14 多 RT 组合模型（M-R2：contexts × workers 正交组合，worker 归 rt 不归 ctx）；§11 新增 M-R1/M-R2；开放决策点新增 #9/#10
 > 修订：2026-09-04 v5 —— W3C 合规回归：移除 v3 per-worker `mode` JS 扩展（WorkerOptions 规范面仅 {type, credentials, name}），后端选择上移为宿主 `qwrt_config_t.worker_backend`（§1.4；判据表修正：性能轴全指线程 / 安全轴唯一指进程 / 浏览器 wasm 对照）；新增 §1.5 验证门（可行性 / W3C 合规 / JS 无感 parity）；M-P1/M-P2、开放点 #1 联动；开放点 #8 撤销（随 `mode` 失效）
+> 修订：2026-09-04 v6 —— localStorage 并发无锁化：单所有者代理（storage 归主RT，操作经消息管道 `kind=STORAGE`，flock 否决；新增 §10.2；M-R1/M-P4 挂接；开放点 #7 裁决）
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式）的应用模型，从「单进程多线程」演进为「多进程隔离」。默认独立进程（`ISOLATED`），线程模型（`THREAD`）保留为编译选项回退。
 > 背景（用户决策原文）：**"修改应用模型，支持宿主 主RT 和 WorkerRT 独立进程，通过编译选项设置，默认是独立进程。进程间通讯使用Flatbuffer序列化"**
 
@@ -199,7 +200,7 @@ endif()
 table Envelope {
   source: int32;    // v2 树形：逐跳相对地址。0=宿主（仅主RT 通道上合法）1=父方向 >1=本地子槽位 id；每跳转发时由路由器改写
   target: int32;    // 同 source 的相对语义；命中本地（自身消化或本地子槽位）即止，否则按树路径改写后逐跳转发
-  kind:   int8;     // 0=MESSAGE 1=PORT_TRANSFER 2=ERROR 3=CONTROL
+  kind:   int8;     // 0=MESSAGE 1=PORT_TRANSFER 2=ERROR 3=CONTROL 4=STORAGE(v6：storage 操作代理→主RT 所有者，payload=structured clone{op,key,value?,storageDomain})
   payload:[ubyte];  // MESSAGE=structured clone 字节 / ERROR=错误文本 / CONTROL=控制参数
 }
 root_type Envelope;
@@ -418,7 +419,7 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 |---|---|---|---|
 | **DAP 调试器** | stdio 单通道，worker 不 auto-attach | worker 独立进程后 stdio 天然独立，可各自 attach | 写为后续改进；首版 worker 调试沿用「父 RT 转发调试事件」或暂不自动 attach |
 | **structuredClone / Worker postMessage** | JS 序列化字节 | payload 透传，JS 层零改动 | 无动作 |
-| **localStorage** | 同进程内串行访问存储文件 | **多进程并发写同一文件** → 竞态 | 写为已知限制：首版不做文件锁（文档注记）；后续加 `flock` 或移到主RT 单点代理存储 |
+| **localStorage** | 同进程内串行访问存储文件 | **多进程并发写同一文件** → 竞态 | **v6：无锁单所有者代理**——storage 归主RT，操作经消息管道（`kind=STORAGE`），见 §10.2；`flock` 否决 |
 | **tcp serve()** | loop 内监听端口 | worker 进程内监听端口——进程内天然隔离，无新问题 | 无动作（端口冲突由 OS 处理，同现） |
 | **mock_libuv 测试桩** | mock uv 做确定性单进程调度 | ISOLATED 下自 mock uv 不含 IPC fd | 测试策略见 §10.1 |
 
@@ -427,6 +428,16 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 - **THREAD 模式**：现有 mock_libuv 单进程离线调度测试**原样保留**（回归基线）。
 - **ISOLATED 模式**：引入 `mock_ipc` 测试桩 —— 单进程内用 socketpair（或内存 pipe）模拟 IPC 通道，让信封编解码 + 路由逻辑在单进程 gtest 里确定性验证，**不开真进程**。进程 spawn/握手/fd 继承的集成测试走「真 exec + 真 uv_pipe」e2e（M-P1/M-P4，放 ctest）。
 - 层次：M-P0/M-P3 逻辑层（mock_ipc 单进程 gtest）× M-P1/M-P4 集成层（真进程 e2e）。
+
+## 10.2 localStorage 无锁并发（v6：单所有者代理）
+
+- **原则依据**：所有权原则推论——storage 文件在任意时刻**恰有一个所有者进程** ⇒ 不存在并发修改 ⇒ **无需文件锁**。`flock` 明确否决：引入进程间同步原语（内核锁等待）违背无锁所有权叙事，且只是把「谁写」的问题换成「谁等」的问题。
+- **拓扑**：storage 所有权归**主RT（树根 runtime）**。worker/子进程的 `getItem/setItem/removeItem/clear/keys` 全部转为发往所有者的消息——复用 IPC 信封管道，`kind` 枚举新增 `STORAGE`（§4.1，只加一个枚举值、无新字段）；payload = `{op, key, value?, storageDomain}` 的 **structured clone 字节**（复用现有序列化，不给 storage 另设 fb 表），操作编排在 JS 层 local-storage.js，C 层只透传信封。
+- **所有者侧**：单线程事件循环**串行**处理 storage 消息（与 msgq 单消费者同构）；持久化独占写权——事件循环排空/挂起/退出时 flush（与现有 local-storage.js 持久化时机对齐）。
+- **线程模型同构（§13 呼应）**：同进程多 runtime 下同一机制——storage 归属一个所有者 runtime（主 runtime），其他 runtime/worker 经 msgq 消息访问。现状各 `qwrt_t` 独立 `rt->store` 与 Web「同源共享」语义的差异在此收敛。
+- **降级路径（所有者死亡）**：孤儿 worker 切**本地快照只读** + 原子 rename last-writer-wins 独立写入（方案 B 仅作故障兜底，见下条否决记录）。
+- **备选否决记录**：方案 B（原子 rename last-writer-wins）——零往返但弱一致、丢并发更新，回避共享而非解决所有权，读一致性差；仅降格为上述故障兜底。方案 C（读快照+写所有者混合）——读写一致化复杂，首版不做（YAGNI）。
+- **延迟预算**：worker storage 操作 +1 次消息往返（unix socket μs 级）；localStorage 非热路径（配置/状态类），可接受。
 
 ---
 
@@ -439,6 +450,7 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 ## M-R1：多实例生命周期（多 qwrt_t 并存；§13）
 
 - 产出：多实例全局状态审计落地（§13.2 清单）+ DAP stdio 冲突防护（第二实例默认 stdio attach 显式报错）+ 双实例回归测试。
+- 产出（v6 追加）：localStorage 单所有者**同进程版**——storage 归主 runtime，其他 runtime/worker 经 msgq 消息访问（§10.2 线程模型路径）+ 双实例 storage 收敛回归。
 - 能力：一个宿主进程 N 个 `qwrt_t` 独立 `qwrt_create`/`qwrt_destroy` 互不干扰（THREAD 基线，零新机制——现状 per-rt 字段已齐）。
 - **验证门**：双实例交错 eval/postMessage/wait_idle/destroy 无串扰；DAP 约束按 §13.2 生效；统一消息接口（§1.4 锚点）双后端回归（§1.5）。
 
@@ -477,6 +489,7 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 ## M-P4：优雅关闭 / 崩溃恢复 / 孤儿回收 + 压力测试
 
 - 产出：关闭链、崩溃检测、孤儿回收全接通；压力/故障注入测试。
+- 产出（v6 追加）：storage 消息路由落地——`kind=STORAGE` 信封经树路由到主RT 所有者 + 所有者死亡降级（本地快照只读/原子 rename 兜底，§10.2）。
 - 能力：崩溃注入（kill 一个 worker/主RT）+ 消息洪泛下的稳定性。
 - **验证门**：`kill -KILL`/`-SEGV` 单个 worker → 其余进程继续；洪泛 10^5 消息无泄漏/无丢失；孤儿回收确认无僵尸进程。
 
@@ -521,6 +534,7 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 | DAP 调试器 | **stdio 单通道** | **约束：进程内仅一个实例可 stdio attach**（默认 `dcfg.in/out=NULL` 抢 stdin/stdout）；其余实例必须显式注入独立 fd/通道（`qwrt_dap_config_t`），否则 attach 拒绝报错 |
 | 进程 env / cwd / locale / malloc | 进程共享 | 安全：常规 C 语义（文档注记，应用层约定） |
 | 信号 handler | qwrt 不安装 | 安全：生命周期全靠 fd EOF（§9.4），无 SIGCHLD/信号依赖 |
+| storage store（localStorage 文件） | per-rt 独立（现状） | **v6 约束：多实例独立 store ≠ Web「同源共享」**——按单所有者收敛：主 runtime 持 store，其余实例/worker 经 msgq 消息访问（§10.2）；进程模型同构（所有者=主RT） |
 
 ## 13.3 崩溃语义（与 §1.4 衔接）
 
@@ -571,7 +585,7 @@ gtest：主 rt spawn 2 context + 2 thread worker → ctx suspend/resume 与 work
 4. **`target` 不做 -1 广播**：广播语义（同 payload 发多 target）首版不做，应用自循环。是否认可？（§4.3）
 5. **MessagePort 跨进程走 (b)「经主RT 信封路由」** 而非 (c) fd-passing 专用通道。是否接受首版经主RT 路由？（§8.2）——推荐接受，fd-passing 后置。
 6. **首版 Linux-only**：Windows 命名管道后置。是否认可？（§12.1）
-7. **localStorage 多进程并发**：首版不做文件锁（文档注记已知限制），还是加 `flock`？——倾向首版记录为已知限制，后续单点代理。（§10）
+7. **localStorage 多进程并发**：**v6 已裁决——无锁单所有者代理**（storage 归主RT，操作经消息管道 `kind=STORAGE`；`flock` 明确否决——进程间同步原语违背无锁所有权叙事；所有者死亡降级=本地快照只读 + 原子 rename 兜底）。（§10.2）
 
 8. **DAP stdio 单通道约束**（§13.2）：进程内仅一个实例可 stdio attach，其余必须显式注入独立 fd——首版按此硬约束（attach 冲突显式报错），不做自动仲裁/通道复用。是否认可？
 9. **worker 与 context 正交（无亲和）**（§14.2）：worker 归 qwrt_t 不归 context，context 挂起/销毁不影响 worker；首版不做 worker↔context 绑定。是否认可？
