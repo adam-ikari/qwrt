@@ -1739,7 +1739,17 @@
         throw new TypeError("Cannot clone a Response whose body has been used");
       }
       if (this._bodyStream) {
-        throw new TypeError("Cannot clone a streaming Response");
+        var branches = this._bodyStream.tee();
+        this._bodyStream = branches[0];
+        var cloned = new Response2(branches[1], {
+          status: this._status,
+          statusText: this._statusText,
+          headers: this._headers,
+          url: this._url,
+          redirected: this._redirected
+        });
+        cloned._type = this._type;
+        return cloned;
       }
       var cloned = new Response2(this._body, {
         status: this._status,
@@ -1854,7 +1864,7 @@
         headers
       });
     };
-    function fetch(input, init) {
+    function fetch2(input, init) {
       return new Promise(function(resolve, reject) {
         var request;
         try {
@@ -2126,7 +2136,7 @@
     globalThis.Headers = Headers;
     globalThis.Request = Request2;
     globalThis.Response = Response2;
-    globalThis.fetch = fetch;
+    globalThis.fetch = fetch2;
   }
 
   // src/fs.js
@@ -2921,18 +2931,44 @@
       if (request instanceof Request) return request.url;
       return String(request);
     }
+    function bufferResponse(response) {
+      var stored = response.clone();
+      return stored.arrayBuffer().then(function(buf) {
+        var headers = {};
+        stored.headers.forEach(function(v, n) {
+          headers[n] = v;
+        });
+        return new Response(
+          buf.byteLength ? new Uint8Array(buf) : null,
+          {
+            status: stored.status,
+            statusText: stored.statusText,
+            headers,
+            url: stored.url || ""
+          }
+        );
+      });
+    }
     class Cache {
       constructor(name) {
         this._name = name;
         this._map = /* @__PURE__ */ new Map();
       }
       put(request, response) {
+        var self = this;
         if (!(response instanceof Response)) {
           return Promise.reject(new TypeError("Cache.put: response must be a Response"));
         }
         var key = urlKey(request);
-        this._map.set(key, response);
-        return Promise.resolve();
+        var buffered;
+        try {
+          buffered = bufferResponse(response);
+        } catch (err) {
+          return Promise.reject(err);
+        }
+        return buffered.then(function(stored) {
+          self._map.set(key, stored);
+        });
       }
       match(request) {
         var key = urlKey(request);
@@ -2959,6 +2995,28 @@
         });
         return Promise.resolve(results);
       }
+      /* add/addAll: fetch each URL, fail fast on non-ok, store the response */
+      add(request) {
+        return this.addAll([request]);
+      }
+      addAll(requests) {
+        var self = this;
+        if (!Array.isArray(requests)) {
+          return Promise.reject(new TypeError("Cache.addAll: requests must be an array"));
+        }
+        return Promise.all(requests.map(function(req) {
+          var url = urlKey(req);
+          return fetch(url).then(function(response) {
+            if (!response.ok) {
+              throw new TypeError("Cache.addAll: fetch failed for " + url);
+            }
+            return self.put(url, response).then(function() {
+              return response;
+            });
+          });
+        })).then(function() {
+        });
+      }
     }
     class CacheStorage {
       constructor() {
@@ -2978,6 +3036,17 @@
       }
       keys() {
         return Promise.resolve(Array.from(this._caches.keys()));
+      }
+      /* Search every cache (insertion order), first hit wins */
+      match(request) {
+        var key = urlKey(request);
+        var hit = null;
+        this._caches.forEach(function(cache) {
+          if (hit) return;
+          var r = cache._map.get(key);
+          if (r) hit = r;
+        });
+        return Promise.resolve(hit ? hit.clone() : void 0);
       }
     }
     globalThis.Cache = Cache;

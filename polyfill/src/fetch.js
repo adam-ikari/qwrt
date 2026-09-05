@@ -497,7 +497,20 @@ export function setupFetch(pal) {
       throw new TypeError('Cannot clone a Response whose body has been used');
     }
     if (this._bodyStream) {
-      throw new TypeError('Cannot clone a streaming Response');
+      /* WHATWG：流式 clone = tee。原流被 tee 锁定 reader 后不能再 getReader，
+       * 必须整体替换为分支流；本对象与 clone 各持一个分支（SW-2 cache.put
+       * 依赖此语义：put 存副本，调用方继续用原 response）。 */
+      var branches = this._bodyStream.tee();
+      this._bodyStream = branches[0];
+      var cloned = new Response(branches[1], {
+        status: this._status,
+        statusText: this._statusText,
+        headers: this._headers,
+        url: this._url,
+        redirected: this._redirected
+      });
+      cloned._type = this._type;
+      return cloned;
     }
     var cloned = new Response(this._body, {
       status: this._status,

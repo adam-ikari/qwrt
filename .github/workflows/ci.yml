@@ -429,10 +429,11 @@ jobs:
           python3 test/test_httpserver_e2e.py --qwrt-bin ./build/qwrt
           python3 test/test_fetch_proxy_e2e.py --qwrt-bin ./build/qwrt
 
-      - name: e2e — Service Worker (SW-0 / SW-1)
+      - name: e2e — Service Worker (SW-0 / SW-1 / SW-2)
         run: |
           bash test/service_worker_e2e.sh ./build/qwrt
           bash test/service_worker_sw1_e2e.sh ./build/qwrt
+          bash test/service_worker_sw2_e2e.sh ./build/qwrt
 
   # ============================================================================
   # Coverage: gcov with WAMR default engine.
