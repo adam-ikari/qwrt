@@ -162,20 +162,28 @@ static inline void host_poll_sleep(void) {
     nanosleep(&ts, NULL);
 }
 
+/* CLOCK_MONOTONIC 毫秒时钟：poll 预算按真实流逝时间记账。原先"单次 eval
+ * 超时最多烧 3s 真实时间却只记 25ms 预算"，5s 名义预算可放大成 ~200 次
+ * 重试 ×3s ≈ 10 分钟 —— 即 brain 记录的"单跑偶发挂起 >120s"。 */
+static inline long long mono_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 static inline bool host_poll_until(HostCtx *h, const char *expr,
                                    const char *expected_substring,
                                    std::string *out, int timeout_ms = 5000) {
-    int waited = 0;
+    const long long deadline = mono_ms() + timeout_ms;
     std::string last;
-    while (waited < timeout_ms) {
-        int single = timeout_ms - waited;   /* 单次超时不超过剩余预算 */
-        if (single > HOST_POLL_SINGLE_MS) single = HOST_POLL_SINGLE_MS;
+    while (mono_ms() < deadline) {
+        long long remain = deadline - mono_ms();
+        int single = remain > HOST_POLL_SINGLE_MS ? HOST_POLL_SINGLE_MS : (int)remain;
         if (!host_eval(h, expr, &last, single)) {
             /* 单次 eval 超时/异常：qwrt 线程忙（处理长消息队列）或 eval 读到
-             * 中间状态。残留响应已被 host_wait_msg 清理，sleep 后重试——poll
-             * 的语义是"持续轮询直到条件满足或总预算耗尽"，不是单次一击。 */
+             * 中间状态。残留响应已被 host_wait_msg 清理，短暂 sleep 后重试。
+             * 预算按真实时间记账：超时烧掉几秒就扣几秒，不再放大。 */
             host_poll_sleep();
-            waited += 25;
             continue;
         }
         if (last.find(expected_substring) != std::string::npos) {
@@ -183,7 +191,6 @@ static inline bool host_poll_until(HostCtx *h, const char *expr,
             return true;
         }
         host_poll_sleep();
-        waited += 25;
     }
     *out = last;
     return false;
@@ -281,19 +288,18 @@ static inline bool host_value(HostCtx *h, const char *code, std::string *out,
 }
 
 // 轮询直到表达式求值结果（解码后的 v 值）包含 expected_substring。
-// 与 host_poll_until 一样，每次未命中睡 25ms，让预算对应真实时间。
+// 预算与 host_poll_until 一样按真实时间记账。
 static inline bool host_poll_until_value(HostCtx *h, const char *expr,
                                          const char *expected_substring,
                                          std::string *out, int timeout_ms = 5000) {
-    int waited = 0;
+    const long long deadline = mono_ms() + timeout_ms;
     std::string last;
-    while (waited < timeout_ms) {
-        int single = timeout_ms - waited;   /* 单次超时不超过剩余预算 */
-        if (single > HOST_POLL_SINGLE_MS) single = HOST_POLL_SINGLE_MS;
+    while (mono_ms() < deadline) {
+        long long remain = deadline - mono_ms();
+        int single = remain > HOST_POLL_SINGLE_MS ? HOST_POLL_SINGLE_MS : (int)remain;
         if (!host_value(h, expr, &last, single)) {
-            /* 同 host_poll_until：单次慢不放弃，重试直到总预算 */
+            /* 同 host_poll_until：预算按真实时间记账，超时不放大。 */
             host_poll_sleep();
-            waited += 25;
             continue;
         }
         if (last.find(expected_substring) != std::string::npos) {
@@ -301,7 +307,6 @@ static inline bool host_poll_until_value(HostCtx *h, const char *expr,
             return true;
         }
         host_poll_sleep();
-        waited += 25;
     }
     *out = last;
     return false;

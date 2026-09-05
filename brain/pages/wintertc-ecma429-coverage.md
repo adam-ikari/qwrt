@@ -68,7 +68,7 @@ fetch 重定向+流式 body、timers、fs（qwrt.fs）、storage、URLPattern、
 验证：新增 TransformStreamApi 测试 + 全量 polyfill 60/60 通过。
 
 ## 已知预存问题（与本盘点无关）
-- **test_compress_gtest 为预存 flaky**：Gzip1_3KB 在整包 ctest 下偶发失败 / 单跑偶发挂起（>120s）。在纯净 master（stash 全部改动）上同样复现，非本次改动引入；压缩代码路径与本次改动无交集（无 `new TransformStream` 被压缩模块使用）。
+- **test_compress_gtest flaky（已解决，2026-09-01）**：Gzip1_3KB 在整包 ctest 下偶发失败 / 单跑偶发挂起（>120s）。根因是 `test_host.h` poll 预算记账缺陷（单次 eval 超时 3s 只计 25ms 预算，5s 名义预算放大成 ~10 分钟重试），已修（CHANGELOG [Unreleased] Fixed）。
 - **EventSource 连接无法在 mock_libuv 离线测试**：gtest 仅验证 API 表面（已注明），SSE 解析/重连逻辑待网络 mock 或 e2e 覆盖。
 - **build_wasm3/qwrt CLI 存在 `free(): invalid pointer` 崩溃**：疑似该构建配置问题，与本次改动无关。
 

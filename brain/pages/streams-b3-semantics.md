@@ -17,7 +17,7 @@ updated: "2026-08-27T06:46:29"
   - `pipeThrough()`：校验 transform 结构（缺 readable/writable 抛 TypeError）与三流 locked 状态（源/transform.readable/transform.writable 任一 locked 抛 TypeError）。
 - **测试**：test_polyfill_gtest.cpp 新增 5 用例（PipeToReleasesWriterLock 三路径、ReleaseLockRejectsPendingRead、ReadAfterReleaseRejects、TeeSingleCancelClosesBranch、PipeThroughValidation）。test_polyfill_gtest 51/51、ctest offline 13/13 全过。
 - **构建注意**：polyfill/src 改动后须 `node polyfill/build.js` 重建 dist/polyfill.js + polyfill.bytecode + src/polyfill_default.c（dist 用 git add -f 强制跟踪）。
-- **既有 flaky**：test_compress_consistency_gtest 偶发失败（RoundtripGzip 用例，~20%）为既有 flaky（git stash 回退对比证实与本次改动无关）。
+- **既有 flaky（已解决，2026-09-01）**：test_compress_consistency_gtest 偶发失败（RoundtripGzip 用例，~20%）为既有 flaky（git stash 回退对比证实与本次改动无关）；根因同 test_compress_gtest 的 poll 预算记账缺陷，已修（CHANGELOG [Unreleased] Fixed）。
 
 
 ## Timeline
