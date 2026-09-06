@@ -252,6 +252,9 @@ typedef struct qwrt_dap {
     FILE *out;
     int seq;             /* outbound message sequence counter */
     int configured;      /* 1 after configurationDone */
+    int claimed_stdio;   /* 1 when this session owns the process-wide stdio
+                          * claim (M-R1 §13.2: one stdio DAP per process);
+                          * qwrt_dap_detach releases it. */
 } qwrt_dap_t;
 
 /* ================================================================
@@ -662,19 +665,32 @@ void qwrt_dap_service(qwrt_t *rt)
     free(msg); free(cmd); free(args);
 }
 
-/* ================================================================
- * Attach / main loop
- * ================================================================ */
+/* Attach / main loop.
+ * M-R1 §13.2（开放点 #8）：stdio 是进程单通道——一个进程只有一份
+ * stdin/stdout，无法同时服务两个 runtime 的 DAP 会话。缺省 attach（cfg
+ * 缺省或 in/out 均为 NULL）必须原子认领 stdio，第二实例显式报错拒绝，
+ * 不做自动仲裁/通道复用。注入独立 FILE* 的实例不受此约束。
+ * -std=c99：plain int + __atomic 内建（与 g_wamr_state 同款）。 */
+static int g_dap_stdio_claimed = 0;
 
 int qwrt_dap_attach(qwrt_t *rt, const qwrt_dap_config_t *cfg)
 {
     if (!rt) return -1;
+    int use_stdio = (!cfg || (!cfg->in && !cfg->out));
+    if (use_stdio &&
+        __atomic_exchange_n(&g_dap_stdio_claimed, 1, __ATOMIC_ACQ_REL) != 0) {
+        fprintf(stderr, "[qwrt] DAP: stdio already attached by another "
+                "runtime — pass explicit qwrt_dap_config_t.in/out fds "
+                "for this instance (M-R1 §13.2)\n");
+        return -2;   /* explicit reject: no silent arbitration */
+    }
     qwrt_dap_t *d = calloc(1, sizeof(*d));
     if (!d) return -1;
     d->rt = rt;
     d->in = (cfg && cfg->in) ? cfg->in : stdin;
     d->out = (cfg && cfg->out) ? cfg->out : stdout;
     d->seq = 0;
+    d->claimed_stdio = use_stdio;
 
     qwrt_debug_cbs cbs;
     memset(&cbs, 0, sizeof(cbs));
@@ -715,6 +731,9 @@ void qwrt_dap_detach(qwrt_t *rt)
         uv_timer_stop(&rt->dap_timer);
         rt->dap_timer_active = 0;
     }
+    /* release the process-wide stdio claim so a later attach can take it */
+    if (d->claimed_stdio)
+        __atomic_store_n(&g_dap_stdio_claimed, 0, __ATOMIC_RELEASE);
     rt->dap = NULL;
     if (d->dbg)
         qwrt_debug_detach(d->rt, d->dbg);

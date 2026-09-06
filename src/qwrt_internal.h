@@ -188,6 +188,27 @@ typedef struct uv_io_store_entry_t {
  * struct tag is needed here. */
 struct uv_io_http_op_t;
 
+/* ================================================================
+ * M-R1 §13.2 全局状态审计表（多实例安全清单）
+ *
+ * 一个宿主进程内 N 个 qwrt_t 并存（各自 qwrt_create/destroy 独立生命周期）。
+ * per-rt 字段以下全部按 rt 归属，多实例安全；进程级全局状态逐项裁定如下
+ * （docs/plans/2026-09-04-multi-process-model.md §13.2，修改全局状态时必须
+ * 回到该表复核）：
+ *
+ * | 全局项                          | 归属           | 多实例判定 |
+ * |---------------------------------|----------------|------------|
+ * | polyfill 模式 C/A（.rodata）     | 进程只读共享   | 安全；各 rt 独立 lazily 缓存指针 |
+ * | polyfill 模式 B（外部文件）      | per-load       | 安全；各 rt 独立读 |
+ * | polyfill 模式 D（weak 符号）     | 进程级符号     | 约束：多实例共用同一宿主实现，无 per-instance 分发钩子 |
+ * | JSClassID 计数器（JS_NewClassID）| 进程原子计数器 | 安全；多 runtime 自动错开（ext_* 释放时清零重分配） |
+ * | bridge.c g_qwrt_next_port_id    | 进程原子计数器 | 安全；__atomic_fetch_add 分配，id 全局唯一即可 |
+ * | ext_wamr.c g_wamr_state         | 进程单例       | 约束：原子 CAS 首次初始化（wasm_runtime_init 只跑一次）；per-thread env 按 rt 对称 init/destroy |
+ * | DAP stdio 单通道                | 进程单例       | 约束：仅一个实例可缺省 stdio attach（debugger_dap.c 原子认领，冲突 -2 显式报错）；其余实例注入独立 FILE* |
+ * | env / cwd / locale / malloc     | 进程共享       | 安全：常规 C 语义（qwrt_create 只以 overwrite=0 setenv UV_USE_IO_URING） |
+ * | 信号 handler                    | qwrt 不安装    | 安全：生命周期全靠 fd/loop 语义，无信号依赖（cli.c 的 SIGPIPE ignore 属宿主进程语义） |
+ * | storage（localStorage 文件）     | per-rt 独立    | v6 约束：多实例独立 store ≠ Web「同源共享」；单所有者收敛随 M-P4 kind=STORAGE 落地（§10.2） |
+ * ================================================================ */
 struct qwrt_t {
     uint32_t magic;      /* QWRT_MAGIC — set in qwrt_create, validates opaque ptr */
     JSRuntime *jsrt;
@@ -208,6 +229,7 @@ struct qwrt_t {
     int wait_idle;       /* atomic: qwrt_wait_idle requested: auto-exit when idle */
     int thread_ready;    /* atomic: ready handshake: thread init complete */
     int ready_err;       /* init failure code (0 ok; non-zero -> qwrt_create returns NULL) */
+    int thread_joined;   /* atomic: uv_thread_join already done (wait_idle joins; destroy must not re-join — double pthread_join is UB) */
 
     /* config copy (initial_script strdup'd by qwrt_create, freed by destroy) */
     qwrt_config_t config;

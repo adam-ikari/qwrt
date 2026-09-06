@@ -65,6 +65,7 @@ int qwrt_post_message(qwrt_t *rt, const char *json, size_t len)
     return qwrt_msg_push(rt, json, len, QWRT_MSG_SRC_HOST);
 }
 
+
 void qwrt_wait_idle(qwrt_t *rt)
 {
     if (!rt || rt->magic != QWRT_MAGIC) return;
@@ -74,6 +75,9 @@ void qwrt_wait_idle(qwrt_t *rt)
      * qwrt_destroy must not be called before this returns — it would force
      * shutdown and cancel pending async work (e.g. a live timer). */
     uv_thread_join(&rt->thread);
+    /* M-R1: record the join so a following qwrt_destroy skips it — bare
+     * pthread_join on an already-joined handle is UB. */
+    __atomic_store_n(&rt->thread_joined, 1, __ATOMIC_RELEASE);
 }
 
 void qwrt_destroy(qwrt_t *rt)
@@ -82,7 +86,10 @@ void qwrt_destroy(qwrt_t *rt)
     if (rt->magic != QWRT_MAGIC) return;
     __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
     uv_async_send(&rt->wake);          /* wake a blocked uv_run */
-    uv_thread_join(&rt->thread);       /* 等线程 teardown 完成 */
+    /* wait_idle already joined the (exited) thread — re-joining is UB. The
+     * thread is gone at that point, so nothing to wait for. */
+    if (!__atomic_load_n(&rt->thread_joined, __ATOMIC_ACQUIRE))
+        uv_thread_join(&rt->thread);   /* 等线程 teardown 完成 */
     free((void *)rt->config.initial_script);
     free(rt);
 }
@@ -147,9 +154,17 @@ int qwrt_runtime_init(qwrt_t *rt)
             dcfg.stop_on_entry = 1;
             dcfg.in = NULL;   /* stdin */
             dcfg.out = NULL;  /* stdout */
-            if (qwrt_dap_attach(rt, &dcfg) == 0) {
+            int rc = qwrt_dap_attach(rt, &dcfg);
+            if (rc == 0) {
                 qwrt_dap_configure(rt);  /* blocks until configurationDone */
+            } else if (rc == -2) {
+                /* M-R1 §13.2：stdio 已被同进程另一 runtime 认领。显式失败
+                 * （qwrt_create 返回 NULL），不静默降级成无调试器运行——
+                 * 与开放点 #2 的「不静默降级」裁决一致。 */
+                rt->ready_err = -2;
             }
+            /* rc == -1（qwrt_debug_attach 失败等其他错误）：维持旧行为，
+             * 运行时继续无调试器运行。 */
         }
     }
 #endif

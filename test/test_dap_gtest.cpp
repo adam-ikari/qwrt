@@ -479,6 +479,156 @@ TEST(DapDebugger, BreakpointFlow) {
     }
 }
 
+/* ---- M-R1 §13.2/§13.4：DAP stdio 单通道约束 ----
+ * 同进程第二个 runtime 缺省 stdio attach（QWRT_DEBUG=1 auto-attach）必须
+ * 显式失败（qwrt_dap_attach -2 → ready_err → qwrt_create NULL），不静默
+ * 共享 stdin/stdout。attach 冲突释放后（第一实例 detach）再 attach 成功。
+ *
+ * child 编排（单线程，阻塞点即握手点）：
+ *   rt1 = qwrt_create   ← 等父 configurationDone(1)
+ *   rt2 = qwrt_create   ← stdio 已被 rt1 认领 → NULL（断言！rc=2 表明守卫失效）
+ *   qwrt_destroy(rt1)   ← 等父 continue(1)（rt1 停在 entry）→ detach 释放认领
+ *   rt3 = qwrt_create   ← 重新认领成功 → 等父 configurationDone(2)
+ *   _exit(0)            ← rt3 留活（进程退出收尾）
+ *
+ * 父端驱动两轮 configure（rt1 / rt3），每轮 initialize → configurationDone
+ * → stopped(entry) → continue。 */
+static const char *kJsTrivial = "1;\n";
+
+static int child_conflict_main(int in_fd, int out_fd) {
+    dup2(in_fd, STDIN_FILENO);
+    dup2(out_fd, STDOUT_FILENO);
+    close(in_fd);
+    close(out_fd);
+
+    qwrt_config_t cfg = {};
+    cfg.initial_script = kJsTrivial;
+
+    qwrt_t *rt1 = qwrt_create(&cfg);
+    if (!rt1) return 1;
+
+    /* 第二实例：auto-attach 命中 stdio 认领 → attach -2 → ready_err → NULL。
+     * 返回非 NULL = 守卫失效（两 runtime 抢同一 stdin/stdout）。 */
+    qwrt_t *rt2 = qwrt_create(&cfg);
+    if (rt2) return 2;
+
+    /* 释放后可再认领：detach rt1（父已 continue，其线程不在 on_stopped 阻塞）
+     * → rt3 缺省 attach 成功。失败 = 认领未随 detach 释放。 */
+    qwrt_destroy(rt1);
+    qwrt_t *rt3 = qwrt_create(&cfg);
+    if (!rt3) return 3;
+
+    return 0;   /* rt3 留活：进程退出收尾 */
+}
+
+/* 驱动一轮 configure：initialize → configurationDone → 等 stopped(entry)
+ * → continue。返回 0 成功。 */
+static int drive_one_session(int child_in_fd, FILE *from_child, int seq_base) {
+    char req[256];
+    char *msg;
+    int got_event = 0, got_response = 0;
+
+    snprintf(req, sizeof(req),
+        "{\"type\":\"request\",\"seq\":%d,\"command\":\"initialize\","
+        "\"arguments\":{\"adapterID\":\"qwrt\",\"clientID\":\"test\"}}", seq_base);
+    dap_write(child_in_fd, req);
+    for (int tries = 0; tries < 4 && !(got_event && got_response); tries++) {
+        msg = dap_read(from_child);
+        if (!msg) { fprintf(stderr, "FAIL[%d]: EOF during initialize\n", seq_base); return 1; }
+        if (strstr(msg, "\"event\"") && strstr(msg, "\"initialized\"")) got_event = 1;
+        if (strstr(msg, "\"response\"") && strstr(msg, "\"initialize\"")) got_response = 1;
+        free(msg);
+    }
+    if (!got_event || !got_response) {
+        fprintf(stderr, "FAIL[%d]: missing initialized event/response\n", seq_base);
+        return 1;
+    }
+
+    snprintf(req, sizeof(req),
+        "{\"type\":\"request\",\"seq\":%d,\"command\":\"configurationDone\","
+        "\"arguments\":{}}", seq_base + 1);
+    dap_write(child_in_fd, req);
+    /* configurationDone 响应之后等 entry stopped */
+    int got_cfgdone = 0, got_stopped = 0;
+    for (int tries = 0; tries < 6 && !(got_cfgdone && got_stopped); tries++) {
+        msg = dap_read(from_child);
+        if (!msg) { fprintf(stderr, "FAIL[%d]: EOF before stopped\n", seq_base); return 1; }
+        if (strstr(msg, "\"response\"") && strstr(msg, "\"configurationDone\"")) got_cfgdone = 1;
+        if (strstr(msg, "\"stopped\"")) got_stopped = 1;
+        free(msg);
+    }
+    if (!got_cfgdone || !got_stopped) {
+        fprintf(stderr, "FAIL[%d]: missing configurationDone/stopped\n", seq_base);
+        return 1;
+    }
+
+    snprintf(req, sizeof(req),
+        "{\"type\":\"request\",\"seq\":%d,\"command\":\"continue\","
+        "\"arguments\":{\"threadId\":1}}", seq_base + 2);
+    dap_write(child_in_fd, req);
+    msg = dap_read(from_child);   /* continue response */
+    if (!msg) { fprintf(stderr, "FAIL[%d]: EOF on continue\n", seq_base); return 1; }
+    free(msg);
+    return 0;
+}
+
+static int conflict_parent_main(int child_out_fd, int child_in_fd, pid_t pid) {
+    FILE *from_child = fdopen(child_out_fd, "r");
+    if (!from_child) return 1;
+
+    int rc = drive_one_session(child_in_fd, from_child, 1);   /* rt1 */
+    if (rc == 0) rc = drive_one_session(child_in_fd, from_child, 10);  /* rt3 */
+    if (rc != 0) {
+        fclose(from_child);
+        close(child_in_fd);
+        (void)!kill(pid, SIGKILL);
+        int st; waitpid(pid, &st, 0);
+        return rc;
+    }
+
+    /* rt3 仍在跑（child _exit 前不 destroy）——排空到 EOF */
+    char *msg;
+    while ((msg = dap_read(from_child)) != nullptr) free(msg);
+    fclose(from_child);
+    close(child_in_fd);
+    signal(SIGPIPE, SIG_IGN);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    signal(SIGPIPE, SIG_DFL);
+    if (!WIFEXITED(status)) return 100;
+    int crc = WEXITSTATUS(status);
+    if (crc == 2) { fprintf(stderr, "FAIL: second stdio attach NOT rejected\n"); return 2; }
+    if (crc == 3) { fprintf(stderr, "FAIL: re-attach after detach failed\n"); return 3; }
+    if (crc != 0) return 100;
+    return 0;
+}
+
+TEST(DapDebugger, StdioConflictSecondInstanceRejected) {
+    int to_child[2], from_child[2];
+    ASSERT_EQ(0, pipe(to_child));
+    ASSERT_EQ(0, pipe(from_child));
+
+    pid_t pid = fork();
+    ASSERT_GE(pid, 0);
+
+    if (pid == 0) {
+        close(to_child[1]);
+        close(from_child[0]);
+        setenv("QWRT_DEBUG", "1", 1);
+        int rc = child_conflict_main(to_child[0], from_child[1]);
+        _exit(rc);
+    }
+
+    close(to_child[0]);
+    close(from_child[1]);
+    int rc = conflict_parent_main(from_child[0], to_child[1], pid);
+    if (rc == 100) {
+        ADD_FAILURE() << "child exited non-zero";
+    } else if (rc != 0) {
+        ADD_FAILURE() << "stdio constraint violated (rc=" << rc << ")";
+    }
+}
+
 #else /* !QWRT_DEBUG_SUPPORT */
 
 TEST(DapDebugger, DisabledWithoutDebuggerBuild) {

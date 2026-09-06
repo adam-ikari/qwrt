@@ -13,6 +13,7 @@
 #include "qwrt_internal.h"
 #include <string.h>
 #include <stdlib.h>
+#include <sched.h>   /* sched_yield: WAMR singleton init spin */
 
 #ifdef QWRT_HAS_WAMR
 #include "wasm_export.h"
@@ -35,10 +36,9 @@
  * ================================================================ */
 
 typedef struct wamr_state_t {
-    int initialized;
+    uint32_t initialized;   /* CAS state: 0=uninit 1=ready 2=init-in-progress */
 } wamr_state_t;
-
-static wamr_state_t g_wamr_state;
+static wamr_state_t g_wamr_state;   /* process singleton, M-R1 §13.2: see CAS state machine in wamr_ext_init */
 
 /* ================================================================
  * Opaque JS object helpers — wrap WAMR handles for GC
@@ -1700,12 +1700,30 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
     JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
-    /* Initialize WAMR runtime (once) */
-    if (!g_wamr_state.initialized) {
-        if (!wasm_runtime_init()) {
-            return -1;
+    /* Initialize WAMR runtime (once). M-R1 §13.2: 多实例（如并发 worker
+     * 线程同时走到这里）必须只让一个线程跑 wasm_runtime_init——WAMR 全局
+     * 状态（内存池/函数表）不支持并发 init。CAS 状态机：
+     *   0 = 未初始化 → CAS 报主者 → init → 置 1
+     *   1 = 已初始化 / 初始化完成 → 直接通过
+     *   2 = 初始化进行中（非报主者 spin 等待；报主者失败回滚到 0）
+     * 项目严格 -std=c99（无 _Atomic）：uint32_t + __atomic 内建，与
+     * bridge.c g_qwrt_next_port_id 同款。 */
+    {
+        uint32_t zero = 0, inprogress = 2;
+        if (__atomic_compare_exchange_n(&g_wamr_state.initialized, &zero,
+                                        inprogress, 0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE)) {
+            if (!wasm_runtime_init()) {
+                __atomic_store_n(&g_wamr_state.initialized, 0,
+                                 __ATOMIC_RELEASE);   /* 回滚：后续实例可重试 */
+                return -1;
+            }
+            __atomic_store_n(&g_wamr_state.initialized, 1, __ATOMIC_RELEASE);
+        } else {
+            while (__atomic_load_n(&g_wamr_state.initialized,
+                                   __ATOMIC_ACQUIRE) != 1)
+                sched_yield();   /* 并发实例等首次 init 落定 */
         }
-        g_wamr_state.initialized = 1;
     }
 
     /* Per-thread signal env: 每个 qwrt 实例跑在自己的 worker 线程上，而
