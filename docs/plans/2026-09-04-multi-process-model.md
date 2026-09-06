@@ -7,6 +7,7 @@
 > 修订：2026-09-04 v4 —— 单进程组合轨道：§13 多实例生命周期（M-R1：进程内多 qwrt_t 并存 + 全局状态审计 + DAP stdio 约束）、§14 多 RT 组合模型（M-R2：contexts × workers 正交组合，worker 归 rt 不归 ctx）；§11 新增 M-R1/M-R2；开放决策点新增 #9/#10
 > 修订：2026-09-04 v5 —— W3C 合规回归：移除 v3 per-worker `mode` JS 扩展（WorkerOptions 规范面仅 {type, credentials, name}），后端选择上移为宿主 `qwrt_config_t.worker_backend`（§1.4；判据表修正：性能轴全指线程 / 安全轴唯一指进程 / 浏览器 wasm 对照）；新增 §1.5 验证门（可行性 / W3C 合规 / JS 无感 parity）；M-P1/M-P2、开放点 #1 联动；开放点 #8 撤销（随 `mode` 失效）
 > 修订：2026-09-04 v6 —— localStorage 并发无锁化：单所有者代理（storage 归主RT，操作经消息管道 `kind=STORAGE`，flock 否决；新增 §10.2；M-R1/M-P4 挂接；开放点 #7 裁决）
+> 修订：2026-09-04 v7 —— 强制终止权强化：§9.2 终止协议三级化（CONTROL{shutdown} → 超时 → SIGKILL+收尸；优雅可失败、强杀不可拒绝，terminate 权=spawn 权）；线程后端诚实边界（同进程无法安全强杀单线程，强制上限=进程级）；§1.4 判据表新增终止语义轴；M-P1 验证门增强杀用例
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式）的应用模型，从「单进程多线程」演进为「多进程隔离」。默认独立进程（`ISOLATED`），线程模型（`THREAD`）保留为编译选项回退。
 > 背景（用户决策原文）：**"修改应用模型，支持宿主 主RT 和 WorkerRT 独立进程，通过编译选项设置，默认是独立进程。进程间通讯使用Flatbuffer序列化"**
 
@@ -100,7 +101,7 @@ JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双
 | MessagePort（transfer 跨端） | transferable 端点对 | §8.2 端点注册 | 指针路由 → 信封路由（§8） |
 | structuredClone 契约 | StructuredSerialize | `__qwrt_serialize__/__qwrt_deserialize__` | payload 字节透传，零改动 |
 
-**「何时选 PROCESS」判据（v5 修正：性能轴与安全轴剥离）**：
+**「何时选 PROCESS」判据（v5 修正：性能轴与安全轴剥离；v7 增终止语义轴）**：
 
 | 判据 | 轴 | 指向 | 依据 |
 |---|---|---|---|
@@ -110,6 +111,7 @@ JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双
 | CPU 密集（wasm 大计算 / 原生密集） | 性能 | **与后端无关** | 计算吞吐=同引擎同 CPU，两后端相同；进程只多信封编码（ns 级）+ syscall（μs 级）。重 CPU 本身不构成选进程的理由 |
 | 长驻常驻（Service Worker 形态） | 生命周期/内存预算 | process（按宿主策略） | 独立生命周期与独立内存回收、崩溃不牵连主 RT——**生命周期理由，非性能理由** |
 | 不可信/第三方脚本（含 wasm AOT 原生码） | 安全 | **process（唯一指向进程的轴）** | C 层致命错误不可防守（§2.2），进程是唯一硬隔离边界。进程=隔离保费，不是性能选项 |
+| 需要无条件强制终止权（不受信 worker 挂死/死循环必须可被强杀） | 终止语义 | **process（唯一可强杀粒度）** | 协作式 terminate 可被死循环/挂起打败；同进程无法安全强杀单线程，SIGKILL 进程是唯一强制手段（§9.2） |
 
 **与浏览器的判据对照**：浏览器对 wasm worker 用**同进程线程**执行，安全性由引擎级沙箱兜底（V8 wasm sandbox 硬化）。qwrt 的 WAMR（尤其 AOT 产物）不承诺同级沙箱硬化，故「不可信代码隔离」在 qwrt 内必须上移到进程边界——这就是 qwrt 判据表比浏览器多出安全轴的原因：浏览器把它藏在引擎沙箱里，qwrt 显式化为 `worker_backend` 选择。
 
@@ -388,7 +390,26 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 - 理由：宿主只见一条通道（主RT），worker 的创建/销毁/崩溃仲裁全在主RT 进程内；宿主不持有 worker 的 fd/进程句柄，隔离最彻底。与现有架构「worker 是父 runtime（主RT）的 `workers[16]` 槽位表」语义一致——只是「父 runtime」从线程升级为「主RT 进程」。
 - JS 层 `new Worker` 触发 C 层 `qwrt_worker_create` 时，主RT 内部 spawn 新进程并登记，宿主完全无感。
 
-## 9.2 优雅关闭链
+## 9.2 终止协议（v7：优雅可失败、强杀不可拒绝）
+
+**原则（两句并列）**：**terminate 权 = spawn 权**——谁 spawn 谁 terminate，所有者对被 spawn 方拥有**无条件强制终止权**，不被终止方接受/拒绝/协商；**优雅是首选路径、可失败，强制终止不可拒绝**——CONTROL{shutdown} 优雅链可能被死循环/挂起/忽略打败，超时即升级强杀，强杀不由被终止方参与。
+
+**进程后端：三级终止协议（M-P1 落地）**：
+
+```
+① CONTROL{shutdown}                优雅：排空 → teardown → exit(0)
+② 超时（宿主可配，缺省 2s）未退出
+③ uv_kill(child_pid, SIGKILL)      无条件强杀
+   └→ waitpid 收尸（SIGKILL 后必做，防 zombie）
+```
+
+- 超时阈值宿主可配（`qwrt_config_t`/spawn 参数），缺省 2s。
+- **SIGKILL 的诚实代价**：子进程状态即刻丢失——不排空、不落盘、无 teardown。这是强制终止的固有代价而非缺陷；「挂起/恢复」「保存现场」语义对 SIGKILL 不适用。
+- 收尸在 spawn 所有者进程内同步完成（waitpid）；terminate 与 spawn 同主，无第三方仲裁。
+
+**线程后端（THREAD 现状）：协作式，强制上限=进程级**。现状 `qwrt_worker_terminate`（置 `shutting_down` 标志 + `uv_async_send` 唤醒）是协作式——worker 自查标志才退出；同进程无法安全强杀单个线程（杀线程=杀进程，`pthread_cancel` 对持锁/堆状态的运行时不安全）。线程模型的「强制」唯一手段是 `qwrt_destroy`/杀整个进程。判据联动（§1.4）：需要无条件强制终止保证的负载选 PROCESS 后端。
+
+**优雅关闭链（destroy 首选路径）**：
 
 ```
 宿主 qwrt_destroy
@@ -398,7 +419,7 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
   └→ 宿主 join 主RT（或 EOF）→ 释放 qwrt_t
 ```
 
-组件各自 `uv_run` 结束、各自 teardown（复用 `qwrt_thread_teardown`）。
+组件各自 `uv_run` 结束、各自 teardown（复用 `qwrt_thread_teardown`）。destroy 链对单个 worker 走上述三级协议（shutdown → 超时 → SIGKILL+收尸），单 worker 挂死不阻塞整树关闭。
 
 ## 9.3 崩溃检测
 
@@ -469,9 +490,10 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 ## M-P1：worker 进程 spawn + fd 通道 + 握手 + 消息往返（v5：`worker_backend` opt-in）
 
 - 产出：`src/ipc_process.c`（exec 自身 + socketpair + `--qwrt-worker --parent-fd --worker-id` 参数）、worker 进程内 `qwrt_t` 初始化、CONTROL handshake。
+- 产出（v7 追加）：三级终止协议落地（§9.2）——CONTROL{shutdown} → 超时（可配，缺省 2s）→ `uv_kill(SIGKILL)` + waitpid 收尸；terminate API 归 spawn 所有者，持无条件强杀权。
 - 能力：main↔worker **跨进程 postMessage 通**（worker 独立进程里 `postMessage` → 主RT 进程收；反向同理）。
 - **交付形态（v5）**：opt-in = 宿主 `qwrt_config_t.worker_backend=PROCESS`（§1.4）——测试宿主/直调 C API 显式设置；ISOLATED 编译下亦可直接以编译缺省 PROCESS 验证。v3 的 JS `mode` opt-in 已移除。
-- **验证门**：e2e 两进程实际跑通消息往返 + 握手时序；THREAD 回归不走样。
+- **验证门**：e2e 两进程实际跑通消息往返 + 握手时序；THREAD 回归不走样；**强杀用例（v7）**：worker `while(true)` 忽略 CONTROL{shutdown} → 父超时 → SIGKILL → waitpid 收尸成功、无 zombie、父存活并可继续 spawn 新 worker。
 
 ## M-P2：宿主↔主RT 进程分离 + C API 透明切换
 
