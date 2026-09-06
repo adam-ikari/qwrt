@@ -40,6 +40,8 @@ qwrt_t *qwrt_create(const qwrt_config_t *config)
     /* lock-free MPSC queue: head == tail == sentinel (calloc zeroed stub's q.next) */
     rt->msg_head = &rt->msg_stub;
     rt->msg_tail = &rt->msg_stub;
+    /* CTL-0：控制面回执表锁（生产者登记，qwrt 线程消费）。 */
+    uv_mutex_init(&rt->ctl_lock);
 
     if (uv_thread_create(&rt->thread, qwrt_thread_main, rt) != 0) {
         free((void *)rt->config.initial_script);
@@ -62,7 +64,7 @@ qwrt_t *qwrt_create(const qwrt_config_t *config)
 int qwrt_post_message(qwrt_t *rt, const char *json, size_t len)
 {
     if (!rt || rt->magic != QWRT_MAGIC || !json) return -1;
-    return qwrt_msg_push(rt, json, len, QWRT_MSG_SRC_HOST);
+    return qwrt_msg_push(rt, json, len, QWRT_MSG_SRC_HOST, 0);
 }
 
 
@@ -112,6 +114,8 @@ int qwrt_runtime_init(qwrt_t *rt)
     /* Create JSRuntime (shared across all contexts) */
     rt->jsrt = JS_NewRuntime();
     if (!rt->jsrt) return -1;
+    /* CTL-0 §3.9：安装 runtime 级中断处理器——只读 ctl_interrupt 原子标志。 */
+    JS_SetInterruptHandler(rt->jsrt, qwrt_ctl_interrupt_handler, rt);
     JS_SetRuntimeOpaque(rt->jsrt, rt);
 
     /* Initialize context table */
@@ -303,6 +307,9 @@ void qwrt_thread_teardown(qwrt_t *rt)
         rt->dbg_session = NULL;
     }
 #endif
+    /* CTL-0：回收未完成回执条目 + 销毁 ctl_lock。必须在 loop 关闭前：
+     * 条目/锁不依赖 loop/JSRuntime。 */
+    qwrt_ctl_teardown(rt);
 
     /* 4) 销毁所有 contexts（内含扩展 destroy） */
     for (int i = 0; i < QWRT_MAX_CONTEXTS; i++) {

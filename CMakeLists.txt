@@ -442,6 +442,7 @@ set(_qwrt_core_sources
     src/ipc_envelope.c
     src/uv_io.c
     src/worker.c
+    src/control.c
 )
 if(QWRT_WITH_WAMR)
     list(APPEND _qwrt_core_sources src/ext_wamr.c)

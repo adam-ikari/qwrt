@@ -143,6 +143,7 @@ typedef struct qwrt_msg_s {
     char *data;
     size_t len;
     int source;
+    uint8_t flags;        /* 0=普通消息, 1=CONTROL（控制命令，wake 分流点交 control_dispatch） */
 } qwrt_msg_t;
 
 /* Per-context state — holds JSContext*, handle tables, timer data,
@@ -335,6 +336,18 @@ struct qwrt_t {
     uv_timer_t dap_timer;
     int dap_timer_active;
 #endif
+
+    /* ── Control plane (CTL-0) ──
+     * ctl_interrupt: atomic flag read by the QuickJS interrupt handler
+     *   (JS_SetInterruptHandler, installed in qwrt_runtime_init). Set by
+     *   qwrt_control on the producer thread — §1.1 例外：单方向写、引擎
+     *   线程只读，不破坏 JSRuntime 单线程所有权。
+     * ctl_lock: receipt table lock (insert = producer, remove/reap = qwrt
+     *   thread exclusive；§1.2 一把表内锁，竞争面 = 命令入队频率)。
+     * ctl_pending: correl → receipt 条目链表 {correl, deadline_ns, next}。 */
+    int ctl_interrupt;
+    uv_mutex_t ctl_lock;
+    struct qwrt_ctl_recept_s *ctl_pending;
 };
 
 /* ================================================================
@@ -347,7 +360,7 @@ extern "C" {
 #endif
 
 /* msgq.c — thread-safe inbound FIFO */
-int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source);
+int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source, int flags);
 qwrt_msg_t *qwrt_msg_pop(qwrt_t *rt);
 int qwrt_msg_has_pending(qwrt_t *rt);   /* 消费者线程内检查队列非空（无锁读） */
 void qwrt_msg_free(qwrt_msg_t *m);
@@ -482,6 +495,26 @@ void uv_io_fs_list(qwrt_t *rt, const char *path,
 
 /* uv_io.c — synchronous helpers the bridge inlines (time_now uses uv_now on
  * rt->loop; hrtime/log/random_bytes are standalone). */
+/* control.c — CTL-0 控制面：命令入队 + wake 分流点派发 + 回执表。
+ * 设计：docs/plans/2026-09-04-control-plane-design.md §1-§3。 */
+struct qwrt_ctl_recept_s;
+/* 入队控制命令（producer 线程）。OFF 时恒 -1。 */
+int qwrt_control(qwrt_t *rt, const char *bytes, size_t len);
+/* wake 分流点派发（qwrt 线程独占）：解析 JSON、按 op 执行、组回执。
+ * WAKE_SAFEPOINT 类就地执行（eval/inspect/metrics/interrupt/events.subscribe）。
+ * IDLE_SAFEPOINT 类（ctx.suspend/ctx.destroy/worker.terminate/runtime.shutdown）
+ * 转 wait_idle 通道——CTL-0 仅执行 WAKE 类四命令，IDLE 类返回 NOT_SUPPORTED。 */
+void qwrt_control_dispatch(qwrt_t *rt, qwrt_msg_t *m);
+/* 主循环每轮调用：扫描过期回执条目，发 TIMEOUT 回执并回收（qwrt 线程独占）。 */
+void qwrt_ctl_reap_timeouts(qwrt_t *rt);
+/* teardown 时回收所有未完成回执条目（无回执发出，发起方靠 timeout 侧超时）。 */
+void qwrt_ctl_teardown(qwrt_t *rt);
+/* interrupt handler（QuickJS 回调）：读 ctl_interrupt 原子标志。 */
+int qwrt_ctl_interrupt_handler(JSRuntime *jsrt, void *opaque);
+/* 回执表：登记 correl 条目（producer 线程，锁内插入）。 */
+void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns);
+/* 回执表：命中 correl 则经 message_cb 下发回执 JSON（qwrt 线程独占，锁内移除）。 */
+void qwrt_ctl_resolve(qwrt_t *rt, const char *correl, const char *json, size_t len);
 uint64_t uv_io_hrtime(void);
 void uv_io_log(int level, const char *msg);
 void uv_io_random_bytes(uint8_t *buf, size_t len);

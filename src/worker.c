@@ -249,7 +249,7 @@ void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w, const uint8_t *bytes, si
 {
     QWRT_UNUSED(parent);
     if (!w || !w->self || __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE)) return;
-    qwrt_msg_push(w->self, (const char *)bytes, len, QWRT_MSG_SRC_HOST);
+    qwrt_msg_push(w->self, (const char *)bytes, len, QWRT_MSG_SRC_HOST, 0);
 }
 
 void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w)

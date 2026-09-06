@@ -151,6 +151,80 @@ static inline bool host_eval(HostCtx *h, const char *code, std::string *out, int
     }
 }
 
+/* ── CTL-0 控制面 helpers ──
+ * 回执经 message_cb 进 inbox（顶层 "ctl":true 标记），与普通 postMessage
+ * 输出分流。等待时跳过非 ctl 回执（eval 响应等），按 correl 配对。 */
+
+// 发送控制命令。返回 0 成功，-1 失败（OFF 档等）。
+static inline int host_control(HostCtx *h, const std::string &json) {
+    return qwrt_control(h->rt, json.data(), json.size());
+}
+
+// 等待 correl 匹配的控制回执；跳过非 ctl 消息与不匹配 correl 的回执。
+// 返回 true 并写回回执 JSON；timeout 内未到则 false。
+/* CLOCK_MONOTONIC 毫秒时钟：poll 预算按真实流逝时间记账。原先"单次 eval
+ * 超时最多烧 3s 真实时间却只记 25ms 预算"，5s 名义预算可放大成 ~200 次
+ * 重试 ×3s ≈ 10 分钟 —— 即 brain 记录的"单跑偶发挂起 >120s"。 */
+static inline long long mono_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+static inline bool host_wait_ctl(HostCtx *h, const char *correl,
+                                 std::string *out, int timeout_ms = 5000) {
+    std::string key = std::string("\"correl\":\"") + correl + "\"";
+    long long deadline = mono_ms() + timeout_ms;
+    std::deque<std::string> skip;
+    for (;;) {
+        int remain = (int)(deadline - mono_ms());
+        if (remain <= 0) {
+            /* 超时：把跳过的消息放回 inbox，避免污染后续测试 */
+            uv_mutex_lock(&h->m);
+            for (auto it = skip.rbegin(); it != skip.rend(); ++it)
+                h->inbox.push_front(*it);
+            uv_mutex_unlock(&h->m);
+            return false;
+        }
+        std::string raw;
+        if (!host_wait_msg(h, &raw, remain)) {
+            uv_mutex_lock(&h->m);
+            bool restored = false;
+            for (auto it = skip.rbegin(); it != skip.rend(); ++it) {
+                h->inbox.push_front(*it);
+                restored = true;
+            }
+            uv_mutex_unlock(&h->m);
+            (void)restored;
+            return false;
+        }
+        if (raw.compare(0, 11, "{\"ctl\":true") == 0) {
+            if (correl == nullptr || raw.find(key) != std::string::npos) {
+                *out = std::move(raw);
+                return true;
+            }
+            skip.push_back(std::move(raw));   /* 其他命令的回执：暂存 */
+            continue;
+        }
+        /* 非 ctl 消息（JS onmessage 输出）：暂存等待循环继续 */
+        skip.push_back(std::move(raw));
+    }
+}
+
+// 组 eval 命令 JSON（ctx_id 缺省）。
+static inline std::string ctl_eval_json(const char *correl, const char *script,
+                                        int timeout_ms = 0) {
+    std::string s = "{\"op\":\"eval\",\"correl\":\"";
+    s += correl;
+    s += "\",\"script\":";
+    s += JSON_string(script);
+    if (timeout_ms > 0) {
+        s += ",\"timeout_ms\":";
+        s += std::to_string(timeout_ms);
+    }
+    s += "}";
+    return s;
+}
+
 
 // 轮询直到表达式求值结果包含 expected_substring。每次 host_eval 都会跑一轮
 // loop + 冲刷微任务，所以异步结果（promise/timer/storage）在下一次 eval 可见。
@@ -162,14 +236,6 @@ static inline void host_poll_sleep(void) {
     nanosleep(&ts, NULL);
 }
 
-/* CLOCK_MONOTONIC 毫秒时钟：poll 预算按真实流逝时间记账。原先"单次 eval
- * 超时最多烧 3s 真实时间却只记 25ms 预算"，5s 名义预算可放大成 ~200 次
- * 重试 ×3s ≈ 10 分钟 —— 即 brain 记录的"单跑偶发挂起 >120s"。 */
-static inline long long mono_ms(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
 
 static inline bool host_poll_until(HostCtx *h, const char *expr,
                                    const char *expected_substring,

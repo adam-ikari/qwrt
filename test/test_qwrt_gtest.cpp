@@ -119,9 +119,9 @@ TEST(qwrt_wait_idle, api_available_and_teardown_safe) {
 TEST(qwrt_msg_push, rejects_alloc_overflow) {
     HostCtx *h = host_create();
     ASSERT_NE(nullptr, h);
-    EXPECT_EQ(-1, qwrt_msg_push(h->rt, "x", (size_t)-1, 0));
-    EXPECT_EQ(-1, qwrt_msg_push(h->rt, "x", (size_t)-2, 0));
+    EXPECT_EQ(-1, qwrt_msg_push(h->rt, "x", (size_t)-1, 0, 0));
+    EXPECT_EQ(-1, qwrt_msg_push(h->rt, "x", (size_t)-2, 0, 0));
     /* 正常小消息仍入队成功 */
-    EXPECT_EQ(0, qwrt_msg_push(h->rt, "ok", 2, 0));
+    EXPECT_EQ(0, qwrt_msg_push(h->rt, "ok", 2, 0, 0));
     host_destroy(h);
 }

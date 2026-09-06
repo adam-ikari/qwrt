@@ -1636,7 +1636,7 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
 
     qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
     if (!w || !w->parent) return JS_UNDEFINED;
-    qwrt_msg_push(w->parent, (const char *)bytes, len, w->id);
+    qwrt_msg_push(w->parent, (const char *)bytes, len, w->id, 0);
     return JS_UNDEFINED;
 }
 

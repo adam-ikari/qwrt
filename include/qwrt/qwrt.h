@@ -21,7 +21,17 @@ typedef struct qwrt_config_s {
     void (*message_cb)(qwrt_t *rt, const char *json, size_t len, void *data);
     int  debug;                      /* 沿用 DAP bit 语义 */
     void *host_data;                 /* per-runtime opaque ptr，可经 qwrt_get_runtime_data 读取 */
+    /* 控制面三档（CTL-0）：OFF（默认，qwrt_control 恒 -1）/
+     * IN_PROC（进程内宿主线程命令）/ LOCAL（预留，CTL-2 端点，行为同 IN_PROC）。
+     * 见 docs/plans/2026-09-04-control-plane-design.md §4.1。 */
+    int control_plane;               /* qwrt_control_plane_t 值 */
 } qwrt_config_t;
+
+typedef enum {
+    QWRT_CONTROL_OFF = 0,     /* 默认：控制面关闭 */
+    QWRT_CONTROL_IN_PROC = 1, /* 进程内命令（msgq 路径） */
+    QWRT_CONTROL_LOCAL = 2,   /* 预留（CTL-2 本地端点）；CTL-0 行为同 IN_PROC */
+} qwrt_control_plane_t;
 
 /* ================================================================
  * Core API
@@ -46,6 +56,13 @@ int qwrt_post_message(qwrt_t *rt, const char *json, size_t len);
  * Do NOT call qwrt_destroy after this: destroy forces shutdown and would
  * cancel pending async work (e.g. a live timer). */
 void qwrt_wait_idle(qwrt_t *rt);
+
+/* 控制命令入队（线程安全，任何线程可调）。bytes 为命令 JSON，内部拷贝。
+ * control_plane=OFF 时恒返回 -1。返回 0 成功，-1 失败（OFF/OOM/参数非法）。
+ * 命令由 qwrt 线程在自己事件循环的安全点自主执行；结果经 message_cb 异步
+ * 回传，回执 JSON 顶层带 "ctl":true 标记位，correl 原样透传供配对。
+ * 设计：docs/plans/2026-09-04-control-plane-design.md §1-§3。 */
+int qwrt_control(qwrt_t *rt, const char *bytes, size_t len);
 
 void *qwrt_get_runtime_data(qwrt_t *rt);
 void  qwrt_set_runtime_data(qwrt_t *rt, void *data);

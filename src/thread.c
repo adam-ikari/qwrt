@@ -78,7 +78,12 @@ static void qwrt_wake_cb(uv_async_t *a)
     if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return;
     qwrt_msg_t *m;
     while ((m = qwrt_msg_pop(rt)) != NULL) {
-        qwrt_dispatch_message(rt, m);   /* bridge.c 实现；JSRuntime 已就绪 */
+        /* CTL-0 §1.2：flags=1 的控制命令交 control_dispatch（WAKE_SAFEPOINT
+         * 类就地执行）；普通消息走 __qwrt_dispatch__ → onmessage。 */
+        if (m->flags)
+            qwrt_control_dispatch(rt, m);
+        else
+            qwrt_dispatch_message(rt, m);
         /* 节点不 free：pop 内部已释放旧 head；m 成为下次 pop 的 head */
 
         /* 每个消息派发后立即排空微任务：宿主常在消息回调（dispatch 内联的
@@ -129,6 +134,8 @@ void qwrt_thread_main(void *arg)
     /* ==== 主循环 ==== */
     while (!__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) {
         uv_run(&rt->loop, UV_RUN_ONCE);  /* 阻塞等事件；wake_cb 期间派发消息 */
+        /* CTL-0 §1.2：每轮顺带扫描过期回执条目，发 TIMEOUT 回执。 */
+        qwrt_ctl_reap_timeouts(rt);
         if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) break;
         qwrt_flush_microtasks(rt);
         if (__atomic_load_n(&rt->wait_idle, __ATOMIC_ACQUIRE) && qwrt_loop_idle(rt)) {

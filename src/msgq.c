@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source)
+int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source, int flags)
 {
     /* len+1 与 sizeof(qwrt_msg_t) 相加不得溢出,否则 malloc 得到小块而
      * memcpy 越界写。len 来自 JS 侧 ArrayBuffer 长度或宿主,理论上可达
@@ -36,6 +36,7 @@ int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source)
     m->data[len] = '\0';
     m->len = len;
     m->source = source;
+    m->flags = (uint8_t)flags;
 
     /* Publish the node, then link it after the previous tail (ACQ_REL so the
      * consumer's acquire sees all fields written before the exchange). */
