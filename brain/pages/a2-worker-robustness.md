@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [worker, suspend, transferable, robustness, gtest]
 created: "2026-08-28T15:53:09"
-updated: "2026-08-28T15:53:31"
+updated: "2026-09-07T08:02:42"
 ---
 
 <!-- compiled_truth -->
@@ -35,4 +35,10 @@ updated: "2026-08-28T15:53:31"
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
   source: 2026-08-28 A2 session
+  affects: [a2-worker-robustness]
+
+- time: 2026-09-07T08:02:42
+  kind: note
+  summary: "M-P1 多进程/worker 健壮性落地（commit 8e18b988），含 socketpair spawn/§3.3 handshake/3-tier terminate/worker_background 分流及 teardown UAF 修复，e2e + 24/24 worker gtest + 4/4 套件全绿。"
+  source: "M-P1 合入 master commit 8e18b988"
   affects: [a2-worker-robustness]

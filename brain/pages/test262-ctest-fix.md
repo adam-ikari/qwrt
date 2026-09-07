@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [test262, ctest, cmake]
 created: "2026-08-15T03:46:38"
-updated: "2026-08-15T03:46:53"
+updated: "2026-09-07T08:45:13"
 ---
 
 <!-- compiled_truth -->
@@ -40,4 +40,16 @@ test262_quickjs CTest 失败，`Result: 79/42421 errors, ..., 79 new`。
   kind: decision
   summary: "test262 CTest 测试失败根因与修复"
   source: brain update-truth
+  affects: [test262-ctest-fix]
+
+- time: 2026-09-07T08:02:42
+  kind: note
+  summary: "test262-ctest-fix 合入 test262-ctest 主流程（修复 run-test262 相对路径约定：CMake 改相对路径调用 + test262 子模块 checkout d5e73fc8，回归 14/14 全绿），多进程/worker 健壮性、SW scope 匹配、IDNA 解析回归全绿。"
+  source: "test262-ctest-fix 合入里程碑"
+  affects: [test262-ctest-fix]
+
+- time: 2026-09-07T08:45:13
+  kind: decision
+  summary: "2026-09-07 全量 CI 验证通过：干净重建 build_final2 后 ctest -L test262 全绿（97.9s），42339/42398=99.86%，59 失败全部命中 quickjs-ng v0.15.1（fd0a021）upstream 官方 gap 清单（test262_errors.txt 未被 qwrt 修改，git diff 确认），0 新增失败——C99/裁剪补丁（quickjs.c/quickjs.h/quickjs-c-atomics.h/quickjs-opcode.h）无 test262 回归。"
+  source: "2026-09-07 test262 全量 CI 验证"
   affects: [test262-ctest-fix]

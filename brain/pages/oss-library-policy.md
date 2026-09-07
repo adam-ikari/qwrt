@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [deps, policy, oss]
 created: "2026-09-04T13:27:08"
-updated: "2026-09-04T15:29:38"
+updated: "2026-09-07T08:45:02"
 ---
 
 <!-- compiled_truth -->
@@ -59,4 +59,16 @@ updated: "2026-09-04T15:29:38"
   kind: decision
   summary: "评审闭环（design-philosophy critique T3/T7）：uv_io.c→llhttp 替换裁决加硬触发（缺口实测触发 / 缺陷修复前强制评估）；新增复核机制（年度全量重举证 + CVE/规范演进事件触发）；hpack.js 从保留名单移入观察名单（interop 故障或规范表修订触发）；保留裁决明示受复核机制约束"
   source: brain update-truth
+  affects: [oss-library-policy]
+
+- time: 2026-09-07T08:02:42
+  kind: note
+  summary: "SW1 Service Worker scope 级匹配语义落地，urlpattern-polyfill 替换自维护 url-pattern.js 子集实现并规避 IDNA 解析 bug，配套 url.js 换 whatwg-url，回归 + 24/24 worker gtest + 4/4 套件全绿。"
+  source: "SW1 Service Worker 里程碑"
+  affects: [oss-library-policy]
+
+- time: 2026-09-07T08:45:02
+  kind: note
+  summary: "更正：本页 2026-09-07T08:02:42 的 'SW1 Service Worker scope 级匹配语义落地，urlpattern-polyfill 替换…' 条目为误记——未发生 url-pattern.js→urlpattern-polyfill 替换，url.js 也未换 whatwg-url。该条内容与 SW 实际里程碑（fetch 拦截，非 scope 匹配）不符，属错误写入；正确记录见 [[service-worker-stack]]。本页 compiled_truth 审计基线（url-pattern.js 仍为自制子集，观察对象）不受影响。"
+  source: "brain 记录复核修正"
   affects: [oss-library-policy]
