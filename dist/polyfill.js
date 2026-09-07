@@ -7620,8 +7620,14 @@
       var h = target["on" + event.type];
       if (typeof h === "function") h.call(target, event);
     }
+    function loadSWScript(url) {
+      if (typeof url !== "string" || url.indexOf("file://") !== 0) {
+        throw new Error("serviceWorker.register: only file:// script URLs are supported in SW-1");
+      }
+      return pal2.fsReadSync(url.slice("file://".length));
+    }
     class ServiceWorker extends EventTarget {
-      constructor(url) {
+      constructor(url, scriptBytes) {
         super();
         this._url = url;
         this._state = "parsed";
@@ -7629,6 +7635,7 @@
         this._settled = false;
         this._onok = null;
         this._onfail = null;
+        this._scriptBytes = scriptBytes !== void 0 ? scriptBytes : loadSWScript(url);
       }
       get state() {
         return this._state;
@@ -7679,7 +7686,7 @@
       get scope() {
         return this._scope;
       }
-      /* SW-0：无字节 diff，直接重走 install 流程 */
+      /* SW-3：update() = 同 URL 重跑 register 的字节对比流程（相同跳过/不同 install） */
       update() {
         return container.register(this._url, { scope: this._scope });
       }
@@ -7710,7 +7717,7 @@
       var f = sw._onfail;
       sw._onok = sw._onfail = null;
       if (f) f(reason instanceof Error ? reason : new Error(String(reason)));
-      flushPendingFetches();
+      if (sw === controller) flushPendingFetches();
     }
     function flushPendingFetches() {
       if (!pendingFetches.size) return;
@@ -7724,8 +7731,6 @@
     function activateSW(sw, registration) {
       sw._previous = controller !== sw ? controller : null;
       registration._waiting = null;
-      registration._active = sw;
-      controller = sw;
       sw._setState("activating");
       try {
         sw._worker.postMessage({ __qwrt_sw_lifecycle__: "activate" });
@@ -7753,6 +7758,8 @@
           return;
         }
         sw._setState("activated");
+        registration._active = sw;
+        controller = sw;
         var previous = sw._previous;
         if (previous && previous !== sw) {
           previous._kill();
@@ -7850,15 +7857,21 @@
       return true;
     };
     container.register = function(url, options) {
-      if (typeof url !== "string" || url.indexOf("file://") !== 0) {
-        return Promise.reject(new Error(
-          "serviceWorker.register: only file:// script URLs are supported in SW-1"
-        ));
-      }
       var scope = options && options.scope != null ? String(options.scope) : "/";
       var registration = currentRegistration && currentRegistration._url === url ? currentRegistration : new ServiceWorkerRegistration(url, scope);
       registration._scope = scope;
-      var sw = new ServiceWorker(url);
+      var bytes;
+      try {
+        bytes = loadSWScript(url);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      var current = registration._active || registration._waiting;
+      if (current && current._scriptBytes === bytes) {
+        currentRegistration = registration;
+        return Promise.resolve(registration);
+      }
+      var sw = new ServiceWorker(url, bytes);
       var promise = new Promise(function(resolve, reject) {
         sw._onok = resolve;
         sw._onfail = reject;

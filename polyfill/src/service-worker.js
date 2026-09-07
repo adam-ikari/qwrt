@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: Service Worker — SW-1（注册 / 生命周期 / 消息 + fetch 拦截）
+ * qwrt polyfill: Service Worker — SW-1/2/3（注册 / 生命周期 / 消息 + fetch 拦截）
  *
  * SW 脚本跑在独立 worker 线程（复用 Worker）。主线程状态机由 worker 侧
  * 控制消息驱动（协议见 worker-boot.js）：
@@ -11,6 +11,12 @@
  *   带 error 的 *_done / worker 'error' 事件 → redundant。
  * 与浏览器差异（设计已拍板）：全局唯一注册；scope 接受但忽略；
  * install 完成即自动 skipWaiting + 激活；register() 在 install 成功即 resolve。
+ *
+ * SW-3 更新机制：register()/update() 每次同步读脚本（pal.fsReadSync）做字节
+ * 对比——同 URL 且活跃/等待 SW 字节未变 → 跳过安装直接 resolve 现有 registration；
+ * 字节变化 → 走 install。多版本切换：controller/active 在 activate_done 才切
+ * （此前旧 SW 保持 controller 继续拦截 fetch，无控制真空），activate 完成才
+ * kill 旧 SW。
  */
 
 export function setupServiceWorker(pal) {
@@ -35,10 +41,18 @@ export function setupServiceWorker(pal) {
     var h = target['on' + event.type];
     if (typeof h === 'function') h.call(target, event);
   }
+  /* SW-3：同步读 SW 脚本源码（pal.fsReadSync，与 worker.js loadScript 同路径）。
+   * 每次 register/update 都重读当前文件内容做字节对比。 */
+  function loadSWScript(url) {
+    if (typeof url !== 'string' || url.indexOf('file://') !== 0) {
+      throw new Error('serviceWorker.register: only file:// script URLs are supported in SW-1');
+    }
+    return pal.fsReadSync(url.slice('file://'.length));
+  }
 
   /* ---- ServiceWorker ---- */
   class ServiceWorker extends EventTarget {
-    constructor(url) {
+    constructor(url, scriptBytes) {
       super();
       this._url = url;
       this._state = 'parsed';
@@ -46,6 +60,8 @@ export function setupServiceWorker(pal) {
       this._settled = false;  /* activated / redundant 即终态 */
       this._onok = null;      /* register() resolve/reject 钩子 */
       this._onfail = null;
+      /* SW-3：脚本字节（无传入时同步读取），作为同 URL 更新的字节对比基准 */
+      this._scriptBytes = (scriptBytes !== undefined) ? scriptBytes : loadSWScript(url);
     }
     get state() { return this._state; }
     get scriptURL() { return this._url; }
@@ -83,7 +99,7 @@ export function setupServiceWorker(pal) {
     get waiting() { return this._waiting; }
     get active() { return this._active; }
     get scope() { return this._scope; }
-    /* SW-0：无字节 diff，直接重走 install 流程 */
+    /* SW-3：update() = 同 URL 重跑 register 的字节对比流程（相同跳过/不同 install） */
     update() { return container.register(this._url, { scope: this._scope }); }
     unregister() {
       var slots = [this._installing, this._waiting, this._active];
@@ -114,8 +130,10 @@ export function setupServiceWorker(pal) {
     var f = sw._onfail;
     sw._onok = sw._onfail = null;
     if (f) f(reason instanceof Error ? reason : new Error(String(reason)));
-    /* SW 挂了：在途被拦截 fetch 全部回退网络（设计 §7.2 预期行为） */
-    flushPendingFetches();
+    /* SW 挂了：在途被拦截 fetch 全部回退网络（设计 §7.2 预期行为）。
+     * SW-3：仅当挂掉的就是当前 controller 才 flush——新 SW install/activate
+     * 失败时旧 SW 仍是 controller，在途 fetch 仍由旧 SW 应答，flush 会与之竞态。 */
+    if (sw === controller) flushPendingFetches();
   }
 
   /* SW 终止/替换时把所有在途 fetch 回退网络（计时器一并清掉） */
@@ -129,13 +147,12 @@ export function setupServiceWorker(pal) {
     }
   }
 
-  /* install 完成 → 零等待激活（旧 SW 的替换等 activate_done，保证
-   * await ready 后旧 SW 已 redundant、controllerchange 已派发） */
+  /* install 完成 → 零等待激活。SW-3：controller/active 切换延到 activate_done
+   * 才做——新 SW install/activating 期间旧 SW 保持 controller 继续拦截
+   * （无控制真空），activate 完成才替换并 kill 旧 SW。 */
   function activateSW(sw, registration) {
     sw._previous = (controller !== sw) ? controller : null;
     registration._waiting = null;
-    registration._active = sw;
-    controller = sw;
     sw._setState('activating');
     try {
       sw._worker.postMessage({ __qwrt_sw_lifecycle__: 'activate' });
@@ -158,6 +175,9 @@ export function setupServiceWorker(pal) {
     } else if (d.phase === 'activate_done') {
       if (failed) { failSW(sw, registration, new Error('activate failed: ' + d.error)); return; }
       sw._setState('activated');
+      /* SW-3：activate 完成 → 新 SW 成为 controller/active（旧 SW 自此被替换） */
+      registration._active = sw;
+      controller = sw;
       var previous = sw._previous;
       if (previous && previous !== sw) {
         previous._kill();
@@ -256,10 +276,6 @@ export function setupServiceWorker(pal) {
   };
 
   container.register = function (url, options) {
-    if (typeof url !== 'string' || url.indexOf('file://') !== 0) {
-      return Promise.reject(new Error(
-        'serviceWorker.register: only file:// script URLs are supported in SW-1'));
-    }
     var scope = (options && options.scope != null) ? String(options.scope) : '/';
 
     var registration = (currentRegistration && currentRegistration._url === url)
@@ -267,7 +283,24 @@ export function setupServiceWorker(pal) {
       : new ServiceWorkerRegistration(url, scope);
     registration._scope = scope;
 
-    var sw = new ServiceWorker(url);
+    /* SW-3：每次 register/update 同步读脚本（与 new Worker 同一文件），
+     * 与已记录字节对比。读失败 → reject（与 new Worker 加载失败语义一致）。 */
+    var bytes;
+    try {
+      bytes = loadSWScript(url);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+
+    /* SW-3：同 URL 且已有活跃/等待 SW，字节未变 → 跳过安装（不 spawn、
+     * 不 install、不触发 superseded），直接 resolve 现有 registration。 */
+    var current = registration._active || registration._waiting;
+    if (current && current._scriptBytes === bytes) {
+      currentRegistration = registration;
+      return Promise.resolve(registration);
+    }
+
+    var sw = new ServiceWorker(url, bytes);
     var promise = new Promise(function (resolve, reject) {
       sw._onok = resolve;
       sw._onfail = reject;
