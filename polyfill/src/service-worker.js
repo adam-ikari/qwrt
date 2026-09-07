@@ -13,10 +13,11 @@
  * install 完成即自动 skipWaiting + 激活；register() 在 install 成功即 resolve。
  *
  * SW-3 更新机制：register()/update() 每次同步读脚本（pal.fsReadSync）做字节
- * 对比——同 URL 且活跃/等待 SW 字节未变 → 跳过安装直接 resolve 现有 registration；
- * 字节变化 → 走 install。多版本切换：controller/active 在 activate_done 才切
- * （此前旧 SW 保持 controller 继续拦截 fetch，无控制真空），activate 完成才
- * kill 旧 SW。
+ * 对比——最新槽位（installing > waiting > active）字节未变 → 跳过安装直接
+ * resolve 现有 registration；字节变化 → 走 install（在途 installing 若字节
+ * 与 active 相同即回滚场景 → 先取消在途安装再沿用 active）。多版本切换：
+ * controller/active 在 activate_done 才切（此前旧 SW 保持 controller 继续
+ * 拦截 fetch，无控制真空），activate 完成才 kill 旧 SW。
  */
 
 export function setupServiceWorker(pal) {
@@ -45,7 +46,7 @@ export function setupServiceWorker(pal) {
    * 每次 register/update 都重读当前文件内容做字节对比。 */
   function loadSWScript(url) {
     if (typeof url !== 'string' || url.indexOf('file://') !== 0) {
-      throw new Error('serviceWorker.register: only file:// script URLs are supported in SW-1');
+      throw new Error('serviceWorker.register: only file:// script URLs are supported in SW-3');
     }
     return pal.fsReadSync(url.slice('file://'.length));
   }
@@ -151,8 +152,9 @@ export function setupServiceWorker(pal) {
    * 才做——新 SW install/activating 期间旧 SW 保持 controller 继续拦截
    * （无控制真空），activate 完成才替换并 kill 旧 SW。 */
   function activateSW(sw, registration) {
-    sw._previous = (controller !== sw) ? controller : null;
-    registration._waiting = null;
+    /* C2：activating worker 留在 _waiting 槽（不清空）——重叠更新才能
+     * supersede 它；旧 controller 快照延到 activate_done 按当时真实
+     * controller 重算（见 handleControl）。 */
     sw._setState('activating');
     try {
       sw._worker.postMessage({ __qwrt_sw_lifecycle__: 'activate' });
@@ -162,36 +164,9 @@ export function setupServiceWorker(pal) {
   }
 
   function handleControl(sw, registration, d) {
-    var failed = typeof d.error === 'string' && d.error !== '';
-    if (d.phase === 'install_done') {
-      if (failed) { failSW(sw, registration, new Error('install failed: ' + d.error)); return; }
-      registration._installing = null;
-      registration._waiting = sw;
-      sw._setState('installed');
-      var ok = sw._onok;
-      sw._onok = null;
-      if (ok) ok(registration);
-      activateSW(sw, registration);
-    } else if (d.phase === 'activate_done') {
-      if (failed) { failSW(sw, registration, new Error('activate failed: ' + d.error)); return; }
-      sw._setState('activated');
-      /* SW-3：activate 完成 → 新 SW 成为 controller/active（旧 SW 自此被替换） */
-      registration._active = sw;
-      controller = sw;
-      var previous = sw._previous;
-      if (previous && previous !== sw) {
-        previous._kill();
-        if (previous._state !== 'redundant') previous._setState('redundant');
-        /* 旧 SW 已终止：其未回话的在途 fetch 全部回退网络（新 SW 不认旧 id） */
-        flushPendingFetches();
-      }
-      fire(container, new Event('controllerchange'));
-      if (readyResolve) {
-        var r = readyResolve;
-        readyResolve = null;
-        r(registration);
-      }
-    } else if (d.phase === 'fetch_response' || d.phase === 'fetch_fallback') {
+    /* fetch 回话与生命周期无关，先处理：activated 的 controller 是终态，
+     * 不能被下面的终态守卫挡掉。 */
+    if (d.phase === 'fetch_response' || d.phase === 'fetch_fallback') {
       var entry = pendingFetches.get(d.fetchId);
       if (!entry) return;
       pendingFetches.delete(d.fetchId);
@@ -211,6 +186,43 @@ export function setupServiceWorker(pal) {
         /* SW 回退（无监听器/respondWith reject/serialize 失败）：
          * abort 监听保持（交回网络路径），续走网络。 */
         entry.onFallback(entry.bytes);
+      }
+      return;
+    }
+    /* C2：终态守卫——被 supersede/kill 的 SW 的迟到 install_done/activate_done
+     * （terminate 前已投递到主线程队列）不得复活它。 */
+    if (sw._settled) return;
+    var failed = typeof d.error === 'string' && d.error !== '';
+    if (d.phase === 'install_done') {
+      if (failed) { failSW(sw, registration, new Error('install failed: ' + d.error)); return; }
+      registration._installing = null;
+      registration._waiting = sw;
+      sw._setState('installed');
+      var ok = sw._onok;
+      sw._onok = null;
+      if (ok) ok(registration);
+      activateSW(sw, registration);
+    } else if (d.phase === 'activate_done') {
+      if (failed) { failSW(sw, registration, new Error('activate failed: ' + d.error)); return; }
+      sw._setState('activated');
+      /* SW-3：activate 完成 → 新 SW 成为 controller/active（旧 SW 自此被替换）。
+       * C2：previous 按 activate_done 时刻的真实 controller 重算（非 activateSW
+       * 快照），重叠激活时不会杀错旧 SW；activating worker 从 _waiting 槽摘除。 */
+      registration._active = sw;
+      if (registration._waiting === sw) registration._waiting = null;
+      var previous = (controller !== sw) ? controller : null;
+      controller = sw;
+      if (previous && previous !== sw) {
+        previous._kill();
+        previous._setState('redundant');
+        /* 旧 SW 已终止：其未回话的在途 fetch 全部回退网络（新 SW 不认旧 id） */
+        flushPendingFetches();
+      }
+      fire(container, new Event('controllerchange'));
+      if (readyResolve) {
+        var r = readyResolve;
+        readyResolve = null;
+        r(registration);
       }
     }
     /* phase === 'skipWaiting'：qwrt 本就零等待，忽略 */
@@ -292,12 +304,23 @@ export function setupServiceWorker(pal) {
       return Promise.reject(err);
     }
 
-    /* SW-3：同 URL 且已有活跃/等待 SW，字节未变 → 跳过安装（不 spawn、
-     * 不 install、不触发 superseded），直接 resolve 现有 registration。 */
-    var current = registration._active || registration._waiting;
-    if (current && current._scriptBytes === bytes) {
-      currentRegistration = registration;
-      return Promise.resolve(registration);
+    /* SW-3：同 URL 字节对比。取最新槽位优先（installing > waiting > active）。 */
+    var current = registration._installing || registration._waiting || registration._active;
+    if (current) {
+      /* I2：并发同 URL register/update——在途/等待 worker 字节与本次一致 →
+       * 不杀不重装，直接 resolve 同一 registration（首个调用方不受影响）。 */
+      if (current._scriptBytes === bytes) {
+        currentRegistration = registration;
+        return Promise.resolve(registration);
+      }
+      /* C1：回滚窗口——在途 installing 字节 ≠ 新字节，但 active 已持有新字节
+       * （文件回写成旧版本）→ 取消在途安装、沿用 active，否则回滚被吞。 */
+      if (current === registration._installing && registration._active &&
+          registration._active._scriptBytes === bytes) {
+        failSW(registration._installing, registration, new Error('superseded'));
+        currentRegistration = registration;
+        return Promise.resolve(registration);
+      }
     }
 
     var sw = new ServiceWorker(url, bytes);
@@ -317,9 +340,10 @@ export function setupServiceWorker(pal) {
       /* 同步：spawn worker 线程 + 跑完 SW 脚本顶层（install listener 就位） */
       worker = new self.Worker(url);
     } catch (err) {
-      registration._installing = null;
-      sw._setState('redundant');
-      return Promise.reject(err);
+      /* I1：统一走 failSW——它清 _installing 槽、置 redundant、调 sw._onfail
+       * 让构造 promise reject（手写状态行会漏 _onfail → 悬空未 settle promise）。 */
+      failSW(sw, registration, err);
+      return promise;
     }
     sw._worker = worker;
 

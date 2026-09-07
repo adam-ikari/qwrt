@@ -7622,7 +7622,7 @@
     }
     function loadSWScript(url) {
       if (typeof url !== "string" || url.indexOf("file://") !== 0) {
-        throw new Error("serviceWorker.register: only file:// script URLs are supported in SW-1");
+        throw new Error("serviceWorker.register: only file:// script URLs are supported in SW-3");
       }
       return pal2.fsReadSync(url.slice("file://".length));
     }
@@ -7729,8 +7729,6 @@
       }
     }
     function activateSW(sw, registration) {
-      sw._previous = controller !== sw ? controller : null;
-      registration._waiting = null;
       sw._setState("activating");
       try {
         sw._worker.postMessage({ __qwrt_sw_lifecycle__: "activate" });
@@ -7739,6 +7737,29 @@
       }
     }
     function handleControl(sw, registration, d) {
+      if (d.phase === "fetch_response" || d.phase === "fetch_fallback") {
+        var entry = pendingFetches.get(d.fetchId);
+        if (!entry) return;
+        pendingFetches.delete(d.fetchId);
+        if (entry.timer) {
+          clearTimeout(entry.timer);
+          entry.timer = null;
+        }
+        if (d.phase === "fetch_response" && d.response) {
+          var res = new Response(d.response.body != null ? d.response.body : null, {
+            status: d.response.status || 200,
+            statusText: d.response.statusText || "",
+            headers: d.response.headers
+          });
+          res._url = entry.url;
+          if (entry.onSettle) entry.onSettle();
+          entry.resolve(res);
+        } else {
+          entry.onFallback(entry.bytes);
+        }
+        return;
+      }
+      if (sw._settled) return;
       var failed = typeof d.error === "string" && d.error !== "";
       if (d.phase === "install_done") {
         if (failed) {
@@ -7759,11 +7780,12 @@
         }
         sw._setState("activated");
         registration._active = sw;
+        if (registration._waiting === sw) registration._waiting = null;
+        var previous = controller !== sw ? controller : null;
         controller = sw;
-        var previous = sw._previous;
         if (previous && previous !== sw) {
           previous._kill();
-          if (previous._state !== "redundant") previous._setState("redundant");
+          previous._setState("redundant");
           flushPendingFetches();
         }
         fire(container, new Event("controllerchange"));
@@ -7771,26 +7793,6 @@
           var r = readyResolve;
           readyResolve = null;
           r(registration);
-        }
-      } else if (d.phase === "fetch_response" || d.phase === "fetch_fallback") {
-        var entry = pendingFetches.get(d.fetchId);
-        if (!entry) return;
-        pendingFetches.delete(d.fetchId);
-        if (entry.timer) {
-          clearTimeout(entry.timer);
-          entry.timer = null;
-        }
-        if (d.phase === "fetch_response" && d.response) {
-          var res = new Response(d.response.body != null ? d.response.body : null, {
-            status: d.response.status || 200,
-            statusText: d.response.statusText || "",
-            headers: d.response.headers
-          });
-          res._url = entry.url;
-          if (entry.onSettle) entry.onSettle();
-          entry.resolve(res);
-        } else {
-          entry.onFallback(entry.bytes);
         }
       }
     }
@@ -7866,10 +7868,17 @@
       } catch (err) {
         return Promise.reject(err);
       }
-      var current = registration._active || registration._waiting;
-      if (current && current._scriptBytes === bytes) {
-        currentRegistration = registration;
-        return Promise.resolve(registration);
+      var current = registration._installing || registration._waiting || registration._active;
+      if (current) {
+        if (current._scriptBytes === bytes) {
+          currentRegistration = registration;
+          return Promise.resolve(registration);
+        }
+        if (current === registration._installing && registration._active && registration._active._scriptBytes === bytes) {
+          failSW(registration._installing, registration, new Error("superseded"));
+          currentRegistration = registration;
+          return Promise.resolve(registration);
+        }
       }
       var sw = new ServiceWorker(url, bytes);
       var promise = new Promise(function(resolve, reject) {
@@ -7884,9 +7893,8 @@
       try {
         worker = new self.Worker(url);
       } catch (err) {
-        registration._installing = null;
-        sw._setState("redundant");
-        return Promise.reject(err);
+        failSW(sw, registration, err);
+        return promise;
       }
       sw._worker = worker;
       worker.addEventListener("message", function(ev) {
