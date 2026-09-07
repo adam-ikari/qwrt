@@ -1,6 +1,3 @@
-/* glibc memmem (shutdown substring check) + POSIX clock_gettime */
-#define _GNU_SOURCE
-
 /*
  * qwrt-rt — standalone worker process binary (M-P1)
  *
@@ -47,6 +44,18 @@ static int64_t now_ms_local(void)
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
+/* Hand-rolled substring match — replaces glibc memmem, a GNU extension that
+ * would force _GNU_SOURCE (violates the project's C99 discipline). */
+static int has_substring(const uint8_t *hay, size_t hlen, const char *needle)
+{
+    size_t nlen = strlen(needle);
+    if (nlen == 0 || nlen > hlen) return 0;
+    for (size_t i = 0; i + nlen <= hlen; i++) {
+        if (memcmp(hay + i, needle, nlen) == 0) return 1;
+    }
+    return 0;
+}
+
 
 /* ── Wake callback: drain msgq and dispatch (same as qwrt_worker_wake_cb) ── */
 
@@ -90,10 +99,13 @@ static void process_rx(qwrt_t *rt)
             if (g_rx.len > 0)
                 memmove(g_rx.buf, g_rx.buf + 4, g_rx.len);
             if (g_rx.frame_len > 16u * 1024 * 1024) {
-                /* Oversized frame — protocol error, self-terminate */
+                /* Oversized frame — protocol error, self-terminate. Wake the
+                 * loop: uv_run(ONCE) may be blocked in pipe poll (I2). */
                 __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
+                uv_async_send(&rt->wake);
                 return;
             }
+
         }
         /* Need frame body */
         if (g_rx.len < g_rx.frame_len) return;
@@ -105,8 +117,9 @@ static void process_rx(qwrt_t *rt)
                 /* CONTROL{shutdown} → graceful exit (§9.2 tier 1). */
                 if (view.kind == IPC_ENV_KIND_CONTROL &&
                     view.payload_len > 0 &&
-                    memmem(view.payload, view.payload_len,
-                           "shutdown", 8)) {
+                    has_substring(view.payload, view.payload_len,
+                                  "shutdown")) {
+
                     __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
                     uv_async_send(&rt->wake);
                 } else {
@@ -150,7 +163,10 @@ static void pipe_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
                 g_rx.cap = ncap;
             } else {
                 free(buf->base);
+                /* OOM — self-terminate; wake the loop so uv_run(ONCE) does
+                 * not stay blocked in pipe poll (I2). */
                 __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
+                uv_async_send(&rt->wake);
                 return;
             }
         }
@@ -204,6 +220,11 @@ int main(int argc, char **argv)
         size_t rd = fread(script, 1, (size_t)sz, f);
         script[rd] = '\0';
         fclose(f);
+        /* C1: script fully read — unlink the temp file now. The parent keeps
+         * no reference to the file (mkstemp fd was closed before exec), so
+         * removing the directory entry is race-free, and this runs before the
+         * handshake so the parent's success path never leaks the file. */
+        unlink(script_path);
     }
 
     /* ── Handshake (child sends first, §3.3) ── */

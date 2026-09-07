@@ -742,6 +742,9 @@ endif()
 if(QWRT_BUILD_CLI AND NOT QWRT_BUILD_TESTS)
     add_executable(qwrt_rt src/rt_main.c)
     set_target_properties(qwrt_rt PROPERTIES OUTPUT_NAME qwrt-rt)
+    # Same -Wall -Wextra -Werror + _POSIX_C_SOURCE discipline as the qwrt lib
+    # (review I8): rt_main.c is core runtime code, not an exception.
+    qwrt_enable_warnings(qwrt_rt)
     target_link_libraries(qwrt_rt PRIVATE qwrt_full)
 endif()
 # ============================================================================

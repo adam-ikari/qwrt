@@ -421,6 +421,15 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 
 组件各自 `uv_run` 结束、各自 teardown（复用 `qwrt_thread_teardown`）。destroy 链对单个 worker 走上述三级协议（shutdown → 超时 → SIGKILL+收尸），单 worker 挂死不阻塞整树关闭。
 
+> **已知限制（M-P1 评审 I5，代码注释同步标注）**：tier-2/tier-3 的
+> `waitpid` 轮询在**调用线程**上同步执行（`qwrt_proc_terminate`），即父
+> loop 线程（workerTerminate）或 teardown 线程被一个对 CONTROL{shutdown}
+> 无响应的挂死 worker 阻塞最多 2s——与本句「单 worker 挂死不阻塞整树
+> 关闭」的期望不符。M-P1 接受该偏差：优雅路径（worker 正常响应 shutdown）
+> 约 1ms 完成，冻结只发生在已坏 worker；异步化 tier-2（uv_timer 驱动
+> WNOHANG 轮询 + 升级）会改动 `qwrt_proc_terminate` 的同步契约，teardown
+> 时序与 pid 归属存在生命周期风险。M-P4 若宿主不可接受 2s 最坏冻结再重访。
+
 ## 9.3 崩溃检测
 
 - **worker 进程崩溃**：主RT 的 worker 通道读 EOF → 清槽位 + 在主RT 的 main runtime 内 dispatch `error` 事件（JS `Worker.onerror`/`error`）→ worker 槽位释放。宿主不直接感知（除非 main script 转发），符合"浏览器里 worker 崩了页面继续"语义。

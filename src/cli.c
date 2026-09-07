@@ -245,6 +245,14 @@ static char *build_bootstrap(const char *const *args, int nargs) {
  * wait_idle → destroy. host is bound to rt via qwrt_set_runtime_data;
  * cli_message_cb fetches it with qwrt_get_runtime_data(rt) (callable
  * repeatedly; host is not shared). */
+/* e2e/test hook: QWRT_WORKER_BACKEND=process selects the M-P1 process worker
+ * backend (default is thread). Lets the real CLI drive the process backend. */
+static void apply_worker_backend(qwrt_config_t *cfg) {
+    const char *wb = getenv("QWRT_WORKER_BACKEND");
+    if (wb && strcmp(wb, "process") == 0)
+        cfg->worker_backend = QWRT_WORKER_BACKEND_PROCESS;
+}
+
 static int run_code(const char *code, const char *const *args, int nargs) {
     cli_host_t host = {0};
 
@@ -253,6 +261,8 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     memset(&cfg, 0, sizeof cfg);
     cfg.message_cb = cli_message_cb;
     cfg.initial_script = bootstrap;
+    apply_worker_backend(&cfg);
+
     qwrt_t *rt = qwrt_create(&cfg);
     free(bootstrap);
     if (!rt) {
@@ -321,6 +331,8 @@ static int repl_loop(void) {
     memset(&cfg, 0, sizeof cfg);
     cfg.message_cb = cli_message_cb;
     cfg.initial_script = bootstrap;
+    apply_worker_backend(&cfg);
+
     qwrt_t *rt = qwrt_create(&cfg);
     free(bootstrap);
     if (!rt) {

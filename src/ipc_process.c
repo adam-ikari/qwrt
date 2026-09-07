@@ -33,12 +33,17 @@ static int64_t now_ms(void)
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
+/* All fds written here are socketpair(AF_UNIX) sockets. Use send() with
+ * MSG_NOSIGNAL so a write to a dead peer returns EPIPE instead of raising
+ * SIGPIPE and killing the whole host process (C2). This is precise — it does
+ * not touch the process-wide SIGPIPE disposition the way signal(SIGPIPE,
+ * SIG_IGN) would, so embedding hosts keep their own signal handling. */
 static int write_all(int fd, const void *buf, size_t len)
 {
     const char *p = (const char *)buf;
     size_t off = 0;
     while (off < len) {
-        ssize_t n = write(fd, p + off, len - off);
+        ssize_t n = send(fd, p + off, len - off, MSG_NOSIGNAL);
         if (n < 0) {
             if (errno == EINTR) continue;
             return -1;
@@ -162,14 +167,24 @@ int qwrt_ipc_parse_ack(const char *json, int *out_ok, int *out_v)
 
 /* ── Binary path detection ── */
 
-static char *resolve_binary(const char *binary_path)
+/* Resolve the qwrt-rt binary path. On success returns a malloc'd string;
+ * on failure returns NULL and sets *oom to 1 iff an allocation failed (so
+ * the caller can distinguish NO_MEMORY from NOT_FOUND — a plain strdup OOM
+ * used to be misreported as "binary not found"). */
+static char *resolve_binary(const char *binary_path, int *oom)
 {
-    if (binary_path && binary_path[0])
-        return strdup(binary_path);
+    if (binary_path && binary_path[0]) {
+        char *r = strdup(binary_path);
+        if (!r) *oom = 1;
+        return r;
+    }
 
     const char *env = getenv("QWRT_RT_SERVER");
-    if (env && env[0])
-        return strdup(env);
+    if (env && env[0]) {
+        char *r = strdup(env);
+        if (!r) *oom = 1;
+        return r;
+    }
 
     /* Try /proc/self/exe directory + "/qwrt-rt" */
     char self[4096];
@@ -180,7 +195,9 @@ static char *resolve_binary(const char *binary_path)
         if (slash) {
             size_t dlen = (size_t)(slash - self) + 1;
             char *path = (char *)malloc(dlen + 8);
-            if (path) {
+            if (!path) {
+                *oom = 1;
+            } else {
                 memcpy(path, self, dlen);
                 memcpy(path + dlen, "qwrt-rt", 7);
                 path[dlen + 7] = '\0';
@@ -192,11 +209,24 @@ static char *resolve_binary(const char *binary_path)
     }
 
 #ifdef QWRT_RT_PATH
-    if (access(QWRT_RT_PATH, X_OK) == 0)
-        return strdup(QWRT_RT_PATH);
+    if (access(QWRT_RT_PATH, X_OK) == 0) {
+        char *r = strdup(QWRT_RT_PATH);
+        if (!r) *oom = 1;
+        return r;
+    }
 #endif
 
     return NULL;
+}
+
+/* Blocking reap with EINTR retry. Used on spawn-failure and terminate/destroy
+ * paths where the child is known to be exiting (channel EOF or SIGKILL sent),
+ * so waitpid returns promptly and blocking is safe. */
+static void proc_reap_blocking(pid_t pid)
+{
+    int status;
+    pid_t r;
+    do { r = waitpid(pid, &status, 0); } while (r < 0 && errno == EINTR);
 }
 
 /* ── Parent side: spawn ── */
@@ -213,9 +243,13 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
     proc->role = role;
     proc->state = QWRT_PROC_BUILD;
     proc->parent_rt = parent;
+    int kill_err = QWRT_ERR_GENERIC;   /* refined per failure cause below */
 
-    char *exe = resolve_binary(binary_path);
-    if (!exe) return QWRT_ERR_NOT_FOUND;
+
+    int oom = 0;
+    char *exe = resolve_binary(binary_path, &oom);
+    if (!exe) return oom ? QWRT_ERR_NO_MEMORY : QWRT_ERR_NOT_FOUND;
+
 
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) < 0) {
@@ -291,8 +325,11 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
         int64_t deadline = now_ms() + QWRT_IPC_HANDSHAKE_TIMEOUT_MS;
         uint8_t *hs_frame = NULL;
         size_t hs_flen = 0;
-        if (qwrt_ipc_read_frame(pfd, &hs_frame, &hs_flen, deadline) < 0)
+        if (qwrt_ipc_read_frame(pfd, &hs_frame, &hs_flen, deadline) < 0) {
+            kill_err = QWRT_ERR_TIMEOUT;   /* handshake never arrived in 5s */
             goto kill_fail;
+        }
+
 
         /* Decode envelope */
         ipc_envelope_view_t view;
@@ -311,8 +348,10 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
 
         int hsv = 0, hsrole = 0, hsid = 0;
         if (qwrt_ipc_parse_handshake(hs_json, &hsv, &hsrole, &hsid) < 0 ||
-            hsv != QWRT_IPC_PROTO_VERSION)
+            hsv != QWRT_IPC_PROTO_VERSION ||
+            hsrole != role || hsid != id)
             goto kill_fail;
+
 
         /* Build + send ack */
         char ack_json[24];
@@ -341,17 +380,34 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
 
 kill_fail:
     if (proc->pid > 0) {
-        kill(proc->pid, SIGKILL);
-        int status;
-        waitpid(proc->pid, &status, 0);
+        int kr = kill(proc->pid, SIGKILL);
+        /* Only reap when the child is ours to reap: kill succeeded, or it is
+         * already gone (ESRCH → waitpid returns ECHILD immediately). On any
+         * other error (EPERM) a blocking waitpid could hang the parent. */
+        if (kr == 0 || errno == ESRCH) proc_reap_blocking(proc->pid);
         proc->pid = -1;
     }
     /* 不在此 uv_close：pipe 已在 loop 上，调用方随后 qwrt_proc_free 会统一
      * uv_close(proc_on_closed) 异步回收 proc 内存。二次 close 会 assert。 */
-    return QWRT_ERR_GENERIC;
+    return kill_err;
 }
 
-/* ── 3-tier terminate ── */
+/* ── 3-tier terminate ──
+ *
+ * KNOWN LIMITATION (I5, design §9.2 deviation, documented): tiers 2 and 3
+ * block the CALLING thread — the parent loop thread when invoked from
+ * workerTerminate, or the teardown thread at qwrt_thread_teardown — for up to
+ * timeout_ms (default 2s) per hung worker. A worker that ignores
+ * CONTROL{shutdown} (deadloop / stuck syscall) therefore freezes the parent
+ * loop for up to 2s instead of the design's "one hung worker must not block
+ * the whole tree shutdown". Accepted for M-P1 because:
+ *   - the graceful path (worker exits on shutdown) completes in ~1ms — the
+ *     freeze only materializes for already-broken workers;
+ *   - an async tier-2 (uv_timer-driven WNOHANG polling + escalation) reworks
+ *     the synchronous terminate contract that qwrt_worker_terminate and the
+ *     teardown loop both rely on, with real lifecycle risk (teardown ordering,
+ *     handle close, pid ownership).
+ * Revisit in M-P4 if a 2s worst-case freeze is unacceptable for a host. */
 
 int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
 {
@@ -381,7 +437,9 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
     int64_t deadline = now_ms() + timeout_ms;
     for (;;) {
         int status;
-        pid_t r = waitpid(proc->pid, &status, WNOHANG);
+        pid_t r;
+        do { r = waitpid(proc->pid, &status, WNOHANG); }
+        while (r < 0 && errno == EINTR);
         if (r == proc->pid) {
             proc->pid = -1;
             proc->state = QWRT_PROC_DEAD;
@@ -394,10 +452,9 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
     }
 
     /* Tier 3: SIGKILL + reap */
-    kill(proc->pid, SIGKILL);
     {
-        int status;
-        waitpid(proc->pid, &status, 0);
+        int kr = kill(proc->pid, SIGKILL);
+        if (kr == 0 || errno == ESRCH) proc_reap_blocking(proc->pid);
     }
     proc->pid = -1;
     proc->state = QWRT_PROC_DEAD;
@@ -442,9 +499,8 @@ void qwrt_proc_destroy(qwrt_proc_t *proc)
 {
     if (!proc) return;
     if (proc->pid > 0) {
-        kill(proc->pid, SIGKILL);
-        int status;
-        waitpid(proc->pid, &status, 0);
+        int kr = kill(proc->pid, SIGKILL);
+        if (kr == 0 || errno == ESRCH) proc_reap_blocking(proc->pid);
         proc->pid = -1;
     }
     proc->state = QWRT_PROC_DEAD;
@@ -517,6 +573,33 @@ static void proc_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *buf)
  * runtime's msgq (source = child slot id, flags = CONTROL?1:0) and wake the
  * parent loop. Zero-copy inside frames: payload slice decoded, then one copy
  * into the msgq node (same copy count as the thread backend's push). */
+/* Peer death (channel EOF / oversized-frame protocol error / rx realloc OOM):
+ * reap the exited child so it never becomes a zombie, and release the parent's
+ * worker slot so the id is reusable — without the slot release, 16 crashed
+ * workers permanently exhaust QWRT_MAX_WORKERS (I1). The error-event dispatch
+ * into main-runtime JS is deferred to M-P4.
+ *
+ * Safe to call from inside the pipe read callback: the proc struct is freed
+ * asynchronously via uv_close(proc_on_closed), so the caller's `proc` pointer
+ * stays valid until it returns. */
+static void proc_peer_dead(qwrt_proc_t *proc)
+{
+    proc->state = QWRT_PROC_DEAD;
+    if (proc->pid > 0) {
+        int status;
+        pid_t r;
+        do { r = waitpid(proc->pid, &status, WNOHANG); }
+        while (r < 0 && errno == EINTR);
+        if (r == proc->pid) proc->pid = -1;
+        /* r == 0: child closed the channel but has not become a zombie yet.
+         * Leave pid set — the slot release below runs qwrt_proc_destroy, which
+         * SIGKILL+reaps as a backstop, so no zombie is ever orphaned. */
+    }
+    qwrt_t *parent = (qwrt_t *)proc->parent_rt;
+    if (parent && parent->magic == QWRT_MAGIC && proc->id >= 1)
+        qwrt_worker_reap(parent, proc->id);
+}
+
 static void proc_process_rx(qwrt_proc_t *proc)
 {
     qwrt_t *parent = (qwrt_t *)proc->parent_rt;
@@ -531,8 +614,8 @@ static void proc_process_rx(qwrt_proc_t *proc)
             if (proc->rbuf_len > 0)
                 memmove(proc->rbuf, proc->rbuf + 4, proc->rbuf_len);
             if (proc->frame_len > 16u * 1024 * 1024) {
-                /* protocol error → treat as peer death */
-                proc->state = QWRT_PROC_DEAD;
+                /* protocol error → treat as peer death (reap + release slot) */
+                proc_peer_dead(proc);
                 return;
             }
         }
@@ -563,9 +646,9 @@ static void proc_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
     if (!proc) return;
 
     if (nread < 0) {
-        /* EOF → peer dead (§9.3/§9.4): mark, reap, notify slot release.
-         * Crash notification into main-runtime JS (error event) is M-P4. */
-        proc->state = QWRT_PROC_DEAD;
+        /* EOF → peer dead (§9.3/§9.4): reap + release slot. JS error event is
+         * M-P4. */
+        proc_peer_dead(proc);
         return;
     }
     if (nread == 0) return;   /* EAGAIN */
@@ -576,7 +659,7 @@ static void proc_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
         while (ncap < need) ncap *= 2;
         uint8_t *nb = (uint8_t *)realloc(proc->rbuf, ncap);
         if (!nb) {
-            proc->state = QWRT_PROC_DEAD;
+            proc_peer_dead(proc);
             return;
         }
         proc->rbuf = nb;

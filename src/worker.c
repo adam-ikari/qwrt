@@ -189,6 +189,17 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
         if (out_err) *out_err = QWRT_ERR_INVALID_ARG;
         return NULL;
     }
+#ifdef QWRT_USE_MOCK_LIBUV
+    /* Test builds compile the core against mock_libuv.h, which has no process
+     * backend (ipc_process.c is excluded — design §10.1). qwrt.h documents
+     * that a PROCESS request in a test build errors explicitly rather than
+     * silently degrading to THREAD (I4). */
+    if (parent->config.worker_backend == QWRT_WORKER_BACKEND_PROCESS) {
+        if (out_err) *out_err = QWRT_ERR_NOT_SUPPORTED;
+        return NULL;
+    }
+#endif
+
     int slot = -1;
     for (int i = 0; i < QWRT_MAX_WORKERS; i++) {
         if (!parent->workers[i]) { slot = i; break; }
@@ -264,12 +275,16 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
             if (out_err) *out_err = QWRT_ERR_NO_MEMORY;
             return NULL;
         }
-        /* Keep the temp file until qwrt_worker_free: the child opens the
-         * script by path AFTER exec, so the parent must not unlink early. */
+        /* Temp-file lifetime (C1): the child (rt_main.c) reads the script
+         * BEFORE the handshake, then unlinks its own path right after
+         * fclose — so after a successful spawn the file is already gone and
+         * there is no TOCTOU window. Failure paths below unlink explicitly. */
+
 
 
         w->proc = qwrt_proc_new();
         if (!w->proc) {
+            unlink(tmpl);            /* C1: temp file must not leak on failure */
             parent->workers[slot] = NULL;
             free(w->script_path);
             free(w->script);
@@ -278,10 +293,12 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
             if (out_err) *out_err = QWRT_ERR_NO_MEMORY;
             return NULL;
         }
+
         int rc = qwrt_proc_spawn(parent, w->proc, NULL,
                                  QWRT_IPC_ROLE_WORKER, w->id,
                                  w->script_path);
         if (rc != 0) {
+            unlink(w->script_path);  /* C1: child never read it (or died early) */
             qwrt_proc_free(w->proc);
             w->proc = NULL;
             parent->workers[slot] = NULL;
@@ -386,6 +403,22 @@ void qwrt_worker_free(qwrt_worker_t *w)
     free(w->script);
     free(w);
 }
+#ifndef QWRT_USE_MOCK_LIBUV
+/* Process-backend worker death (IPC pipe EOF / crash): clear the parent's
+ * slot and free the worker so the id becomes reusable. Called from
+ * ipc_process.c's read callback on the parent loop thread; the proc pipe's
+ * uv_close(proc_on_closed) frees the proc struct asynchronously. */
+void qwrt_worker_reap(qwrt_t *parent, int id)
+{
+    if (!parent || parent->magic != QWRT_MAGIC ||
+        id < 1 || id > QWRT_MAX_WORKERS) return;
+    qwrt_worker_t *w = parent->workers[id - 1];
+    if (!w) return;
+    parent->workers[id - 1] = NULL;
+    qwrt_worker_free(w);
+}
+#endif
+
 #ifndef QWRT_USE_MOCK_LIBUV
 int qwrt_worker_is_proc_handle(qwrt_t *rt, uv_handle_t *h)
 {

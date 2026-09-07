@@ -29,14 +29,19 @@
 extern "C" {
 #endif
 
+/* ── Opaque handle — declared up front so the framing/terminate prototypes
+ * below can use qwrt_proc_t without pulling in uv types (review: the typedef
+ * used to sit mid-declaration list). */
+typedef struct qwrt_proc_s qwrt_proc_t;
+
 /* ── Constants ── */
 
 #define QWRT_IPC_PROTO_VERSION    1
 #define QWRT_IPC_ROLE_WORKER      0
-#define QWRT_IPC_ROLE_RT          1
 #define QWRT_IPC_HANDSHAKE_TIMEOUT_MS  5000
 #define QWRT_IPC_TERMINATE_TIMEOUT_MS  2000
 #define QWRT_IPC_READ_BUF_SIZE    65536
+
 
 /* ── Framing (length-prefixed, blocking I/O for handshake) ── */
 
@@ -59,9 +64,8 @@ size_t qwrt_ipc_build_handshake(char *out, size_t cap, int role, int id);
 /* Build ack payload: {"ok":O,"v":V}
  * Returns string length (excl NUL). cap must be >= 24. */
 size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok);
-/* Channel handle — typedef first so headers can forward-declare
- * `typedef struct qwrt_proc_s qwrt_proc_t;` without pulling in uv types. */
-typedef struct qwrt_proc_s qwrt_proc_t;
+/* Channel handle — see typedef above (qwrt_proc_t), defined at the top of
+ * this header so declarations can reference it. */
 
 #ifndef QWRT_USE_MOCK_LIBUV
 /* Full struct body is private to ipc_process.c (real-libuv pipe APIs).

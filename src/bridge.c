@@ -1638,18 +1638,25 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
     if (!bytes) return JS_ThrowTypeError(ctx, "worker postMessage: expected bytes");
 
     qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+    /* I6: propagate the write result to JS instead of swallowing it. The
+     * child's emit fd is non-blocking (uv_pipe_open set it), so under parent
+     * backpressure the frame write can fail (EAGAIN) rather than block the
+     * worker's JS thread; the thread backend likewise only drops on msgq OOM.
+     * Returning the boolean lets the caller detect a dropped postMessage —
+     * the old code discarded both return values, hiding real message loss. */
+    int rc = -1;
     /* Thread backend: push to parent's msgq (source = worker id).
      * Process backend: parent is NULL, send via IPC child channel. */
     if (w->parent) {
-        qwrt_msg_push(w->parent, (const char *)bytes, len, w->id, 0);
+        rc = qwrt_msg_push(w->parent, (const char *)bytes, len, w->id, 0);
     }
 #ifndef QWRT_USE_MOCK_LIBUV
     else if (qwrt_ipc_child_channel() >= 0) {
-        qwrt_ipc_child_emit((int32_t)w->id, 0, IPC_ENV_KIND_MESSAGE,
-                            bytes, (uint32_t)len);
+        rc = qwrt_ipc_child_emit((int32_t)w->id, 0, IPC_ENV_KIND_MESSAGE,
+                                 bytes, (uint32_t)len);
     }
 #endif
-    return JS_UNDEFINED;
+    return JS_NewBool(ctx, rc == 0);
 }
 
 /* Worker 侧 pal.workerClose：请求终止自身（不 join；父 teardown 时 join） */

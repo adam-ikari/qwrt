@@ -407,6 +407,10 @@ void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w,
 void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w);
 qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id);
 void qwrt_worker_free(qwrt_worker_t *w);
+/* Process-backend only: reap a dead worker out of the parent's slot table
+ * (worker crashed / pipe EOF). Clears workers[id-1] and frees the worker
+ * (which frees its qwrt_proc_t). Called from ipc_process.c's read callback. */
+void qwrt_worker_reap(qwrt_t *parent, int id);
 /* Check if a libuv handle is one of rt's process-worker IPC pipes — used by
  * qwrt_loop_idle to exempt those pipes (always-active) from "busy". */
 int qwrt_worker_is_proc_handle(qwrt_t *rt, uv_handle_t *h);
