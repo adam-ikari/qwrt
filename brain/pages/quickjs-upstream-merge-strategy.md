@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [build, upstream]
 created: "2026-08-31T11:59:47"
-updated: "2026-08-31T12:00:17"
+updated: "2026-09-07T11:16:08"
 ---
 
 <!-- compiled_truth -->
@@ -49,4 +49,10 @@ updated: "2026-08-31T12:00:17"
   kind: decision
   summary: "gitlink 修复回指上游 20b08342 + 确认 patch 机制为唯一可复现路径"
   source: "CI submodule 修复会话"
+  affects: [quickjs-upstream-merge-strategy]
+
+- time: 2026-09-07T11:16:08
+  kind: decision
+  summary: "用户明确确认：C99 补丁提交形态维持现状——4 个 .patch 已 tracked 在本工程仓库（quickjs-ng-c99-atomics/libuv-c99-atomics/drain-jobs/debugger），CMake configure 阶段 patch -p1 应用；子模块 git status 的 m（deps/libuv、deps/quickjs-ng 工作树残留）为设计内残留，不还原、不加钩子、不 fork、不 vendor。此前的 'Do NOT stage submodule pointer changes' 约定与此一致——无指针变更被暂存过。"
+  source: "2026-09-07 用户拍板会话"
   affects: [quickjs-upstream-merge-strategy]
