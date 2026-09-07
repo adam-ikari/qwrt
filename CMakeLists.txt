@@ -453,6 +453,13 @@ endif()
 if(QWRT_WITH_COMPRESS)
     list(APPEND _qwrt_core_sources src/ext_compress.c)
 endif()
+if(NOT QWRT_BUILD_TESTS)
+    # M-P1 IPC process channel (src/ipc_process.c) uses real-libuv pipe APIs
+    # (uv_pipe_t/uv_fileno) that mock_libuv does not implement, and its spawn
+    # path is only exercisable by real-process e2e (design §10.1). Test builds
+    # (QWRT_BUILD_TESTS) compile the core against mock_libuv.h and exclude it.
+    list(APPEND _qwrt_core_sources src/ipc_process.c)
+endif()
 if(QWRT_WITH_CRYPTO_EXT)
     list(APPEND _qwrt_core_sources src/ext_crypto.c)
 endif()
@@ -727,7 +734,16 @@ if(QWRT_BUILD_CLI)
         target_link_libraries(qwrt_cli PRIVATE qwrt_full)
     endif()
 endif()
-
+# ============================================================================
+# qwrt-rt — standalone worker process binary (M-P1 multi-process model)
+# Spawned by qwrt_proc_spawn via fork+exec. Uses real-libuv pipe APIs, so it
+# only builds in non-test builds (mock_libuv has no pipe API — design §10.1).
+# ============================================================================
+if(QWRT_BUILD_CLI AND NOT QWRT_BUILD_TESTS)
+    add_executable(qwrt_rt src/rt_main.c)
+    set_target_properties(qwrt_rt PROPERTIES OUTPUT_NAME qwrt-rt)
+    target_link_libraries(qwrt_rt PRIVATE qwrt_full)
+endif()
 # ============================================================================
 # Install
 # ============================================================================

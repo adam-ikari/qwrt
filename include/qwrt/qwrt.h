@@ -25,13 +25,22 @@ typedef struct qwrt_config_s {
      * IN_PROC（进程内宿主线程命令）/ LOCAL（预留，CTL-2 端点，行为同 IN_PROC）。
      * 见 docs/plans/2026-09-04-control-plane-design.md §4.1。 */
     int control_plane;               /* qwrt_control_plane_t 值 */
+    /* Worker 执行后端（M-P1 多进程模型 §1.4）。0 = THREAD（默认，真线程）；
+     * 1 = PROCESS（独立进程 worker，非测试构建可用；测试构建显式求值报错）。
+     * 粒度 per-rt：同一 qwrt_t 的全部 worker 同后端。缺省 0 = THREAD。 */
+    int worker_backend;              /* qwrt_worker_backend_t 值 */
 } qwrt_config_t;
-
 typedef enum {
     QWRT_CONTROL_OFF = 0,     /* 默认：控制面关闭 */
     QWRT_CONTROL_IN_PROC = 1, /* 进程内命令（msgq 路径） */
     QWRT_CONTROL_LOCAL = 2,   /* 预留（CTL-2 本地端点）；CTL-0 行为同 IN_PROC */
 } qwrt_control_plane_t;
+
+/* Worker 执行后端（qwrt_config_t.worker_backend 取值）。 */
+typedef enum {
+    QWRT_WORKER_BACKEND_THREAD  = 0, /* 默认：真线程（现状） */
+    QWRT_WORKER_BACKEND_PROCESS = 1, /* 独立进程 worker（M-P1） */
+} qwrt_worker_backend_t;
 
 /* ================================================================
  * Core API

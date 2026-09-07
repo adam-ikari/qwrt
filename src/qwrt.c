@@ -255,7 +255,10 @@ void qwrt_thread_teardown(qwrt_t *rt)
         qwrt_worker_t *w = rt->workers[i];
         if (w) {
             qwrt_worker_terminate(rt, w);
-            uv_thread_join(&w->thread);
+            /* Process backend (M-P1): no thread to join — terminate already
+             * SIGKILLed + reaped the child inside qwrt_proc_terminate. */
+            if (w->self)
+                uv_thread_join(&w->thread);
             rt->workers[i] = NULL;
             qwrt_worker_free(w);
         }

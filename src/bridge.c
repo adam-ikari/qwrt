@@ -27,6 +27,9 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <errno.h>
+#ifndef QWRT_USE_MOCK_LIBUV
+#include "ipc_process.h"
+#endif
 
 /* ================================================================
  * Forward declarations
@@ -1635,8 +1638,17 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
     if (!bytes) return JS_ThrowTypeError(ctx, "worker postMessage: expected bytes");
 
     qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
-    if (!w || !w->parent) return JS_UNDEFINED;
-    qwrt_msg_push(w->parent, (const char *)bytes, len, w->id, 0);
+    /* Thread backend: push to parent's msgq (source = worker id).
+     * Process backend: parent is NULL, send via IPC child channel. */
+    if (w->parent) {
+        qwrt_msg_push(w->parent, (const char *)bytes, len, w->id, 0);
+    }
+#ifndef QWRT_USE_MOCK_LIBUV
+    else if (qwrt_ipc_child_channel() >= 0) {
+        qwrt_ipc_child_emit((int32_t)w->id, 0, IPC_ENV_KIND_MESSAGE,
+                            bytes, (uint32_t)len);
+    }
+#endif
     return JS_UNDEFINED;
 }
 
@@ -1648,7 +1660,13 @@ static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val,
     qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+    /* Thread backend: terminate via parent. Process backend: parent is NULL,
+     * set shutting_down + wake the loop to exit (rt_main.c checks it). */
     if (w && w->parent) qwrt_worker_terminate(w->parent, w);
+    else if (rt) {
+        __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
+        uv_async_send(&rt->wake);
+    }
     return JS_UNDEFINED;
 }
 

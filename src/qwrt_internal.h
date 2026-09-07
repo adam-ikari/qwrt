@@ -2,6 +2,10 @@
 #define QWRT_INTERNAL_H
 
 #include "qwrt/qwrt.h"
+/* qwrt_proc_t 前置声明（ipc_process.h 全量 include 仅 worker.c 进程后端代码
+ * 需要；这里只用指针。直接 include 会把 uv_pipe_t 拉进 mock 测试构建——
+ * mock_libuv.h 无该类型。 */
+typedef struct qwrt_proc_s qwrt_proc_t;
 #include <quickjs.h>
 
 /* libuv include switch: qwrt embeds uv types (uv_loop_t etc.) BY VALUE in
@@ -93,9 +97,13 @@ typedef struct qwrt_worker_s {
     qwrt_t *parent;            /* 父 runtime（worker 的 JS 线程就是父线程） */
     int id;                    /* 槽位索引 + 1 = 消息 source 标签 */
     uv_thread_t thread;        /* worker 线程句柄（父 teardown 时 join） */
-    qwrt_t *self;              /* worker 自己的 runtime */
+    qwrt_t *self;              /* worker 自己的 runtime（线程后端；进程后端为 NULL） */
     char *script;              /* worker 脚本源码 */
     int shutting_down;
+    /* 进程后端（M-P1）：非 NULL 表示该 worker 是独立进程。script 经临时
+     * 文件传给 qwrt-rt（--script PATH）；proc 持有 socketpair 通道与 pid。 */
+    qwrt_proc_t *proc;         /* IPC 通道句柄（进程后端）；线程后端 NULL */
+    char *script_path;         /* 临时脚本文件路径（进程后端，随 w 释放） */
 } qwrt_worker_t;
 
 /* ── Polyfill bytecode source (mode-dependent) ──
@@ -384,6 +392,10 @@ void qwrt_dap_service(qwrt_t *rt);
 
 /* thread.c — flush pending JS microtasks (worker.c calls this on its loop) */
 int qwrt_flush_microtasks(qwrt_t *rt);
+/* worker.c — worker-runtime inbound dispatch: raw cloned bytes →
+ * __qwrt_dispatch__(bytes, 0). Used by the worker thread loop AND by the
+ * process-backend child (rt_main.c) — same shim semantics. */
+void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m);
 
 /* worker.c — real-thread Web Workers. Parent-thread-only API (the parent qwrt
  * thread is the only one touching the workers table). qwrt_worker_create blocks
@@ -395,6 +407,9 @@ void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w,
 void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w);
 qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id);
 void qwrt_worker_free(qwrt_worker_t *w);
+/* Check if a libuv handle is one of rt's process-worker IPC pipes — used by
+ * qwrt_loop_idle to exempt those pipes (always-active) from "busy". */
+int qwrt_worker_is_proc_handle(qwrt_t *rt, uv_handle_t *h);
 
 /* context.c — context lifecycle helpers */
 qwrt_ctx_t *qwrt_get_active_ctx(qwrt_t *rt);
