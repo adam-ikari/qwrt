@@ -1713,8 +1713,14 @@ static void bridge_proc_msg_cb(void *user, const uint8_t *payload,
     JSValue arg = payload ? JS_NewArrayBufferCopy(ctx, payload, len)
                           : JS_NULL;
     if (JS_IsException(arg)) {
+        /* OOM 建 ArrayBuffer：跳过本帧。必须 JS_GetException 清掉挂起异常，
+         * 否则该异常会污染 context——后续每一帧的 JS_NewArrayBufferCopy /
+         * JS_Call 都立即返回同一个异常，读泵在 C 层照常解码但 JS 侧从此
+         * 收不到任何消息（洪水下 rcvd 卡死）。 */
+        JS_GetException(ctx);
+        JS_FreeValue(ctx, arg);
         JS_FreeValue(ctx, fn);
-        return;   /* OOM：跳过本帧 */
+        return;
     }
     qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &arg);
     JS_FreeValue(ctx, fn);

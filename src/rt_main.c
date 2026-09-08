@@ -344,6 +344,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "qwrt-rt: read_start failed\n");
         goto fail;
     }
+    /* emit 写路径走 spill buffer（非阻塞 send + 1ms flush timer，背压不丢帧） */
+    qwrt_ipc_child_tx_init(&rt->loop, parent_fd);
 
     /* ── Eval worker boot bytecode ── */
     {

@@ -299,6 +299,9 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
         close(sv[0]);
         goto kill_fail;
     }
+    /* Outbound spill-buffer flush timer (lossless backpressure). */
+    proc->tx.fd = -1;
+    uv_timer_init(loop, &proc->tx.timer);
 
     /* ── Handshake (§3.3): child sends first, parent validates, replies ack.
      * 仅当 require_handshake 且 role>=0（调用方要求 qwrt 信封协议握手）；
@@ -450,27 +453,118 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
     return 0;
 }
 
-/* ── Post ── */
-
-int qwrt_proc_post(qwrt_proc_t *proc,
-                   int32_t source, int32_t target, int8_t kind,
-                   const uint8_t *payload, uint32_t payload_len)
+/* ── Async outbound writes: spill buffer + timer flush ──
+ *
+ * Backpressure handling for the socketpair channel. The fds are O_NONBLOCK
+ * (uv_pipe_open), so a synchronous send() either blocks the single-threaded
+ * loop (deadlock when the peer blocks writing the other direction) or returns
+ * EAGAIN — and treating EAGAIN as a hard failure SILENTLY DROPS the frame
+ * (parent→child and child→parent messages vanish, echo counts never reconcile,
+ * and JS awaiting the missing replies hangs forever — the R3/R4 PROCESS hang).
+ * Instead, on EAGAIN the frame is appended to an unbounded spill buffer flushed
+ * by a 1ms uv_timer while non-empty: lossless, non-blocking, FIFO. The buffer
+ * outlives every send(), so there is no libuv write-request lifetime to get
+ * wrong (uv_write's request/buffer must outlive the completion callback; a
+ * per-message malloc'd buffer freed in write_cb corrupts under load).
+ */
+static void qwrt_tx_flush(qwrt_tx_t *tx)
 {
-    if (!proc || proc->state != QWRT_PROC_RUN) return -1;
-    uv_os_fd_t osfd;
-    if (uv_fileno((uv_handle_t *)&proc->pipe, &osfd) < 0) return -1;
-    int pfd = (int)(intptr_t)osfd;
+    if (tx->fd < 0 || tx->len == 0) return;
+    size_t off = 0;
+    while (off < tx->len) {
+        ssize_t n = send(tx->fd, tx->buf + off, tx->len - off, MSG_NOSIGNAL);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            /* ENOBUFS 是 socket 缓冲耗尽（同 EAGAIN），不是永久错误——libuv
+             * uv__try_write 也把 ENOBUFS 当背压。硬当错误会把整个 spill buffer
+             * 丢弃：洪水下间歇性丢帧 → echo 数不清 → 挂死。 */
+            if (errno == EAGAIN || errno == EWOULDBLOCK ||
+                errno == ENOBUFS) break;
+            /* EPIPE/ECONNRESET: peer gone — drop the backlog; the read side
+             * reports the death via EOF. */
+            tx->len = 0;
+            break;
+        }
+        off += (size_t)n;
+    }
+    if (off > 0) {
+        tx->len -= off;
+        if (tx->len > 0)
+            memmove(tx->buf, tx->buf + off, tx->len);
+    }
+    if (tx->len == 0 && tx->timer_active) {
+        uv_timer_stop(&tx->timer);
+        tx->timer_active = 0;
+    }
+}
 
+static void qwrt_tx_timer_cb(uv_timer_t *t)
+{
+    qwrt_tx_t *tx = (qwrt_tx_t *)t->data;
+    qwrt_tx_flush(tx);
+}
+
+static int qwrt_tx_send(qwrt_tx_t *tx, const uint8_t *frame, size_t flen)
+{
+    if (tx->len + flen > tx->cap) {
+        size_t ncap = tx->cap ? tx->cap : 4096;
+        while (ncap < tx->len + flen) ncap *= 2;
+        uint8_t *nb = (uint8_t *)realloc(tx->buf, ncap);
+        if (!nb) return -1;
+        tx->buf = nb;
+        tx->cap = ncap;
+    }
+    memcpy(tx->buf + tx->len, frame, flen);
+    tx->len += flen;
+    qwrt_tx_flush(tx);
+    if (tx->len > 0 && !tx->timer_active) {
+        tx->timer.data = tx;
+        if (uv_timer_start(&tx->timer, qwrt_tx_timer_cb, 1, 1) == 0)
+            tx->timer_active = 1;
+    }
+    return 0;
+}
+/* Encode [4-byte LE len][envelope] and hand to the spill-buffer queue. */
+static int proc_frame_send(qwrt_tx_t *tx,
+                           int32_t source, int32_t target, int8_t kind,
+                           const uint8_t *payload, uint32_t payload_len)
+{
     size_t env_cap = IPC_ENVELOPE_ENCODED_SIZE(payload_len);
     uint8_t *env_buf = (uint8_t *)malloc(env_cap);
     if (!env_buf) return -1;
     size_t env_len = ipc_envelope_encode(env_buf, env_cap,
                                         source, target, kind,
                                         payload, payload_len);
-    if (env_len == 0) { free(env_buf); return -1; }
-    int rc = qwrt_ipc_write_frame(pfd, env_buf, env_len);
+    if (env_len == 0 || env_len > 0xFFFFFFFFu - 4u) {
+        free(env_buf);
+        return -1;
+    }
+    uint32_t flen = (uint32_t)env_len + 4u;
+    uint8_t *frame = (uint8_t *)malloc(flen);
+    if (!frame) { free(env_buf); return -1; }
+    frame[0] = (uint8_t)(env_len & 0xFFu);
+    frame[1] = (uint8_t)((env_len >> 8) & 0xFFu);
+    frame[2] = (uint8_t)((env_len >> 16) & 0xFFu);
+    frame[3] = (uint8_t)((env_len >> 24) & 0xFFu);
+    memcpy(frame + 4, env_buf, env_len);
     free(env_buf);
+    int rc = qwrt_tx_send(tx, frame, flen);
+    free(frame);
     return rc;
+}
+
+int qwrt_proc_post(qwrt_proc_t *proc,
+                   int32_t source, int32_t target, int8_t kind,
+                   const uint8_t *payload, uint32_t payload_len)
+{
+    if (!proc || proc->state != QWRT_PROC_RUN) return -1;
+    if (proc->tx.fd < 0) {
+        uv_os_fd_t osfd;
+        if (uv_fileno((uv_handle_t *)&proc->pipe, &osfd) < 0) return -1;
+        proc->tx.fd = (int)(intptr_t)osfd;
+    }
+    return proc_frame_send(&proc->tx, source, target, kind,
+                           payload, payload_len);
 }
 
 /* ── Destroy & Free (libuv-idiomatic self-reclaim) ── */
@@ -499,6 +593,10 @@ void qwrt_proc_free(qwrt_proc_t *proc)
 {
     if (!proc) return;
     qwrt_proc_destroy(proc);
+    if (proc->tx.timer_active)
+        uv_timer_stop(&proc->tx.timer);
+    free(proc->tx.buf);
+    proc->tx.buf = NULL;
     if (proc->pipe_inited) {
         uv_read_stop((uv_stream_t *)&proc->pipe);
         proc->pipe.data = proc;
@@ -515,6 +613,7 @@ void qwrt_proc_free(qwrt_proc_t *proc)
 /* ── Child-side emit channel (single per process) ── */
 
 static int g_child_fd = -1;
+static qwrt_tx_t g_child_tx;
 
 void qwrt_ipc_child_set_channel(int fd)
 {
@@ -526,20 +625,21 @@ int qwrt_ipc_child_channel(void)
     return g_child_fd;
 }
 
+void qwrt_ipc_child_tx_init(uv_loop_t *loop, int fd)
+{
+    g_child_fd = fd;
+    memset(&g_child_tx, 0, sizeof(g_child_tx));
+    g_child_tx.fd = fd;
+    if (uv_timer_init(loop, &g_child_tx.timer) != 0)
+        g_child_tx.fd = -1;
+}
+
 int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
                         const uint8_t *payload, uint32_t payload_len)
 {
-    if (g_child_fd < 0) return -1;
-    size_t env_cap = IPC_ENVELOPE_ENCODED_SIZE(payload_len);
-    uint8_t *env_buf = (uint8_t *)malloc(env_cap);
-    if (!env_buf) return -1;
-    size_t env_len = ipc_envelope_encode(env_buf, env_cap,
-                                        source, target, kind,
-                                        payload, payload_len);
-    if (env_len == 0) { free(env_buf); return -1; }
-    int rc = qwrt_ipc_write_frame(g_child_fd, env_buf, env_len);
-    free(env_buf);
-    return rc;
+    if (g_child_tx.fd < 0) return -1;
+    return proc_frame_send(&g_child_tx, source, target, kind,
+                           payload, payload_len);
 }
 
 /* ── Opaque lifecycle ── */
@@ -558,25 +658,9 @@ static void proc_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *buf)
     buf->len = buf->base ? QWRT_IPC_READ_BUF_SIZE : 0;
 }
 
-/* Extract complete frames from the accumulator; decode; push into the parent
- * runtime's msgq (source = child slot id, flags = CONTROL?1:0) and wake the
- * parent loop. Zero-copy inside frames: payload slice decoded, then one copy
- * into the msgq node (same copy count as the thread backend's push). */
-/* Peer death (channel EOF / oversized-frame protocol error / rx realloc OOM):
- *
- * 所有 proc 均由 JS 层 pal.processSpawn 创建（spawn 分层化 Phase C 后 C 层
- * 无 msgq 模式的进程 worker），故统一走 JS-managed 路径：把 pid 收割干净
- * （无 qwrt_proc_destroy 兜底，须内联 reap 防 zombie）并以 payload=NULL
- * 回调一次通知 JS 侧 peer 已死（JS error-event 完整化是 M-P4）。
- *
- * Safe to call from inside the pipe read callback: the proc struct is freed
- * asynchronously via uv_close(proc_on_closed), so the caller's `proc` pointer
- * stays valid until it returns. */
 static void proc_peer_dead(qwrt_proc_t *proc)
 {
     proc->state = QWRT_PROC_DEAD;
-    /* Reap: WNOHANG 先试（peer 已死 → zombie），未成僵尸（r==0，channel
-     * 已关但仍在退出/装死）→ SIGKILL + 阻塞收割兜底。保证无 zombie 被遗弃。 */
     if (proc->pid > 0) {
         int status;
         pid_t r;
@@ -669,7 +753,6 @@ static void proc_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
         proc->rbuf = nb;
         proc->rbuf_cap = ncap;
     }
-    memcpy(proc->rbuf + proc->rbuf_len, buf->base, (size_t)nread);
     proc->rbuf_len += (size_t)nread;
     proc_process_rx(proc);
 }

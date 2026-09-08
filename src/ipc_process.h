@@ -78,8 +78,18 @@ size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok);
 
 #ifndef QWRT_USE_MOCK_LIBUV
 /* Full struct body is private to ipc_process.c (real-libuv pipe APIs).
- * Mock test builds (QWRT_USE_MOCK_LIBUV) only see the opaque typedef —
- * mock_libuv.h has no uv_pipe_t (design §10.1). */
+ * Mock test builds (QWRT_USE_MOCK_LIBUV) only see the opaque typedef. */
+/* Outbound spill buffer (lossless backpressure): frames append here when
+ * send() hits EAGAIN; a 1ms uv_timer flushes while non-empty. */
+typedef struct qwrt_tx_s {
+    uint8_t    *buf;
+    size_t      len;
+    size_t      cap;
+    uv_timer_t  timer;
+    int         fd;             /* socket fd to send on, -1 until first use */
+    int         timer_active;
+} qwrt_tx_t;
+
 struct qwrt_proc_s {
     uv_pipe_t pipe;           /* duplex pipe to child (parent end) */
     pid_t     pid;            /* child PID */
@@ -94,6 +104,7 @@ struct qwrt_proc_s {
     size_t    rbuf_len;
     uint32_t  frame_len;      /* 0 = need 4-byte header */
     int       pipe_inited;    /* uv_pipe_init done (close via uv_close) */
+    qwrt_tx_t tx;             /* outbound spill buffer + flush timer */
     /* JS-managed delivery mode (spawn 分层化, Phase B): 非 NULL 时信封解码后
      * 直接交给 msg_cb（bridge.c 的 pal.processOnMessage），不 push 父 msgq、
      * 也不做 worker-slot reap。EOF/peer-death 时以 payload=NULL 回调一次并
@@ -166,16 +177,21 @@ void qwrt_proc_free(qwrt_proc_t *proc);   /* destroy + free struct */
  * bridge.c's js_pal_worker_emit can send envelopes upstream without a
  * qwrt_proc_t (parent-side handle). Single channel per process. */
 void qwrt_ipc_child_set_channel(int fd);
-/* Child → parent envelope write. Returns 0 ok, -1 error. */
+/* Child-side outbound queue init (spill buffer + flush timer on the child's
+ * loop). fd is the inherited --parent-fd. */
+void qwrt_ipc_child_tx_init(uv_loop_t *loop, int fd);
+/* Child → parent envelope write. Returns 0 ok, -1 error. Never blocks; under
+ * backpressure the frame is queued in the spill buffer, not dropped. */
 int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
                         const uint8_t *payload, uint32_t payload_len);
 /* Child channel fd, -1 if unset. */
 int qwrt_ipc_child_channel(void);
 
-/* Post an envelope to child (synchronous uv_try_write). */
+/* Post an envelope to child (async; 0 = queued/sent, -1 = failed). */
 int qwrt_proc_post(qwrt_proc_t *proc,
                    int32_t source, int32_t target, int8_t kind,
                    const uint8_t *payload, uint32_t payload_len);
+
 
 /* Close pipe and reap child if still alive. NULL-safe on pipe. */
 void qwrt_proc_destroy(qwrt_proc_t *proc);
