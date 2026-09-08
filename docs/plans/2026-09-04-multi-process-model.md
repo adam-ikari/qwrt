@@ -17,8 +17,8 @@
 3. **IPC 传输**：`uv_pipe_t`（libuv 原生，Unix domain socket / Windows named pipe，全双工，与现有事件循环无缝集成）。备选 socketpair/shm+信号均否决（理由见 §3）。
 4. **信封用 FlatBuffers，payload 保持现有 structured clone 字节**——JS 层**完全零改动**（`__qwrt_serialize__/__qwrt_deserialize__` 不动，Worker/postMessage/structuredClone 契约不变）。进程边界 C↔C 用 fb 信封；JS 对象图仍由现有 JS 序列化器处理。**这正是 `2026-09-03-flatbuffers-runtime-builtin.md` 定义的「跨进程 RPC」升格触发条件**，纯 C 内部格式定位应验。
 5. **C 编解码器**：推荐方案 a——手写信封编解码（`src/ipc_envelope.c`，~200 行 C99），固定 schema 手写 vtable/offset/uoffset，字节级符合 fb 规范，零依赖零生成步骤。通用 fb codec（方案 b）作为信封类型扩展时的升格路径。
-6. **Worker spawn**：`exec` 自身二进制（Linux `/proc/self/exe`，回退 `QWRT_EXEC_PATH`）+ `--qwrt-worker --parent-fd N --worker-id N`。`fork()` 否决（JSRuntime 已初始化状态危险，必须在 JS 启动前 fork，exec 更干净）。**v2 树形：worker 进程内用同一形态递归 spawn 子 worker**。
-7. **主 RT spawn**：`exec` 自身二进制 `--qwrt-rt-server`。宿主 C API 契约 `qwrt_create/post_message/message_cb/wait_idle/destroy` **签名与语义不变**，ISOLATED 下内部走 IPC。主 RT 进程死亡 → 宿主自动感知（parent-fd EOF 监测）→ message_cb 收 ERROR。
+6. **Worker spawn（M-P1 已实现）**：spawn **伴随的 `qwrt-rt` 二进制**（CMake `qwrt_rt` target，独立入口 `src/rt_main.c`；路径 = 显式参数 → `QWRT_RT_SERVER` env → `/proc/self/exe` 同目录 `qwrt-rt` → 编译期 `QWRT_RT_PATH`）+ `--qwrt-worker --parent-fd N --worker-id K [--script PATH]`（§5.1）。`fork()` 否决（JSRuntime 已初始化状态危险，必须在 JS 启动前 fork，exec 更干净）。**v2 树形：worker 进程内用同一形态递归 spawn 子 worker**。设计稿 `exec 自身` 形态属 M-P2（§6.2）。
+7. **主 RT spawn（M-P2）**：`exec` 自身二进制 `--qwrt-rt-server`。宿主 C API 契约 `qwrt_create/post_message/message_cb/wait_idle/destroy` **签名与语义不变**，ISOLATED 下内部走 IPC。主 RT 进程死亡 → 宿主自动感知（parent-fd EOF 监测）→ message_cb 收 ERROR。
 8. **分阶段（v3 重排，v5 调整）**：M-P0 信封编解码（含与 Python flatbuffers 交叉验证）→ M-P1 worker 进程 spawn+握手+消息往返（**opt-in 走宿主 `qwrt_config_t.worker_backend`**，JS 面零新增——v5 移除 per-worker `mode`，§1.4）→ M-P2 宿主↔主RT 进程分离+C API 透明切换+**双后端 parity**（§1.5）→ M-P3 MessagePort 跨进程路由 → M-P4 优雅关闭/崩溃恢复/压力测试。
 9. **（v4）单进程组合轨道**：M-R1 多实例生命周期（进程内多 `qwrt_t` 并存：全局状态审计 + DAP stdio 单通道约束，§13）→ M-R2 多 RT 组合模型（contexts × workers 正交聚合，worker 归 rt 不归 context，§14）。M-R 在 THREAD 基线即可交付，是 M-P\* 进程轨道的组合语义基座。
 
@@ -35,7 +35,7 @@ graph TB
         API["qwrt_create / qwrt_post_message /<br/>message_cb / qwrt_wait_idle / qwrt_destroy<br/>签名与语义不变"]
     end
 
-    subgraph MainRT["主 RT 进程<br/>(exec 自身 --qwrt-rt-server)"]
+    subgraph MainRT["主 RT 进程<br/>(--qwrt-rt-server，M-P2)"]
         MR["qwrt_t (main runtime JS)<br/>跑 main script + 子树路由"]
     end
 
@@ -77,7 +77,7 @@ graph TB
 | 消息后端 | lock-free MPSC + uv_async_send | uv_pipe_t + FlatBuffers 信封 |
 | C API | 直接调 | 内部经 IPC 代理 |
 | JS 层 | —（无感知） | —（**同样无感知**） |
-| 编译走线 | `QWRT_PROCESS_MODEL=THREAD` | `QWRT_PROCESS_MODEL=ISOLATED` |
+| 编译走线（M-P2） | `QWRT_PROCESS_MODEL=THREAD` | `QWRT_PROCESS_MODEL=ISOLATED` |
 
 JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双模型下**完全一致**——差异只隔离在 C 层 qwrt_t 的消息后端。这是设计铁线：任何 JS 改动都视为越界，全文档无豁免（v3 的 per-worker `mode` 豁免已随 v5 移除，§1.4）。
 
@@ -85,7 +85,7 @@ JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双
 
 ## 1.4 W3C 合规与后端选择（v5 裁决）：JS 零扩展，后端由宿主 `qwrt_config_t.worker_backend` 决定
 
-**移除 v3 的 per-worker `mode` JS 扩展**：WorkerOptions 规范面仅 `{ type, credentials, name }`——任何额外 per-worker 字段（`mode`/`isolation`）都是非标扩展，与「JS 层契约零改动」铁线（§1.3）冲突。后端选择**上移为宿主级 C 配置**：`qwrt_config_t` 新增 `worker_backend` 字段（`QWRT_WORKER_BACKEND_THREAD` / `QWRT_WORKER_BACKEND_PROCESS`），缺省随编译模型（ISOLATED→PROCESS；THREAD→THREAD，其 IPC 后端未编入、显式选 PROCESS 时求值报错，同 §5.3 不静默降级精神）。粒度=per-rt：同一 `qwrt_t` 的全部 worker 同后端，不同 rt 可不同——v3 的 per-worker 粒度、默认值调和表、双崩溃域并存一并撤销。
+**移除 v3 的 per-worker `mode` JS 扩展**：WorkerOptions 规范面仅 `{ type, credentials, name }`——任何额外 per-worker 字段（`mode`/`isolation`）都是非标扩展，与「JS 层契约零改动」铁线（§1.3）冲突。后端选择**上移为宿主级 C 配置**：`qwrt_config_t` 新增 `worker_backend` 字段（`QWRT_WORKER_BACKEND_THREAD` / `QWRT_WORKER_BACKEND_PROCESS`）。**当前实现（M-P1）：缺省恒 THREAD**（`include/qwrt/qwrt.h` 注释「缺省 0 = THREAD」，`QWRT_WORKER_BACKEND_THREAD=0`），PROCESS 为宿主显式 opt-in；**编译模型驱动的缺省值（ISOLATED→PROCESS；THREAD→THREAD）随 M-P2 落地**——届时 THREAD 编译未编入 IPC 后端、显式选 PROCESS 求值报错（同 §5.3 不静默降级精神）。粒度=per-rt：同一 `qwrt_t` 的全部 worker 同后端，不同 rt 可不同——v3 的 per-worker 粒度、默认值调和表、双崩溃域并存一并撤销。
 
 **正交性论证**：W3C Worker 规范只定义 JS 可见 API 面，不约束执行后端——浏览器自身就是多进程/多线程混合实现且从不向 JS 暴露。**后端选择 = 引擎实现细节，与 W3C 合规完全正交**：规范面一字节不动，后端可整体替换；JS 层零新增、零条件分支。
 
@@ -134,6 +134,10 @@ JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双
 
 ## 2.1 CMake 开关
 
+**M-P1 现状（已实现）**：**无 `QWRT_PROCESS_MODEL` 编译开关**。生产构建（`QWRT_BUILD_TESTS=OFF`）**恒编入 `src/ipc_process.c`**（进程 worker 后端）；测试构建（`QWRT_BUILD_TESTS=ON`，核心编 `QWRT_USE_MOCK_LIBUV` 走 mock_libuv）**排除之**——mock_libuv 无 `uv_pipe_t`，进程路径以 `#ifndef QWRT_USE_MOCK_LIBUV` 不编（§10.1）。进程/线程两后端运行期由宿主 `qwrt_config_t.worker_backend` 选择（§1.4）。
+
+**M-P2 目标**：编译开关 + 三件套拆分（`ipc_transport` 独立传输层）落地，届时：
+
 ```cmake
 set(QWRT_PROCESS_MODEL "ISOLATED" CACHE STRING
     "应用模型：ISOLATED=独立进程(默认) / THREAD=单进程多线程")
@@ -148,7 +152,7 @@ endif()
 - `QWRT_PROCESS_MODEL=THREAD`：现状不变，`src/msgq.c` 路径生效，ipc_*.c 不编入（不定义 `QWRT_PROCESS_MODEL_ISOLATED` 宏，`#if` 落到 `#else` 分支）。
 - 编译宏定**能力集与缺省**；运行期选择走宿主 `qwrt_config_t.worker_backend`（§1.4）：ISOLATED 编译缺省 PROCESS、可显式 THREAD；THREAD 编译未编入 IPC 后端，显式 PROCESS 求值报错（§5.3 不静默降级精神）。
 
-**实现约束**：两套后端共用一个 `qwrt_t` 结构和一个消息注入接口（`qwrt_msg_push` 的进程版 `qwrt_ipc_inject`），通过宏 `#if QWRT_PROCESS_MODEL_ISOLATED` 在 qwrt_t 内选择「线程队列字段」还是「IPC 通道字段」；`qwrt_worker_create` 按「编译宏能力集 + `config.worker_backend`」选后端（§1.4）。**C 枚举字段可以条件编译，JS 层没有任何条件编译**。
+**实现约束（M-P2 形态）**：两套后端共用一个 `qwrt_t` 结构和一个消息注入接口（`qwrt_msg_push` 的进程版 `qwrt_ipc_inject`），通过宏 `#if QWRT_PROCESS_MODEL_ISOLATED` 在 qwrt_t 内选择「线程队列字段」还是「IPC 通道字段」；`qwrt_worker_create` 按「编译宏能力集 + `config.worker_backend`」选后端（§1.4）。**C 枚举字段可以条件编译，JS 层没有任何条件编译**。
 
 ## 2.2 为何默认 ISOLATED
 
@@ -273,18 +277,19 @@ Offset 0x0000  uoffset 指 back to root table 起始（= 文件内一个相对�
 
 # 5. Worker 进程 spawn
 
-## 5.1 推荐：exec 自身二进制
+## 5.1 M-P1 实现：spawn 伴随的 `qwrt-rt` 二进制（非 exec 宿主自身）
 
 ```
-exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
-      --qwrt-worker --parent-fd N --worker-id K [--polyfill path(polyfill B 模式)]
+qwrt-rt  --qwrt-worker --parent-fd N --worker-id K [--script PATH]
 ```
 
-- `--parent-fd N`：spawn 前用 `socketpair(AF_UNIX, SOCK_STREAM)` 建通道，父持一端（主管道，如 fd 100），子持另一端（fd N），经 argv 传 N。机制简单纯粹——首版**不做 CMSG_PASSFD**，同二进制 spawn 时直接创建 socketpair、两端 fd 各据其位（inheritable），argv 传 N 即可（§5.2 解释为何够用）。
+- **二进制（M-P1 已实现）**：spawn 的是**伴随的 `qwrt-rt` 二进制**——CMake `qwrt_rt` target、独立入口 `src/rt_main.c`；路径解析 = 显式 `binary_path` 参数 → `QWRT_RT_SERVER` env → `/proc/self/exe` 同目录 `qwrt-rt` → 编译期 `QWRT_RT_PATH`。**不是 exec 宿主自身**（宿主与 `qwrt-rt` 需同目录部署）。设计稿 `exec 自身（/proc/self/exe 或 QWRT_EXEC_PATH）--qwrt-rt-server` 形态属 M-P2（宿主↔主RT，§6.2）。
+- `--parent-fd N`：spawn 前用 `socketpair(AF_UNIX, SOCK_STREAM)` 建通道，父持一端（主管道，如 fd 100），子持另一端（fd N），经 argv 传 N。机制简单纯粹——首版**不做 CMSG_PASSFD**，spawn 时直接创建 socketpair、两端 fd 各据其位（inheritable），argv 传 N 即可（§5.2 解释为何够用）。
 - `--worker-id K`：沿用现有 worker 槽位 id（`QWRT_MAX_WORKERS`），即**本地** `source` 标签（相对直接父，各父独立编号；跨子树寻址见 §4.3 树路径）。
+- `--script PATH`：worker 脚本路径（M-P1 新增）。父把脚本写临时文件（`mkstemp` 原子创建、无 TOCTOU），子读毕 `unlink`（父不持文件引用，成功路径不泄漏临时文件）。
 - **worker 进程内**：完整 `qwrt_t` 初始化（`qwrt_runtime_init` 复用，含 polyfill 注入 / 扩展 / loop），`uv_pipe_open(parent-fd)` 使能读 → 发 `CONTROL{handshake}`（§3.3 定稿协议）→ 等 `__qwrt_dispatch__` 入站消息（worker-boot.js 垫片语义不变）。
 - **v2 树形**：worker 进程内 `new Worker` 触发 `qwrt_worker_create` 时，**worker 自己作为父**用与本节完全相同的机制 spawn 子进程（socketpair + exec + `--parent-fd`）并在自己的 `workers[]` 槽位表登记——零新增机制，只是「父」泛化。
-- polyfill：嵌入模式 C（默认，const 数组 .rodata）天然随二进制，子进程零配置。B 模式（外部 .polyfill 文件）加 `--polyfill <path>` 参数传递。
+- polyfill：嵌入模式 C（默认，const 数组 .rodata）天然随二进制，子进程零配置。B 模式（外部 .polyfill 文件）加 `--polyfill <path>` 参数传递（M-P1 未落地，`qwrt-rt` 尚未解析该参数）。
 
 ## 5.2 备选：`fork()`（否决）
 
@@ -305,14 +310,16 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 
 `qwrt_create / qwrt_post_message / message_cb / qwrt_wait_idle / qwrt_destroy` **签名与语义不变**。
 
-- ISOLATED 下 `qwrt_create` 内部：exec 自身 `--qwrt-rt-server --parent-fd N` → 起主RT 进程 → socketpair → 握手 → 返回 `qwrt_t*`（内部是 IPC 通道，不再内嵌线程）。
+- ISOLATED 下 `qwrt_create` 内部：spawn 主RT 进程（`--qwrt-rt-server --parent-fd N`）→ socketpair → 握手 → 返回 `qwrt_t*`（内部是 IPC 通道，不再内嵌线程）。
 - `qwrt_post_message`：把 payload 装进 Envelope（source=0, target=1, kind=MESSAGE；payload=宿主侧 structured clone 字节，C API 的 `json` 参数是宿主原始 JSON，直接当 payload 透传）→ 写 IPC。
 - `message_cb`：IPC 收到信封 → 解出 payload 字节 → 喂给回调（语义等同当前线程后端的排空派发）。
 - `qwrt_wait_idle`（v2 定稿 CONTROL{idle} 协议）：宿主发出当前未决写计数 W → 主RT 排空入站且自身 loop idle 且子树（经各子通道 CONTROL{idle} 汇总）idle → 回 `CONTROL{idle, epoch=W}`；宿主 `qwrt_wait_idle` 阻塞在该 ack 或 EOF（主RT 死亡 → EOF → 立即返回 + `message_cb` 收 `{type:'error'}`）。复用 thread.c 的 `qwrt_loop_idle` 逻辑与 `thread_ready` 阻塞语义，协议补上「为什么宿主能等到 idle」的显式信号（v1 草案缺该定义，评审指出）。
 
-## 6.2 主RT 进程模式
+## 6.2 主RT 进程模式（M-P2，尚未实现）
 
-- `qwrt` 二进制新增 serve 子命令形态：`qwrt --qwrt-rt-server --parent-fd N`。
+> 本节为 M-P2 目标形态（宿主↔主RT 进程分离），M-P1 未落地——宿主与主RT 目前仍同进程。
+
+- `qwrt` 二进制新增 serve 子命令形态：`qwrt --qwrt-rt-server --parent-fd N`（或沿用 M-P1 伴随二进制路线：`qwrt-rt --qwrt-rt-server --parent-fd N`）。
 - 内部复用现有 `thread.c` 的 `qwrt_thread_main` 循环（loop + idle 检测 + 派发），**唯一改动**：消息注入源从「线程 lock-free 队列」切到「IPC 信道」（`qwrt_ipc_inject` 从 uv_pipe 读信封 → 解 payload → 派发）。thread_main 的 rest 完全复用。
 
 ## 6.3 备选：宿主 fork 出主RT（否决）
@@ -421,14 +428,16 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 
 组件各自 `uv_run` 结束、各自 teardown（复用 `qwrt_thread_teardown`）。destroy 链对单个 worker 走上述三级协议（shutdown → 超时 → SIGKILL+收尸），单 worker 挂死不阻塞整树关闭。
 
-> **已知限制（M-P1 评审 I5，代码注释同步标注）**：tier-2/tier-3 的
-> `waitpid` 轮询在**调用线程**上同步执行（`qwrt_proc_terminate`），即父
-> loop 线程（workerTerminate）或 teardown 线程被一个对 CONTROL{shutdown}
-> 无响应的挂死 worker 阻塞最多 2s——与本句「单 worker 挂死不阻塞整树
-> 关闭」的期望不符。M-P1 接受该偏差：优雅路径（worker 正常响应 shutdown）
-> 约 1ms 完成，冻结只发生在已坏 worker；异步化 tier-2（uv_timer 驱动
-> WNOHANG 轮询 + 升级）会改动 `qwrt_proc_terminate` 的同步契约，teardown
-> 时序与 pid 归属存在生命周期风险。M-P4 若宿主不可接受 2s 最坏冻结再重访。
+> **已知限制（M-P1 评审 I5，代码注释同步标注）**：tier-2 的超时轮询在
+> **调用线程**上同步执行（`qwrt_proc_terminate`：`WNOHANG waitpid` +
+> `nanosleep` 轮询，10ms 步进、最多 2s/worker；tier-3 SIGKILL 后同线程
+> 阻塞 `waitpid` 收尸），即父 loop 线程（workerTerminate）或 teardown
+> 线程被一个对 CONTROL{shutdown} 无响应的挂死 worker 阻塞最多 2s——与本句
+> 「单 worker 挂死不阻塞整树关闭」的期望不符。M-P1 接受该偏差：优雅路径
+> （worker 正常响应 shutdown）约 1ms 完成，冻结只发生在已坏 worker；
+> 异步化 tier-2（uv_timer 驱动 WNOHANG 轮询 + 升级）会改动
+> `qwrt_proc_terminate` 的同步契约，teardown 时序与 pid 归属存在生命周期
+> 风险。M-P4 若宿主不可接受 2s 最坏冻结再重访。
 
 ## 9.3 崩溃检测
 
@@ -456,8 +465,8 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 ## 10.1 mock_libuv 测试策略
 
 - **THREAD 模式**：现有 mock_libuv 单进程离线调度测试**原样保留**（回归基线）。
-- **ISOLATED 模式**：引入 `mock_ipc` 测试桩 —— 单进程内用 socketpair（或内存 pipe）模拟 IPC 通道，让信封编解码 + 路由逻辑在单进程 gtest 里确定性验证，**不开真进程**。进程 spawn/握手/fd 继承的集成测试走「真 exec + 真 uv_pipe」e2e（M-P1/M-P4，放 ctest）。
-- 层次：M-P0/M-P3 逻辑层（mock_ipc 单进程 gtest）× M-P1/M-P4 集成层（真进程 e2e）。
+- **M-P1 实现：编译排除，非 `mock_ipc` 桩**——mock_libuv 无 `uv_pipe_t`，进程路径以 `#ifndef QWRT_USE_MOCK_LIBUV` 不编：测试构建（`QWRT_BUILD_TESTS=ON`，核心编 `QWRT_USE_MOCK_LIBUV`）**不编入 `src/ipc_process.c`**（CMake 注释明言，§2.1），单进程 gtest 里无进程后端（显式 `worker_backend=PROCESS` 求值报 `NOT_SUPPORTED`，不静默降级）。信封编解码等纯逻辑由 **`test_ipc_envelope_gtest`**（M-P0 产物）覆盖；进程 spawn/握手/fd 继承/消息往返的集成由 **`test_mp1_process_e2e`**（真进程 e2e，M-P1 产物，放 ctest）覆盖。
+- 层次：M-P0 逻辑层（`test_ipc_envelope_gtest` 单进程 gtest）× M-P1/M-P4 集成层（`test_mp1_process_e2e` 真进程 e2e）。
 
 ## 10.2 localStorage 无锁并发（v6：单所有者代理）
 
@@ -498,10 +507,10 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 
 ## M-P1：worker 进程 spawn + fd 通道 + 握手 + 消息往返（v5：`worker_backend` opt-in）
 
-- 产出：`src/ipc_process.c`（exec 自身 + socketpair + `--qwrt-worker --parent-fd --worker-id` 参数）、worker 进程内 `qwrt_t` 初始化、CONTROL handshake。
+- 产出：`src/ipc_process.c`（spawn 伴随 `qwrt-rt` + socketpair + `--qwrt-worker --parent-fd --worker-id [--script]` 参数）、`src/rt_main.c`（`qwrt-rt` 独立入口，CMake `qwrt_rt` target）、worker 进程内 `qwrt_t` 初始化、CONTROL handshake。
 - 产出（v7 追加）：三级终止协议落地（§9.2）——CONTROL{shutdown} → 超时（可配，缺省 2s）→ `uv_kill(SIGKILL)` + waitpid 收尸；terminate API 归 spawn 所有者，持无条件强杀权。
 - 能力：main↔worker **跨进程 postMessage 通**（worker 独立进程里 `postMessage` → 主RT 进程收；反向同理）。
-- **交付形态（v5）**：opt-in = 宿主 `qwrt_config_t.worker_backend=PROCESS`（§1.4）——测试宿主/直调 C API 显式设置；ISOLATED 编译下亦可直接以编译缺省 PROCESS 验证。v3 的 JS `mode` opt-in 已移除。
+- **交付形态（v5）**：opt-in = 宿主 `qwrt_config_t.worker_backend=PROCESS`（§1.4）——测试宿主/直调 C API 显式设置（M-P1 缺省恒 THREAD，§1.4）。v3 的 JS `mode` opt-in 已移除。
 - **验证门**：e2e 两进程实际跑通消息往返 + 握手时序；THREAD 回归不走样；**强杀用例（v7）**：worker `while(true)` 忽略 CONTROL{shutdown} → 父超时 → SIGKILL → waitpid 收尸成功、无 zombie、父存活并可继续 spawn 新 worker。
 
 ## M-P2：宿主↔主RT 进程分离 + C API 透明切换
@@ -595,7 +604,7 @@ exec  (Linux: /proc/self/exe  或 argv[0]  或 QWRT_EXEC_PATH env 覆盖)
 宿主
  └→ qwrt_t（主 RT 角色；THREAD 基线=线程托管，M-P2 后=独立进程）
       ├→ contexts ×N（同进程同堆，qwrtContext 经 bridge 驱动，宿主只见主 context）
-      └→ workers ×N（后端=宿主 `worker_backend`，缺省随编译模型）
+      └→ workers ×N（后端=宿主 `worker_backend`；M-P1 缺省 THREAD，M-P2 起缺省随编译模型，§1.4）
 ```
 
 - **正交铁则**：worker 归属 rt 不归属 context（`rt->workers[]` 与 `rt->contexts[]` 平级）。同一 rt 的所有 context 共享同一 workers 表；context 挂起/销毁**不**波及 worker——其入队消息照常派发，worker 生命周期只随 rt。首版不做 worker↔context 亲和（YAGNI：无真实需求）。

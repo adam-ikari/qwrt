@@ -128,13 +128,13 @@ stateDiagram-v2
 
 Web 标准 SW 更新：`register()` 同 URL → 浏览器检查字节变化 → 新 SW installing → install 完成后进入 installed（等待）→ 旧 SW 控制的"页面"全部关闭后才 activating。
 
-**qwrt 简化：新 SW install 完成后直接 skipWaiting + clients.claim（零等待切换）。**
+**qwrt 简化：新 SW install 完成后直接 skipWaiting + clients.claim（零等待切换）。controller/active 切换点在 `activate_done`——新 SW install/activating 期间旧 SW 保持 controller 继续拦截 fetch，无控制真空；activate 完成才 terminate 旧 SW。**
 
 理由：
 
 1. **无页面概念**：不存在"等待页面关闭"的等待条件。qwrt 的"受控上下文"是主线程 JS 本身——它始终在运行，不会"关闭"。若等待，SW 永远不会激活。
 2. **skipWaiting 语义保留**：SW 脚本可通过 `self.skipWaiting()` 显式控制激活时机（标准行为）。但 qwrt 的默认行为是 **install 完成即自动 skipWaiting**（与浏览器的"默认等待"不同，但对嵌入式场景更实用）。
-3. **更新检测**：`register(url)` 被调用时，若 URL 与当前活跃 SW 相同，触发更新检查。首版不做字节级 diff——直接重新加载脚本并走 install 流程（install 失败则旧 SW 不受影响）。字节对比优化放在 SW-3。
+3. **更新检测（SW-3 已落地）**：`register(url)`/`update()` 每次**同步读 SW 脚本**（`pal.fsReadSync`，与 worker.js loadScript 同路径），与**最新槽位（installing > waiting > active）做字节对比**——同 URL 且字节未变 → 跳过安装、直接 resolve 现有 registration；字节变化 → 走 install 流程（install 失败则旧 SW 不受影响）。
 
 ```mermaid
 sequenceDiagram
@@ -142,14 +142,20 @@ sequenceDiagram
     participant SW as SW 线程（旧）
     participant SW2 as SW 线程（新）
 
-    Main->>Main: register(sameUrl)
-    Main->>SW2: new Worker(url) — 安装新 SW
-    SW2->>SW2: install 事件
-    SW2->>SW2: self.skipWaiting()
-    SW2->>SW2: activate 事件
-    SW2->>SW2: self.clients.claim()
-    Note over SW: 被替代 → redundant → terminate
-    Main->>SW2: fetch 请求 → 新 SW 拦截
+    Main->>Main: register(sameUrl) — 同步读脚本字节对比
+    alt 字节未变
+        Main->>Main: 跳过安装，resolve 现有 registration
+    else 字节变化
+        Main->>SW2: new Worker(url) — 安装新 SW
+        Note over SW: install/activating 期间保持 controller，继续拦截 fetch
+        SW2->>SW2: install 事件
+        SW2->>SW2: self.skipWaiting()
+        SW2->>SW2: activate 事件
+        SW2->>SW2: self.clients.claim()
+        Note over Main,SW2: activate_done → controller 切到新 SW
+        Note over SW: 被替代 → redundant → terminate
+        Main->>SW2: fetch 请求 → 新 SW 拦截
+    end
 ```
 
 ## 2.4 执行上下文：复用现有 Worker 机制（推荐）
@@ -160,7 +166,7 @@ sequenceDiagram
 
 1. **真隔离**：独立 JSRuntime + 线程 + 事件循环。SW 脚本的 bug 不会影响主线程。这是 Web 标准 SW 的核心安全保证。
 2. **代码复用**：`worker.js` 的 Worker 构造 + `worker-boot.js` 的 postMessage/dispatch 移植 + `message-channel.js` 的 MessagePort 跨线程路由——全部复用，不需要新 PAL 原语。
-3. **多进程自然接入**：多进程模型落地后，SW Worker 从"线程 qwrt_t"升级为"进程 qwrt_t"（exec 自身 + `--qwrt-worker`），JS 层零改动。SW 是常驻进程的理想候选（生命周期长、可被主 RT 按需唤醒）。
+3. **多进程自然接入**：多进程模型落地后，SW Worker 从"线程 qwrt_t"升级为"进程 qwrt_t"（M-P1：伴随 `qwrt-rt` 二进制 + `--qwrt-worker`），JS 层零改动。SW 是常驻进程的理想候选（生命周期长、可被主 RT 按需唤醒）。
 4. **message 通信**：主线程 ↔ SW 通过现有 Worker postMessage / MessagePort，序列化走 structuredClone（`__qwrt_serialize__`/`__qwrt_deserialize__`），跨线程原子队列（或未来 IPC 信封）。
 
 **备选（不推荐）：同进程软隔离 context（`context.js` 的 suspend/resume 模式）**。context.js 做的是"拍快照→销毁 JSContext→重建→恢复"，设计目标是**可挂起/恢复的任务**，不是常驻拦截器。SW 需要长期存活 + 实时响应 fetch 事件，suspend/resume 的"销毁重建"语义不匹配。且 context.js 的 JSContext 不是独立线程——SW 的阻塞或慢操作会卡主线程。
@@ -453,7 +459,7 @@ self.addEventListener('fetch', (event) => {
 
 多进程模型（`2026-09-04-multi-process-model.md`）定义了：
 - 宿主进程 → 主 RT 进程 → WorkerRT 进程 ×N 的星型拓扑
-- Worker 进程通过 `exec` 自身 + `--qwrt-worker --parent-fd N --worker-id K` spawn
+- Worker 进程经**伴随的 `qwrt-rt` 二进制** spawn（M-P1：`--qwrt-worker --parent-fd N --worker-id K [--script PATH]`，非 exec 宿主自身；exec 自身形态属 M-P2 设计）
 - 消息走 `uv_pipe_t` + FlatBuffers 信封
 
 **SW 自然成为树中的一个常驻 WorkerRT 进程**：
@@ -664,7 +670,7 @@ function doRequest(request, resolve, reject, redirectCount) {
 **目标**：`register()` 同 URL → 检查脚本字节变化 → 仅变化时触发更新。
 
 **实现范围**：
-- `service-worker.js` — register 时加载脚本 → 与活跃 SW 脚本哈希对比 → 相同则跳过、不同则走 install
+- `service-worker.js` — register 时同步读脚本（`pal.fsReadSync`）→ 与最新槽位脚本字节对比 → 相同则跳过、不同则走 install
 - skipWaiting / clients.claim 更新切换
 - 多版本共存策略：新 SW install 期间旧 SW 仍控制 fetch（installed 态的旧 SW 继续工作，新 SW activate 后替换）
 
@@ -744,7 +750,7 @@ function doRequest(request, resolve, reject, redirectCount) {
 
 - **递归拦截防护**：SW 脚本内调用 `fetch()` 不应被自身拦截（浏览器行为）。实现：SW 线程内的 fetch 调用绕过 SW 拦截钩子（通过 `__qwrt_sw_mode__` 标志判断）。
 - **FetchEvent 超时**：SW 处理慢或 hang 时，主线程 fetch 需超时回退。30 秒默认值与浏览器一致。
-- **多版本 install 期间的控制真空**：新 SW installing 时，旧 SW 仍控制 fetch。若旧 SW 被 terminate（如错误），新 SW 尚未 activated → 无 SW 控制 → fetch 回退网络。这是预期行为。
+- **多版本切换无控制真空**：controller/active 切换点在 `activate_done`——新 SW install/activating 期间旧 SW 保持 controller 持续拦截 fetch，无控制真空期。仅当旧 SW 崩溃/被 terminate（如错误）且新 SW 尚未 activated 时，才出现无 SW 控制 → fetch 回退网络；这是预期行为。
 
 ## 7.3 安全
 
