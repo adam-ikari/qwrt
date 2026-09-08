@@ -382,6 +382,86 @@ jobs:
           print('PERF-OK')
 
   # ============================================================================
+  # Runtime performance: worker spawn / IPC / eval / memory (R1-R6), driven by
+  # test/bench_runtime.py across both worker backends (THREAD in-process,
+  # PROCESS fork+exec). Record-only — no thresholds: the numbers are compared
+  # against the judgment table in
+  # docs/plans/2026-09-04-runtime-perf-benchmark-design.md, and the design
+  # explicitly expects empirical revision of that table. continue-on-error
+  # keeps a noisy runner from blocking merges; the JSON is archived for
+  # trend tracking. --quick keeps the sample counts small (R2 must stay
+  # <=16 worker slots on THREAD; PROCESS R3/R4 are batched around the worker
+  # drop-out bug).
+  # ============================================================================
+  runtime-perf:
+    runs-on: ubuntu-latest
+    name: runtime perf (workers)
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Install Node (polyfill build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Rebuild polyfill (ensure dist in sync)
+        run: |
+          npm --prefix polyfill run build
+
+      - name: Configure (Release, real-libuv CLI)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQWRT_BUILD_TESTS=OFF \
+            -DQWRT_WITH_TLS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Benchmark runtime (both worker backends)
+        run: |
+          python3 test/bench_runtime.py --qwrt-bin ./build/qwrt --quick \
+            --json /tmp/runtime-perf.json | tee /tmp/runtime-perf.out
+
+      - name: Summarize
+        run: |
+          python3 - <<'EOF'
+          import json
+          d = json.load(open('/tmp/runtime-perf.json'))
+          print('startup      median=%.2f ms' % d['startup_ms']['median_ms'])
+          sp = d['spawn']
+          print('spawn ready  thread=%.2f ms process=%.2f ms ratio=%.2f'
+                % (sp['ready_us']['thread'] / 1000, sp['ready_us']['process'] / 1000,
+                   sp['ready_us']['ratio']))
+          for p in ('0', '1024', '65536'):
+              r = d['roundtrip'][p]
+              print('roundtrip %-6s thread=%8.1f us process=%8.1f us ratio=%.2f'
+                    % (p, r['thread_us']['median_us'], r['process_us']['median_us'],
+                       r['ratio']))
+          t = d['throughput']
+          print('throughput   thread=%.0f msg/s process=%.0f msg/s ratio=%.2f'
+                % (t['thread']['median_msgps'], t['process']['median_msgps'],
+                   t['ratio']))
+          e = d['eval']
+          print('eval         int=%.2f closure=%.2f str=%.2f M ops/s'
+                % (e['int_mops'], e['closure_mops'], e['str_mops']))
+          EOF
+
+      - name: Upload perf JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-perf-json
+          path: /tmp/runtime-perf.json
+
+  # ============================================================================
   # e2e: real-libuv CLI (QWRT_BUILD_TESTS=OFF) driving the four standalone e2e
   # suites plus the pure-JS verification harnesses (node only, no C build).
   # Mock-libuv builds (QWRT_BUILD_TESTS=ON) have no real networking — the CLI
