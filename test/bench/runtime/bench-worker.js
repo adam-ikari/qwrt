@@ -101,10 +101,8 @@ function oneEcho(w, buf) {
 /* ── R3: postMessage round-trip latency, per-op sampling ──
  * payload is a preallocated ArrayBuffer (cloned per postMessage, never
  * detached — no in-loop allocation noise). One worker, reused for all ops.
- * Raw per-op samples (samples_us) are also emitted so the Python driver can
- * pool median/p95 across worker respawns: a PROCESS worker drops out after
- * ~100 sustained messages (HEAD bug), so the driver splits R3 into batches
- * fit in one worker and pools the raw samples. */
+ * Raw per-op samples (samples_us) are also emitted so the driver can report
+ * median/p95 from the full sample set. */
 async function benchR3(warmup, samples, payloadBytes) {
   var w = new Worker(workerUrl('worker-echo.js'));
   var buf = new ArrayBuffer(payloadBytes);

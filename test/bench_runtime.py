@@ -39,7 +39,7 @@ import time
 DEFAULT = {
     'r1_n': 5,
     'r2_warmup': 3, 'r2_samples': 12,
-    'r3_warmup': 50, 'r3_samples': 500,
+    'r3_warmup': 50, 'r3_samples': {0: 500, 1024: 200, 65536: 20},
     'r4_runs': 5, 'r4_n': 10000,
     'r6_iters': 1000000, 'r6_samples': 5,
     'r5_hold_ms': 200,
@@ -47,28 +47,17 @@ DEFAULT = {
 QUICK = {
     'r1_n': 3,
     'r2_warmup': 2, 'r2_samples': 8,
-    'r3_warmup': 20, 'r3_samples': 100,
+    'r3_warmup': 20, 'r3_samples': {0: 100, 1024: 50, 65536: 5},
     'r4_runs': 3, 'r4_n': 2000,
     'r6_iters': 200000, 'r6_samples': 3,
     'r5_hold_ms': 200,
 }
 
 PAYLOADS = [0, 1024, 65536]  # R3: 0 / 1KB / 64KB
+# R3 sample count is per payload: 64KB round-trips are ~140ms/op
+# (serialization dominated), so it needs far fewer samples than 0B/1KB to
+# stay inside the harness timeout (quick <15s, default <60s per backend).
 
-# PROCESS backend bug workaround (HEAD, not the peer's in-progress refactor):
-# a process worker drops out (parent read pump stalls, child blocks on the
-# pipe) after a payload-dependent number of sustained postMessage round-trips
-# — ~80-100 for tiny payloads, fewer as the payload grows (single 64KB
-# round-trips only), hanging the parent. R3 on PROCESS is therefore split
-# into batches that fit in one worker (fresh qwrt process per batch) and the
-# raw samples are pooled by the driver; R4 uses short bursts. THREAD has no
-# such limit and runs full sizes. PROCESS_BATCH = max samples per batch,
-# PROCESS_WARMUP = warmup per batch, PROCESS_TARGET = total samples pooled
-# (the design's 500 is unattainable for PROCESS while this bug stands).
-PROCESS_BATCH = {0: 8, 1024: 8, 65536: 1}
-PROCESS_WARMUP = {0: 2, 1024: 2, 65536: 1}
-PROCESS_TARGET = {0: 100, 1024: 100, 65536: 30}
-PROCESS_R4_BATCH = 30  # messages per R4 burst on PROCESS
 
 
 def bench_dir():
@@ -184,17 +173,15 @@ def bench_backend(bin_path, backend, params, progress):
              % (d['ready_median_us'] / 1000, d['spawn_raw_median_us'] / 1000,
                 d['terminate_median_us']))
 
-    # R3 per payload, pooled across batches on PROCESS
+    # R3 per payload
     res['roundtrip'] = {}
     for payload in PAYLOADS:
-        med_us, p95_us = bench_r3_batched(bin_path, backend, params, payload,
-                                          progress)
+        med_us, p95_us = bench_r3(bin_path, backend, params, payload, progress)
         res['roundtrip'][str(payload)] = {
             'median_us': med_us, 'p95_us': p95_us}
 
     # R4
-    med_msgps, p95_msgps = bench_r4_batched(bin_path, backend, params,
-                                            progress)
+    med_msgps, p95_msgps = bench_r4(bin_path, backend, params, progress)
     res['throughput'] = {'median_msgps': med_msgps, 'p95_msgps': p95_msgps}
 
     # R5
@@ -206,78 +193,38 @@ def bench_backend(bin_path, backend, params, progress):
     return res
 
 
-def bench_r3_batched(bin_path, backend, params, payload, progress):
-    """R3 round-trip latency with median+p95, pooled across batches. PROCESS
-    splits into batches that fit in one worker (fresh qwrt process per batch;
-    see PROCESS_BATCH/WARMUP/TARGET for the payload-dependent drop-out bug).
-    THREAD has no such bug but is still capped per batch so a 64KB run stays
-    inside the harness timeout."""
-    target = params['r3_samples']
-    warmup = params['r3_warmup']
-    if backend == 'process':
-        batch = PROCESS_BATCH[payload]
-        warmup = PROCESS_WARMUP[payload]
-        target = PROCESS_TARGET[payload]
-    else:
-        batch = min(100, target)
-    pooled = []
-    while len(pooled) < target:
-        n = min(batch, target - len(pooled))
-        got = run_harness_retry(bin_path, backend, progress,
-                                'r3 payload=%d' % payload,
-                                ['r3', str(warmup), str(n), str(payload)])
-        if got is None:
-            break   # all retries failed — stop pooling this payload
-        pooled.extend(got.get('samples_us', []) or [])
-    if not pooled:
-        raise RuntimeError('r3: no samples pooled for payload %d' % payload)
-    pooled.sort()
-    med = statistics.median(pooled)
-    p95 = pooled[min(len(pooled) - 1, int(len(pooled) * 0.95))]
-    progress('r3 payload=%-6d median=%.1fus p95=%.1fus (n=%d, pooled)'
-             % (payload, med, p95, len(pooled)))
+def bench_r3(bin_path, backend, params, payload, progress):
+    """R3 round-trip latency with median+p95 from one worker's full sample
+    set. Sample count is per payload (64KB round-trips are serialization-
+    dominated, so they get fewer samples; see r3_samples)."""
+    d = run_harness(bin_path, 'bench-worker.js',
+                    ['r3', str(params['r3_warmup']),
+                     str(params['r3_samples'][payload]), str(payload)],
+                    backend)
+    samples_us = sorted(d.get('samples_us', []) or [])
+    med = statistics.median(samples_us)
+    p95 = samples_us[min(len(samples_us) - 1, int(len(samples_us) * 0.95))]
+    progress('r3 payload=%-6d median=%.1fus p95=%.1fus (n=%d)'
+             % (payload, med, p95, len(samples_us)))
     return med, p95
 
 
-def bench_r4_batched(bin_path, backend, params, progress):
-    """R4 throughput. THREAD runs n messages per run; PROCESS runs bursts of
-    <=PROCESS_R4_BATCH (fresh worker per run) because a process worker cannot
-    sustain more without dropping out. Each run reports one msg/s rate;
-    median + p95 across runs."""
+def bench_r4(bin_path, backend, params, progress):
+    """R4 throughput: n messages per run on a fresh worker (one run per
+    invocation), median + p95 across runs. Full-n run on both backends."""
     runs = params['r4_runs']
-    n = PROCESS_R4_BATCH if backend == 'process' else params['r4_n']
+    n = params['r4_n']
     rates = []
     for _ in range(runs):
-        got = run_harness_retry(bin_path, backend, progress, 'r4',
-                                ['r4', '1', str(n), '64'])
-        if got is not None:
-            rates.append(got['median_msgps'])   # runs=1 → that run's rate
-    if not rates:
-        raise RuntimeError('r4: no successful runs on %s backend' % backend)
+        d = run_harness(bin_path, 'bench-worker.js',
+                        ['r4', '1', str(n), '64'], backend)
+        rates.append(d['median_msgps'])   # runs=1 → that run's rate
     rates.sort()
     med = statistics.median(rates)
     p95 = rates[min(len(rates) - 1, int(len(rates) * 0.95))]
-    progress('r4 median=%.0f msg/s p95=%.0f (n=%d x%d%s)'
-             % (med, p95, n, runs,
-                ' burst' if backend == 'process' else ''))
+    progress('r4 median=%.0f msg/s p95=%.0f (n=%d x%d)'
+             % (med, p95, n, runs))
     return med, p95
-
-
-def run_harness_retry(bin_path, backend, progress, label, args, attempts=3):
-    """Run one harness invocation, retrying on the PROCESS drop-out hang
-    (run_qwrt raises RuntimeError on timeout). Returns the parsed JSON dict,
-    or None when every attempt failed (caller skips the batch)."""
-    for attempt in range(attempts):
-        try:
-            return run_harness(bin_path, 'bench-worker.js', args, backend)
-        except RuntimeError as e:
-            if attempt < attempts - 1:
-                progress('%s attempt %d failed, retrying: %s'
-                         % (label, attempt + 1, str(e)[:120]))
-            else:
-                progress('%s all %d attempts failed, skipped: %s'
-                         % (label, attempts, str(e)[:120]))
-    return None
 
 
 def build_summary(thread, proc, startup, eval_res):
