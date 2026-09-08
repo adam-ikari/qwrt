@@ -292,6 +292,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
       - name: Rebuild polyfill (ensure dist in sync)
         run: |
           npm --prefix polyfill run build
@@ -411,6 +414,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
 
       - name: Rebuild polyfill (ensure dist in sync)
         run: |
