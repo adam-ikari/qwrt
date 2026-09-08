@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [worker, suspend, transferable, robustness, gtest]
 created: "2026-08-28T15:53:09"
-updated: "2026-09-08T14:14:04"
+updated: "2026-09-08T15:27:55"
 ---
 
 <!-- compiled_truth -->
@@ -59,4 +59,14 @@ updated: "2026-09-08T14:14:04"
   kind: decision
   summary: "已根治：PROCESS 洪水卡死（前述已知限制解除）。确证根因 = src/ipc_process.c proc_read_cb 缺 memcpy(rbuf, buf->base)（commit 9b7c0781 误删）——父读泵读入字节从未真正进 rbuf，前 ~950 帧靠 malloc 地址复用凑巧工作（首次 realloc 复用刚 free 的 buf 内存块），rbuf 扩容 realloc 移块后数据全丢 + rbuf_len 虚增 → 解帧读垃圾 → oversized flen 0x40100000 → 假卡死（rcvd 停 ~1159）；且原始代码 UAF（free 在 memcpy 前）。修复：恢复 memcpy（rbuf_len+= 前）+ free 移到每分支 memcpy 后（与子侧 rt_main.c pipe_read_cb 一致）。验证：10000 条洪水 7/7 PASS + mp1 e2e PASS。PROCESS 后端可支撑 10000 条连续往返，基准 R3/R4 分批 workaround 可移除。"
   source: "2026-09-08 PROCESS 洪水根治会话"
+  affects: [a2-worker-robustness]
+
+- time: 2026-09-08T15:27:55
+  kind: note
+  summary: "THREAD 后端 terminate 不释放 worker 槽位（QWRT_MAX_WORKERS=16）：spawn/terminate 16 次后槽位耗尽直到 teardown——动态大量 worker 的宿主受限，M-P2 parity 关注。"
+  affects: [a2-worker-robustness]
+
+- time: 2026-09-08T15:27:55
+  kind: note
+  summary: "性能特征：R3 postMessage 往返 64KB payload 实测 ~140ms/op（序列化主导，双后端 ~1×）——大 payload 往返远慢于小 payload，基准采样需按 payload 分级。"
   affects: [a2-worker-robustness]
