@@ -12,6 +12,7 @@
 
 #include "ipc_process.h"
 #include "qwrt_internal.h"
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -295,13 +296,17 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
         goto kill_fail;
     }
     proc->pipe_inited = 1;   /* init 过即标记：free 时须 uv_close 该 handle */
+    /* Outbound spill-buffer flush timer (lossless backpressure). 紧随 pipe
+     * init：qwrt_proc_free 以 pipe_inited 为"pipe 与 tx timer 均已 init"的
+     * 不变量（两者都要 uv_close，proc 内存在最后一个 close 回调里释放）。
+     * 若排在 pipe_open 之后，pipe_open 失败走 kill_fail → free 会对未 init
+     * 的 timer 调 uv_close → UB。 */
+    proc->tx.fd = -1;
+    uv_timer_init(loop, &proc->tx.timer);
     if (uv_pipe_open(&proc->pipe, sv[0]) != 0) {
         close(sv[0]);
         goto kill_fail;
     }
-    /* Outbound spill-buffer flush timer (lossless backpressure). */
-    proc->tx.fd = -1;
-    uv_timer_init(loop, &proc->tx.timer);
 
     /* ── Handshake (§3.3): child sends first, parent validates, replies ack.
      * 仅当 require_handshake 且 role>=0（调用方要求 qwrt 信封协议握手）；
@@ -569,13 +574,29 @@ int qwrt_proc_post(qwrt_proc_t *proc,
 
 /* ── Destroy & Free (libuv-idiomatic self-reclaim) ── */
 
-static void proc_on_closed(uv_handle_t *h)
+/* proc 内嵌两个 handle（pipe + tx flush timer），qwrt_proc_free 对两者都
+ * uv_close；close_pending 归零（最后一个 close 回调）才释放 proc 内存。
+ * 若只关 pipe 就 free，tx timer 的 handle_queue 节点残留成悬垂 → uv_walk
+ * （wait_idle 的 idle 检测）遍历到已释放内存 SIGSEGV —— PROCESS 后端高负载
+ * 崩溃根因。 */
+static void proc_reclaim(qwrt_proc_t *proc)
 {
-    qwrt_proc_t *proc = (qwrt_proc_t *)h->data;
-    if (proc) {
+    if (proc && --proc->close_pending == 0) {
         free(proc->rbuf);
         free(proc);
     }
+}
+
+static void proc_on_closed(uv_handle_t *h)   /* pipe 的 close cb */
+{
+    proc_reclaim((qwrt_proc_t *)h->data);
+}
+
+static void proc_tx_timer_on_closed(uv_handle_t *h)  /* tx flush timer 的 close cb */
+{
+    /* timer.data 归 qwrt_tx_timer_cb 用（qwrt_tx_t*），不能复用——用
+     * container_of 从内嵌地址回推 proc。 */
+    proc_reclaim((qwrt_proc_t *)((char *)h - offsetof(qwrt_proc_t, tx.timer)));
 }
 
 void qwrt_proc_destroy(qwrt_proc_t *proc)
@@ -591,7 +612,8 @@ void qwrt_proc_destroy(qwrt_proc_t *proc)
 
 void qwrt_proc_free(qwrt_proc_t *proc)
 {
-    if (!proc) return;
+    if (!proc || proc->freed) return;   /* 幂等：防重复 free / 二次 uv_close */
+    proc->freed = 1;
     qwrt_proc_destroy(proc);
     if (proc->tx.timer_active)
         uv_timer_stop(&proc->tx.timer);
@@ -601,9 +623,11 @@ void qwrt_proc_free(qwrt_proc_t *proc)
         uv_read_stop((uv_stream_t *)&proc->pipe);
         proc->pipe.data = proc;
         proc->pipe_inited = 0;
-        /* libuv pattern: handle memory (proc) is freed in close_cb AFTER
-         * uv__finish_close has unlinked the handle from the loop entirely. */
+        /* libuv pattern: proc memory（内含两个 handle）在最后一个 close 回调
+         * 里释放，两个 handle 都经 uv__finish_close 从 loop 摘除后才行。 */
+        proc->close_pending = 2;
         uv_close((uv_handle_t *)&proc->pipe, proc_on_closed);
+        uv_close((uv_handle_t *)&proc->tx.timer, proc_tx_timer_on_closed);
     } else {
         free(proc->rbuf);
         free(proc);

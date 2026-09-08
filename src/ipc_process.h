@@ -112,6 +112,12 @@ struct qwrt_proc_s {
     void     *msg_user;
     void     (*msg_cb)(void *user_data, const uint8_t *payload,
                        uint32_t payload_len);
+    /* libuv-idiomatic multi-handle reclaim: proc 内嵌两个 handle（pipe +
+     * tx flush timer），qwrt_proc_free 对两者都 uv_close，proc 内存在
+     * 最后一个 close 回调里释放（close_pending 统计未完成的 close 数）。
+     * freed 保证 qwrt_proc_free 幂等（防重复 free / 二次 uv_close）。 */
+    int       close_pending;
+    int       freed;
 };
 #endif /* !QWRT_USE_MOCK_LIBUV */
 
