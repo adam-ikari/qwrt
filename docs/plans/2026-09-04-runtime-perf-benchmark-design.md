@@ -1,8 +1,9 @@
 # 运行时性能基准方案（runtime-perf）
 
-> 状态：设计文档（实施前）。**实现排在 spawn 重构之后**——spawn 原语通用化 + JS 层 worker 封装（PROCESS 后端）落地后，本方案才可执行；文档本身不依赖重构细节，只用 JS 公开面 + env 切换。
+> 状态：**已落地并出首轮实测（commit f4ab5776，机器 Ryzen 5800H，build/qwrt Release）**。首轮实测证伪了 §1.2/§2 的 ≫10×、10~50× 量级期望（预测被证伪处已标注「预测被证伪、实测为真」），并触发多进程模型 §1.4/§12.2/开放决策点 #1 修订。
+> 修订：2026-09-08 —— 实测落档：判据映射表（§2）期望形态更新为实测形态（spawn ready 1.51×、往返 0B/1KB/64KB 1.19×/1.00×/0.97×、terminate 1353×、吞吐 0.3×、worker VmHWM 13.1 vs 22.4MB）；§4.2 比值阈值口径、§5.1 反哺职责、§6 验收 #3 同步更新。
 > 日期：2026-09-04
-> 范围：qwrt 运行时核心（启动、eval、内存）+ Worker 子系统（spawn 延迟、postMessage 往返/吞吐、terminate），双后端（THREAD vs PROCESS）对照实证多进程模型 §1.4 判据表与 §12.2 性能预测。
+> 范围：qwrt 运行时核心（启动、eval、内存）+ Worker 子系统（spawn 延迟、postMessage 往返/吞吐、terminate），双后端（THREAD vs PROCESS）对照实证多进程模型 §1.4 判据表与 §12.2 性能实测。
 > 参照：`test/bench_httpserver.py` + `.github/workflows/ci.yml` httpserver-perf job（阈值=基线 50% 模式）；`docs/plans/2026-09-04-multi-process-model.md`（下文简称「多进程模型」）。
 
 **核心结论（TL;DR）**
@@ -26,9 +27,9 @@
 
 **判据表（多进程模型 §1.4）的实证**——同一指标在 THREAD 与 PROCESS 下各测一遍：
 
-- **spawn 开销差异**：验证「线程起停 μs 级 vs 进程 spawn = exec + 全套运行时初始化 ms 级」（§1.4 性能轴第一行）。
-- **往返/吞吐差异**：验证「同进程队列 ~百 ns 级 vs IPC 往返 μs 级 + 内核上下文切换，预期慢 10~50×」（§12.2 诚容量化）。
-- 输出**比值**（PROCESS/THREAD）作为文档基线记录；比值本身不设 CI 阈值（§4），由人审。
+- **spawn 开销差异**：原预期「线程起停 μs 级 vs 进程 spawn = exec + 全套运行时初始化 ms 级」（§1.4 性能轴第一行）——**预测被证伪、实测为真**（f4ab5776）：全成本 spawn ready 比值 **1.51×**（9.46→14.24ms，polyfill 注入主导）；裸 new Worker 反而 PROCESS 更快（0.22×，9.19→2.01ms）。
+- **往返/吞吐差异**：原预期「同进程队列 ~百 ns 级 vs IPC 往返 μs 级 + 内核上下文切换，慢 10~50×」（§12.2）——**预测被证伪、实测为真**：往返 0B/1KB/64KB 比值 **1.19×/1.00×/0.97×**（与线程并列）；吞吐 **0.3×**（1769 vs 5927 msg/s，PROCESS 受已知洪水卡死限制 >~500-1000 条间歇 + 分批 workaround，commit 9b7c0781）。显著差异实际在 R2b terminate（**1353×**，PROCESS 三级终止同步阻塞）与 R5 内存（13.1 vs 22.4MB）。
+- 输出**比值**（PROCESS/THREAD）作为文档基线记录——首轮数值记于 f4ab5776 commit 说明，brain 页落档按 §5.2 执行；比值本身不设 CI 阈值（§4），由人审。
 
 ## 1.3 信封编解码开销占比
 
@@ -51,7 +52,7 @@
 |---|---|---|---|---|---|
 | R1 | **冷启动** | `qwrt -e 'print(1)'` 从进程起跑到 main script 执行完毕退出 | Python 驱动 `subprocess` 计时 wall time，**N=5 次取中位数**（F3 已有 ASan 基线 40–73ms，本方案要求 **Release 重测基线**，见 §5.3） | ms | 无（单进程） |
 | R2 | **worker spawn 延迟** | `new Worker(url)` 从调用返回到 worker ready（`pal.spawnWorker` 同步阻塞至 ready，worker.js:42） | JS：`performance.now()` 包 `new Worker`；**预热 5 次 + 采样 20 次取中位数**；每个 worker 用后即 terminate、槽位复用（`QWRT_MAX_WORKERS=16`） | ms | **THREAD vs PROCESS** |
-| R2b | **terminate 延迟** | `w.terminate()` 到槽位释放返回 | JS 计时 + 循环复用；仅记录，不设阈值（tier-1 优雅路径约 1ms） | ms | **THREAD vs PROCESS** |
+| R2b | **terminate 延迟** | `w.terminate()` 到槽位释放返回 | JS 计时 + 循环复用；仅记录，不设阈值（实测 PROCESS 10.1ms / THREAD 7.5µs，f4ab5776） | ms | **THREAD vs PROCESS** |
 | R3 | **postMessage 往返延迟** | 父→worker→父单次 echo 往返（同步 ping-pong，await 每次 echo） | JS promise 链：`postMessage` 后 `onmessage` resolve 再发下一条；**payload 0 / 1KB / 64KB**（预分配 ArrayBuffer，避免循环内分配噪声）；预热 50 次 + 采样 500 次取中位数 + p95 | μs/op | **THREAD vs PROCESS**（比值=隔离保费实证） |
 | R4 | **postMessage 吞吐** | 持续 N 条消息的稳态速率 | 连续 `postMessage` N=10^4 条（64B），worker 逐条 echo，父收满 N 后 `t = now - t0`，`msg/s = N/t`；**记录 p95 消息速率**防单次调度尖刺 | msg/s | **THREAD vs PROCESS** |
 | R5 | **进程 worker 峰值内存** | worker 进程 VmHWM | worker 脚本自读 `/proc/self/status` 的 VmHWM 经 postMessage 回传（pal.fsReadSync 可读 /proc）；主进程 VmHWM 由 Python 驱动读 `/proc/<pid>/status` | KB | PROCESS 单独记录（THREAD 无独立进程，不适用） |
@@ -61,12 +62,12 @@
 
 **验证 §1.4 判据表的映射**（每个数字应落到哪一行）：
 
-| 判据表行 | 对应指标 | 期望形态 |
+| 判据表行 | 对应指标 | 实测形态（v2：预测被证伪、实测为真） |
 |---|---|---|
-| 动态起停/短命任务 → thread | R2 | PROCESS/THREAD spawn 比值 **≫ 10×**（ms vs μs 级差） |
-| 高频 postMessage/低延迟 → thread | R3、R4 | PROCESS/THREAD 往返比值 **10~50×**（§12.2 预测），吞吐比值同向 |
+| 动态起停/短命任务 → thread | R2、R2b | ~~≫ 10×~~ **证伪**：spawn ready 比值 **1.51×**（9.46→14.24ms，polyfill 注入主导；裸 new Worker 0.22×）；thread 的实益在 terminate——R2b 比值 **1353×**（7.5µs→10.1ms，PROCESS 三级终止同步阻塞，§9.2） |
+| 高频 postMessage/低延迟 → thread | R3、R4 | ~~10~50×~~ **证伪**：往返 0B/1KB/64KB **1.19×/1.00×/0.97×**（与线程并列）；吞吐 **0.3×**（5927→1769 msg/s，PROCESS 受已知洪水卡死限制 >~500-1000 条间歇 + 分批 workaround，commit 9b7c0781） |
 | CPU 密集与后端无关 | R6 | 两后端 eval 一致（仅单后端采样证明「不受后端影响」） |
-| 长驻常驻 → process（生命周期理由） | R5 | PROCESS worker 独立进程内存账目（VmHWM 数字供预算决策，非性能判定） |
+| 长驻常驻 → process（生命周期理由） | R5 | PROCESS worker 独立进程 VmHWM **13.1MB**（无宿主 polyfill 负担）< THREAD **22.4MB**——内存账目供预算决策，非性能判定 |
 
 ---
 
@@ -178,7 +179,7 @@ async function pingPong(w, buf, iters) {
 | R4 吞吐 | ≥ 基线 × 50%（沿用 httpserver 模式） | 吞吐类与 rps 同构，直接沿用先例 |
 | R6 eval | ≥ 基线 × 50% | 同上 |
 | R2b/R5/R7 | **不设阈值**，仅记录 | terminate 与内存非性能判定；R7 是 C 层纯逻辑，回归由 gtest 覆盖 |
-| PROCESS/THREAD 比值 | **不设阈值，记录为文档基线** | 比值是架构事实不是回归信号；若比值跌出 10~50× 预期区间，人审（可能意味着 §12.2 预测被证伪，需修订文档） |
+| PROCESS/THREAD 比值 | **不设阈值，记录为文档基线** | 比值是架构事实不是回归信号；**首轮实测已证伪 §12.2 的 10~50× 预测并触发多进程模型 §12.2/开放点 #1 修订（f4ab5776）**，此后比值作为文档基线由人审、不预设区间 |
 
 ## 4.3 阻塞判定（先观察后守门）
 
@@ -198,8 +199,8 @@ async function pingPong(w, buf, iters) {
 
 本方案产出的 THREAD vs PROCESS 数值表直接服务多进程模型两处：
 
-- **§1.4 判据表**：把「线程 μs / 进程 ms / IPC μs」三档从文档论证变为机器读数（§2 映射表）；「进程=隔离保费」的保费数值 = R3 比值与 R5 内存账目。
-- **§12.2 性能预测**：往返慢 10~50×、P99 毫秒以下——实测若超出此区间，**以实测为准修订 §12.2 与开放决策点 #1 的措辞**（这是基准的反哺职责）。
+- **§1.4 判据表**：把性能轴依据从「量级档位（线程 μs / 进程 ms / IPC 慢 10~50×）」的文档论证变为机器读数（§2 映射表）——首轮实测证明量级档位不成立，判据表已按实测修订；「进程=隔离保费」的保费数值 = R3 比值与 R5 内存账目。
+- **§12.2 旧预测**「往返慢 10~50×、P99 毫秒以下」——**反哺职责已兑现**：首轮实测（f4ab5776）证伪该预测（往返 ~1×，差异在 terminate 阻塞 + 洪泛吞吐），多进程模型 §12.2 与开放决策点 #1 已按实测修订。
 
 ## 5.2 brain 记录
 
@@ -218,7 +219,7 @@ async function pingPong(w, buf, iters) {
 
 1. **可复现性**：`python3 test/bench_runtime.py --qwrt-bin ./build/qwrt` 单命令输出完整 JSON（含双后端与全部 payload 维度），开发机与 CI 各跑一次数值稳定（R3 median 抖动 < ±30%）。
 2. **双后端数值表**：spawn（R2）、往返（R3 × 3 payload）、吞吐（R4）、内存（R5）的 THREAD vs PROCESS 全表，落 brain 页 + 附 commit/机器/日期。
-3. **判据实证**：PROCESS/THREAD 的 spawn 比值 ≫10×、往返比值落入 10~50× 区间（或明确记录偏离并修订 §12.2）。
+3. **判据实证**：双后端数值表已出（f4ab5776）——spawn ready 比值 **1.51×**、往返比值 **~1×**，**证伪原 ≫10×/10~50× 期望**（多进程模型 §12.2 已修订）；验收口径改为以实测数值为基线，不再预设量级区间。
 4. **CI 集成**：`runtime-perf` job 入 CI，观察模式跑通 ≥1 次（不要求立即阻塞）。
 5. **信封零拷贝确认**：R7 输出确认 decode payload 片引用零拷贝（多进程模型 §4.4 承诺），若非零拷贝则标记为待优化项。
 
@@ -237,4 +238,4 @@ async function pingPong(w, buf, iters) {
 
 ---
 
-> 附件/引用：`docs/plans/2026-09-04-multi-process-model.md`（§1.4 判据表、§4.4 信封、§9.2 终止、§10.1 mock 策略、§12.2 性能预测）；`test/bench_httpserver.py` + `.github/workflows/ci.yml`（httpserver-perf job 模式）；`brain/pages/httpserver-perf-baseline.md`、`brain/pages/startup-memory-benchmark.md`（现有基线）；`polyfill/src/worker.js`（spawnWorker/workerPost 插桩点）；`src/cli.c`（`QWRT_WORKER_BACKEND` env）；`polyfill/src/performance.js`（performance.now 计时源）。
+> 附件/引用：`docs/plans/2026-09-04-multi-process-model.md`（§1.4 判据表、§4.4 信封、§9.2 终止、§10.1 mock 策略、§12.2 性能实测）；`test/bench_httpserver.py` + `.github/workflows/ci.yml`（httpserver-perf job 模式）；`brain/pages/httpserver-perf-baseline.md`、`brain/pages/startup-memory-benchmark.md`（现有基线）；`polyfill/src/worker.js`（spawnWorker/workerPost 插桩点）；`src/cli.c`（`QWRT_WORKER_BACKEND` env）；`polyfill/src/performance.js`（performance.now 计时源）。

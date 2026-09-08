@@ -8,6 +8,7 @@
 > 修订：2026-09-04 v5 —— W3C 合规回归：移除 v3 per-worker `mode` JS 扩展（WorkerOptions 规范面仅 {type, credentials, name}），后端选择上移为宿主 `qwrt_config_t.worker_backend`（§1.4；判据表修正：性能轴全指线程 / 安全轴唯一指进程 / 浏览器 wasm 对照）；新增 §1.5 验证门（可行性 / W3C 合规 / JS 无感 parity）；M-P1/M-P2、开放点 #1 联动；开放点 #8 撤销（随 `mode` 失效）
 > 修订：2026-09-04 v6 —— localStorage 并发无锁化：单所有者代理（storage 归主RT，操作经消息管道 `kind=STORAGE`，flock 否决；新增 §10.2；M-R1/M-P4 挂接；开放点 #7 裁决）
 > 修订：2026-09-04 v7 —— 强制终止权强化：§9.2 终止协议三级化（CONTROL{shutdown} → 超时 → SIGKILL+收尸；优雅可失败、强杀不可拒绝，terminate 权=spawn 权）；线程后端诚实边界（同进程无法安全强杀单线程，强制上限=进程级）；§1.4 判据表新增终止语义轴；M-P1 验证门增强杀用例
+> 修订：2026-09-08 v8 —— 性能判据以实测修订（基准 commit f4ab5776，Ryzen 5800H / build/qwrt Release）：§1.4 判据表性能轴「依据」从量级档位改为实测数值（spawn ready 1.51×、往返 0B/1KB/64KB 1.19×/1.00×/0.97×、terminate 1353×、吞吐 0.3×、worker VmHWM 13.1 vs 22.4MB）；§12.2 与开放决策点 #1 的 10~50× 预测按实测更新（预测被证伪、实测为真）；标注 PROCESS worker 洪水卡死已知限制（>~500-1000 条间歇，commit 9b7c0781）
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式）的应用模型，从「单进程多线程」演进为「多进程隔离」。默认独立进程（`ISOLATED`），线程模型（`THREAD`）保留为编译选项回退。
 > 背景（用户决策原文）：**"修改应用模型，支持宿主 主RT 和 WorkerRT 独立进程，通过编译选项设置，默认是独立进程。进程间通讯使用Flatbuffer序列化"**
 
@@ -101,15 +102,15 @@ JS 层契约（Worker API、postMessage、structuredClone、MessagePort）在双
 | MessagePort（transfer 跨端） | transferable 端点对 | §8.2 端点注册 | 指针路由 → 信封路由（§8） |
 | structuredClone 契约 | StructuredSerialize | `__qwrt_serialize__/__qwrt_deserialize__` | payload 字节透传，零改动 |
 
-**「何时选 PROCESS」判据（v5 修正：性能轴与安全轴剥离；v7 增终止语义轴）**：
+**「何时选 PROCESS」判据（v5 修正：性能轴与安全轴剥离；v7 增终止语义轴；v8 性能轴依据改以实测为准，commit f4ab5776）**：
 
 | 判据 | 轴 | 指向 | 依据 |
 |---|---|---|---|
-| 动态起停 / 短命一次性任务 | 性能 | thread | 进程 spawn=exec+全套运行时初始化（ms 级）；线程起停 μs 级（§5） |
-| 高频 postMessage / 低延迟往返 | 性能 | thread | 同进程队列 ~百 ns 级；IPC 往返 μs 级 + 内核上下文切换（§12.2） |
+| 动态起停 / 短命一次性任务 | 性能 | thread | 实测（commit f4ab5776，Ryzen 5800H，Release）：全成本（含 polyfill 注入）spawn ready P/T=1.51×（14.24 vs 9.46ms）——量级差被 fresh runtime 的 polyfill 注入主导淹没；但 PROCESS 端 terminate 同步阻塞（§9.2 三级终止，R2b 实测 1353×，10.1ms vs 7.5µs）仍使反复起停的实际代价偏向 thread |
+| 高频 postMessage / 低延迟往返 | 性能 | thread | 实测：R3 往返 0B/1KB/64KB 比值 1.19×/1.00×/0.97×（全成本下与线程并列，机制差异被 polyfill 注入淹没）；R4 吞吐 PROCESS 0.3×（1769 vs 5927 msg/s）——PROCESS 受已知洪水卡死限制（>~500-1000 条间歇，commit 9b7c0781）+ 分批 workaround |
 | 未来 SharedArrayBuffer / wasm-threads 数据并行 | 性能 | thread | 共享内存并发仅同进程可行；shm 直通已明确不做（§12.3） |
-| CPU 密集（wasm 大计算 / 原生密集） | 性能 | **与后端无关** | 计算吞吐=同引擎同 CPU，两后端相同；进程只多信封编码（ns 级）+ syscall（μs 级）。重 CPU 本身不构成选进程的理由 |
-| 长驻常驻（Service Worker 形态） | 生命周期/内存预算 | process（按宿主策略） | 独立生命周期与独立内存回收、崩溃不牵连主 RT——**生命周期理由，非性能理由** |
+| CPU 密集（wasm 大计算 / 原生密集） | 性能 | **与后端无关** | 计算吞吐=同引擎同 CPU，两后端相同；进程只多信封编码（ns 级）+ syscall（μs 级）——实测大 payload 往返亦 ~1×（64KB 0.97×，序列化主导）。重 CPU 本身不构成选进程的理由 |
+| 长驻常驻（Service Worker 形态） | 生命周期/内存预算 | process（按宿主策略） | 独立生命周期与独立内存回收、崩溃不牵连主 RT；实测 R5 worker VmHWM 13.1MB（PROCESS 独立进程，无宿主 polyfill 负担）< 22.4MB（THREAD）——**生命周期+内存账目理由，非性能理由** |
 | 不可信/第三方脚本（含 wasm AOT 原生码） | 安全 | **process（唯一指向进程的轴）** | C 层致命错误不可防守（§2.2），进程是唯一硬隔离边界。进程=隔离保费，不是性能选项 |
 | 需要无条件强制终止权（不受信 worker 挂死/死循环必须可被强杀） | 终止语义 | **process（唯一可强杀粒度）** | 协作式 terminate 可被死循环/挂起打败；同进程无法安全强杀单线程，SIGKILL 进程是唯一强制手段（§9.2） |
 
@@ -161,7 +162,7 @@ endif()
 3. **独立调度**：OS 内核调度器为每个进程独立安排时间片，规避线程/timer 竞态。对 PVE 6.17 这类已确认「futex/pthread_cond 唤醒在某些 fd 创建后不可靠」的宿主内核（msgq.c 注释明言），进程 + uv_pipe 的唤醒路径比线程锁更稳。
 4. **生产语义清晰**：崩溃是应用事故不是库事故。默认隔离让「最坏情况 = 崩溃最终被 JS 层 `error` 事件捕获」成为开箱即得的行为。
 
-**成本**：进程通信多一次序列化 + 一次内核上下文切换 + fd 继承/握手。该成本在 §12 量化，预期比线程队列慢一个数量级——但这是隔离的固有代价，且 M-P4 压力测试会给出真实数字，若某些场景不能接受再按需编译回 THREAD。
+**成本**：进程通信多一次序列化 + 一次内核上下文切换 + fd 继承/握手。该成本已在 §12.2 实测量化（commit f4ab5776）：全成本下往返与线程并列（~1×），显著差距在 PROCESS 端 terminate 同步阻塞（1353×）与洪泛吞吐（0.3×）——这是隔离的固有代价，若某些场景不能接受再按需编译回 THREAD。
 
 ---
 
@@ -542,11 +543,28 @@ qwrt-rt  --qwrt-worker --parent-fd N --worker-id K [--script PATH]
 - **Windows named pipe 差异**：首版 **Linux-only**（Unix domain socket 是唯一 IPC 路径）。Windows 的 named pipe 双工/EOF 语义与 AF_UNIX 不同（EOF 靠 `ConnectNamedPipe` 断连而非读 EOF，需 `ReadFile` 返回 0 判定），版本差异大。**首版明确 Linux-only**，Windows 后置为独立票。
 - **LibUV 版本**：已编译的 libuv 需要 `uv_pipe_*` 全家（connect/open/read/write），当前 deps/libuv 已含（tcp_io/uv_io 已用 uv_* 管道/流）。无新增依赖。
 
-## 12.2 性能预期（诚容量化）
+## 12.2 性能实测（v8：10~50× 预测被证伪，以实测为准）
 
-- **IPC 往返延迟**：同机 Unix domain socket 单次往返通常 ~几微秒（相对线程队列共享内存的 ~百纳秒级）。**预期比线程队列慢约 10~50×**。
-- 但：worker 是 `postMessage` 粒度（默认结构化 clone 已经编码），信封只在进程边界加一次编码；路由透传不重编（零拷贝 payload）。**大多数 worker 消息的 P99 从「线程切换」升到「进程往返」，仍是毫秒以下量级**，对多数边缘/异步 worker 场景可接受。
-- 决定由 M-P4 压力测试给出真实数字；若某 hot path 不可接受，编译回 THREAD 或 §12.3 的 shm 优化。
+> 实测：commit f4ab5776，机器 Ryzen 5800H，build/qwrt Release（基准方案见 `2026-09-04-runtime-perf-benchmark-design.md`）。
+
+| 指标 | THREAD | PROCESS | 比值 P/T |
+|---|---|---|---|
+| R2 spawn ready（首消息可往返，含 polyfill 注入） | 9.46ms | 14.24ms | 1.51× |
+| R2 spawn raw（new Worker 裸计时） | 9.19ms | 2.01ms | 0.22× |
+| R2b terminate | 7.5µs | 10148µs | 1353× |
+| R3 往返 0B | 177µs | 211µs | 1.19× |
+| R3 往返 1KB | 2383µs | 2374µs | 1.00× |
+| R3 往返 64KB | 140687µs | 136180µs | 0.97× |
+| R4 吞吐 | 5927 msg/s | 1769 msg/s | 0.3× |
+| R5 worker VmHWM | 22.4MB | 13.1MB | — |
+
+- **早期预测被证伪**：v7 及之前本节「IPC 往返比线程队列慢约 10~50×」不成立——全成本下 R3 往返 0B/1KB/64KB 均 ~1×，spawn ready 亦仅 1.51×。**根因**：polyfill 注入（fresh runtime 加载）主导 worker 消息全成本，两后端的队列/pipe 机制差异被淹没；裸 new Worker 反而 PROCESS 更快（0.22×）——THREAD 的 `new Worker` 同步完成全部初始化、PROCESS 仅 exec+建通道即返回（fresh runtime 的注入/初始化在握手前完成）。
+- **实测显著差异在**：
+  - **R2b terminate**：PROCESS 三级终止（§9.2）同步实现（tier-2 轮询 + SIGKILL 收尸）→ 10.1ms vs 7.5µs，**1353×**——起停/短命任务的实际代价在 terminate 端。
+  - **R4 吞吐**：1769 vs 5927 msg/s，**0.3×**——受已知洪水卡死限制（>~500-1000 条间歇，commit 9b7c0781）+ 基准分批（≤40 条）workaround 影响。
+  - **R5 内存**：PROCESS worker 独立进程 VmHWM **13.1MB < THREAD 22.4MB**——PROCESS 无宿主 polyfill 负担，独立内存账目成立。
+- **结论更新**：性能取舍不来自「往返慢 10~50×」（实测并列），而来自 **terminate 阻塞 + 洪泛吞吐**（thread 的实益）与 **隔离 + 独立内存账目**（process 的实益）。小 payload 往返全成本实测 ~211µs（毫秒以下）；64KB 两后端同属 structured clone 序列化主导（~136ms），与后端无关。
+- 若某 hot path 不可接受，编译回 THREAD 或 §12.3 的 shm 优化；洪泛稳定性由 M-P4 压力测试继续覆盖。
 
 ## 12.3 明确不做
 
@@ -619,7 +637,7 @@ gtest：主 rt spawn 2 context + 2 thread worker → ctx suspend/resume 与 work
 
 # 开放决策点（需用户拍板）
 
-1. **默认 ISOLATED 的性能取舍**：接受「worker 消息 P99 比线程慢约 10~50×」去换崩溃隔离？（§1.2/§12.2——虽然方向已定 ISOLATED 默认，但这里量化了成本，若边缘场景追求极致吞吐可能想关）——**倾向：维持 ISOLATED 默认**，成本在可接受区间。**v3 已裁决，v5 修订**：维持 ISOLATED 编译默认；性能敏感宿主实例显式 `worker_backend=THREAD`（§1.4）——v5 移除 per-worker `mode` 后豁免粒度=宿主 rt，不做 per-worker 豁免、不做自动降级。
+1. **默认 ISOLATED 的性能取舍**：接受「进程隔离的机制成本」去换崩溃隔离？（§1.2/§12.2——v8 已以实测修订成本账：往返与线程并列（~1×），差异在 terminate 阻塞（1353×）与洪泛吞吐（0.3×），并得独立内存账目（13.1 vs 22.4MB），commit f4ab5776；若边缘场景追求极致吞吐可能想关）——**倾向：维持 ISOLATED 默认**，隔离保费以实测为准。**v3 已裁决，v5 修订**：维持 ISOLATED 编译默认；性能敏感宿主实例显式 `worker_backend=THREAD`（§1.4）——v5 移除 per-worker `mode` 后豁免粒度=宿主 rt，不做 per-worker 豁免、不做自动降级。
 2. **spawn 失败是「显式报错」还是「自动回退 THREAD」**：文档推荐显式报错（不静默降级，保存隔离承诺的真实性）。需你确认不接受「部署层自动降级」。（§5.3）
 3. **`--parent-fd` + socketpair 的 fd 传递**：首版用「spawn 前建 socketpair + argv 传 fd」，**不做 CMSG_PASSFD**（简单、够用）。是否接受首版牺牲 CMSG？（§5.1）——推荐接受。
 4. **`target` 不做 -1 广播**：广播语义（同 payload 发多 target）首版不做，应用自循环。是否认可？（§4.3）

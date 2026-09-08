@@ -730,16 +730,16 @@ static void proc_process_rx(qwrt_proc_t *proc)
 static void proc_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
 {
     qwrt_proc_t *proc = (qwrt_proc_t *)s->data;
-    free(buf->base);
     if (!proc) return;
 
     if (nread < 0) {
         /* EOF → peer dead (§9.3/§9.4): reap + release slot. JS error event is
          * M-P4. */
+        free(buf->base);
         proc_peer_dead(proc);
         return;
     }
-    if (nread == 0) return;   /* EAGAIN */
+    if (nread == 0) { free(buf->base); return; }   /* EAGAIN */
 
     size_t need = proc->rbuf_len + (size_t)nread;
     if (need > proc->rbuf_cap) {
@@ -747,13 +747,16 @@ static void proc_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
         while (ncap < need) ncap *= 2;
         uint8_t *nb = (uint8_t *)realloc(proc->rbuf, ncap);
         if (!nb) {
+            free(buf->base);
             proc_peer_dead(proc);
             return;
         }
         proc->rbuf = nb;
         proc->rbuf_cap = ncap;
     }
+    memcpy(proc->rbuf + proc->rbuf_len, buf->base, (size_t)nread);
     proc->rbuf_len += (size_t)nread;
+    free(buf->base);
     proc_process_rx(proc);
 }
 
