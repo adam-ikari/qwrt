@@ -101,8 +101,14 @@ export function setupMessageChannel(pal) {
         /* worker → 父：worker 的 pal.postMessage（克隆字节 → 父入站） */
         pal.postMessage(wrapped);
       } else if (this._peerThread > 0) {
-        /* 父 → worker：pal.workerPost(workerId, bytes) */
-        pal.workerPost(this._peerThread, wrapped);
+        /* 父 → worker：统一字节通道（THREAD: pal.workerPost；PROCESS:
+         * pal.processPost —— worker.js 的 __qwrt_worker_post__ 按 id 路由）。
+         * worker 已 terminate/不存在时静默丢弃（不抛）——与 C 侧
+         * qwrt_worker_post 对 shutting_down worker 的优雅失败语义一致。 */
+        if (globalThis.__qwrt_worker_post__)
+          globalThis.__qwrt_worker_post__(this._peerThread, wrapped);
+        else
+          throw new Error('MessagePort: __qwrt_worker_post__ not available');
       } else {
         /* 对端在父线程但本线程是父（理论不达） */
         throw new Error('MessagePort: cannot route to parent from parent');

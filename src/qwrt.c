@@ -20,6 +20,10 @@
 #include "qwrt/qwrt_debug_dap.h"
 #endif
 
+#ifndef QWRT_USE_MOCK_LIBUV
+#include "ipc_process.h"
+#endif
+
 /* ================================================================
  * 宿主侧 API
  * ================================================================ */
@@ -255,8 +259,9 @@ void qwrt_thread_teardown(qwrt_t *rt)
         qwrt_worker_t *w = rt->workers[i];
         if (w) {
             qwrt_worker_terminate(rt, w);
-            /* Process backend (M-P1): no thread to join — terminate already
-             * SIGKILLed + reaped the child inside qwrt_proc_terminate. */
+            /* 线程后端：join 已请求退出的 worker 线程（进程 worker 由 JS 层
+             * processTerminate 管理——C 层 qwrt_worker_t 仅服务线程后端，
+             * spawn 分层化 Phase C）。 */
             if (w->self)
                 uv_thread_join(&w->thread);
             rt->workers[i] = NULL;
@@ -264,6 +269,26 @@ void qwrt_thread_teardown(qwrt_t *rt)
         }
     }
 
+#ifndef QWRT_USE_MOCK_LIBUV
+    /* 0.5) 终止残留的 pal.processSpawn 句柄（spawn 分层化, Phase B）：JS
+     *      未显式 processTerminate 的句柄在此收尾——3-tier 杀掉子进程 + 释放
+     *      proc 结构。onmsg 是 JS 回调函数引用：必须在此 JS_FreeValue（本步
+     *      在 contexts 销毁 / JS_FreeRuntime 之前，h->ctx->jsctx 有效），否则
+     *      残留引用使 JS_FreeRuntime 的 gc_obj_list 断言失败。 */
+    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+        qwrt_proc_handle_t *h = &rt->proc_handles[i];
+        if (h->live && h->proc) {
+            qwrt_proc_terminate(h->proc, 0);
+            qwrt_proc_free(h->proc);
+        }
+        if (h->live && h->ctx && h->ctx->jsctx)
+            JS_FreeValue(h->ctx->jsctx, h->onmsg);
+        h->onmsg = JS_UNDEFINED;
+        h->ctx = NULL;
+        h->proc = NULL;
+        h->live = 0;
+    }
+#endif
     /* 1) drain any remaining inbound queue (pop already frees passed nodes;
      *    the final node stays on head) */
     qwrt_msg_t *m;

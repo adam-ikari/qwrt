@@ -25,9 +25,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#ifndef QWRT_USE_MOCK_LIBUV
-#include "ipc_process.h"
-#endif
 
 /* 父线程调用的 worker API 契约见 qwrt_internal.h（qwrt_worker_* 声明；
  * qwrt_worker_s 定义也在那，bridge.c / qwrt.c 需解引用其字段）。 */
@@ -236,89 +233,8 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
     self->msg_head = &self->msg_stub;
     self->msg_tail = &self->msg_stub;
     parent->workers[slot] = w;
-    /* ── Backend dispatch (M-P1 §1.4) ── */
-#ifndef QWRT_USE_MOCK_LIBUV
-    if (parent->config.worker_backend == QWRT_WORKER_BACKEND_PROCESS) {
-        /* Write script to a temp file for --script PATH. mkstemp is race-free
-         * (no TOCTOU) and auto-deleted on unlink (fd still valid for child). */
-        /* NOTE: glibc mkstemp requires the last 6 chars to be "XXXXXX" —
-         * a ".js" suffix yields EINVAL. Extension is irrelevant to the
-         * child (it evals the file contents). */
-        char tmpl[] = "/tmp/qwrt-worker-XXXXXX";
-        int sfd = mkstemp(tmpl);
-        if (sfd < 0) {
-            parent->workers[slot] = NULL;
-            free(w->script);
-            free(self);
-            free(w);
-            if (out_err) *out_err = QWRT_ERR_IO;
-            return NULL;
-        }
-        ssize_t wlen = write(sfd, script, strlen(script));
-        close(sfd);
-        if (wlen < 0 || (size_t)wlen != strlen(script)) {
-            unlink(tmpl);
-            parent->workers[slot] = NULL;
-            free(w->script);
-            free(self);
-            free(w);
-            if (out_err) *out_err = QWRT_ERR_IO;
-            return NULL;
-        }
-        w->script_path = strdup(tmpl);
-        if (!w->script_path) {
-            unlink(tmpl);
-            parent->workers[slot] = NULL;
-            free(w->script);
-            free(self);
-            free(w);
-            if (out_err) *out_err = QWRT_ERR_NO_MEMORY;
-            return NULL;
-        }
-        /* Temp-file lifetime (C1): the child (rt_main.c) reads the script
-         * BEFORE the handshake, then unlinks its own path right after
-         * fclose — so after a successful spawn the file is already gone and
-         * there is no TOCTOU window. Failure paths below unlink explicitly. */
-
-
-
-        w->proc = qwrt_proc_new();
-        if (!w->proc) {
-            unlink(tmpl);            /* C1: temp file must not leak on failure */
-            parent->workers[slot] = NULL;
-            free(w->script_path);
-            free(w->script);
-            free(self);
-            free(w);
-            if (out_err) *out_err = QWRT_ERR_NO_MEMORY;
-            return NULL;
-        }
-
-        int rc = qwrt_proc_spawn(parent, w->proc, NULL,
-                                 QWRT_IPC_ROLE_WORKER, w->id,
-                                 w->script_path);
-        if (rc != 0) {
-            unlink(w->script_path);  /* C1: child never read it (or died early) */
-            qwrt_proc_free(w->proc);
-            w->proc = NULL;
-            parent->workers[slot] = NULL;
-            free(w->script_path);
-            free(w->script);
-            free(self);
-            free(w);
-            if (out_err) *out_err = rc;
-            return NULL;
-        }
-        /* self (the worker's own qwrt_t) is not used in process backend —
-         * the child process has its own. Free it now to avoid a leak. */
-        free(self);
-        w->self = NULL;
-        /* Install async read pump: inbound envelopes → parent msgq. */
-        qwrt_proc_start_read(w->proc);
-        return w;
-    }
-#endif
-
+    /* ── 线程后端（唯一后端；PROCESS 由 JS 层 processSpawn 封装接管，
+     * C 层不再有进程 worker 分流 —— spawn 分层化 Phase C）── */
     if (uv_thread_create(&w->thread, qwrt_worker_thread_main, w) != 0) {
         parent->workers[slot] = NULL;
         free(w->script);
@@ -346,13 +262,6 @@ void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w, const uint8_t *bytes, si
 {
     QWRT_UNUSED(parent);
     if (!w || __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE)) return;
-#ifndef QWRT_USE_MOCK_LIBUV
-    /* Process backend: envelope over IPC channel (source=0 host, target=worker id). */
-    if (w->proc)
-        qwrt_proc_post(w->proc, 0, (int32_t)w->id, IPC_ENV_KIND_MESSAGE,
-                        bytes, (uint32_t)len);
-    else
-#endif
     if (w->self)
         qwrt_msg_push(w->self, (const char *)bytes, len, QWRT_MSG_SRC_HOST, 0);
 }
@@ -362,13 +271,6 @@ void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w)
     QWRT_UNUSED(parent);
     if (!w) return;
     __atomic_store_n(&w->shutting_down, 1, __ATOMIC_RELEASE);
-#ifndef QWRT_USE_MOCK_LIBUV
-    /* Process backend: 3-tier terminate (shutdown → timeout → SIGKILL+reap). */
-    if (w->proc) {
-        qwrt_proc_terminate(w->proc, 0);
-        return;
-    }
-#endif
     if (!w->self) return;
     qwrt_t *self = w->self;
     __atomic_store_n(&self->shutting_down, 1, __ATOMIC_RELEASE);
@@ -388,46 +290,10 @@ qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id)
 void qwrt_worker_free(qwrt_worker_t *w)
 {
     if (!w) return;
-#ifndef QWRT_USE_MOCK_LIBUV
-    /* Process backend: channel + pid reaped by qwrt_proc_free. */
-    if (w->proc) {
-        qwrt_proc_free(w->proc);
-        w->proc = NULL;
-    }
-#endif
     if (w->self) {
         free(w->self);
         w->self = NULL;
     }
-    free(w->script_path);
     free(w->script);
     free(w);
 }
-#ifndef QWRT_USE_MOCK_LIBUV
-/* Process-backend worker death (IPC pipe EOF / crash): clear the parent's
- * slot and free the worker so the id becomes reusable. Called from
- * ipc_process.c's read callback on the parent loop thread; the proc pipe's
- * uv_close(proc_on_closed) frees the proc struct asynchronously. */
-void qwrt_worker_reap(qwrt_t *parent, int id)
-{
-    if (!parent || parent->magic != QWRT_MAGIC ||
-        id < 1 || id > QWRT_MAX_WORKERS) return;
-    qwrt_worker_t *w = parent->workers[id - 1];
-    if (!w) return;
-    parent->workers[id - 1] = NULL;
-    qwrt_worker_free(w);
-}
-#endif
-
-#ifndef QWRT_USE_MOCK_LIBUV
-int qwrt_worker_is_proc_handle(qwrt_t *rt, uv_handle_t *h)
-{
-    if (!rt || !h) return 0;
-    for (int i = 0; i < QWRT_MAX_WORKERS; i++) {
-        qwrt_worker_t *w = rt->workers[i];
-        if (w && w->proc && (uv_handle_t *)&w->proc->pipe == h)
-            return 1;
-    }
-    return 0;
-}
-#endif

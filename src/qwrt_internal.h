@@ -6,6 +6,7 @@
  * 需要；这里只用指针。直接 include 会把 uv_pipe_t 拉进 mock 测试构建——
  * mock_libuv.h 无该类型。 */
 typedef struct qwrt_proc_s qwrt_proc_t;
+typedef struct qwrt_ctx_s qwrt_ctx_t;   /* 前置声明：qwrt_proc_handle_t 用指针 */
 #include <quickjs.h>
 
 /* libuv include switch: qwrt embeds uv types (uv_loop_t etc.) BY VALUE in
@@ -97,14 +98,29 @@ typedef struct qwrt_worker_s {
     qwrt_t *parent;            /* 父 runtime（worker 的 JS 线程就是父线程） */
     int id;                    /* 槽位索引 + 1 = 消息 source 标签 */
     uv_thread_t thread;        /* worker 线程句柄（父 teardown 时 join） */
-    qwrt_t *self;              /* worker 自己的 runtime（线程后端；进程后端为 NULL） */
+    qwrt_t *self;              /* worker 自己的 runtime（线程后端） */
     char *script;              /* worker 脚本源码 */
     int shutting_down;
-    /* 进程后端（M-P1）：非 NULL 表示该 worker 是独立进程。script 经临时
-     * 文件传给 qwrt-rt（--script PATH）；proc 持有 socketpair 通道与 pid。 */
-    qwrt_proc_t *proc;         /* IPC 通道句柄（进程后端）；线程后端 NULL */
-    char *script_path;         /* 临时脚本文件路径（进程后端，随 w 释放） */
+    /* 注：进程后端（M-P1 的 qwrt_proc_t proc / script_path 字段）已随 spawn
+     * 分层化移除（Phase C）——PROCESS worker 由 JS 层经 pal.processSpawn 封装，
+     * C 层 qwrt_worker_t 仅服务线程后端。 */
 } qwrt_worker_t;
+
+#ifndef QWRT_USE_MOCK_LIBUV
+/* pal.processSpawn 句柄注册表（spawn 分层化, Phase B）。processSpawn 返回
+ * 整数 handle id，JS 侧用它驱动 processPost / processOnMessage /
+ * processTerminate；显式生命周期（terminate 释放），无需 GC finalizer。
+ * 注册表内嵌在 qwrt_t（每个 runtime 至多 QWRT_MAX_PROC_HANDLES 个并发
+ * 进程句柄）；mock 构建无 ipc_process.c，此类型不编入。 */
+typedef struct qwrt_proc_handle_s {
+    int          id;        /* opaque handle id (>0) */
+    qwrt_proc_t *proc;      /* IPC 通道句柄 */
+    qwrt_ctx_t  *ctx;       /* 注册回调所在 context（JS_Call 用） */
+    JSValue      onmsg;     /* JS 回调函数，未注册 = JS_UNDEFINED */
+    uint8_t      live;      /* 1 = 已分配 */
+} qwrt_proc_handle_t;
+#define QWRT_MAX_PROC_HANDLES 64
+#endif
 
 /* ── Polyfill bytecode source (mode-dependent) ──
  * The symbols a polyfill_load.c expects are decided by QWRT_POLYFILL_MODE.
@@ -284,6 +300,13 @@ struct qwrt_t {
     void *worker_self;
     qwrt_worker_t *workers[QWRT_MAX_WORKERS];
 
+#ifndef QWRT_USE_MOCK_LIBUV
+    /* pal.processSpawn 句柄注册表（spawn 分层化, Phase B）+ id 分配器。
+     * 仅父 runtime（worker_self == NULL）使用；teardown 统一清理残留句柄。 */
+    qwrt_proc_handle_t proc_handles[QWRT_MAX_PROC_HANDLES];
+    uint32_t proc_handle_seq;   /* handle id 单调分配器（0 = 无效） */
+#endif
+
 
     /* Per-runtime extension state. QuickJS registers classes per-JSRuntime,
      * and one qwrt_t owns one JSRuntime, so these live here (not per-context).
@@ -407,13 +430,10 @@ void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w,
 void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w);
 qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id);
 void qwrt_worker_free(qwrt_worker_t *w);
-/* Process-backend only: reap a dead worker out of the parent's slot table
- * (worker crashed / pipe EOF). Clears workers[id-1] and frees the worker
- * (which frees its qwrt_proc_t). Called from ipc_process.c's read callback. */
-void qwrt_worker_reap(qwrt_t *parent, int id);
-/* Check if a libuv handle is one of rt's process-worker IPC pipes — used by
- * qwrt_loop_idle to exempt those pipes (always-active) from "busy". */
-int qwrt_worker_is_proc_handle(qwrt_t *rt, uv_handle_t *h);
+/* JS-managed 进程句柄（pal.processSpawn）的 IPC pipe 豁免检查 —— 替代已
+ * 移除的 qwrt_worker_is_proc_handle（C 层进程 worker 分流, Phase C）。
+ * ipc_process.c 定义，thread.c 在 wait_idle 豁免这些恒活动 pipe。 */
+int qwrt_proc_handle_is_pipe(qwrt_t *rt, uv_handle_t *h);
 
 /* context.c — context lifecycle helpers */
 qwrt_ctx_t *qwrt_get_active_ctx(qwrt_t *rt);

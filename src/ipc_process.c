@@ -232,11 +232,12 @@ static void proc_reap_blocking(pid_t pid)
 /* ── Parent side: spawn ── */
 
 int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
-                    const char *binary_path,
+                    const char *exe,
+                    char *const argv[],
                     int role, int id,
-                    const char *script_path)
+                    int require_handshake)
 {
-    if (!proc) return QWRT_ERR_INVALID_ARG;
+    if (!proc || !argv) return QWRT_ERR_INVALID_ARG;
     memset(proc, 0, sizeof(*proc));
     proc->pid = -1;
     proc->id = id;
@@ -245,15 +246,13 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
     proc->parent_rt = parent;
     int kill_err = QWRT_ERR_GENERIC;   /* refined per failure cause below */
 
-
     int oom = 0;
-    char *exe = resolve_binary(binary_path, &oom);
-    if (!exe) return oom ? QWRT_ERR_NO_MEMORY : QWRT_ERR_NOT_FOUND;
-
+    char *path = resolve_binary(exe, &oom);
+    if (!path) return oom ? QWRT_ERR_NO_MEMORY : QWRT_ERR_NOT_FOUND;
 
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) < 0) {
-        free(exe);
+        free(path);
         return QWRT_ERR_IO;
     }
 
@@ -265,37 +264,27 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
     pid_t pid = fork();
     if (pid < 0) {
         close(sv[0]); close(sv[1]);
-        free(exe);
+        free(path);
         return QWRT_ERR_IO;
     }
 
     if (pid == 0) {
         /* ── Child ── */
         close(sv[0]);
-        char fd_str[16], id_str[16];
-        snprintf(fd_str, sizeof fd_str, "%d", sv[1]);
-        snprintf(id_str, sizeof id_str, "%d", id);
-
-        char *argv[10];
-        int ai = 0;
-        argv[ai++] = exe;
-        argv[ai++] = (char *)"--qwrt-worker";
-        argv[ai++] = (char *)"--parent-fd";
-        argv[ai++] = fd_str;
-        argv[ai++] = (char *)"--worker-id";
-        argv[ai++] = id_str;
-        if (script_path) {
-            argv[ai++] = (char *)"--script";
-            argv[ai++] = (char *)script_path;
+        /* 固定子端通道 fd：调用方拼的 argv 里 --parent-fd 写的是
+         * QWRT_IPC_CHANNEL_FD（3），故 exec 前必须把 socketpair 子端搬到该
+         * fd。dup2 无条件覆盖（child 拥有自己的 fd 表）并自动清除 CLOEXEC；
+         * sv[1] 恰为固定 fd 时已在上方清过 CLOEXEC，直接保留。 */
+        if (sv[1] != QWRT_IPC_CHANNEL_FD) {
+            dup2(sv[1], QWRT_IPC_CHANNEL_FD);
+            close(sv[1]);
         }
-        argv[ai] = NULL;
-
-        execv(exe, argv);
+        execv(path, argv);
         _exit(127);
     }
 
     /* ── Parent ── */
-    free(exe);
+    free(path);
     close(sv[1]);
     proc->pid = pid;
 
@@ -311,8 +300,10 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
         goto kill_fail;
     }
 
-    /* ── Handshake (§3.3): child sends first, parent validates, replies ack ── */
-    {
+    /* ── Handshake (§3.3): child sends first, parent validates, replies ack.
+     * 仅当 require_handshake 且 role>=0（调用方要求 qwrt 信封协议握手）；
+     * 任意可执行文件（不 speak 信封协议）以 require_handshake=0 直接 RUN。 */
+    if (require_handshake && role >= 0) {
         uv_os_fd_t osfd;
         int pfd;
         if (uv_fileno((uv_handle_t *)&proc->pipe, &osfd) == 0)
@@ -329,7 +320,6 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
             kill_err = QWRT_ERR_TIMEOUT;   /* handshake never arrived in 5s */
             goto kill_fail;
         }
-
 
         /* Decode envelope */
         ipc_envelope_view_t view;
@@ -351,7 +341,6 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
             hsv != QWRT_IPC_PROTO_VERSION ||
             hsrole != role || hsid != id)
             goto kill_fail;
-
 
         /* Build + send ack */
         char ack_json[24];
@@ -574,10 +563,11 @@ static void proc_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *buf)
  * parent loop. Zero-copy inside frames: payload slice decoded, then one copy
  * into the msgq node (same copy count as the thread backend's push). */
 /* Peer death (channel EOF / oversized-frame protocol error / rx realloc OOM):
- * reap the exited child so it never becomes a zombie, and release the parent's
- * worker slot so the id is reusable — without the slot release, 16 crashed
- * workers permanently exhaust QWRT_MAX_WORKERS (I1). The error-event dispatch
- * into main-runtime JS is deferred to M-P4.
+ *
+ * 所有 proc 均由 JS 层 pal.processSpawn 创建（spawn 分层化 Phase C 后 C 层
+ * 无 msgq 模式的进程 worker），故统一走 JS-managed 路径：把 pid 收割干净
+ * （无 qwrt_proc_destroy 兜底，须内联 reap 防 zombie）并以 payload=NULL
+ * 回调一次通知 JS 侧 peer 已死（JS error-event 完整化是 M-P4）。
  *
  * Safe to call from inside the pipe read callback: the proc struct is freed
  * asynchronously via uv_close(proc_on_closed), so the caller's `proc` pointer
@@ -585,19 +575,25 @@ static void proc_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *buf)
 static void proc_peer_dead(qwrt_proc_t *proc)
 {
     proc->state = QWRT_PROC_DEAD;
+    /* Reap: WNOHANG 先试（peer 已死 → zombie），未成僵尸（r==0，channel
+     * 已关但仍在退出/装死）→ SIGKILL + 阻塞收割兜底。保证无 zombie 被遗弃。 */
     if (proc->pid > 0) {
         int status;
         pid_t r;
         do { r = waitpid(proc->pid, &status, WNOHANG); }
         while (r < 0 && errno == EINTR);
-        if (r == proc->pid) proc->pid = -1;
-        /* r == 0: child closed the channel but has not become a zombie yet.
-         * Leave pid set — the slot release below runs qwrt_proc_destroy, which
-         * SIGKILL+reaps as a backstop, so no zombie is ever orphaned. */
+        if (r == proc->pid) {
+            proc->pid = -1;
+        } else if (r == 0) {
+            int kr = kill(proc->pid, SIGKILL);
+            if (kr == 0 || errno == ESRCH) proc_reap_blocking(proc->pid);
+            proc->pid = -1;
+        } else {
+            proc->pid = -1;   /* ECHILD — 已被别处收割 */
+        }
     }
-    qwrt_t *parent = (qwrt_t *)proc->parent_rt;
-    if (parent && parent->magic == QWRT_MAGIC && proc->id >= 1)
-        qwrt_worker_reap(parent, proc->id);
+    if (proc->msg_cb)
+        proc->msg_cb(proc->msg_user, NULL, 0);   /* EOF 通知（JS-managed） */
 }
 
 static void proc_process_rx(qwrt_proc_t *proc)
@@ -624,11 +620,19 @@ static void proc_process_rx(qwrt_proc_t *proc)
         if (proc->frame_len > 0) {
             ipc_envelope_view_t view;
             if (ipc_envelope_decode(proc->rbuf, proc->frame_len, &view) == 0) {
-                int flags = (view.kind == IPC_ENV_KIND_CONTROL) ? 1 : 0;
-                if (parent && parent->magic == QWRT_MAGIC) {
-                    qwrt_msg_push(parent, (const char *)view.payload,
-                                  view.payload_len, proc->id, flags);
-                    uv_async_send(&parent->wake);
+                if (proc->msg_cb) {
+                    /* JS-managed 模式：信封解码 → 直接回调（bridge.c 的
+                     * pal.processOnMessage 消费者）。payload 指向 rbuf 内
+                     * 部，回调返回后即失效，JS_Call 需同步复制成 ArrayBuffer。 */
+                    proc->msg_cb(proc->msg_user, view.payload,
+                                 view.payload_len);
+                } else {
+                    int flags = (view.kind == IPC_ENV_KIND_CONTROL) ? 1 : 0;
+                    if (parent && parent->magic == QWRT_MAGIC) {
+                        qwrt_msg_push(parent, (const char *)view.payload,
+                                      view.payload_len, proc->id, flags);
+                        uv_async_send(&parent->wake);
+                    }
                 }
             }
         }
@@ -675,4 +679,31 @@ void qwrt_proc_start_read(qwrt_proc_t *proc)
     if (!proc || proc->state != QWRT_PROC_RUN) return;
     proc->pipe.data = proc;
     uv_read_start((uv_stream_t *)&proc->pipe, proc_alloc_cb, proc_read_cb);
+}
+
+void qwrt_proc_start_read_cb(qwrt_proc_t *proc,
+                             void (*cb)(void *, const uint8_t *, uint32_t),
+                             void *user_data)
+{
+    if (!proc || proc->state != QWRT_PROC_RUN) return;
+    proc->msg_cb = cb;
+    proc->msg_user = user_data;
+    proc->pipe.data = proc;
+    uv_read_start((uv_stream_t *)&proc->pipe, proc_alloc_cb, proc_read_cb);
+}
+
+/* JS-managed 进程句柄的 IPC pipe 豁免检查（spawn 分层化, Phase C）：
+ * pal.processSpawn 句柄的 pipe 恒活动（duplex 通道随 child 生命周期保持
+ * 打开），qwrt_loop_idle 须豁免，否则宿主脚本在进程 worker 存活时永不 idle
+ * 退出。替代已随 C 层进程 worker 分流移除的 qwrt_worker_is_proc_handle
+ * （C 层 qwrt_worker_t 不再持有 proc；进程句柄统一在 rt->proc_handles[]）。 */
+int qwrt_proc_handle_is_pipe(qwrt_t *rt, uv_handle_t *h)
+{
+    if (!rt || !h) return 0;
+    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+        qwrt_proc_handle_t *ph = &rt->proc_handles[i];
+        if (ph->live && ph->proc && (uv_handle_t *)&ph->proc->pipe == h)
+            return 1;
+    }
+    return 0;
 }

@@ -2751,7 +2751,10 @@
         if (inWorker) {
           pal2.postMessage(wrapped);
         } else if (this._peerThread > 0) {
-          pal2.workerPost(this._peerThread, wrapped);
+          if (globalThis.__qwrt_worker_post__)
+            globalThis.__qwrt_worker_post__(this._peerThread, wrapped);
+          else
+            throw new Error("MessagePort: __qwrt_worker_post__ not available");
         } else {
           throw new Error("MessagePort: cannot route to parent from parent");
         }
@@ -7936,16 +7939,81 @@
       }
       return pal2.fsReadSync(url.slice("file://".length));
     }
+    var procWorkerSeq = 1e3;
+    function ProcessWorker(code) {
+      var id = ++procWorkerSeq;
+      var tmp = "/tmp/qwrt-worker-" + id + ".js";
+      pal2.fsWriteSync(tmp, code);
+      var argv = [
+        "qwrt-rt",
+        "--qwrt-worker",
+        "--parent-fd",
+        "3",
+        "--worker-id",
+        String(id),
+        "--script",
+        tmp
+      ];
+      var handle;
+      try {
+        handle = pal2.processSpawn(null, argv, { role: 0, id, handshake: true });
+      } catch (e) {
+        try {
+          pal2.fsRemove(tmp);
+        } catch (e2) {
+        }
+        throw e;
+      }
+      this._id = id;
+      this._handle = handle;
+      this._tmp = tmp;
+      this._dead = false;
+    }
+    ProcessWorker.prototype.post = function(bytes) {
+      if (this._dead) return false;
+      return pal2.processPost(this._handle, bytes);
+    };
+    ProcessWorker.prototype.terminate = function() {
+      if (this._dead) return;
+      this._dead = true;
+      pal2.processTerminate(this._handle);
+    };
     function Worker(url) {
       var code = loadScript(url);
-      var id = pal2.spawnWorker(code);
-      this._id = id;
+      var isProc = pal2.workerBackend() === "process";
       this._onmsg = null;
       this._onerror = null;
       this._onmsgErr = null;
       this._listeners = /* @__PURE__ */ new Map();
-      workers.set(id, this);
       var w = this;
+      if (isProc) {
+        this._proc = new ProcessWorker(code);
+        this._id = this._proc._id;
+        this._send = function(bytes) {
+          return w._proc.post(bytes);
+        };
+        this._terminate = function() {
+          w._proc.terminate();
+        };
+        pal2.processOnMessage(this._proc._handle, function(bytes) {
+          if (bytes === null) {
+            w._proc._dead = true;
+            return;
+          }
+          var ww = workers.get(w._proc._id);
+          if (ww) deliverToWorker(ww, bytes);
+        });
+      } else {
+        var id = pal2.spawnWorker(code);
+        this._id = id;
+        this._send = function(bytes) {
+          return pal2.workerPost(w._id, bytes);
+        };
+        this._terminate = function() {
+          pal2.workerTerminate(w._id);
+        };
+      }
+      workers.set(this._id, this);
       Object.defineProperty(this, "onmessage", {
         get: function() {
           return w._onmsg;
@@ -8059,46 +8127,33 @@
         var wrapped = __qwrt_serialize__(
           { __qwrt_ports: ports, __qwrt_payload: dataBytes }
         );
-        pal2.workerPost(this._id, wrapped);
+        this._send(wrapped);
       } else {
-        pal2.workerPost(this._id, dataBytes);
+        this._send(dataBytes);
       }
     };
     Worker.prototype.terminate = function() {
-      pal2.workerTerminate(this._id);
+      this._terminate();
       workers.delete(this._id);
     };
     function isWorkerError(d) {
       return d && typeof d === "object" && d.type === "error" && typeof d.error === "string";
     }
-    globalThis.Worker = Worker;
-    var hostDispatch = self.__qwrt_dispatch__;
-    globalThis.__qwrt_dispatch__ = function(data, source) {
-      if (source === 0) {
-        hostDispatch(data, source);
-        return;
-      }
+    function deliverToWorker(w, dataBytes) {
       var d;
       try {
-        d = __qwrt_deserialize__(data);
+        d = __qwrt_deserialize__(dataBytes);
       } catch (err) {
-        var we = workers.get(source);
-        if (we) {
-          var errEv;
-          try {
-            errEv = new MessageEvent("messageerror");
-          } catch (e2) {
-            errEv = new Event("messageerror");
-          }
-          we.dispatchEvent(errEv);
-        } else {
-          reportError(err);
+        var errEv;
+        try {
+          errEv = new MessageEvent("messageerror");
+        } catch (e2) {
+          errEv = new Event("messageerror");
         }
+        w.dispatchEvent(errEv);
         return;
       }
       if (globalThis.__qwrt_deliver_port_msg__ && globalThis.__qwrt_deliver_port_msg__(d)) return;
-      var w = workers.get(source);
-      if (!w) return;
       if (d && typeof d === "object" && d.__qwrt_ports) {
         var ports = [];
         try {
@@ -8142,6 +8197,23 @@
         return;
       }
       w.dispatchEvent(e);
+    }
+    globalThis.Worker = Worker;
+    globalThis.__qwrt_worker_post__ = function(workerId, bytes) {
+      var w = workers.get(workerId);
+      if (!w) return false;
+      w._send(bytes);
+      return true;
+    };
+    var hostDispatch = self.__qwrt_dispatch__;
+    globalThis.__qwrt_dispatch__ = function(data, source) {
+      if (source === 0) {
+        hostDispatch(data, source);
+        return;
+      }
+      var w = workers.get(source);
+      if (!w) return;
+      deliverToWorker(w, data);
     };
   }
 

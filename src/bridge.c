@@ -66,6 +66,13 @@ static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val, int ar
 static JSValue js_pal_context_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_context_suspend(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_context_resume(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+#ifndef QWRT_USE_MOCK_LIBUV
+static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_process_on_message(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_process_terminate(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+#endif
+static JSValue js_pal_worker_backend(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_context_destroy(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 
 /* TCP socket PAL (for JS-level protocol implementations) */
@@ -1624,6 +1631,264 @@ static JSValue js_pal_worker_terminate(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
+#ifndef QWRT_USE_MOCK_LIBUV
+/* ================================================================
+ * 通用进程原语（spawn 分层化, Phase B）
+ *
+ * C 层只给"启动任意可执行文件 + 信封字节通道（编解码仍在 C）"原语；
+ * Worker 语义由 JS 层（polyfill/src/worker.js）封装。进程句柄是整数 id，
+ * 注册在 rt->proc_handles[]，显式 processTerminate 释放（无 GC finalizer）。
+ * ================================================================ */
+
+/* JS 字符串数组 → C argv（calloc 数组 + 每元素 strdup；argv[n]=NULL）。
+ * 返回 NULL 表示非数组 / 超长 / OOM；*out_n 为已填充元素数（失败时已
+ * 释放，调用方按 0 处理）。上限防御任意大数组的 calloc 滥用。 */
+static char **bridge_js_to_argv(JSContext *ctx, JSValueConst arr, int *out_n)
+{
+    *out_n = 0;
+    JSValue jlen = JS_GetPropertyStr(ctx, arr, "length");
+    if (JS_IsException(jlen)) return NULL;
+    int32_t n = 0;
+    if (JS_ToInt32(ctx, &n, jlen) != 0) {
+        JS_FreeValue(ctx, jlen);
+        return NULL;
+    }
+    JS_FreeValue(ctx, jlen);
+    if (n <= 0 || n > 4096) return NULL;
+    char **argv = (char **)calloc((size_t)n + 1, sizeof(char *));
+    if (!argv) return NULL;
+    for (int32_t i = 0; i < n; i++) {
+        JSValue s = JS_GetPropertyUint32(ctx, arr, (uint32_t)i);
+        const char *cs = JS_ToCString(ctx, s);
+        JS_FreeValue(ctx, s);
+        if (!cs) {
+            for (int k = 0; k < i; k++) free(argv[k]);
+            free(argv);
+            return NULL;
+        }
+        argv[i] = strdup(cs);
+        JS_FreeCString(ctx, cs);
+        if (!argv[i]) {
+            for (int k = 0; k < i; k++) free(argv[k]);
+            free(argv);
+            return NULL;
+        }
+    }
+    argv[n] = NULL;
+    *out_n = (int)n;
+    return argv;
+}
+
+static void bridge_free_argv(char **argv, int n)
+{
+    for (int i = 0; i < n; i++) free(argv[i]);
+    free(argv);
+}
+
+static qwrt_proc_handle_t *bridge_proc_handle_get(qwrt_t *rt, int id)
+{
+    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+        qwrt_proc_handle_t *h = &rt->proc_handles[i];
+        if (h->live && h->id == id) return h;
+    }
+    return NULL;
+}
+
+/* 读泵回调（父 loop 线程 = JS 线程，可直接 JS_Call）：信封 payload → JS
+ * 回调(Uint8Array)；payload=NULL → peer-death/EOF，JS 回调(null)。h 指向
+ * qwrt_t 内嵌数组元素，指针恒有效（terminate 只清字段不释放数组）。JS 回调
+ * 内部可能 terminate 本 handle（proc 的释放是 uv_close 异步），回调返回后
+ * 我们不再 touch h，故无 UAF。 */
+static void bridge_proc_msg_cb(void *user, const uint8_t *payload,
+                               uint32_t len)
+{
+    qwrt_proc_handle_t *h = (qwrt_proc_handle_t *)user;
+    if (!h->live || !h->ctx || !h->ctx->jsctx) return;
+    JSContext *ctx = h->ctx->jsctx;
+    if (!JS_IsFunction(ctx, h->onmsg)) return;
+    /* JS_Call 期间必须持有一份引用：回调内部可能 processTerminate 本句柄
+     * （JS_FreeValue h->onmsg 使引用计数归零）。若直接传 h->onmsg，函数会在
+     * 调用栈帧内被 GC 释放 → UAF/堆损坏。dup 后回调返回再释放。 */
+    JSValue fn = JS_DupValue(ctx, h->onmsg);
+    JSValue arg = payload ? JS_NewArrayBufferCopy(ctx, payload, len)
+                          : JS_NULL;
+    if (JS_IsException(arg)) {
+        JS_FreeValue(ctx, fn);
+        return;   /* OOM：跳过本帧 */
+    }
+    qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &arg);
+    JS_FreeValue(ctx, fn);
+    JS_FreeValue(ctx, arg);
+}
+
+/* pal.processSpawn(exe, argv, opts) → int handle id（>0）。
+ * exe: 任意可执行文件路径；""/null → C 端 auto-resolve qwrt-rt。
+ * argv: JS 字符串数组（argv[0]=程序名；含 --parent-fd 3 等子进程参数）。
+ * opts: { role?: int（缺省 QWRT_IPC_ROLE_WORKER）, id?: int（缺省 1）,
+ *         handshake?: bool（缺省 true）}。
+ * 失败抛 InternalError。 */
+static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_ThrowInternalError(ctx, "processSpawn: no runtime");
+    if (rt->worker_self)
+        return JS_ThrowInternalError(ctx, "processSpawn: parent runtime only");
+
+    const char *exe = NULL;
+    if (argc >= 1 && !JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0]))
+        exe = JS_ToCString(ctx, argv[0]);
+
+    int nargv = 0;
+    char **cargv = NULL;
+    if (argc >= 2)
+        cargv = bridge_js_to_argv(ctx, argv[1], &nargv);
+    if (!cargv || nargv <= 0) {
+        if (exe) JS_FreeCString(ctx, exe);
+        return JS_ThrowTypeError(ctx,
+            "processSpawn: argv must be a non-empty string array");
+    }
+
+    int role = QWRT_IPC_ROLE_WORKER;
+    int id = 1;
+    int require_handshake = 1;
+    if (argc >= 3 && JS_IsObject(argv[2])) {
+        JSValue jr = JS_GetPropertyStr(ctx, argv[2], "role");
+        if (!JS_IsUndefined(jr)) { JS_ToInt32(ctx, &role, jr); }
+        JS_FreeValue(ctx, jr);
+        JSValue ji = JS_GetPropertyStr(ctx, argv[2], "id");
+        if (!JS_IsUndefined(ji)) { JS_ToInt32(ctx, &id, ji); }
+        JS_FreeValue(ctx, ji);
+        JSValue jh = JS_GetPropertyStr(ctx, argv[2], "handshake");
+        if (!JS_IsUndefined(jh)) require_handshake = JS_ToBool(ctx, jh);
+        JS_FreeValue(ctx, jh);
+    }
+
+    qwrt_proc_t *proc = qwrt_proc_new();
+    if (!proc) {
+        bridge_free_argv(cargv, nargv);
+        if (exe) JS_FreeCString(ctx, exe);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    int rc = qwrt_proc_spawn(rt, proc, exe, cargv, role, id,
+                             require_handshake);
+    /* fork+exec 在 spawn 内同步完成，cargv 仅在调用期间需要 */
+    bridge_free_argv(cargv, nargv);
+    if (exe) JS_FreeCString(ctx, exe);
+
+    if (rc != 0) {
+        qwrt_proc_free(proc);
+        return JS_ThrowInternalError(ctx, "processSpawn: spawn failed (%d)",
+                                     rc);
+    }
+
+    qwrt_proc_handle_t *h = NULL;
+    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+        if (!rt->proc_handles[i].live) { h = &rt->proc_handles[i]; break; }
+    }
+    if (!h) {
+        qwrt_proc_terminate(proc, 0);
+        qwrt_proc_free(proc);
+        return JS_ThrowInternalError(ctx,
+            "processSpawn: too many process handles");
+    }
+    h->live = 1;
+    h->proc = proc;
+    h->ctx = get_ctx_from_jsctx(rt, ctx);
+    h->onmsg = JS_UNDEFINED;
+    h->id = (int)(++rt->proc_handle_seq);
+
+    qwrt_proc_start_read_cb(proc, bridge_proc_msg_cb, h);
+    return JS_NewInt32(ctx, h->id);
+}
+
+/* pal.processPost(handle, bytes) → bool（I6 语义：false = 写失败 / 已死） */
+static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt || argc < 2) return JS_NewBool(ctx, 0);
+    int32_t hid = 0;
+    if (JS_ToInt32(ctx, &hid, argv[0]) != 0) return JS_NewBool(ctx, 0);
+    qwrt_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
+    if (!h || !h->proc) return JS_NewBool(ctx, 0);
+
+    size_t len = 0;
+    const uint8_t *data = JS_GetUint8Array(ctx, &len, argv[1]);
+    if (!data) data = JS_GetArrayBuffer(ctx, &len, argv[1]);
+    if (!data) return JS_ThrowTypeError(ctx, "processPost: expected bytes");
+
+    int rc = qwrt_proc_post(h->proc, 0, h->proc->id, IPC_ENV_KIND_MESSAGE,
+                            data, (uint32_t)len);
+    return JS_NewBool(ctx, rc == 0);
+}
+
+/* pal.processOnMessage(handle, callback) → void（callback(Uint8Array) 收消息；
+ * callback(null) 表示 peer-death/EOF）。重复注册替换旧回调。 */
+static JSValue js_pal_process_on_message(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt || argc < 2) return JS_UNDEFINED;
+    int32_t hid = 0;
+    if (JS_ToInt32(ctx, &hid, argv[0]) != 0) return JS_UNDEFINED;
+    qwrt_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
+    if (!h) return JS_UNDEFINED;
+    if (!JS_IsFunction(ctx, argv[1]))
+        return JS_ThrowTypeError(ctx,
+            "processOnMessage: callback must be a function");
+    JSValue old = h->onmsg;
+    h->onmsg = JS_DupValue(ctx, argv[1]);
+    JS_FreeValue(ctx, old);
+    return JS_UNDEFINED;
+}
+
+/* pal.processTerminate(handle) → void（3-tier terminate + 释放句柄，幂等） */
+static JSValue js_pal_process_terminate(JSContext *ctx, JSValueConst this_val,
+                                        int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt || argc < 1) return JS_UNDEFINED;
+    int32_t hid = 0;
+    if (JS_ToInt32(ctx, &hid, argv[0]) != 0) return JS_UNDEFINED;
+    qwrt_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
+    if (!h) return JS_UNDEFINED;
+    if (h->proc) {
+        qwrt_proc_terminate(h->proc, 0);
+        qwrt_proc_free(h->proc);
+        h->proc = NULL;
+    }
+    JS_FreeValue(ctx, h->onmsg);
+    h->onmsg = JS_UNDEFINED;
+    h->ctx = NULL;
+    h->live = 0;
+    return JS_UNDEFINED;
+}
+#endif /* !QWRT_USE_MOCK_LIBUV */
+
+/* pal.workerBackend → 'thread' | 'process'（当前 worker 后端，JS 层查询用）。
+ * mock 构建（QWRT_USE_MOCK_LIBUV）无 ipc_process.c → 恒 'thread'：JS 层据
+ * 此走 pal.spawnWorker（线程）路径；若宿主在 mock 下仍设 PROCESS，spawnWorker
+ * 照旧报 NOT_SUPPORTED（worker.c I4），与现状一致，无静默降级。 */
+static JSValue js_pal_worker_backend(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+#ifdef QWRT_USE_MOCK_LIBUV
+    QWRT_UNUSED(rt);
+    return JS_NewString(ctx, "thread");
+#else
+    if (rt && rt->config.worker_backend == QWRT_WORKER_BACKEND_PROCESS)
+        return JS_NewString(ctx, "process");
+    return JS_NewString(ctx, "thread");
+#endif
+}
+
 /* Worker 侧 pal.postMessage：克隆字节 → 父入站队列（source=worker id） */
 static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
@@ -1849,6 +2114,9 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
     /* MessagePort transfer: 全局唯一 port id 对分配（worker/父都可用） */
     JS_SetPropertyStr(jsctx, pal, "portCreate", JS_NewCFunction(jsctx, js_pal_port_create, "portCreate", 0));
 
+    /* 当前 worker 后端（'thread' | 'process'）——父/worker runtime 都可查 */
+    JS_SetPropertyStr(jsctx, pal, "workerBackend", JS_NewCFunction(jsctx, js_pal_worker_backend, "workerBackend", 0));
+
     /* Host message boundary / Web Worker (Task 4).
      * worker runtime（rt->worker_self 非 NULL）：postMessage → 父入站（克隆
      * 字节），另有 workerClose；无宿主 message_cb。父 runtime：postMessage →
@@ -1862,6 +2130,13 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "spawnWorker", JS_NewCFunction(jsctx, js_pal_spawn_worker, "spawnWorker", 1));
         JS_SetPropertyStr(jsctx, pal, "workerPost", JS_NewCFunction(jsctx, js_pal_worker_post, "workerPost", 2));
         JS_SetPropertyStr(jsctx, pal, "workerTerminate", JS_NewCFunction(jsctx, js_pal_worker_terminate, "workerTerminate", 1));
+#ifndef QWRT_USE_MOCK_LIBUV
+        /* 通用进程原语（spawn 分层化, Phase B）——JS 层 Worker 封装用 */
+        JS_SetPropertyStr(jsctx, pal, "processSpawn", JS_NewCFunction(jsctx, js_pal_process_spawn, "processSpawn", 3));
+        JS_SetPropertyStr(jsctx, pal, "processPost", JS_NewCFunction(jsctx, js_pal_process_post, "processPost", 2));
+        JS_SetPropertyStr(jsctx, pal, "processOnMessage", JS_NewCFunction(jsctx, js_pal_process_on_message, "processOnMessage", 2));
+        JS_SetPropertyStr(jsctx, pal, "processTerminate", JS_NewCFunction(jsctx, js_pal_process_terminate, "processTerminate", 1));
+#endif
         /* Multi-context (Task 5) — 父 runtime 专属 */
         JS_SetPropertyStr(jsctx, pal, "contextSpawn", JS_NewCFunction(jsctx, js_pal_context_spawn, "contextSpawn", 1));
         JS_SetPropertyStr(jsctx, pal, "contextSuspend", JS_NewCFunction(jsctx, js_pal_context_suspend, "contextSuspend", 2));

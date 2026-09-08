@@ -38,11 +38,11 @@ static void qwrt_idle_walk_cb(uv_handle_t *h, void *arg)
 {
     qwrt_idle_state_t *st = (qwrt_idle_state_t *)arg;
     if (h == (uv_handle_t *)&st->rt->wake) return;   /* exclude the internal wake async */
-    /* M-P1: process-worker IPC pipes are always-active by design (duplex
-     * channel kept open for the child's lifetime) — they must not pin
-     * wait_idle as busy, mirroring the DAP timer exemption below. */
+    /* M-P1 + spawn 分层化: JS-managed 进程 worker 的 IPC pipe 恒活动（duplex
+     * 通道随 child 生命周期保持打开）——wait_idle 须豁免，否则宿主脚本在进程
+     * worker 存活时永不 idle 退出，镜像 DAP timer 的豁免。 */
 #ifndef QWRT_USE_MOCK_LIBUV
-    if (qwrt_worker_is_proc_handle(st->rt, h)) return;
+    if (qwrt_proc_handle_is_pipe(st->rt, h)) return;
 #endif
 #ifdef QWRT_DEBUG_SUPPORT
     /* 调试器附着的周期 DAP 轮询 timer 不算"忙"——wait_idle 应照常退出，

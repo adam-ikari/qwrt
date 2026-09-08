@@ -1,16 +1,23 @@
 /**
  * qwrt polyfill: Web Worker (parent side)
  *
- * W3C-style Worker class backed by a real qwrt runtime thread (execution
- * model A — each worker is its own qwrt_t with its own thread/loop/JSRuntime).
+ * W3C-style Worker class backed by a real execution backend (worker_backend):
+ *
+ *   THREAD  — each worker is its own qwrt_t with its own thread/loop/JSRuntime
+ *             (execution model A), spawned via pal.spawnWorker (C-side slot).
+ *   PROCESS — spawn 分层化: JS 层把通用进程原语（pal.processSpawn 等，C 只给
+ *             "启动任意可执行文件 + 信封字节通道"）封装成 Worker 语义。写临时
+ *             脚本 → processSpawn(qwrt-rt) → processOnMessage/processPost/
+ *             processTerminate。对外接口（new Worker/postMessage/onmessage/
+ *             terminate）与 THREAD 后端完全一致。
  *
  *   - new Worker(url)           — load script synchronously (file:// only in v1,
- *                                 via pal.fsReadSync), spawn worker thread
- *                                 (pal.spawnWorker blocks until the worker is
- *                                 ready), returns instance keyed by worker id.
- *   - w.postMessage(value)      — structured-clone bytes → pal.workerPost.
- *   - w.terminate()             — pal.workerTerminate (async stop + join at
- *                                 parent teardown).
+ *                                 via pal.fsReadSync), spawn worker, returns
+ *                                 instance keyed by worker id.
+ *   - w.postMessage(value)      — structured-clone bytes → per-backend send
+ *                                 (pal.workerPost / pal.processPost).
+ *   - w.terminate()             — per-backend stop (pal.workerTerminate /
+ *                                 pal.processTerminate).
  *   - w.onmessage               — fires with MessageEvent whose data is
  *                                 deserialized from the worker's bytes.
  *   - w.onerror                 — fires when the worker script throws at the
@@ -18,7 +25,11 @@
  *                                 {type:'error', error:<message>}.
  *
  * Inbound routing: __qwrt_dispatch__(data, source). source 0 = host (delegates
- * to host-messaging's handler verbatim); source > 0 = worker id (bytes).
+ * to host-messaging's handler verbatim); source > 0 = THREAD worker id. PROCESS
+ * worker inbound arrives via pal.processOnMessage callback directly (per-handle,
+ * no source label) and funnels into the same deliverToWorker dispatch.
+ * __qwrt_worker_post__(workerId, bytes) is the unified parent→worker byte
+ * channel (both backends) that message-channel.js uses for MessagePort routing.
  *
  * Depends on: MessageEvent (message-channel.js), __qwrt_serialize__ /
  * __qwrt_deserialize__ (structured-clone.js), host-messaging.js (invoked after
@@ -27,7 +38,8 @@
 
 export function setupWorker(pal) {
   var self = globalThis;
-  var workers = new Map();   /* worker id -> Worker 实例 */
+  var workers = new Map();   /* worker id -> Worker 实例（THREAD id 1-16，
+                                PROCESS id >= 1000，两后端不冲突） */
 
   // Synchronous script load. v1: file:// only.
   function loadScript(url) {
@@ -37,16 +49,72 @@ export function setupWorker(pal) {
     return pal.fsReadSync(url.slice('file://'.length));
   }
 
+  /* ── PROCESS 后端封装（spawn 分层化, Phase C）──
+   * 临时脚本 → processSpawn(qwrt-rt) → processOnMessage/processPost/
+   * processTerminate。worker id 从 1000 起，避开 C 线程后端槽位 1-16。
+   * 临时文件：成功路径由子进程（rt_main.c）读后自 unlink（C1）；失败路径
+   * 在此显式 fsRemove。 */
+  var procWorkerSeq = 1000;
+  function ProcessWorker(code) {
+    var id = ++procWorkerSeq;
+    var tmp = '/tmp/qwrt-worker-' + id + '.js';
+    pal.fsWriteSync(tmp, code);
+    /* --parent-fd 3 是固定子端通道 fd（QWRT_IPC_CHANNEL_FD），spawn 内部
+     * 把 socketpair 子端 dup2 到 3；argv 其余参数是 qwrt-rt 既有约定。 */
+    var argv = ['qwrt-rt', '--qwrt-worker', '--parent-fd', '3',
+                '--worker-id', String(id), '--script', tmp];
+    var handle;
+    try {
+      handle = pal.processSpawn(null, argv, { role: 0, id: id, handshake: true });
+    } catch (e) {
+      try { pal.fsRemove(tmp); } catch (e2) { /* 异步清理，失败不致命 */ }
+      throw e;
+    }
+    this._id = id;
+    this._handle = handle;
+    this._tmp = tmp;
+    this._dead = false;
+  }
+  ProcessWorker.prototype.post = function (bytes) {
+    if (this._dead) return false;
+    return pal.processPost(this._handle, bytes);
+  };
+  ProcessWorker.prototype.terminate = function () {
+    if (this._dead) return;
+    this._dead = true;
+    pal.processTerminate(this._handle);
+  };
+
   function Worker(url) {
     var code = loadScript(url);
-    var id = pal.spawnWorker(code);   /* 同步阻塞直到 worker ready；失败抛 Error */
-    this._id = id;
+    var isProc = pal.workerBackend() === 'process';
     this._onmsg = null;
     this._onerror = null;
     this._onmsgErr = null;
     this._listeners = new Map();      /* type -> [{callback, once}] (EventTarget 支持) */
-    workers.set(id, this);
     var w = this;
+    if (isProc) {
+      this._proc = new ProcessWorker(code);
+      this._id = this._proc._id;
+      this._send = function (bytes) { return w._proc.post(bytes); };
+      this._terminate = function () { w._proc.terminate(); };
+      /* 入站：processOnMessage 直收（信封 payload = 克隆字节）。EOF
+       * (bytes === null) → 标死，后续 post/terminate 幂等安全。 */
+      pal.processOnMessage(this._proc._handle, function (bytes) {
+        if (bytes === null) {
+          w._proc._dead = true;
+          return;
+        }
+        var ww = workers.get(w._proc._id);
+        if (ww) deliverToWorker(ww, bytes);
+      });
+    } else {
+      var id = pal.spawnWorker(code);   /* 同步阻塞直到 worker ready；失败抛 Error */
+      this._id = id;
+      this._send = function (bytes) { return pal.workerPost(w._id, bytes); };
+      this._terminate = function () { pal.workerTerminate(w._id); };
+    }
+    workers.set(this._id, this);
     Object.defineProperty(this, 'onmessage', {
       get: function () { return w._onmsg; },
       set: function (fn) { w._onmsg = fn; },
@@ -160,14 +228,14 @@ export function setupWorker(pal) {
     if (ports.length) {
       var wrapped = __qwrt_serialize__(
         { __qwrt_ports: ports, __qwrt_payload: dataBytes });
-      pal.workerPost(this._id, wrapped);
+      this._send(wrapped);
     } else {
-      pal.workerPost(this._id, dataBytes);
+      this._send(dataBytes);
     }
   };
 
   Worker.prototype.terminate = function () {
-    pal.workerTerminate(this._id);
+    this._terminate();
     workers.delete(this._id);
   };
 
@@ -179,35 +247,22 @@ export function setupWorker(pal) {
            d.type === 'error' && typeof d.error === 'string';
   }
 
-  globalThis.Worker = Worker;
-
-  // Route inbound messages: source 0 = host JSON, > 0 = worker bytes.
-  var hostDispatch = self.__qwrt_dispatch__;
-  globalThis.__qwrt_dispatch__ = function (data, source) {
-    if (source === 0) {
-      hostDispatch(data, source);
-      return;
-    }
+  /* 公共入站派发：克隆字节 → 反序列化 → MessageEvent/port 路由/error 通知。
+   * THREAD 的 __qwrt_dispatch__ 与 PROCESS 的 processOnMessage 回调共用。 */
+  function deliverToWorker(w, dataBytes) {
     var d;
-    try { d = __qwrt_deserialize__(data); }
+    try { d = __qwrt_deserialize__(dataBytes); }
     catch (err) {
       /* 反序列化失败：按规范触发 worker 的 messageerror 事件 */
-      var we = workers.get(source);
-      if (we) {
-        var errEv;
-        try { errEv = new MessageEvent('messageerror'); }
-        catch (e2) { errEv = new Event('messageerror'); }
-        we.dispatchEvent(errEv);
-      } else {
-        reportError(err);
-      }
+      var errEv;
+      try { errEv = new MessageEvent('messageerror'); }
+      catch (e2) { errEv = new Event('messageerror'); }
+      w.dispatchEvent(errEv);
       return;
     }
     /* 跨线程 port 消息：路由到本地 port 对象，不是 Worker 实例的 onmessage */
     if (globalThis.__qwrt_deliver_port_msg__ &&
         globalThis.__qwrt_deliver_port_msg__(d)) return;
-    var w = workers.get(source);
-    if (!w) return;
     /* 带 MessagePort 转移的 worker 消息：解包 ports + payload */
     if (d && typeof d === 'object' && d.__qwrt_ports) {
       var ports = [];
@@ -235,5 +290,31 @@ export function setupWorker(pal) {
       return;
     }
     w.dispatchEvent(e);
+  }
+
+  globalThis.Worker = Worker;
+
+  /* 统一父→worker 字节通道（THREAD: pal.workerPost；PROCESS: processPost）。
+   * message-channel.js 用它路由 MessagePort 跨线程消息。worker 存在即视为
+   * 投递成功（THREAD 的 workerPost 返回 undefined；PROCESS 的 processPost
+   * 对已死句柄返回 false 也在此静默，与 THREAD 语义对齐）。 */
+  globalThis.__qwrt_worker_post__ = function (workerId, bytes) {
+    var w = workers.get(workerId);
+    if (!w) return false;
+    w._send(bytes);
+    return true;
+  };
+
+  // Route inbound messages: source 0 = host JSON, > 0 = THREAD worker bytes.
+  // (PROCESS worker inbound bypasses this — processOnMessage callback.)
+  var hostDispatch = self.__qwrt_dispatch__;
+  globalThis.__qwrt_dispatch__ = function (data, source) {
+    if (source === 0) {
+      hostDispatch(data, source);
+      return;
+    }
+    var w = workers.get(source);
+    if (!w) return;
+    deliverToWorker(w, data);
   };
 }
