@@ -5,7 +5,7 @@ category: reference
 status: active
 tags: [perf, worker, runtime, baseline]
 created: "2026-09-08T16:56:22"
-updated: "2026-09-08T17:03:59"
+updated: "2026-09-08T17:13:48"
 ---
 
 <!-- compiled_truth -->
@@ -20,12 +20,15 @@ updated: "2026-09-08T17:03:59"
 - R5 worker VmHWM：THREAD 22.4MB vs PROCESS 13.1MB（PROCESS 无宿主 polyfill 负担）
 - R6 eval：CPU 密集与后端无关，仅单后端采样（数值待补）
 
-## CI 环境基线（GitHub Actions ubuntu-latest）——仍待首次成功 run
-- 2026-09-08 第二次尝试失败：run #34254235073 / HEAD 34757c47（commit "ci(perf): 修 runtime-perf/httpserver-perf 的 polyfill rebuild——补 npm ci"）。esbuild 已装好（npm ci 生效），但 "Rebuild polyfill" 步骤仍在 Configure/Build 之前 → quickjs-ng 尚未编译，build.js 找不到 qjsc → `Error: qjsc not found, cannot generate bytecode header: Command failed: /home/runner/work/qwrt/deps/quickjs-ng/build/qjsc ...`（exit 1）→ Benchmark skipped，无 artifact。httpserver-perf 同因失败。
-- 根因：polyfill/build.js 的 findQjsc() 优先找 `build*/deps/quickjs-ng/qjsc`（CMake build 产物），但 "Rebuild polyfill" 步骤排在 cmake configure/build 之前，qjsc 尚不存在；legacy 路径 `deps/quickjs-ng/build/qjsc` 在 CI 也无（submodule 未单独 build）。
-- 建议修复：将 "Rebuild polyfill" 步骤移到 "Build"（cmake --build）之后；或先 `cmake --build build --target qjsc` 再 rebuild polyfill。该 job continue-on-error:true，失败不阻塞 merge，但不产出 artifact。
-- CI job 配置要点：runs-on ubuntu-latest；checkout submodules recursive；Node 22 + polyfill rebuild；Configure Release + QWRT_BUILD_TESTS=OFF + QWRT_WITH_TLS=ON；`python3 test/bench_runtime.py --qwrt-bin ./build/qwrt --quick --json /tmp/runtime-perf.json`；Summarize 解析末行 JSON；upload artifact `runtime-perf-json`。
-- 下一步：主会话修 ci.yml 步骤顺序（rebuild 移到 build 后）并 push，重跑拉 artifact，回填本页 CI 数值表并与本地对比。
+## CI 环境基线（GitHub Actions ubuntu-latest，HEAD ccb3de18，2026-09-08 首跑成功）
+- R1 冷启动：median 7.48ms（n=3）
+- R2 spawn ready：THREAD 4.64ms → PROCESS 5.93ms（**1.28×**）；raw spawn PROCESS 1.04ms vs THREAD 4.46ms（**0.23×**）
+- R2b terminate：THREAD 5.6µs → PROCESS 10.08ms（**1799×**，PROCESS 三级终止同步阻塞）
+- R3 往返：0B/1KB/64KB 比值 **0.78× / 1.03× / 0.99×**（0B PROCESS 反超 59.7 vs 76.4µs；64KB ~21.4ms/op）
+- R4 吞吐：THREAD 19211 → PROCESS 18833 msg/s（**0.98×**，近并列）
+- R5 worker VmHWM：THREAD 21.7MB vs PROCESS 12.8MB（PROCESS 无宿主 polyfill 负担）
+- R6 eval：int 52.0 / closure 27.7 / str 13.6 M ops/s（仅单后端采样）
+- 来源：run #34255495676 / HEAD ccb3de18，job "runtime perf (workers)" success，artifact runtime-perf-json。前置失败两连（无 artifact）：#34253382900（esbuild 缺 npm ci）、#34254235073（polyfill rebuild 先于 CMake build → qjsc not found）；本轮 ccb3de18 修顺序后成功。
 
 
 ## Timeline
@@ -58,4 +61,16 @@ updated: "2026-09-08T17:03:59"
   kind: decision
   summary: "CI 首跑基线回填受阻：run #34254235073 runtime-perf job 失败（qjsc not found，polyfill rebuild 先于 CMake build），无 artifact"
   source: ci-baseline-fill session
+  affects: [runtime-perf-baseline]
+
+- time: 2026-09-08T17:13:34
+  kind: decision
+  summary: "CI 首跑成功回填实测数值（run #34255495676 / ccb3de18）"
+  source: ci-baseline-fill2 session
+  affects: [runtime-perf-baseline]
+
+- time: 2026-09-08T17:13:48
+  kind: decision
+  summary: "CI 首跑成功（run #34255495676 / HEAD ccb3de18）：R1 7.48ms；spawn ready THREAD 4.64ms→PROCESS 5.93ms 1.28×；terminate 1799×；往返 0.78/1.03/0.99×；吞吐 0.98×（19211 vs 18833 msg/s）；worker VmHWM 21.7 vs 12.8MB；R6 int/closure/str 52.0/27.7/13.6 M ops/s——qjsc 顺序 bug 修复后 CI 基线落档"
+  source: ci-baseline-fill2 session
   affects: [runtime-perf-baseline]
