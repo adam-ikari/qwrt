@@ -5,7 +5,7 @@ category: reference
 status: active
 tags: [perf, worker, runtime, baseline]
 created: "2026-09-08T16:56:22"
-updated: "2026-09-08T16:56:45"
+updated: "2026-09-08T17:03:59"
 ---
 
 <!-- compiled_truth -->
@@ -20,11 +20,12 @@ updated: "2026-09-08T16:56:45"
 - R5 worker VmHWM：THREAD 22.4MB vs PROCESS 13.1MB（PROCESS 无宿主 polyfill 负担）
 - R6 eval：CPU 密集与后端无关，仅单后端采样（数值待补）
 
-## CI 环境基线（GitHub Actions ubuntu-latest）——待首次成功 run
-- 2026-09-08 首次尝试失败：run #185 / 34253382900，HEAD 48388bcd。runtime-perf job 的 "Rebuild polyfill" 步骤缺 `npm --prefix polyfill ci`，esbuild 未安装 → `Error: Cannot find module 'esbuild'`（build.js:35）→ Configure/Build/Benchmark 全 skipped，无 artifact。历史亦无 runtime-perf artifact。
-- 修复（本次）：ci.yml runtime-perf 与 httpserver-perf（同 bug，均失败）在 "Rebuild polyfill" 前加 "Install polyfill deps (esbuild)"：`npm --prefix polyfill ci`（对齐 h2-client-perf/e2e 已有步骤）。
-- CI job 配置要点：runs-on ubuntu-latest；checkout submodules recursive；Node 22 + polyfill rebuild；Configure Release + QWRT_BUILD_TESTS=OFF + QWRT_WITH_TLS=ON；`python3 test/bench_runtime.py --qwrt-bin ./build/qwrt --quick --json /tmp/runtime-perf.json`；Summarize 解析末行 JSON；upload artifact `runtime-perf-json`；continue-on-error: true（观察模式，设计 §4.3 先观察后守门）。
-- 下一步：主会话提交 ci.yml 修复并 push 后，重跑 CI 拉 artifact，回填本页 CI 数值表并与本地对比。
+## CI 环境基线（GitHub Actions ubuntu-latest）——仍待首次成功 run
+- 2026-09-08 第二次尝试失败：run #34254235073 / HEAD 34757c47（commit "ci(perf): 修 runtime-perf/httpserver-perf 的 polyfill rebuild——补 npm ci"）。esbuild 已装好（npm ci 生效），但 "Rebuild polyfill" 步骤仍在 Configure/Build 之前 → quickjs-ng 尚未编译，build.js 找不到 qjsc → `Error: qjsc not found, cannot generate bytecode header: Command failed: /home/runner/work/qwrt/deps/quickjs-ng/build/qjsc ...`（exit 1）→ Benchmark skipped，无 artifact。httpserver-perf 同因失败。
+- 根因：polyfill/build.js 的 findQjsc() 优先找 `build*/deps/quickjs-ng/qjsc`（CMake build 产物），但 "Rebuild polyfill" 步骤排在 cmake configure/build 之前，qjsc 尚不存在；legacy 路径 `deps/quickjs-ng/build/qjsc` 在 CI 也无（submodule 未单独 build）。
+- 建议修复：将 "Rebuild polyfill" 步骤移到 "Build"（cmake --build）之后；或先 `cmake --build build --target qjsc` 再 rebuild polyfill。该 job continue-on-error:true，失败不阻塞 merge，但不产出 artifact。
+- CI job 配置要点：runs-on ubuntu-latest；checkout submodules recursive；Node 22 + polyfill rebuild；Configure Release + QWRT_BUILD_TESTS=OFF + QWRT_WITH_TLS=ON；`python3 test/bench_runtime.py --qwrt-bin ./build/qwrt --quick --json /tmp/runtime-perf.json`；Summarize 解析末行 JSON；upload artifact `runtime-perf-json`。
+- 下一步：主会话修 ci.yml 步骤顺序（rebuild 移到 build 后）并 push，重跑拉 artifact，回填本页 CI 数值表并与本地对比。
 
 
 ## Timeline
@@ -51,4 +52,10 @@ updated: "2026-09-08T16:56:45"
   kind: note
   summary: "CI 首次尝试失败：run #185 (34253382900, HEAD 48388bcd) runtime-perf job 'Rebuild polyfill' 缺 npm ci → esbuild 缺失，无 artifact。httpserver-perf 同 bug。修复：ci.yml 两 job 补 'Install polyfill deps (esbuild)': npm --prefix polyfill ci。CI 数值待 push 修复后重跑回填"
   source: GitHub Actions 2026-09-08
+  affects: [runtime-perf-baseline]
+
+- time: 2026-09-08T17:03:59
+  kind: decision
+  summary: "CI 首跑基线回填受阻：run #34254235073 runtime-perf job 失败（qjsc not found，polyfill rebuild 先于 CMake build），无 artifact"
+  source: ci-baseline-fill session
   affects: [runtime-perf-baseline]
