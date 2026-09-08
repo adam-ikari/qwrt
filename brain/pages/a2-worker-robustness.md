@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [worker, suspend, transferable, robustness, gtest]
 created: "2026-08-28T15:53:09"
-updated: "2026-09-07T08:02:42"
+updated: "2026-09-08T12:14:27"
 ---
 
 <!-- compiled_truth -->
@@ -41,4 +41,16 @@ updated: "2026-09-07T08:02:42"
   kind: note
   summary: "M-P1 多进程/worker 健壮性落地（commit 8e18b988），含 socketpair spawn/§3.3 handshake/3-tier terminate/worker_background 分流及 teardown UAF 修复，e2e + 24/24 worker gtest + 4/4 套件全绿。"
   source: "M-P1 合入 master commit 8e18b988"
+  affects: [a2-worker-robustness]
+
+- time: 2026-09-08T12:14:19
+  kind: note
+  summary: "已知限制：PROCESS 后端（QWRT_WORKER_BACKEND=process）单 worker 连续 postMessage 往返 >~500-1000 条洪水下间歇卡死（JS 派发深层丢帧 + 帧错位双模式）。已修 3 处确证根因（背压 EAGAIN 静默丢帧→spill buffer、ENOBUFS 丢整包→按背压、JS 异常污染→JS_GetException）。残余已排除：写路径丢帧、读泵停/死锁、子进程崩溃、JS_NewArrayBufferCopy 异常。风险点：A) worker.js deliverToWorker 派发深层；B) 父 rbuf 解帧错位（oversized flen 异常）；C) spill buffer 多 proc/重连未验证。基准 R3/R4 以分批≤40 条 workaround。根治方向：JS 派发丢帧 + 帧错位。见 commit fix(proc) PROCESS worker 消息挂死。"
+  source: "2026-09-07 PROCESS 洪水基准修复会话"
+  affects: [a2-worker-robustness]
+
+- time: 2026-09-08T12:14:27
+  kind: note
+  summary: "已知限制：PROCESS 后端（QWRT_WORKER_BACKEND=process）单 worker 连续 postMessage 往返 >~500-1000 条洪水下间歇卡死（JS 派发深层丢帧 + 帧错位双模式）。已修 3 处确证根因（背压 EAGAIN 静默丢帧→spill buffer、ENOBUFS 丢整包→按背压、JS 异常污染→JS_GetException）。残余已排除：写路径丢帧、读泵停/死锁、子进程崩溃、JS_NewArrayBufferCopy 异常。风险点：A) worker.js deliverToWorker 派发深层；B) 父 rbuf 解帧错位（oversized flen 异常）；C) spill buffer 多 proc/重连未验证。基准 R3/R4 以分批≤40 条 workaround。根治方向：JS 派发丢帧 + 帧错位。见 commit fix(proc) PROCESS worker 消息挂死。"
+  source: "2026-09-07 PROCESS 洪水基准修复会话"
   affects: [a2-worker-robustness]
