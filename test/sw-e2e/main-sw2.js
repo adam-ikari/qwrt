@@ -2,7 +2,7 @@
  * ③回填后缓存命中（serve 计数不涨）④放行请求证明计数（③确未走网络）。
  * keepalive interval 必需：CLI eval 返回后 wait_idle 需要 loop 上有活动
  * handle，纯 promise 链会被判 idle 提前 teardown（与 SW-0/1 main 同）。 */
-var SW_URL = 'file:///home/gem/project/qwrt/test/sw-e2e/sw-sw2.js';
+var SW_URL = 'file://__SW_DIR__/sw-sw2.js';
 var PORT = 18432;
 var keepalive = setInterval(function () {}, 50);
 

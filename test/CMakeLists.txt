@@ -145,6 +145,8 @@ endif()
 # testdir=test262/test, and both are composed against the config file's
 # directory. Absolute paths here would break find_error()'s relative-path
 # matching against the error file.
+# CI 全量 build 默认不产出 runner——顶层以 QWRT_BUILD_TESTS 条件的 ALL 目标
+# 显式依赖 run-test262（见 CMakeLists.txt quickjs 段）。
 add_test(NAME test262_quickjs
   COMMAND ${CMAKE_BINARY_DIR}/deps/quickjs-ng/run-test262
     -c test262.conf

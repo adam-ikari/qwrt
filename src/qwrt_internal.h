@@ -172,7 +172,7 @@ typedef struct qwrt_msg_s {
 
 /* Per-context state — holds JSContext*, handle tables, timer data,
  * extensions, and polyfill config for reset re-injection. */
-typedef struct qwrt_ctx_s {
+struct qwrt_ctx_s {
     JSContext *jsctx;
     int context_id;
     int suspended;       /* vestigial：G1 后 suspend 即销毁 ctx（槽位 NULL 即挂起态），字段保留 ABI 兼容，恒为 0 */
@@ -188,7 +188,7 @@ typedef struct qwrt_ctx_s {
     /* Polyfill config saved for reset re-injection */
     const uint8_t *polyfill;
     size_t polyfill_len;
-} qwrt_ctx_t;
+};
 
 /* Callback data shared between bridge.c and qwrt.c for async operations.
  * Allocated with js_malloc, freed with js_free (or qwrt_free_cb_data). */

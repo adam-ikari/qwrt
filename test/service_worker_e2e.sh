@@ -6,7 +6,10 @@ set -u
 QWRT="${1:-./build_grpc2/qwrt}"
 DIR="$(cd "$(dirname "$0")/sw-e2e" && pwd)"
 
-OUT="$(timeout 20 "$QWRT" "$DIR/main.js" 2>&1)"
+TMP="$(mktemp /tmp/qwrt-sw0.XXXXXX.js)" || exit 1
+trap 'rm -f "$TMP"' EXIT
+sed "s|__SW_DIR__|$DIR|g" "$DIR/main.js" > "$TMP"
+OUT="$(timeout 20 "$QWRT" "$TMP" 2>&1)"
 EXPECTED='SW install
 SW activate
 p1: state=activated scope=/

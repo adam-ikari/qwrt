@@ -292,6 +292,13 @@ endif()
 
 add_subdirectory(${QUICKJS_DIR} ${CMAKE_BINARY_DIR}/deps/quickjs-ng EXCLUDE_FROM_ALL)
 
+# test262 runner：quickjs-ng 子目录 EXCLUDE_FROM_ALL → 全量 build 默认不产出
+# run-test262（ctest test262_quickjs 会 "Not Run"）。测试开启时显式挂 ALL 依赖，
+# CI/本地默认构建即包含 runner。
+if(QWRT_BUILD_TESTS AND TARGET run-test262)
+  add_custom_target(qwrt_test262_runner ALL DEPENDS run-test262)
+endif()
+
 # Expose QWRT_DEBUG_SUPPORT on the qjs target so the engine's DEBUGGER_CHECK
 # dispatch hook compiles in (it's a no-op when the macro is undefined).
 if(QWRT_BUILD_DEBUGGER AND TARGET qjs)

@@ -2,7 +2,7 @@
  * （防重入 + 真实网络往返 serve()）③未 respondWith 回退网络。
  * keepalive interval 必需：CLI eval 返回后 wait_idle 需要 loop 上有活动
  * handle，纯 promise 链会被判 idle 提前 teardown（与 SW-0 main.js 同）。 */
-var SW_URL = 'file:///home/gem/project/qwrt/test/sw-e2e/sw-sw1.js';
+var SW_URL = 'file://__SW_DIR__/sw-sw1.js';
 var PORT = 18431;
 var keepalive = setInterval(function () {}, 50);
 
