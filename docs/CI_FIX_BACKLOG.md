@@ -9,29 +9,36 @@
   clang -Werror typedef 重定义（`src/qwrt_internal.h`）、SW e2e
   硬编码路径（`test/sw-e2e/main*.js` + 三脚本占位符注入）、test262
   runner EXCLUDE_FROM_ALL（顶层 ALL 依赖 target）。
-- 修复后 CI（run 34338481085）新绿：clang-tidy、e2e、minimal 配置。
+- 09-09 nightly 首跑（commit fcf38813）：test262 语料显式拉取——上游
+  quickjs-ng test262 submodule `update = none` 阻断 recursive checkout，
+  test262 job 已绿。
+- 修复后 CI 新绿：clang-tidy、e2e、minimal、ubsan(clang) Build、test262。
 
 ## 剩余（每次会话取一项，按序）
 
-1. **test262（新暴露）**：runner 现已产出但执行 Failed 0.00s——查
-   `ctest -L test262 --output-on-failure` 本地复现（build_citest），
-   根因候选：test262/test 子模块目录缺失（checkout recursive 是否拉全、
-   .gitmodules）、conf 路径。CI 日志：`gh run view 34338481085 --log-failed`。
-2. **ubsan (gcc)**：WAMR 上游 `deps/wamr/core/iwasm/interpreter/wasm_loader.c:9470`
+1. **coverage (gcov)**：`test_crypto_subtle_gtest.cpp:748` RSA-OAEP 3072
+   setup eval failed（仅此 job 红，其余 18 job 同 SHA 绿）——gcov 插桩下
+   mbedTLS 3072 密钥生成/解密超 host_eval 时限，间歇性。查 host_eval 超时
+   与 coverage job 的 timeout 配置；方向：加大该测试超时或拆分 setup。
+2. **ubsan (clang) Test**：`test_fetch_stream_gtest` 3 例 5s 超时
+   （ResponseHasReadableStreamBody / TextReadsFullStreamingBody /
+   RedirectManualStatusZero）——同 SHA 其余 job 全绿，UBSan 下 fetch 流式
+   路径慢 5 倍或真 UB。本地 clang+ubsan 复现，区分超时 vs sanitizer 报告。
+3. **ubsan (gcc)**：WAMR 上游 `deps/wamr/core/iwasm/interpreter/wasm_loader.c:9470`
    store to misaligned address（void*，需 8 对齐）——失败测试：
    test_wasm_streaming / test_wasm_imports / test_wasm_aot。方向：WAMR 本地
    patch（仓库已有 quickjs/wamr patch 先例，见 `deps/*.patch` 与 CMake
    apply 逻辑）对齐访问，或 CI 该 job 加 `-fno-sanitize=alignment` 豁免+
    理由注释。优先真修。
-3. **asan (default WAMR)**：`WebAssembly function: Exception: native stack
+4. **asan (default WAMR)**：`WebAssembly function: Exception: native stack
    overflow`（test_wasm_streaming 两例，5s 超时）——WAMR native stack 边界
    在 ASan 帧放大下误判。方向：exec_env 创建处调 stack size /
    `wasm_runtime_set_native_stack_boundary`，或 WAMR 配置宏。
-4. **wasm3**：`JS_FreeRuntime: Assertion list_empty(&gc_obj_list)` ×2
+5. **wasm3**：`JS_FreeRuntime: Assertion list_empty(&gc_obj_list)` ×2
    （test_wasm_streaming/test_wasm_imports，wasm3 引擎配置）——wasm3 集成
    在 ctx 释放前未清 QuickJS GC 引用。方向：`src/ext_web_wasm.c` wasm3 路径
    对象释放。
-5. （复验通过后）更新本文件与 BRAIN。
+6. （复验通过后）更新本文件与 BRAIN。
 
 ## 操作规约
 
