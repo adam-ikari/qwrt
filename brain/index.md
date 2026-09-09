@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-09T01:01:11.019Z._
+_Auto-generated. Last updated 2026-09-09T01:24:45.043Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
@@ -18,6 +18,7 @@ _Auto-generated. Last updated 2026-09-09T01:01:11.019Z._
 - [libuv-io-uring-workaround](pages/libuv-io-uring-workaround.md) — category: decision | tags: [libuv, io-uring, linux, workaround] | deps/libuv/src/unix/linux.c 有一处本地补丁（未提交到上游）：让 `UV_USE_IO_URING=0` 真正禁用 io_uring。
 - [oss-library-policy](pages/oss-library-policy.md) — category: decision | tags: [deps, policy, oss] | # 开源库引入与替换原则
 - [quickjs-upstream-merge-strategy](pages/quickjs-upstream-merge-strategy.md) — category: decision | tags: [build, upstream] | ## 现状
+- [qwrt-positioning](pages/qwrt-positioning.md) — category: decision | # qwrt 定位（用户拍板 2026-09-09）
 - [runtime-perf-baseline](pages/runtime-perf-baseline.md) — category: reference | tags: [perf, worker, runtime, baseline] | > **测试策略（2026-09-09 用户拍板）：性能基准一律在 CI 环境（GitHub Actions ubuntu-latest）执行，不使用本机。
 - [service-worker-stack](pages/service-worker-stack.md) — category: decision | # Service Worker 栈（SW-0/1/2/3）
 - [startup-memory-benchmark](pages/startup-memory-benchmark.md) — category: decision | tags: [f3, benchmark, memory] | ### F3 启动/内存基准（2026-08-27，commit 1ff03860）
