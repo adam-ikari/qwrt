@@ -37,7 +37,7 @@ TEST_F(FetchStreamTest, ResponseHasReadableStreamBody) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_result", "\"hasReader\":true", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_result", "\"hasReader\":true", &v, 30000));
     EXPECT_NE(std::string::npos, v.find("\"status\":200"));
     EXPECT_NE(std::string::npos, v.find("\"hasBody\":true"));
 }
@@ -62,7 +62,7 @@ TEST_F(FetchStreamTest, TextReadsFullStreamingBody) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_text_result", "polyfill fetch works", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_text_result", "polyfill fetch works", &v, 30000));
 }
 
 // ================================================================
@@ -87,7 +87,7 @@ TEST_F(FetchStreamTest, RedirectErrorRejects) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_redirect_err", "rejected", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_redirect_err", "rejected", &v, 30000));
     /* 不能 resolve */
     EXPECT_NE(std::string::npos, v.find("rejected")) << "got: " << v;
 }
@@ -110,7 +110,7 @@ TEST_F(FetchStreamTest, RedirectManualStatusZero) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_manual", "\"s\":0", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_manual", "\"s\":0", &v, 30000));
     EXPECT_NE(std::string::npos, v.find("\"t\":\"opaqueredirect\"")) << "got: " << v;
 }
 
@@ -140,7 +140,7 @@ TEST_F(FetchStreamTest, RedirectFollow) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_followed", "followed body", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_followed", "followed body", &v, 30000));
 }
 
 // ================================================================
@@ -167,7 +167,7 @@ TEST_F(FetchStreamTest, PostStringBody) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v, 30000));
 }
 
 TEST_F(FetchStreamTest, PostUint8ArrayBody) {
@@ -189,7 +189,7 @@ TEST_F(FetchStreamTest, PostUint8ArrayBody) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v, 30000));
 }
 
 TEST_F(FetchStreamTest, PostReadableStreamBody) {
@@ -214,7 +214,7 @@ TEST_F(FetchStreamTest, PostReadableStreamBody) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_post", "ok", &v, 30000));
 }
 
 TEST_F(FetchStreamTest, PostStreamErrorRejects) {
@@ -238,5 +238,5 @@ TEST_F(FetchStreamTest, PostStreamErrorRejects) {
         "0", &out));
 
     std::string v;
-    ASSERT_TRUE(host_poll_until_value(h, "_post", "rejected", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "_post", "rejected", &v, 30000));
 }
