@@ -745,7 +745,12 @@ crypto.subtle.generateKey({name:'RSA-OAEP', modulusLength:3072, hash:'SHA-256'},
   });
 'go'
 )";
-    if (!host_eval(h, code.c_str(), &v)) { FAIL() << "3072 setup eval failed"; }
+    /* gcov 插桩（-O0 --coverage）下 mbedTLS 3072 位 keygen 实测 5-6s
+     * （GH runner 上曾达 5.7s），且 polyfill 在 eval 的同步段内直接调用
+     * nativeRsaGenerateKey —— 全部耗时计入本次 host_eval 的超时预算，
+     * 故这里不能用默认 5000ms（749 行的 poll 预算只覆盖异步段）。
+     * 取 30000ms 与下方 poll 预算对齐。 */
+    if (!host_eval(h, code.c_str(), &v, 30000)) { FAIL() << "3072 setup eval failed"; }
     ASSERT_TRUE(host_poll_until_value(h, "_e", "\"match\":true", &v, 30000));
     EXPECT_NE(std::string::npos, v.find("\"ctLen\":384")) << "got: " << v;
 }
