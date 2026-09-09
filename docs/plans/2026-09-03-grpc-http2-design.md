@@ -291,7 +291,7 @@ channel.invoke(method, request, opts?) → Promise     // unary RPC
 
 - C 小改：`tcpListen` TLS 加 ALPN（G4）；明文路径由 JS 嗅探连接前导 `PRI * HTTP/2.0` 自动切 h2。
 - JS 新增服务端 h2 引擎（编码侧 HPACK 现在需要动态表/可索引优化）+ gRPC 服务端语义（解析请求头/消息、回响应 + trailers、并发流、流控）。
-- **决策点 D-HPACK**：此阶段前评估是否把 HPACK 下沉 C（`pal.hpackEncode/hpackDecode` 原语，复用 miniz 扩展模式）——服务端要编解码大量头且多路并发，C 更稳更快；JS 接口不变。
+- **决策点 D-HPACK**：此阶段前评估是否把 HPACK 下沉 C（`pal.hpackEncode/hpackDecode` 原语，复用 miniz 扩展模式）——服务端要编解码大量头且多路并发，C 更稳更快；JS 接口不变。下沉决策依据 `docs/architecture/c-js-layering.md` 灰区判据（§4 Q3：实测瓶颈 + 接口稳定 + JS 接口不变）评估。
 - **量级**：~800-1200 行 JS + 可选 ~150-250 行 C。**1.5-3 周**。
 
 ---
