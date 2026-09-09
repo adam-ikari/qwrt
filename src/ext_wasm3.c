@@ -127,6 +127,66 @@ static void wasm3_memory_finalizer(JSRuntime *rt, JSValue val);
 static void wasm3_table_finalizer(JSRuntime *rt, JSValue val);
 static void wasm3_global_finalizer(JSRuntime *rt, JSValue val);
 
+/* gc_mark：向 QuickJS 循环收集器暴露 opaque 内 JSValue 强边（quickjs-ng
+ * mark_children 走 class gc_mark）。缺失时 module↔instance 互持环、
+ * exports 闭包→instance、import closure→js_func、table elements 等边对
+ * GC 不可见 → 引用环不可回收 → JS_FreeRuntime 断言 gc_obj_list 非空。
+ * JS_GetOpaque 需正确 class_id（finalizer 同款）。 */
+static void wasm3_module_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
+{
+    qwrt_t *q = qwrt_get_rt_from_jsrt(rt);
+    wasm3_module_wrap_t *w = q ? (wasm3_module_wrap_t *)JS_GetOpaque(val, q->wasm3_module_class_id) : NULL;
+    if (w) JS_MarkValue(rt, w->instance_ref, mark_cb);
+}
+
+static void wasm3_instance_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
+{
+    qwrt_t *q = qwrt_get_rt_from_jsrt(rt);
+    wasm3_instance_wrap_t *w = q ? (wasm3_instance_wrap_t *)JS_GetOpaque(val, q->wasm3_instance_class_id) : NULL;
+    if (w) {
+        JS_MarkValue(rt, w->module_obj, mark_cb);
+        JS_MarkValue(rt, w->import_closures, mark_cb);
+    }
+}
+
+static void wasm3_func_closure_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
+{
+    qwrt_t *q = qwrt_get_rt_from_jsrt(rt);
+    wasm3_func_closure_t *w = q ? (wasm3_func_closure_t *)JS_GetOpaque(val, q->wasm3_func_closure_class_id) : NULL;
+    if (w) JS_MarkValue(rt, w->instance_ref, mark_cb);
+}
+
+static void wasm3_import_closure_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
+{
+    qwrt_t *q = qwrt_get_rt_from_jsrt(rt);
+    wasm3_import_closure_t *w = q ? (wasm3_import_closure_t *)JS_GetOpaque(val, q->wasm3_import_closure_class_id) : NULL;
+    if (w) JS_MarkValue(rt, w->js_func, mark_cb);
+}
+
+static void wasm3_memory_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
+{
+    qwrt_t *q = qwrt_get_rt_from_jsrt(rt);
+    wasm3_memory_wrap_t *w = q ? (wasm3_memory_wrap_t *)JS_GetOpaque(val, q->wasm3_memory_class_id) : NULL;
+    if (w) JS_MarkValue(rt, w->instance_ref, mark_cb);
+}
+
+static void wasm3_table_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
+{
+    qwrt_t *q = qwrt_get_rt_from_jsrt(rt);
+    wasm3_table_wrap_t *w = q ? (wasm3_table_wrap_t *)JS_GetOpaque(val, q->wasm3_table_class_id) : NULL;
+    if (w && w->elements) {
+        for (u32 i = 0; i < w->current_size; i++)
+            JS_MarkValue(rt, w->elements[i], mark_cb);
+    }
+}
+
+static void wasm3_global_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
+{
+    qwrt_t *q = qwrt_get_rt_from_jsrt(rt);
+    wasm3_global_wrap_t *w = q ? (wasm3_global_wrap_t *)JS_GetOpaque(val, q->wasm3_global_class_id) : NULL;
+    if (w) JS_MarkValue(rt, w->instance_ref, mark_cb);
+}
+
 static JSValue wasm3_table_length_get(JSContext *ctx, JSValueConst this_val);
 static JSValue wasm3_table_get(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv);
@@ -225,6 +285,7 @@ static void wasm3_register_classes(qwrt_t *rt, JSContext *ctx)
     JSClassDef module_class = {
         .class_name = "WebAssembly.Module",
         .finalizer = wasm3_module_finalizer,
+        .gc_mark = wasm3_module_gc_mark,
     };
     JS_NewClass(jsrt, rt->wasm3_module_class_id, &module_class);
 
@@ -232,6 +293,7 @@ static void wasm3_register_classes(qwrt_t *rt, JSContext *ctx)
     JSClassDef instance_class = {
         .class_name = "WebAssembly.Instance",
         .finalizer = wasm3_instance_finalizer,
+        .gc_mark = wasm3_instance_gc_mark,
     };
     JS_NewClass(jsrt, rt->wasm3_instance_class_id, &instance_class);
 
@@ -239,6 +301,7 @@ static void wasm3_register_classes(qwrt_t *rt, JSContext *ctx)
     JSClassDef func_closure_class = {
         .class_name = "WASMFuncClosure",
         .finalizer = wasm3_func_closure_free,
+        .gc_mark = wasm3_func_closure_gc_mark,
     };
     JS_NewClass(jsrt, rt->wasm3_func_closure_class_id, &func_closure_class);
 
@@ -246,6 +309,7 @@ static void wasm3_register_classes(qwrt_t *rt, JSContext *ctx)
     JSClassDef import_closure_class = {
         .class_name = "WASMImportClosure",
         .finalizer = wasm3_import_closure_free,
+        .gc_mark = wasm3_import_closure_gc_mark,
     };
     JS_NewClass(jsrt, rt->wasm3_import_closure_class_id, &import_closure_class);
 
@@ -253,6 +317,7 @@ static void wasm3_register_classes(qwrt_t *rt, JSContext *ctx)
     JSClassDef memory_class = {
         .class_name = "WebAssembly.Memory",
         .finalizer = wasm3_memory_finalizer,
+        .gc_mark = wasm3_memory_gc_mark,
     };
     JS_NewClass(jsrt, rt->wasm3_memory_class_id, &memory_class);
 
@@ -260,6 +325,7 @@ static void wasm3_register_classes(qwrt_t *rt, JSContext *ctx)
     JSClassDef table_class = {
         .class_name = "WebAssembly.Table",
         .finalizer = wasm3_table_finalizer,
+        .gc_mark = wasm3_table_gc_mark,
     };
     JS_NewClass(jsrt, rt->wasm3_table_class_id, &table_class);
 
@@ -267,6 +333,7 @@ static void wasm3_register_classes(qwrt_t *rt, JSContext *ctx)
     JSClassDef global_class = {
         .class_name = "WebAssembly.Global",
         .finalizer = wasm3_global_finalizer,
+        .gc_mark = wasm3_global_gc_mark,
     };
     JS_NewClass(jsrt, rt->wasm3_global_class_id, &global_class);
 }
@@ -1121,11 +1188,15 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
     if (!runtime) {
         return JS_ThrowOutOfMemory(ctx);
     }
-
     /* Load module into the runtime — this transfers ownership */
     M3Result result = m3_LoadModule(runtime, mod_wrap->module);
     if (result) {
         m3_FreeRuntime(runtime);
+        if (mod_wrap->module->memoryImported) {
+            return JS_ThrowTypeError(ctx,
+                "WebAssembly.Instance: memory import requires an imported "
+                "Memory object (wasm3 memory import not yet supported)");
+        }
         return JS_ThrowTypeError(ctx, "WebAssembly.Instance: %s", result);
     }
     /* The instance runtime now owns the parsed module; mark it so the module
@@ -1951,15 +2022,12 @@ static int wasm3_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 static void wasm3_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
 {
     (void)ext;
-    /* Reset class IDs so JS_NewClassID allocates fresh ones for the next runtime */
-    rt->wasm3_module_class_id = 0;
-    rt->wasm3_instance_class_id = 0;
-    rt->wasm3_func_closure_class_id = 0;
-    rt->wasm3_import_closure_class_id = 0;
-    rt->wasm3_memory_class_id = 0;
-    rt->wasm3_table_class_id = 0;
-    rt->wasm3_global_class_id = 0;
-
+    /* 注意：不能在这里清空 wasm3_*_class_id——qwrt teardown 顺序是
+     * ctx_destroy（含本 destroy）→ JS_FreeRuntime，而 JS_FreeRuntime 内部
+     * 的 JS_RunGC 依赖 gc_mark 用 class_id 经 JS_GetOpaque 取 wrap；清零后
+     * gc_mark 全部失效 → module↔instance 环不可收集 → 断言 gc_obj_list
+     * 非空。每个 runtime 是全新 qwrt_t（calloc，字段天然 0），JS_NewClassID
+     * 在 register_classes 里重新分配，无需手动重置。 */
     /* Free the wasm3 environment (was previously leaked) */
     if (rt->wasm3_env) {
         m3_FreeEnvironment((IM3Environment)rt->wasm3_env);
