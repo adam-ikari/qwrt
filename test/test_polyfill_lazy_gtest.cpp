@@ -393,15 +393,16 @@ TEST_F(PolyfillLazyTest, CascadeServiceWorker) {
     EXPECT_TRUE(has(out, "\"mType\":\"function\"")) << out;
 }
 
-// 13. 级联：访问 WebSocket → CS（CryptoKey/SubtleCrypto/crypto.subtle）先行
-//     物化。mock-libuv（无 pal.tcpConnect）下 WS 面与 eager 一样缺席——本
-//     测试锚定的是级联副作用而非 WS 本体（真网络构建见 e2e）。
+// 13. 级联：访问 WebSocket → CS 单元 ensure 先行执行——crypto.subtle 从
+//     accessor 退化为数据属性且身份稳定、'subtle' in crypto 恒真。断言与
+//     CRYPTO_EXT 无关：ON 时 subtle=SubtleCrypto 实例、CryptoKey/SubtleCrypto
+//     类存在；OFF 时 subtle=undefined、类缺席（与 eager 语义一致）——两类
+//     环境下 subData/subtleIn/stable/preAcc 均成立。mock-libuv（无
+//     pal.tcpConnect）下 WS 本体缺席，不断言（真网络构建见 e2e）。
 TEST_F(PolyfillLazyTest, CascadeWebSocketCryptoSubtle) {
     std::string out;
     ASSERT_TRUE(host_value(h, kCascadeWS, &out));
     EXPECT_TRUE(has(out, "\"preAcc\":true")) << out;
-    EXPECT_TRUE(has(out, "\"ckData\":true")) << out;
-    EXPECT_TRUE(has(out, "\"stData\":true")) << out;
     EXPECT_TRUE(has(out, "\"subData\":true")) << out;
     EXPECT_TRUE(has(out, "\"subtleIn\":true")) << out;
     EXPECT_TRUE(has(out, "\"stable\":true")) << out;
@@ -415,4 +416,54 @@ TEST_F(PolyfillLazyTest, GrpcOffSurfaceAbsent) {
     EXPECT_TRUE(has(out, "\"http2Absent\":true")) << out;
     EXPECT_TRUE(has(out, "\"qwrtHost\":true")) << out;
     EXPECT_TRUE(has(out, "\"fsIn\":true")) << out;
+}
+
+// setter 语义（§2.5 / lazy.js）：lazy 期间对 accessor 赋值 → ensure 先物化再
+// 落值（monkey-patch 与 eager 一致）；产物为数据属性、身份稳定、覆盖生效。
+const char *kSetterProbe = R"JS((function () {
+  globalThis.URLPattern = function FakePattern() {};
+  var d = Object.getOwnPropertyDescriptor(globalThis, 'URLPattern');
+  return JSON.stringify({
+    data: !!(d && 'value' in d && !d.get),
+    writable: !!(d && d.writable),
+    fn: (typeof globalThis.URLPattern === 'function'),
+    name: globalThis.URLPattern.name,
+    stable: (globalThis.URLPattern === globalThis.URLPattern)
+  });
+})())JS";
+// localStorage 特殊面：materialize 后为 writable:false 数据属性——strict 赋值
+// 抛 TypeError（与 eager 一致，见 local-storage.js defineProperty）。
+const char *kLocalStorageProbe = R"JS((function () {
+  'use strict';
+  var ls = globalThis.localStorage;
+  var d = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  var err = null;
+  try { globalThis.localStorage = {}; } catch (e) { err = e.name; }
+  return JSON.stringify({
+    data: !!(d && 'value' in d && !d.get),
+    writable: !!(d && d.writable),
+    err: err,
+    lsType: typeof ls
+  });
+})())JS";
+
+// 15. setter 先 ensure 再落值（monkey-patch 与 eager 同语义）。
+TEST_F(PolyfillLazyTest, SetterMaterializeThenAssign) {
+    std::string out;
+    ASSERT_TRUE(host_value(h, kSetterProbe, &out));
+    EXPECT_TRUE(has(out, "\"data\":true")) << out;
+    EXPECT_TRUE(has(out, "\"writable\":true")) << out;
+    EXPECT_TRUE(has(out, "\"fn\":true")) << out;
+    EXPECT_TRUE(has(out, "\"name\":\"FakePattern\"")) << out;
+    EXPECT_TRUE(has(out, "\"stable\":true")) << out;
+}
+
+// 16. localStorage non-writable：materialize 后 strict 赋值抛 TypeError。
+TEST_F(PolyfillLazyTest, LocalStorageNonWritable) {
+    std::string out;
+    ASSERT_TRUE(host_value(h, kLocalStorageProbe, &out));
+    EXPECT_TRUE(has(out, "\"data\":true")) << out;
+    EXPECT_TRUE(has(out, "\"writable\":false")) << out;
+    EXPECT_TRUE(has(out, "\"err\":\"TypeError\"")) << out;
+    EXPECT_TRUE(has(out, "\"lsType\":\"object\"")) << out;
 }

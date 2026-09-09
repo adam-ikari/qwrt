@@ -1,14 +1,6 @@
 (function(pal) {
   // src/pal.js
 // src/lazy.js
-  function once(fn) {
-    var done = false;
-    return function() {
-      if (done) return;
-      done = true;
-      fn();
-    };
-  }
   function installLazy(name, ensure) {
     Object.defineProperty(globalThis, name, {
       configurable: true,
@@ -38,13 +30,25 @@
     });
   }
   function lazyUnit(globalNames, props, setup) {
-    var ensure = once(function() {
+    var done = false;
+    function install() {
+      for (var k = 0; k < globalNames.length; k++) installLazy(globalNames[k], ensure);
+      for (var m = 0; m < props.length; m++) installLazyProp(props[m][0], props[m][1], ensure);
+    }
+    function ensure() {
+      if (done) return;
+      done = true;
       for (var i = 0; i < globalNames.length; i++) delete globalThis[globalNames[i]];
       for (var j = 0; j < props.length; j++) delete props[j][0][props[j][1]];
-      setup();
-    });
-    for (var k = 0; k < globalNames.length; k++) installLazy(globalNames[k], ensure);
-    for (var m = 0; m < props.length; m++) installLazyProp(props[m][0], props[m][1], ensure);
+      try {
+        setup();
+      } catch (e) {
+        install();
+        done = false;
+        throw e;
+      }
+    }
+    install();
     return ensure;
   }
 
@@ -578,13 +582,13 @@
           throw new TypeError("Callback must be a function or object");
         }
         let capture = false;
-        let once2 = false;
+        let once = false;
         let passive = false;
         if (typeof options === "boolean") {
           capture = options;
         } else if (typeof options === "object" && options !== null) {
           capture = options.capture ?? false;
-          once2 = options.once ?? false;
+          once = options.once ?? false;
           passive = options.passive ?? false;
         }
         const key = type + (capture ? ":capture" : "");
@@ -599,7 +603,7 @@
         }
         listenerList.push({
           callback,
-          once: once2,
+          once,
           passive
         });
       }

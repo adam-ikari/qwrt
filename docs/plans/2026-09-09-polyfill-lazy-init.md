@@ -125,7 +125,7 @@ BC（broadcast）、UP（url-pattern）、FS/ST（qwrt 扩展）个体极薄，�
 
 懒加载对 JS 消费者必须完全无感——任何 JS 代码不得观察到 lazy 与 eager 的差异。以下 8 条为硬契约，由 `test/test_polyfill_lazy_gtest.cpp`（透明性测试）逐条钉住：
 
-1. **属性可见性**：首次访问前 `name in globalThis` 为 true、`typeof` 与 eager 一致、`Object.keys`/`for...in`/`Object.getOwnPropertyNames` 均包含该 name（getter `enumerable:true`）——不得出现"属性不存在"的中间态。
+1. **属性可见性**：首次访问前 `name in globalThis` 为 true、`typeof` 与 eager 一致、`Object.keys`/`for...in`/`Object.getOwnPropertyNames` 均包含该 name（getter `enumerable:true`）——不得出现"属性不存在"的中间态。**能力门控例外**：运行时能力缺失（如 mock/无网络构建下 `pal.tcpConnect` 缺席 → setupWebSocket 空转、WS 面 eager 全程缺席）或 OFF 扩展（`QWRT_WITH_CRYPTO_EXT=OFF` → crypto.subtle=undefined own 属性、CryptoKey/SubtleCrypto 类缺席）——lazy 下首访前 accessor 可见、首访后与 eager 一致（缺席或 undefined），能力探测语义与 eager 等价，不属契约违反。
 2. **首次访问后退化为数据属性**：descriptor 的 writable/configurable/enumerable 与 eager 安装结果**逐位一致**；此后任何访问不再触发任何副作用（getter 已被 delete，属性稳定为 data property）。
 3. **函数身份**：首次访问后 `fn.name`/`fn.length`/`fn.prototype` 与 eager 一致；多次访问返回同一引用（稳定）。
 4. **类**：`instanceof` 正常、`constructor.name` 一致、`new X()` 正常、`X.prototype` 引用稳定。
