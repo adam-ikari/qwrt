@@ -2,6 +2,7 @@
 
 > 状态：**已落地并出首轮实测（commit f4ab5776，机器 Ryzen 5800H，build/qwrt Release）**。首轮实测证伪了 §1.2/§2 的 ≫10×、10~50× 量级期望（预测被证伪处已标注「预测被证伪、实测为真」），并触发多进程模型 §1.4/§12.2/开放决策点 #1 修订。
 > 修订：2026-09-08 —— 实测落档：判据映射表（§2）期望形态更新为实测形态（spawn ready 1.51×、往返 0B/1KB/64KB 1.19×/1.00×/0.97×、terminate 1353×、吞吐 0.3×、worker VmHWM 13.1 vs 22.4MB）；§4.2 比值阈值口径、§5.1 反哺职责、§6 验收 #3 同步更新。
+> 修订：2026-09-09 —— **测试环境策略：性能基准仅 CI 环境（用户拍板），本机数值降级为历史参考**，详见 §0。
 > 日期：2026-09-04
 > 范围：qwrt 运行时核心（启动、eval、内存）+ Worker 子系统（spawn 延迟、postMessage 往返/吞吐、terminate），双后端（THREAD vs PROCESS）对照实证多进程模型 §1.4 判据表与 §12.2 性能实测。
 > 参照：`test/bench_httpserver.py` + `.github/workflows/ci.yml` httpserver-perf job（阈值=基线 50% 模式）；`docs/plans/2026-09-04-multi-process-model.md`（下文简称「多进程模型」）。
@@ -10,8 +11,18 @@
 1. **双层 harness**：JS 层跑被测路径（`performance.now()` 计时，`pal.hrtime` ns 精度），Python 驱动管进程/后端切换/采样统计/输出 JSON——完全沿用 bench_httpserver.py 的「最后一行 JSON + CI 阈值检查」模式。进程 worker 场景必须 real-libuv Release 构建（mock_libuv 无 `uv_pipe_t`，进程路径 `#ifndef QWRT_USE_MOCK_LIBUV` 不编，多进程模型 §10.1）。
 2. **双后端对照 = 同一套 JS 脚本跑两遍**：`QWRT_WORKER_BACKEND` 未设（THREAD）与 `=process`（PROCESS）下各自采样，驱动输出比值。JS 层零改动、零条件分支——正是 §1.4「JS 无感」铁线在基准上的镜像。
 3. **CI 先观察后守门**：μs 级延迟在共享 runner 上噪声远大于 httpserver 的 rps 吞吐（rps 阈值已放宽到 50% 仍可能 flaky）。`runtime-perf` job 首期 `continue-on-error: true` 纯记录 + 人工基线，跑出 3 次以上稳定样本后收紧为「spawn/往返 ≤ 2× 基线」硬门。
+4. **基准环境**：性能基准一律在 CI 环境（GitHub Actions ubuntu-latest）执行，**本机不测**（用户指令 2026-09-09）；本机仅做开发期 `--quick` 冒烟（§0）。
 
 ---
+# 0. 测试环境策略（性能基准仅 CI 环境，本机不测）
+
+> **用户指令（2026-09-09）：性能基准一律在 CI 环境（GitHub Actions ubuntu-latest）测试，不使用本机。**
+
+**为什么不用本机**：本机（PVE 容器 / Ryzen 5800H）数值不可复现——宿主机 PVE 竞争 load 8-15 使基准随邻居负载漂移；历史数值 Debug/Release 混用（R1 ASan 40-73ms vs Release 15.9ms）；本机环境随时间漂移（依赖/内核/容器配额）。CI runner（ubuntu-latest）机器一致、每次全新、构建与数值口径统一，是**唯一权威基线来源**。
+
+**本机的角色**：仅开发期快速冒烟——`--quick` 验证 harness 能跑（脚本不崩、输出合法 JSON）；本机冒烟数值**不作权威基线、不记录为基线**、不写入 brain 页。
+
+**既有本机记录的处置**：本文档所有本机测量（§2 判据表实测、§8 跨运行时对比、f4ab5776 首轮、2026-09-09 复跑）均标注为**一次性本机测量（历史参考）**，权威基线以 CI 为准（brain 页 `runtime-perf-baseline` 的 CI 环境基线段）；新基线一律从 CI 首跑成功 run 回填。
 
 # 1. 基准目标与范围
 
@@ -132,7 +143,7 @@ async function pingPong(w, buf, iters) {
 
 ## 3.5 对照基线与记录
 
-- **基线定义**：固定 commit + 固定机器（开发机 PVE 6.17 / Ryzen 5800H 与 CI runner 各记一套）+ 固定构建类型（Release）。
+- **基线定义**：固定 commit + **固定机器（仅 CI runner，ubuntu-latest）** + 固定构建类型（Release）——本机不作基线（§0）。
 - **记录位置**：brain 决策页 `runtime-perf-baseline`（仿 `httpserver-perf-baseline` 格式：date/commit/machine/数值表），或扩展 `startup-memory-benchmark` 页（其现有 ASan 启动基线 40–73ms 与本方案 R1 直接相关，Release 重测后更新之）。
 
 ---
@@ -240,7 +251,7 @@ async function pingPong(w, buf, iters) {
 
 # 8. 跨运行时对比（qwrt vs Node/Bun/Txiki）
 
-> 状态：**已落地并出首轮实测**（2026-09-09，本机 sandbox-001 / Ryzen 5800H / PVE 6.17，qwrt = build_rel Release）。新增驱动 `test/bench_cross_runtime.py` + JS 基准 `test/bench/runtime/bench-eval-cross.js`（所有运行时加载同一份代码）。Txiki 系源码构建（gcc-12 工具链，见 §8.4）。
+> 状态：**已落地并出首轮实测**（2026-09-09，本机 sandbox-001 / Ryzen 5800H / PVE 6.17，qwrt = build_rel Release，**一次性本机测量·历史参考，§0**）。新增驱动 `test/bench_cross_runtime.py` + JS 基准 `test/bench/runtime/bench-eval-cross.js`（所有运行时加载同一份代码）。Txiki 系源码构建（gcc-12 工具链，见 §8.4）。**权威跨运行时基线见 CI `cross-runtime` job（node/bun）**。
 
 ## 8.1 动机与范围
 
@@ -260,7 +271,7 @@ qwrt 定位是**嵌入式 QuickJS 运行时**（小内存、快启动）；对�
 - **同一负载**：R6 warmup 3 + 采样 5 取中位数，iter=10^6（JIT 运行时已被充分预热——预热与迭代数正是「JIT vs 解释器」差别的诚实呈现，不另做预跑预热）；R1 `<bin> -e/... 'console.log(1)'` ×5 取中位数；R5 进程跑 eval 期间轮询 `/proc/<pid>/status` VmHWM（无 GNU time，沿用 bench_runtime.py 的 VmHWM 轮询法）。
 - **同一冷进程**：R1/R5/R6 全部冷启动进程测量（用户视角真实数字），JIT 运行时不做「预热后计时」偏袒处理。
 
-## 8.3 实测（2026-09-09，本机，qwrt = build_rel Release / node v22.22.2 / bun 1.3.14 / tjs v26.6.0）
+## 8.3 实测（2026-09-09，本机，**一次性测量·历史参考**——权威基线见 CI cross-runtime job；qwrt = build_rel Release / node v22.22.2 / bun 1.3.14 / tjs v26.6.0）
 
 驱动：`python3 test/bench_cross_runtime.py --bins qwrt=./build_rel/qwrt,node=$(which node),bun=$(which bun),tjs=/tmp/tjs-src/build/tjs`
 
@@ -288,9 +299,9 @@ qwrt 定位是**嵌入式 QuickJS 运行时**（小内存、快启动）；对�
 
 ## 8.4 环境注记
 
-- **Txiki.js 构建成本高**：官方 release 无 linux 预编译包（仅 macOS/Windows），需源码构建；本机踩坑两处——mbedtls 内嵌 submodule（framework）需单独 `git submodule update --init`；**GCC 11 编译 ada.h 失败**（`constexpr std::string_view` 转换需 GCC 12+ 的 libstdc++），装 g++-12 后通过；另 `-Werror` 与 GCC 不识 `#pragma region`（上游 bug，clang 才认识）需本地 patch `-Wno-unknown-pragmas`。CI 上加 tjs 的成本 = apt 装 g++-12 + 约 3 分钟源码构建，**暂不建议入 CI**（本机数据为主；Node runner 自带、bun 可 curl 装，若未来要加，只加 node/bun 两个轻量项）。
+- **Txiki.js 构建成本高**：官方 release 无 linux 预编译包（仅 macOS/Windows），需源码构建；本机踩坑两处——mbedtls 内嵌 submodule（framework）需单独 `git submodule update --init`；**GCC 11 编译 ada.h 失败**（`constexpr std::string_view` 转换需 GCC 12+ 的 libstdc++），装 g++-12 后通过；另 `-Werror` 与 GCC 不识 `#pragma region`（上游 bug，clang 才认识）需本地 patch `-Wno-unknown-pragmas`。**tjs 暂不入 CI**（构建成本：apt 装 g++-12 + 约 3 分钟源码构建；一次性本机对比已记录 §8.3）；**node/bun 已入 CI `cross-runtime` job**（node ubuntu runner 预装、bun 官方 curl 安装脚本，见 ci.yml）。
 - **tjs CLI 差异**：v26.6.0 起改用子命令 `tjs eval 'expr'` / `tjs run script.js [args]`，脚本参数经 `tjs.args`（全 argv）暴露——bench-eval-cross.js 与驱动均按此适配。
-- **本机绝对数值低于 CI**（qwrt int 28 vs CI 52 M ops/s）：CI runner（ubuntu-latest）与本机 PVE sandbox 的 CPU/调度差异，比值结论不受影响。
+- **本机与 CI 绝对数值有差异**（qwrt int 28 vs CI 52 M ops/s）：CI runner（ubuntu-latest）与本机 PVE sandbox 的 CPU/调度差异所致——这正是不用本机作基线的原因（§0）；比值类结论（相对 qwrt）跨机器仍稳健。
 
 ---
 

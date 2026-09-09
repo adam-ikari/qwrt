@@ -474,6 +474,80 @@ jobs:
           path: /tmp/runtime-perf.json
 
   # ============================================================================
+  # Cross-runtime performance: qwrt vs node vs bun (R1 cold start / R6 eval /
+  # R5 peak RSS), driven by test/bench_cross_runtime.py with the shared
+  # test/bench/runtime/bench-eval-cross.js. Per the test-env policy (design doc
+  # §0) benchmarks run in CI only — local numbers are one-off history, the
+  # authoritative baseline comes from this job. tjs is excluded: building it
+  # needs gcc-12 + mbedtls submodule + a patch (design doc §8.4). No polyfill
+  # rebuild — bench_cross_runtime.py only needs build/qwrt (polyfill embedded
+  # at compile time from the committed src/polyfill_default.c) plus the
+  # committed dist and bench-eval-cross.js, so no npm ci / qjsc step (lesson
+  # from the runtime-perf qjsc-order failures). continue-on-error: observe-only.
+  cross-runtime:
+    runs-on: ubuntu-latest
+    name: cross-runtime perf (qwrt/node/bun)
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Install Node (pinned for baseline reproducibility)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure (Release, real-libuv CLI)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQWRT_BUILD_TESTS=OFF \
+            -DQWRT_WITH_TLS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Install Bun
+        run: curl -fsSL https://bun.sh/install | bash
+
+      - name: Benchmark cross-runtime (qwrt/node/bun)
+        run: |
+          export PATH="$HOME/.bun/bin:$PATH"
+          python3 test/bench_cross_runtime.py \
+            --bins "qwrt=./build/qwrt,node=$(which node),bun=$(which bun)" \
+            --quick --json /tmp/cross-runtime.json | tee /tmp/cross-runtime.out
+
+      - name: Summarize
+        run: |
+          python3 - <<'EOF'
+          import json
+          d = json.load(open('/tmp/cross-runtime.json'))
+          for name in ('qwrt', 'node', 'bun'):
+              r = d['runtimes'].get(name)
+              if not r:
+                  print('%s: (no data)' % name)
+                  continue
+              print('%s: r1=%.2f ms  int=%.2f closure=%.2f str=%.2f M ops/s  rss=%s KB'
+                    % (name, r['r1']['median_ms'], r['eval']['int_mops'],
+                       r['eval']['closure_mops'], r['eval']['str_mops'],
+                       r['peak_rss_kb']))
+          for name, v in d.get('vs_qwrt', {}).items():
+              print('%s vs qwrt: r1=%.2fx int=%.2fx rss=%.2fx'
+                    % (name, v['r1_x'], v['int_mops_x'], v['peak_rss_kb_x']))
+          EOF
+
+      - name: Upload perf JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-runtime-json
+          path: /tmp/cross-runtime.json
+  # ============================================================================
   # e2e: real-libuv CLI (QWRT_BUILD_TESTS=OFF) driving the four standalone e2e
   # suites plus the pure-JS verification harnesses (node only, no C build).
   # Mock-libuv builds (QWRT_BUILD_TESTS=ON) have no real networking — the CLI
