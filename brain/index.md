@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-09T02:30:15.877Z._
+_Auto-generated. Last updated 2026-09-09T03:37:45.346Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [c-js-layering](pages/c-js-layering.md) — category: decision | tags: [arch, layering, policy] | # C/JS 分层原则与标准（判据摘要）
@@ -22,6 +22,7 @@ _Auto-generated. Last updated 2026-09-09T02:30:15.877Z._
 - [qwrt-positioning](pages/qwrt-positioning.md) — category: decision | # qwrt 定位（用户拍板 2026-09-09）
 - [runtime-perf-baseline](pages/runtime-perf-baseline.md) — category: reference | tags: [perf, worker, runtime, baseline] | > **测试策略（2026-09-09 用户拍板）：性能基准一律在 CI 环境（GitHub Actions ubuntu-latest）执行，不使用本机。
 - [service-worker-stack](pages/service-worker-stack.md) — category: decision | # Service Worker 栈（SW-0/1/2/3）
+- [standard-source-policy](pages/standard-source-policy.md) — category: decision | tags: [standard, policy, wintertc, webrtc, w3c] | # qwrt 标准来源策略（用户拍板 2026-09-09）
 - [startup-memory-benchmark](pages/startup-memory-benchmark.md) — category: decision | tags: [f3, benchmark, memory] | ### F3 启动/内存基准（2026-08-27，commit 1ff03860）
 - [streams-b3-semantics](pages/streams-b3-semantics.md) — category: decision | tags: [streams, wintertc, ecma-429] | - **背景**：ROADMAP B3（streams 覆盖）对照 WHATWG Streams 语义审计 polyfill/src/streams.js，发现 pipeTo/tee/pipeThrough/releaseLock 四处真实缺口。
 - [test262-ctest-fix](pages/test262-ctest-fix.md) — category: decision | tags: [test262, ctest, cmake] | ## 现象
