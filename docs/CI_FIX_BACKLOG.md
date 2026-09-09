@@ -1,62 +1,32 @@
 # CI 修复 Backlog（nightly 2 点自动任务交接）
 
-例行任务：每晚 02:00 开始调查与修复 CI 失败，直到全绿。本文件由调度
-`scripts/ci-nightly.sh` 拉起的 omp 无头会话读取，作为起点上下文。
+## 状态：✅ 全部完成（2026-09-09/10 nightly + 主会话连续修复）
 
-## 已完成（勿重做）
+CI 已全绿（run 34395551179 = ALL-GREEN，19 个 job 零失败）。
+本 backlog 退出例行模式，转为归档记录。
 
-- 09-09：低成本三项（commit 75f3c47a）——
-  clang -Werror typedef 重定义（`src/qwrt_internal.h`）、SW e2e
-  硬编码路径（`test/sw-e2e/main*.js` + 三脚本占位符注入）、test262
-  runner EXCLUDE_FROM_ALL（顶层 ALL 依赖 target）。
-- 09-09 nightly 首跑（commit fcf38813）：test262 语料显式拉取——上游
-  quickjs-ng test262 submodule `update = none` 阻断 recursive checkout，
-  test262 job 已绿。
-- 修复后 CI 新绿：clang-tidy、e2e、minimal、ubsan(clang) Build、test262。
-- 09-09 nightly 第二跑（commit b4d9a290）：coverage (gcov) 转绿——
-  `test_crypto_subtle_gtest.cpp:748` RSA-OAEP 3072 setup eval 超时
-  5s→30s。根因：polyfill 在 eval 同步段内直接调
-  `pal.nativeRsaGenerateKey`，gcov `-O0 --coverage` 下 3072 keygen
-  实测 5-6s（GH runner 5672ms > 默认 5000ms 预算），非功能缺陷也非
-  sanitizer 报告。本地 build_cov 复现 + 8 路满载压力 0.8-2.3s 复核；
-  同 SHA 失败面 4 项无新增。
+## 已完成清单（按修复顺序）
 
-## 剩余（每次会话取一项，按序）
+| # | 提交 | 问题 | 根因与修复 |
+|---|---|---|---|
+| 1 | 75f3c47a | clang-tidy / ubsan(clang) Build | `qwrt_internal.h` typedef `qwrt_ctx_t` 重复（C11 特性，clang -Werror）→ struct 定义去尾部别名 |
+| 2 | 75f3c47a | e2e — Service Worker | `test/sw-e2e/main*.js` 硬编码 `/home/gem/...` 本机路径 → `__SW_DIR__` 占位 + sed 注入 |
+| 3 | 75f3c47a | test262 Not Run | quickjs-ng `EXCLUDE_FROM_ALL` → run-test262 不产出，ALL 依赖挂 target |
+| 4 | fcf38813 | test262 执行失败 | 上游 test262 submodule `update=none` 阻断语料 → CI 显式拉取 |
+| 5 | b4d9a290 | coverage gcov | RSA-OAEP 3072 keygen 同步阻塞 eval，gcov 下 5s 预算不足 → 30s |
+| 6 | 115263d1 | ubsan(clang) fetch 5s 超时 | 见 #10（同根因不同面），预算 30s |
+| 7 | 30ccb970 | ubsan(gcc) misaligned | WAMR loader 2/4 字节流嵌 8 字节指针（x86 有意未对齐）→ vmlib `-fno-sanitize=alignment` |
+| 8 | 3dd786d3 | asan native stack overflow | GCC 13 ASan 默认 UAR 假栈，WAMR 栈边界检测误报 → `detect_stack_use_after_return=0` |
+| 9 | bfabda0a | wasm3 gc_obj_list 断言 | ① 7 类补 `gc_mark` ② ext_destroy 过早清 class_id 致 gc_mark 失效（teardown 顺序 ctx→rt）③ memory import 明确报错 |
+| 10 | 3a3a3e32 | ubsan(clang) fetch 死锁真根因 | sanitizer 帧放大 → QuickJS 默认 1MB JS 栈预算假溢出（fetch 同步链）→ `QWRT_SANITIZE_BUILD` 时 4MB |
+| 11 | 3505dffc | ubsan(clang) function 误报 | quickjs js_realloc 函数指针类型链路 → clang sanitizer 档 `-fno-sanitize=function` |
+| 12 | 3505dffc | ipc_envelope_fbcheck | CLI `EXCLUDE_FROM_ALL` → CI 干净构建缺失产物 → 移除 EXCLUDE |
 
-1. **ubsan (clang) Test**：`test_fetch_stream_gtest` 3 例 5s 超时
-   （ResponseHasReadableStreamBody / TextReadsFullStreamingBody /
-   RedirectManualStatusZero）——同 SHA 其余 job 全绿，UBSan 下 fetch 流式
-   路径慢 5 倍或真 UB。本地 clang+ubsan 复现，区分超时 vs sanitizer 报告。
-2. **ubsan (gcc)**：WAMR 上游 `deps/wamr/core/iwasm/interpreter/wasm_loader.c:9470`
-   store to misaligned address（void*，需 8 对齐）——失败测试：
-   test_wasm_streaming / test_wasm_imports / test_wasm_aot。方向：WAMR 本地
-   patch（仓库已有 quickjs/wamr patch 先例，见 `deps/*.patch` 与 CMake
-   apply 逻辑）对齐访问，或 CI 该 job 加 `-fno-sanitize=alignment` 豁免+
-   理由注释。优先真修。
-3. **asan (default WAMR)**：`WebAssembly function: Exception: native stack
-   overflow`（test_wasm_streaming 两例，5s 超时）——WAMR native stack 边界
-   在 ASan 帧放大下误判。方向：exec_env 创建处调 stack size /
-   `wasm_runtime_set_native_stack_boundary`，或 WAMR 配置宏。
-4. **wasm3**：`JS_FreeRuntime: Assertion list_empty(&gc_obj_list)` ×2
-   （test_wasm_streaming/test_wasm_imports，wasm3 引擎配置）——wasm3 集成
-   在 ctx 释放前未清 QuickJS GC 引用。方向：`src/ext_web_wasm.c` wasm3 路径
-   对象释放。
-5. （复验通过后）更新本文件与 BRAIN。
+## 基建
 
-## 操作规约
+- lazy 初始化实施与评审修复：6c27d6a9 / 10bff38e（含 README 0a48f4b8）
+- nightly 例行（2 点）：cron（supervisord 自愈）→ ci-nightly-once.sh → omp 无头会话按本文件推进；日志 /tmp/qwrt-ci-nightly/。brain 页 ci-nightly-repair 记录契约。
 
-- 诊断：`gh run list --limit 5`；`gh run view <id> --log-failed`。
-- 本地：ON 配置 `build_citest`；OFF `build_minoff`；改动后先跑
-  `ctest -L offline`。禁止为转绿而放宽 sanitizer/删除测试——修复必须对症。
-- 提交：中文 conventional commit；push master；`gh run watch` 复验并对比
-  上一次失败面（comm -23）。
-- 一次会话完成一项即止（防上下文溢出）；多项时按序取第一未完成项。
+## 后续（非阻塞，可留档）
 
-## 调度持久化（2026-09-09 补）
-
-- 容器无 systemd PID1，init = supervisord（/opt/gem/supervisord.conf）。
-- cron 自愈已入 supervisord：/opt/gem/supervisord/cron.conf +
-  /opt/gem/start-cron.sh（幂等：已有 cron 守护则 sleep infinity，避免
-  crond.pid 锁冲突）——容器重启后 cron 自动拉起，crontab 条目随之生效。
-- crontab 条目：`0 2 * * * /home/gem/project/qwrt/scripts/ci-nightly-once.sh`。
-- 无需手动恢复；会话期 hub 常驻调度已弃用。
+- CI 全绿后无例行任务；若未来 CI 再红，恢复本模式：gh run list → 定位 → 根因修复（禁放宽检查转绿）→ 提交 → 复验。
