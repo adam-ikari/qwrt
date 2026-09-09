@@ -56,7 +56,7 @@ w.terminate();
 
 ## Worker-side globals
 
-Inside the worker script the following globals are available (the worker runtime has the full [JS API](/js-api) surface plus these):
+Inside the worker script the following globals are available (the worker runtime has the full [JS API](/js-api/) surface plus these):
 
 | Global | Description |
 |--------|-------------|

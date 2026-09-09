@@ -41,7 +41,7 @@
 **目标：** worker 脚本顶层异常 → worker 侧触发 `self.onerror`，父侧触发 `w.onerror`，均收到 `ErrorEvent`（含 `message`/`filename`/`lineno`/`colno`），worker 继续存活。
 
 **现状（根因）：**
-- `src/worker.c:78` `qwrt_worker_notify_error` 构造 `{type:'error', error:<msg>}` 经 worker 的 `postMessage`（已被垫片换成结构化克隆）发给父 → 落到父 `w.onmessage`（worker.js:65-85 无 error 特判）。
+- `src/worker.c:78` `qwrt_worker_notify_error` 构造 `{type:'error', error:&lt;msg&gt;}` 经 worker 的 `postMessage`（已被垫片换成结构化克隆）发给父 → 落到父 `w.onmessage`（worker.js:65-85 无 error 特判）。
 - worker 侧 `globalThis.onerror` 在 navigator.js:75 定义为 EventTarget 事件处理器，但运行时从不 dispatch `'error'` 事件，是死属性。
 
 **改动：**
@@ -169,7 +169,7 @@ cmake --build build --target test_worker_gtest -j$(nproc)
 
 2. 若 worker 侧 pal 无 fs：在 bridge.c 的 worker pal 注册处补 `fsReadSync`（复用主 context 的实现）。
 
-**测试：** `test/test_worker_gtest.cpp` 新增：worker.js 用 `importScripts('file://<TEST_DIR>/worker_extra.js')` 定义全局 `EXTRA = 42`，主脚本 `postMessage(EXTRA)`；父断言收到 `42`。新增 fixture `test/worker_extra.js`。
+**测试：** `test/test_worker_gtest.cpp` 新增：worker.js 用 `importScripts('file://&lt;TEST_DIR&gt;/worker_extra.js')` 定义全局 `EXTRA = 42`，主脚本 `postMessage(EXTRA)`；父断言收到 `42`。新增 fixture `test/worker_extra.js`。
 
 **验收命令：**
 ```bash
@@ -183,7 +183,7 @@ cmake --build build --target test_worker_gtest -j$(nproc)
 
 ### Task 3: WebAssembly Streaming API（W3C WASM 标准）
 
-**目标：** `WebAssembly.compileStreaming(source)` / `WebAssembly.instantiateStreaming(source, imports)` 可用，其中 `source` 为 Promise<Response> 或含 `arrayBuffer()` 方法的对象。
+**目标：** `WebAssembly.compileStreaming(source)` / `WebAssembly.instantiateStreaming(source, imports)` 可用，其中 `source` 为 Promise&lt;Response&gt; 或含 `arrayBuffer()` 方法的对象。
 
 **现状：** `src/ext_wamr.c` 的 WebAssembly 对象只注册 `validate`/`compile`/`instantiate` + 构造器（约 885-945 行）。`compileStreaming`/`instantiateStreaming` 未注册。
 

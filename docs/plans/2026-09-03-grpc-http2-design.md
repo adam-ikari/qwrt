@@ -174,7 +174,7 @@ QuickJS-ng 原生支持 BigInt。策略：**int64/uint64 默认返回 BigInt；�
 
 ## Phase 1 — 客户端 unary + 动态 protobuf（最小可用）
 
-**目标**：`grpc.createChannel(url).invoke(method, req) → Promise<resp>` 调通远程 gRPC 一元 RPC。
+**目标**：`grpc.createChannel(url).invoke(method, req) → Promise&lt;resp&gt;` 调通远程 gRPC 一元 RPC。
 
 - 纯 JS 新增 `polyfill/src/`：
   - `h2.js` — 客户端 h2 引擎（§2.1 帧子集 + 流控 + 多流复用）。
@@ -281,7 +281,7 @@ channel.invoke(method, request, opts?) → Promise     // unary RPC
 **目标**：三种流式 RPC 形态（server-streaming / client-streaming / bidi）在 Phase 1 引擎上复用。
 
 - h2 引擎本就多流复用，流式 = gRPC 层暴露异步迭代接口 + 流控健壮性（大负载、多消息、WINDOW_UPDATE 连续补发）。
-- API：server-streaming 返回 `AsyncIterable`（`for await`），client-streaming 接收 `AsyncIterable` 请求 → Promise<resp>，bidi 双向迭代。
+- API：server-streaming 返回 `AsyncIterable`（`for await`），client-streaming 接收 `AsyncIterable` 请求 → Promise&lt;resp&gt;，bidi 双向迭代。
 - 顺手：`grpc-encoding: gzip` 消息压缩（复用 `pal.nativeCompress/nativeDecompress('gzip')`，miniz 已在）。
 - **量级**：~300-500 行 JS。**3-5 人日**。**验收**：大消息（>64KB、>16MB）流式往返 + 压缩位真伪校验。
 
@@ -339,7 +339,7 @@ await ch.bidi(sayHello.Chat, outIterable, { onMessage });
 
 要点：
 - method 载体为**注册表推导的方法对象**（自带 req/resp schema），或 `/pkg.Svc/M` 字符串 + 显式 types。推荐前者（零重复、类型一致）。
-- `invoke` 返回 Promise<resp>；失败 reject `grpc.StatusError`（code/message/details/metadata，对应 §4 错误模型）。
+- `invoke` 返回 Promise&lt;resp&gt;；失败 reject `grpc.StatusError`（code/message/details/metadata，对应 §4 错误模型）。
 - 连接级选项：`maxRecvMsgSize`（防 OOM，默认如 4MB）、`keepaliveMs`（PING 周期）、`connectTimeoutMs`。
 - 通道内多流复用；GOAWAY 后停止新流、排空在途、重连新连接。
 
