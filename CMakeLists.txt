@@ -397,6 +397,13 @@ if(QWRT_WITH_WAMR)
     if(TARGET vmlib)
         target_compile_options(vmlib PRIVATE -Wno-error -Wno-unused-parameter -Wno-shadow)
     endif()
+    # WAMR 编译代码流有意用 2/4 字节步长嵌 8 字节指针（x86 硬件支持未对齐，
+    # WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS=1 直接解引用）——UBSan alignment
+    # 检查对其系统性误报（wasm_loader.c STORE_PTR）。仅豁免该检查，保留其余
+    # sanitizer 覆盖；非 x86/arm 走 UNALIGNED=0 分支无此问题。
+    if(TARGET vmlib AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(vmlib PRIVATE -fno-sanitize=alignment)
+    endif()
     message(STATUS "WAMR enabled — building vmlib from source (fast interp + AOT)")
 endif()
 
