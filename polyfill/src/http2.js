@@ -657,4 +657,5 @@ export function setupHttp2(pal) {
   }
 }
 
-export { FRAME, FLAG, SETTING, ERR };
+export { FRAME, FLAG, SETTING, ERR, PREFACE, InputBuf, frame, settingsPayload,
+         u24, u32, u32Payload, writeU32, toBytes, utf8 };

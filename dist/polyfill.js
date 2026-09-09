@@ -3306,30 +3306,30 @@
       var headerSize = 2;
       if (len >= 126) headerSize += len < 65536 ? 2 : 8;
       var maskLen = mask ? 4 : 0;
-      var frame = new Uint8Array(headerSize + maskLen + len);
+      var frame2 = new Uint8Array(headerSize + maskLen + len);
       var pos = 0;
-      frame[pos++] = 128 | opcode;
+      frame2[pos++] = 128 | opcode;
       if (len < 126) {
-        frame[pos++] = (mask ? 128 : 0) | len;
+        frame2[pos++] = (mask ? 128 : 0) | len;
       } else if (len < 65536) {
-        frame[pos++] = (mask ? 128 : 0) | 126;
-        frame[pos++] = len >> 8 & 255;
-        frame[pos++] = len & 255;
+        frame2[pos++] = (mask ? 128 : 0) | 126;
+        frame2[pos++] = len >> 8 & 255;
+        frame2[pos++] = len & 255;
       } else {
-        frame[pos++] = (mask ? 128 : 0) | 127;
-        for (var i = 7; i >= 0; i--) frame[pos++] = len >> i * 8 & 255;
+        frame2[pos++] = (mask ? 128 : 0) | 127;
+        for (var i = 7; i >= 0; i--) frame2[pos++] = len >> i * 8 & 255;
       }
       if (mask) {
         var maskKey = new Uint8Array(4);
         crypto.getRandomValues(maskKey);
-        frame.set(maskKey, pos);
+        frame2.set(maskKey, pos);
         pos += 4;
         for (var i = 0; i < len; i++)
-          frame[pos + i] = payload[i] ^ maskKey[i % 4];
+          frame2[pos + i] = payload[i] ^ maskKey[i % 4];
       } else {
-        frame.set(payload, pos);
+        frame2.set(payload, pos);
       }
-      return frame.buffer;
+      return frame2.buffer;
     }
     class WebSocket extends EventTarget {
       constructor(url) {
@@ -3584,8 +3584,8 @@
             closePayload[0] = code >> 8 & 255;
             closePayload[1] = code & 255;
             closePayload.set(reasonBytes, 2);
-            var frame = buildFrame(OPCODE_CLOSE, closePayload, true);
-            pal2.tcpWrite(this._tcp, frame);
+            var frame2 = buildFrame(OPCODE_CLOSE, closePayload, true);
+            pal2.tcpWrite(this._tcp, frame2);
           }
           this._readyState = CLOSED;
           this.dispatchEvent(new CloseEvent("close", { code, reason, wasClean: true }));
@@ -3694,8 +3694,8 @@
         } else {
           payload = new TextEncoder().encode(String(data));
         }
-        var frame = buildFrame(opcode, payload, true);
-        pal2.tcpWrite(this._tcp, frame);
+        var frame2 = buildFrame(opcode, payload, true);
+        pal2.tcpWrite(this._tcp, frame2);
       }
       close(code, reason) {
         if (code !== void 0) {
@@ -3722,8 +3722,8 @@
         payload[0] = this._closeCode >> 8 & 255;
         payload[1] = this._closeCode & 255;
         if (reasonBytes.length > 0) payload.set(reasonBytes, 2);
-        var frame = buildFrame(OPCODE_CLOSE, payload, true);
-        pal2.tcpWrite(this._tcp, frame);
+        var frame2 = buildFrame(OPCODE_CLOSE, payload, true);
+        pal2.tcpWrite(this._tcp, frame2);
       }
     }
     globalThis.WebSocket = WebSocket;
@@ -3934,10 +3934,10 @@
         header.push(127);
         for (var i = 7; i >= 0; i--) header.push(len >> i * 8 & 255);
       }
-      var frame = new Uint8Array(header.length + len);
-      for (var i = 0; i < header.length; i++) frame[i] = header[i];
-      for (var i = 0; i < len; i++) frame[header.length + i] = payload[i];
-      return frame;
+      var frame2 = new Uint8Array(header.length + len);
+      for (var i = 0; i < header.length; i++) frame2[i] = header[i];
+      for (var i = 0; i < len; i++) frame2[header.length + i] = payload[i];
+      return frame2;
     }
     function safeHeaderValue(v) {
       var s = String(v);
@@ -3967,6 +3967,11 @@
       var hostname = options.hostname || "0.0.0.0";
       var wsRoutes = options.ws || {};
       var activeServer = { closed: false };
+      var h2api = globalThis.qwrt && globalThis.qwrt.http2 || null;
+      var H2SessionClass = h2api && h2api.HTTP2ServerSession || null;
+      var H2Preface = h2api && h2api.PREFACE || null;
+      var H2_PREFACE_LEN = H2Preface ? H2Preface.length : 0;
+      var grpcServer = options.grpc || null;
       if (activeInstance && !activeInstance.closed)
         throw new Error("serve: a server is already running (call srv.close() first)");
       activeInstance = activeServer;
@@ -4022,9 +4027,9 @@
         newBuf.set(dv, this.buf.length);
         this.buf = newBuf;
         for (; ; ) {
-          var frame = parseWSFrame(this.buf);
-          if (!frame) break;
-          if (!frame.masked) {
+          var frame2 = parseWSFrame(this.buf);
+          if (!frame2) break;
+          if (!frame2.masked) {
             try {
               pal2.tcpWrite(this.conn, buildWSFrame(8, new Uint8Array([3, 234]), 1));
             } catch (e) {
@@ -4033,14 +4038,14 @@
             pal2.tcpClose(this.conn);
             return;
           }
-          this.buf = this.buf.slice(frame.totalLen);
-          if (frame.opcode === 8) {
+          this.buf = this.buf.slice(frame2.totalLen);
+          if (frame2.opcode === 8) {
             var closeCode = 1005, closeReason = "";
-            if (frame.payload.length >= 2) {
-              closeCode = frame.payload[0] << 8 | frame.payload[1];
-              closeReason = new TextDecoder().decode(frame.payload.slice(2));
+            if (frame2.payload.length >= 2) {
+              closeCode = frame2.payload[0] << 8 | frame2.payload[1];
+              closeReason = new TextDecoder().decode(frame2.payload.slice(2));
             }
-            pal2.tcpWrite(this.conn, buildWSFrame(8, frame.payload, 1));
+            pal2.tcpWrite(this.conn, buildWSFrame(8, frame2.payload, 1));
             this.state = 3;
             if (this.onclose) {
               var ev = { code: closeCode, reason: closeReason, wasClean: true };
@@ -4049,28 +4054,28 @@
               } catch (e) {
               }
             }
-          } else if (frame.opcode === 9) {
+          } else if (frame2.opcode === 9) {
             try {
-              pal2.tcpWrite(this.conn, buildWSFrame(10, frame.payload, 1));
+              pal2.tcpWrite(this.conn, buildWSFrame(10, frame2.payload, 1));
             } catch (e) {
             }
-          } else if (frame.opcode === 10) {
-          } else if (frame.opcode === 0) {
-            this._fragParts.push(frame.payload);
-            if (frame.fin) {
+          } else if (frame2.opcode === 10) {
+          } else if (frame2.opcode === 0) {
+            this._fragParts.push(frame2.payload);
+            if (frame2.fin) {
               var fragOp = this._fragOpcode;
               var combined = combineBytes(this._fragParts);
               this._fragOpcode = 0;
               this._fragParts = [];
               deliverWS(this, fragOp, combined);
             }
-          } else if (frame.opcode === 1 || frame.opcode === 2) {
-            this._msgRsv1 = frame.rsv1 ? true : false;
-            if (frame.fin) {
-              deliverWS(this, frame.opcode, frame.payload);
+          } else if (frame2.opcode === 1 || frame2.opcode === 2) {
+            this._msgRsv1 = frame2.rsv1 ? true : false;
+            if (frame2.fin) {
+              deliverWS(this, frame2.opcode, frame2.payload);
             } else {
-              this._fragOpcode = frame.opcode;
-              this._fragParts = [frame.payload];
+              this._fragOpcode = frame2.opcode;
+              this._fragParts = [frame2.payload];
             }
           }
         }
@@ -4116,6 +4121,25 @@
         var idleTimer = null;
         var bodyState = null;
         conns.push(conn);
+        var h2session = null;
+        var h2Decided = false;
+        var preBuf = null;
+        function startH2() {
+          var session = new H2SessionClass({ pal: pal2 });
+          session.attach(conn);
+          if (grpcServer) {
+            session.onStream(function(st) {
+              grpcServer._handleStream(st);
+            });
+          } else {
+            session.onStream(function(st) {
+              st.respond([[":status", "404"], ["content-type", "text/plain"]]);
+              st.end([]);
+            });
+          }
+          h2session = session;
+          return session;
+        }
         function resetIdle() {
           clearTimeout(idleTimer);
           if (idleTimeout > 0 && !ws) {
@@ -4150,6 +4174,45 @@
           }
           data = data instanceof Uint8Array ? data : new Uint8Array(data);
           resetIdle();
+          if (h2session) {
+            h2session.feed(data);
+            return;
+          }
+          if (!h2Decided && H2SessionClass) {
+            if (conn.alpn === "h2") {
+              h2Decided = true;
+              startH2().feed(data);
+              return;
+            }
+            if (conn.alpn == null) {
+              var merged = new Uint8Array((preBuf ? preBuf.length : 0) + data.length);
+              if (preBuf) merged.set(preBuf, 0);
+              merged.set(data, preBuf ? preBuf.length : 0);
+              preBuf = merged;
+              var pn = Math.min(preBuf.length, H2_PREFACE_LEN);
+              var pm = true;
+              for (var pi = 0; pi < pn; pi++) {
+                if (preBuf[pi] !== H2Preface[pi]) {
+                  pm = false;
+                  break;
+                }
+              }
+              if (!pm) {
+                h2Decided = true;
+                data = preBuf;
+                preBuf = null;
+              } else if (preBuf.length < H2_PREFACE_LEN) {
+                return;
+              } else {
+                h2Decided = true;
+                startH2().feed(preBuf);
+                preBuf = null;
+                return;
+              }
+            } else {
+              h2Decided = true;
+            }
+          }
           if (bodyState) {
             var take = Math.min(bodyState.remaining - bodyState.received, data.length);
             if (take > 0) {
@@ -4352,6 +4415,13 @@
         };
         conn.onclose = function(code) {
           clearTimeout(idleTimer);
+          if (h2session) {
+            try {
+              h2session._teardown();
+            } catch (e) {
+            }
+            h2session = null;
+          }
           var idx = conns.indexOf(conn);
           if (idx >= 0) conns.splice(idx, 1);
           if (ws) {
@@ -4460,10 +4530,19 @@
       }
       var listener;
       var tls = options.tls;
-      if (tls && tls.cert && tls.key)
-        listener = pal2.tcpListen(port, hostname, 128, handleConnection, tls);
-      else
+      if (tls && tls.cert && tls.key) {
+        var tlsCfg = tls;
+        if (H2SessionClass && !tlsCfg.alpn) {
+          tlsCfg = {};
+          for (var tk in tls) {
+            if (typeof tls[tk] !== "function" && tls[tk] !== void 0) tlsCfg[tk] = tls[tk];
+          }
+          tlsCfg.alpn = ["h2", "http/1.1"];
+        }
+        listener = pal2.tcpListen(port, hostname, 128, handleConnection, tlsCfg);
+      } else {
         listener = pal2.tcpListen(port, hostname, 128, handleConnection);
+      }
       var conns = [];
       activeServer.close = function() {
         activeServer.closed = true;
@@ -7133,7 +7212,7 @@
       Float64Array
     ];
     if (typeof BigInt64Array !== "undefined") TA_CTORS.push(BigInt64Array, BigUint64Array);
-    function utf8Encode(s) {
+    function utf8Encode3(s) {
       var out = [];
       for (var i = 0; i < s.length; i++) {
         var c = s.charCodeAt(i);
@@ -7156,7 +7235,7 @@
       }
       return out;
     }
-    function utf8Decode(u8, start, len) {
+    function utf8Decode3(u8, start, len) {
       var R = 65533;
       var out = "";
       var i = start, end = start + len;
@@ -7226,7 +7305,7 @@
       };
     }
     function encodeString(bytes, s) {
-      var u = utf8Encode(String(s));
+      var u = utf8Encode3(String(s));
       bytes.u32(u.length);
       for (var i = 0; i < u.length; i++) bytes.u8(u[i]);
     }
@@ -7450,7 +7529,7 @@
         str: function() {
           var n = this.u32();
           if (n > u8.length - i) throw new DOMException("Bad serialized data", "DataCloneError");
-          var s = utf8Decode(u8, i, n);
+          var s = utf8Decode3(u8, i, n);
           i += n;
           return s;
         },
@@ -8294,8 +8373,3826 @@
     };
   }
 
-  // src/grpc-stack-stub.js
+  // src/hpack.js
+  var HPACK_HUFFMAN = [
+    [8184, 13],
+    [8388568, 23],
+    [268435426, 28],
+    [268435427, 28],
+    [268435428, 28],
+    [268435429, 28],
+    [268435430, 28],
+    [268435431, 28],
+    [268435432, 28],
+    [16777194, 24],
+    [1073741820, 30],
+    [268435433, 28],
+    [268435434, 28],
+    [1073741821, 30],
+    [268435435, 28],
+    [268435436, 28],
+    [268435437, 28],
+    [268435438, 28],
+    [268435439, 28],
+    [268435440, 28],
+    [268435441, 28],
+    [268435442, 28],
+    [1073741822, 30],
+    [268435443, 28],
+    [268435444, 28],
+    [268435445, 28],
+    [268435446, 28],
+    [268435447, 28],
+    [268435448, 28],
+    [268435449, 28],
+    [268435450, 28],
+    [268435451, 28],
+    [20, 6],
+    [1016, 10],
+    [1017, 10],
+    [4090, 12],
+    [8185, 13],
+    [21, 6],
+    [248, 8],
+    [2042, 11],
+    [1018, 10],
+    [1019, 10],
+    [249, 8],
+    [2043, 11],
+    [250, 8],
+    [22, 6],
+    [23, 6],
+    [24, 6],
+    [0, 5],
+    [1, 5],
+    [2, 5],
+    [25, 6],
+    [26, 6],
+    [27, 6],
+    [28, 6],
+    [29, 6],
+    [30, 6],
+    [31, 6],
+    [92, 7],
+    [251, 8],
+    [32764, 15],
+    [32, 6],
+    [4091, 12],
+    [1020, 10],
+    [8186, 13],
+    [33, 6],
+    [93, 7],
+    [94, 7],
+    [95, 7],
+    [96, 7],
+    [97, 7],
+    [98, 7],
+    [99, 7],
+    [100, 7],
+    [101, 7],
+    [102, 7],
+    [103, 7],
+    [104, 7],
+    [105, 7],
+    [106, 7],
+    [107, 7],
+    [108, 7],
+    [109, 7],
+    [110, 7],
+    [111, 7],
+    [112, 7],
+    [113, 7],
+    [114, 7],
+    [252, 8],
+    [115, 7],
+    [253, 8],
+    [8187, 13],
+    [524272, 19],
+    [8188, 13],
+    [16380, 14],
+    [34, 6],
+    [32765, 15],
+    [3, 5],
+    [35, 6],
+    [4, 5],
+    [36, 6],
+    [5, 5],
+    [37, 6],
+    [38, 6],
+    [39, 6],
+    [6, 5],
+    [116, 7],
+    [117, 7],
+    [40, 6],
+    [41, 6],
+    [42, 6],
+    [7, 5],
+    [43, 6],
+    [118, 7],
+    [44, 6],
+    [8, 5],
+    [9, 5],
+    [45, 6],
+    [119, 7],
+    [120, 7],
+    [121, 7],
+    [122, 7],
+    [123, 7],
+    [32766, 15],
+    [2044, 11],
+    [16381, 14],
+    [8189, 13],
+    [268435452, 28],
+    [1048550, 20],
+    [4194258, 22],
+    [1048551, 20],
+    [1048552, 20],
+    [4194259, 22],
+    [4194260, 22],
+    [4194261, 22],
+    [8388569, 23],
+    [4194262, 22],
+    [8388570, 23],
+    [8388571, 23],
+    [8388572, 23],
+    [8388573, 23],
+    [8388574, 23],
+    [16777195, 24],
+    [8388575, 23],
+    [16777196, 24],
+    [16777197, 24],
+    [4194263, 22],
+    [8388576, 23],
+    [16777198, 24],
+    [8388577, 23],
+    [8388578, 23],
+    [8388579, 23],
+    [8388580, 23],
+    [2097116, 21],
+    [4194264, 22],
+    [8388581, 23],
+    [4194265, 22],
+    [8388582, 23],
+    [8388583, 23],
+    [16777199, 24],
+    [4194266, 22],
+    [2097117, 21],
+    [1048553, 20],
+    [4194267, 22],
+    [4194268, 22],
+    [8388584, 23],
+    [8388585, 23],
+    [2097118, 21],
+    [8388586, 23],
+    [4194269, 22],
+    [4194270, 22],
+    [16777200, 24],
+    [2097119, 21],
+    [4194271, 22],
+    [8388587, 23],
+    [8388588, 23],
+    [2097120, 21],
+    [2097121, 21],
+    [4194272, 22],
+    [2097122, 21],
+    [8388589, 23],
+    [4194273, 22],
+    [8388590, 23],
+    [8388591, 23],
+    [1048554, 20],
+    [4194274, 22],
+    [4194275, 22],
+    [4194276, 22],
+    [8388592, 23],
+    [4194277, 22],
+    [4194278, 22],
+    [8388593, 23],
+    [67108832, 26],
+    [67108833, 26],
+    [1048555, 20],
+    [524273, 19],
+    [4194279, 22],
+    [8388594, 23],
+    [4194280, 22],
+    [33554412, 25],
+    [67108834, 26],
+    [67108835, 26],
+    [67108836, 26],
+    [134217694, 27],
+    [134217695, 27],
+    [67108837, 26],
+    [16777201, 24],
+    [33554413, 25],
+    [524274, 19],
+    [2097123, 21],
+    [67108838, 26],
+    [134217696, 27],
+    [134217697, 27],
+    [67108839, 26],
+    [134217698, 27],
+    [16777202, 24],
+    [2097124, 21],
+    [2097125, 21],
+    [67108840, 26],
+    [67108841, 26],
+    [268435453, 28],
+    [134217699, 27],
+    [134217700, 27],
+    [134217701, 27],
+    [1048556, 20],
+    [16777203, 24],
+    [1048557, 20],
+    [2097126, 21],
+    [4194281, 22],
+    [2097127, 21],
+    [2097128, 21],
+    [8388595, 23],
+    [4194282, 22],
+    [4194283, 22],
+    [33554414, 25],
+    [33554415, 25],
+    [16777204, 24],
+    [16777205, 24],
+    [67108842, 26],
+    [8388596, 23],
+    [67108843, 26],
+    [134217702, 27],
+    [67108844, 26],
+    [67108845, 26],
+    [134217703, 27],
+    [134217704, 27],
+    [134217705, 27],
+    [134217706, 27],
+    [134217707, 27],
+    [268435454, 28],
+    [134217708, 27],
+    [134217709, 27],
+    [134217710, 27],
+    [134217711, 27],
+    [134217712, 27],
+    [67108846, 26],
+    [1073741823, 30]
+  ];
+  var HPACK_STATIC_TABLE = [
+    [":authority", ""],
+    [":method", "GET"],
+    [":method", "POST"],
+    [":path", "/"],
+    [":path", "/index.html"],
+    [":scheme", "http"],
+    [":scheme", "https"],
+    [":status", "200"],
+    [":status", "204"],
+    [":status", "206"],
+    [":status", "304"],
+    [":status", "400"],
+    [":status", "404"],
+    [":status", "500"],
+    ["accept-charset", ""],
+    ["accept-encoding", "gzip, deflate"],
+    ["accept-language", ""],
+    ["accept-ranges", ""],
+    ["accept", ""],
+    ["access-control-allow-origin", ""],
+    ["age", ""],
+    ["allow", ""],
+    ["authorization", ""],
+    ["cache-control", ""],
+    ["content-disposition", ""],
+    ["content-encoding", ""],
+    ["content-language", ""],
+    ["content-length", ""],
+    ["content-location", ""],
+    ["content-range", ""],
+    ["content-type", ""],
+    ["cookie", ""],
+    ["date", ""],
+    ["etag", ""],
+    ["expect", ""],
+    ["expires", ""],
+    ["from", ""],
+    ["host", ""],
+    ["if-match", ""],
+    ["if-modified-since", ""],
+    ["if-none-match", ""],
+    ["if-range", ""],
+    ["if-unmodified-since", ""],
+    ["last-modified", ""],
+    ["link", ""],
+    ["location", ""],
+    ["max-forwards", ""],
+    ["proxy-authenticate", ""],
+    ["proxy-authorization", ""],
+    ["range", ""],
+    ["referer", ""],
+    ["refresh", ""],
+    ["retry-after", ""],
+    ["server", ""],
+    ["set-cookie", ""],
+    ["strict-transport-security", ""],
+    ["transfer-encoding", ""],
+    ["user-agent", ""],
+    ["vary", ""],
+    ["via", ""],
+    ["www-authenticate", ""]
+  ];
+  var HpackError = class extends Error {
+    constructor(msg) {
+      super("HPACK: " + msg);
+      this.name = "HpackError";
+    }
+  };
+  function utf8Encode(str) {
+    var out = [];
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      if (c < 128) out.push(c);
+      else if (c < 2048) {
+        out.push(192 | c >> 6, 128 | c & 63);
+      } else if (c >= 55296 && c <= 56319 && i + 1 < str.length) {
+        var c2 = str.charCodeAt(i + 1);
+        if (c2 >= 56320 && c2 <= 57343) {
+          var cp = 65536 + (c - 55296 << 10) + (c2 - 56320);
+          i++;
+          out.push(240 | cp >> 18, 128 | cp >> 12 & 63, 128 | cp >> 6 & 63, 128 | cp & 63);
+        } else out.push(239, 191, 189);
+      } else if (c >= 55296 && c <= 57343) out.push(239, 191, 189);
+      else out.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+    }
+    return Uint8Array.from(out);
+  }
+  function utf8Decode(bytes) {
+    var s = "", i = 0, n = bytes.length;
+    while (i < n) {
+      var b = bytes[i++];
+      if (b < 128) s += String.fromCharCode(b);
+      else if (b < 224) s += String.fromCharCode((b & 31) << 6 | bytes[i++] & 63);
+      else if (b < 240) s += String.fromCharCode((b & 15) << 12 | (bytes[i++] & 63) << 6 | bytes[i++] & 63);
+      else {
+        var cp = (b & 7) << 18 | (bytes[i++] & 63) << 12 | (bytes[i++] & 63) << 6 | bytes[i++] & 63;
+        cp -= 65536;
+        s += String.fromCharCode(55296 + (cp >> 10), 56320 + (cp & 1023));
+      }
+    }
+    return s;
+  }
+  var HUFF_TREE = function() {
+    var root = {};
+    for (var sym = 0; sym < HPACK_HUFFMAN.length; sym++) {
+      var code = HPACK_HUFFMAN[sym][0], len = HPACK_HUFFMAN[sym][1];
+      var node = root;
+      for (var i = len - 1; i >= 0; i--) {
+        var bit = code >>> i & 1;
+        node = node[bit] || (node[bit] = {});
+      }
+      node.sym = sym;
+    }
+    return root;
+  }();
+  function huffmanDecode(bytes) {
+    var out = [], node = HUFF_TREE, runBits = 0, runAllOne = true;
+    for (var i = 0; i < bytes.length; i++) {
+      var b = bytes[i];
+      for (var j = 7; j >= 0; j--) {
+        var bit = b >>> j & 1;
+        node = node[bit];
+        if (!node) throw new HpackError("invalid Huffman code");
+        runBits++;
+        if (bit === 0) runAllOne = false;
+        if (node.sym !== void 0) {
+          if (node.sym === 256) throw new HpackError("EOS in Huffman data");
+          out.push(node.sym);
+          node = HUFF_TREE;
+          runBits = 0;
+          runAllOne = true;
+        }
+      }
+    }
+    if (node !== HUFF_TREE && (runBits >= 8 || !runAllOne))
+      throw new HpackError("bad Huffman padding");
+    return Uint8Array.from(out);
+  }
+  function decodeInt(buf, pos, prefixBits) {
+    var mask = (1 << prefixBits) - 1;
+    var b = buf[pos];
+    if (b === void 0) throw new HpackError("integer underflow");
+    pos++;
+    var value = b & mask;
+    if (value < mask) return [value, pos];
+    var m = 0;
+    do {
+      b = buf[pos];
+      if (b === void 0) throw new HpackError("integer underflow");
+      pos++;
+      value += (b & 127) * Math.pow(2, m);
+      m += 7;
+      if (m > 49) throw new HpackError("integer too large");
+    } while (b & 128);
+    return [value, pos];
+  }
+  function encodeInt(arr, value, prefixBits, firstByte) {
+    var mask = (1 << prefixBits) - 1;
+    if (value < mask) {
+      arr.push(firstByte | value);
+      return;
+    }
+    arr.push(firstByte | mask);
+    value -= mask;
+    while (value >= 128) {
+      arr.push(value % 128 + 128);
+      value = Math.floor(value / 128);
+    }
+    arr.push(value);
+  }
+  function decodeStr(buf, pos) {
+    var b = buf[pos];
+    if (b === void 0) throw new HpackError("string underflow");
+    var huff = (b & 128) !== 0;
+    var r = decodeInt(buf, pos, 7);
+    var len = r[0], p = r[1];
+    if (p + len > buf.length) throw new HpackError("string underflow");
+    var raw = buf.subarray(p, p + len);
+    var bytes = huff ? huffmanDecode(raw) : raw;
+    return [utf8Decode(bytes), p + len];
+  }
+  function encodeStr(arr, s) {
+    var bytes = utf8Encode(s);
+    encodeInt(arr, bytes.length, 7, 0);
+    for (var i = 0; i < bytes.length; i++) arr.push(bytes[i]);
+  }
+  function octetLen(s) {
+    var n = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 128) n += 1;
+      else if (c < 2048) n += 2;
+      else if (c >= 55296 && c <= 56319 && i + 1 < s.length && s.charCodeAt(i + 1) >= 56320 && s.charCodeAt(i + 1) <= 57343) {
+        n += 4;
+        i++;
+      } else n += 3;
+    }
+    return n;
+  }
+  var HPACKDecoder = class {
+    constructor(maxSize) {
+      this._maxSize = maxSize === void 0 ? 4096 : maxSize;
+      this._table = [];
+      this._size = 0;
+    }
+    _evict() {
+      while (this._size > this._maxSize && this._table.length) {
+        var e = this._table.pop();
+        this._size -= e.size;
+      }
+    }
+    setMaxSize(n) {
+      this._maxSize = n;
+      this._evict();
+    }
+    _add(name, value) {
+      var size = 32 + octetLen(name) + octetLen(value);
+      this._table.unshift({ name, value, size });
+      this._size += size;
+      this._evict();
+    }
+    _get(index) {
+      if (index >= 1 && index <= 61) return HPACK_STATIC_TABLE[index - 1];
+      var di = index - 62;
+      if (di >= 0 && di < this._table.length) {
+        var e = this._table[di];
+        return [e.name, e.value];
+      }
+      throw new HpackError("bad table index " + index);
+    }
+    decode(bytes) {
+      var headers = [], pos = 0;
+      while (pos < bytes.length) {
+        var b = bytes[pos];
+        if (b & 128) {
+          var r = decodeInt(bytes, pos, 7);
+          pos = r[1];
+          var e = this._get(r[0]);
+          headers.push([e[0], e[1]]);
+        } else if (b & 64) {
+          var r2 = decodeInt(bytes, pos, 6);
+          pos = r2[1];
+          var name2;
+          if (r2[0] === 0) {
+            var s2 = decodeStr(bytes, pos);
+            name2 = s2[0];
+            pos = s2[1];
+          } else name2 = this._get(r2[0])[0];
+          var v2 = decodeStr(bytes, pos);
+          pos = v2[1];
+          this._add(name2, v2[0]);
+          headers.push([name2, v2[0]]);
+        } else if (b & 32) {
+          var r3 = decodeInt(bytes, pos, 5);
+          pos = r3[1];
+          this.setMaxSize(r3[0]);
+        } else {
+          var r4 = decodeInt(bytes, pos, 4);
+          pos = r4[1];
+          var name4;
+          if (r4[0] === 0) {
+            var s4 = decodeStr(bytes, pos);
+            name4 = s4[0];
+            pos = s4[1];
+          } else name4 = this._get(r4[0])[0];
+          var v4 = decodeStr(bytes, pos);
+          pos = v4[1];
+          headers.push([name4, v4[0]]);
+        }
+      }
+      return headers;
+    }
+  };
+  function staticExact(name, value) {
+    for (var i = 0; i < HPACK_STATIC_TABLE.length; i++) {
+      var e = HPACK_STATIC_TABLE[i];
+      if (e[0] === name && e[1] === value) return i + 1;
+    }
+    return 0;
+  }
+  function staticName(name) {
+    for (var i = 0; i < HPACK_STATIC_TABLE.length; i++)
+      if (HPACK_STATIC_TABLE[i][0] === name) return i + 1;
+    return 0;
+  }
+  function hpackEncode(headers) {
+    var out = [];
+    for (var i = 0; i < headers.length; i++) {
+      var name = headers[i][0], value = headers[i][1];
+      var exact = staticExact(name, value);
+      if (exact) {
+        encodeInt(out, exact, 7, 128);
+        continue;
+      }
+      var nameIdx = staticName(name);
+      if (nameIdx) {
+        encodeInt(out, nameIdx, 4, 16);
+      } else {
+        encodeInt(out, 0, 4, 16);
+        encodeStr(out, name);
+      }
+      encodeStr(out, value);
+    }
+    return Uint8Array.from(out);
+  }
+
+  // src/http2.js
+  var _pal = null;
+  var FRAME = {
+    DATA: 0,
+    HEADERS: 1,
+    PRIORITY: 2,
+    RST_STREAM: 3,
+    SETTINGS: 4,
+    PUSH_PROMISE: 5,
+    PING: 6,
+    GOAWAY: 7,
+    WINDOW_UPDATE: 8,
+    CONTINUATION: 9
+  };
+  var FLAG = {
+    END_STREAM: 1,
+    ACK: 1,
+    END_HEADERS: 4,
+    PADDED: 8,
+    PRIORITY: 32
+  };
+  var SETTING = {
+    HEADER_TABLE_SIZE: 1,
+    ENABLE_PUSH: 2,
+    MAX_CONCURRENT_STREAMS: 3,
+    INITIAL_WINDOW_SIZE: 4,
+    MAX_FRAME_SIZE: 5,
+    MAX_HEADER_LIST_SIZE: 6
+  };
+  var ERR = {
+    NO_ERROR: 0,
+    PROTOCOL_ERROR: 1,
+    INTERNAL_ERROR: 2,
+    FLOW_CONTROL_ERROR: 3,
+    SETTINGS_TIMEOUT: 4,
+    STREAM_CLOSED: 5,
+    FRAME_SIZE_ERROR: 6,
+    REFUSED_STREAM: 7,
+    CANCEL: 8,
+    COMPRESSION_ERROR: 9,
+    CONNECT_ERROR: 10,
+    ENHANCE_YOUR_CALM: 11,
+    INADEQUATE_SECURITY: 12,
+    HTTP_1_1_REQUIRED: 13
+  };
+  var ERR_NAME = Object.keys(ERR).reduce(function(m, k) {
+    m[ERR[k]] = k;
+    return m;
+  }, {});
+  var PREFACE = new Uint8Array([
+    80,
+    82,
+    73,
+    32,
+    42,
+    32,
+    72,
+    84,
+    84,
+    80,
+    47,
+    50,
+    46,
+    48,
+    13,
+    10,
+    13,
+    10,
+    83,
+    77,
+    13,
+    10,
+    13,
+    10
+  ]);
+  var DEFAULT_WINDOW = 65535;
+  var DEFAULT_MAX_FRAME = 16384;
+  var S_IDLE = 0;
+  var S_OPEN = 1;
+  var S_HCL = 2;
+  var S_HCR = 3;
+  var S_CLOSED = 4;
+  function InputBuf() {
+    this.buf = new Uint8Array(8192);
+    this.len = 0;
+  }
+  InputBuf.prototype.append = function(u8) {
+    if (this.len + u8.length > this.buf.length) {
+      var n = new Uint8Array(Math.max(this.buf.length * 2, this.len + u8.length));
+      n.set(this.buf.subarray(0, this.len));
+      this.buf = n;
+    }
+    this.buf.set(u8, this.len);
+    this.len += u8.length;
+  };
+  InputBuf.prototype.consume = function(n) {
+    if (n >= this.len) {
+      this.len = 0;
+      return;
+    }
+    this.buf.copyWithin(0, n, this.len);
+    this.len -= n;
+  };
+  function u24(b, o) {
+    return b[o] << 16 | b[o + 1] << 8 | b[o + 2];
+  }
+  function u32(b, o) {
+    return (b[o] << 24 | b[o + 1] << 16 | b[o + 2] << 8 | b[o + 3]) >>> 0;
+  }
+  function frame(type, flags, streamId, payload) {
+    var len = payload.length;
+    var out = new Uint8Array(9 + len);
+    out[0] = len >> 16 & 255;
+    out[1] = len >> 8 & 255;
+    out[2] = len & 255;
+    out[3] = type;
+    out[4] = flags;
+    out[5] = streamId >>> 24 & 255;
+    out[6] = streamId >> 16 & 255;
+    out[7] = streamId >> 8 & 255;
+    out[8] = streamId & 255;
+    out.set(payload, 9);
+    return out;
+  }
+  function settingsPayload(pairs) {
+    var out = new Uint8Array(pairs.length * 6);
+    for (var i = 0; i < pairs.length; i++) {
+      var id = pairs[i][0], val = pairs[i][1], o = i * 6;
+      out[o] = id >> 8 & 255;
+      out[o + 1] = id & 255;
+      out[o + 2] = val >>> 24 & 255;
+      out[o + 3] = val >> 16 & 255;
+      out[o + 4] = val >> 8 & 255;
+      out[o + 5] = val & 255;
+    }
+    return out;
+  }
+  function Stream(conn, id, cb) {
+    this._conn = conn;
+    this.id = id;
+    this.state = S_IDLE;
+    this.cb = cb || {};
+    this.sendWindow = DEFAULT_WINDOW;
+    this.recvWindow = DEFAULT_WINDOW;
+    this.outQueue = [];
+    this.outOffset = 0;
+    this.endQueued = false;
+    this.localEnded = false;
+    this.remoteEnded = false;
+    this.halfClosedRemote = false;
+    this.aborted = false;
+  }
+  Stream.prototype.end = function(data) {
+    this._conn._streamEnd(this, data);
+  };
+  Stream.prototype.write = function(data) {
+    this._conn._streamWrite(this, data, false);
+  };
+  Stream.prototype.cancel = function(code) {
+    this._conn._resetStream(this, code == null ? ERR.CANCEL : code);
+  };
+  var HTTP2Client = class _HTTP2Client {
+    constructor() {
+      this._input = new InputBuf();
+      this._out = [];
+      this._flushing = false;
+      this._streams = /* @__PURE__ */ new Map();
+      this._nextStreamId = 1;
+      this._active = 0;
+      this._pending = [];
+      this._state = "connecting";
+      this._prefaceSent = false;
+      this._connSendWindow = DEFAULT_WINDOW;
+      this._peerMaxFrame = DEFAULT_MAX_FRAME;
+      this._localMaxFrame = DEFAULT_MAX_FRAME;
+      this._maxConcurrent = Infinity;
+      this._peerHeaderTableSize = 4096;
+      this._decoder = new HPACKDecoder(4096);
+      this._hdr = null;
+      this._goawayLast = 0;
+      this._onCloseCbs = [];
+      this._error = null;
+    }
+    /* Resolve the transport pal: explicit opts.pal wins, else the module-level
+     * pal installed by setupHttp2(). */
+    static _pal(opts) {
+      var p = opts && opts.pal || _pal;
+      if (!p || typeof p.tcpConnect !== "function")
+        throw new Error("http2: no pal.tcpConnect (call setupHttp2(pal) or pass opts.pal)");
+      return p;
+    }
+    static connect(opts) {
+      var pal2 = _HTTP2Client._pal(opts);
+      var client = new _HTTP2Client();
+      return new Promise(function(resolve, reject) {
+        var settled = false;
+        var host = opts.host, port = opts.port;
+        if (!host) return reject(new Error("http2: connect requires {host, port}"));
+        var tcpOpts;
+        if (opts.tls) {
+          tcpOpts = { tls: true, servername: opts.servername || host };
+          if (opts.alpn) tcpOpts.alpn = opts.alpn;
+          if (opts.ca) tcpOpts.ca = opts.ca;
+        }
+        var cbs = {
+          onconnect: function() {
+            if (settled) return;
+            settled = true;
+            client._pal = pal2;
+            client._tcp = handle;
+            client._state = "open";
+            client._send(PREFACE);
+            client._sendSettings();
+            resolve(client);
+          },
+          ondata: function(data) {
+            client._onData(data);
+          },
+          onerror: function(msg) {
+            if (!settled) {
+              settled = true;
+              reject(new Error("http2: connect error: " + msg));
+              return;
+            }
+            client._failAll("transport error: " + msg);
+          },
+          onclose: function() {
+            client._onTcpClose();
+          }
+        };
+        var handle = tcpOpts ? pal2.tcpConnect(host, port, cbs, tcpOpts) : pal2.tcpConnect(host, port, cbs);
+      });
+    }
+    _send(bytes) {
+      this._out.push(bytes);
+      if (this._flushing) return;
+      this._flushing = true;
+      var self = this;
+      queueMicrotask(function() {
+        self._flush();
+      });
+    }
+    _flush() {
+      this._flushing = false;
+      if (!this._out.length || !this._tcp) {
+        this._out.length = 0;
+        return;
+      }
+      var total = 0, i;
+      for (i = 0; i < this._out.length; i++) total += this._out[i].length;
+      var buf = new Uint8Array(total), off = 0;
+      for (i = 0; i < this._out.length; i++) {
+        buf.set(this._out[i], off);
+        off += this._out[i].length;
+      }
+      this._out.length = 0;
+      try {
+        this._pal.tcpWrite(this._tcp, buf);
+      } catch (e) {
+        this._failAll("write failed: " + (e && e.message));
+      }
+    }
+    _sendSettings() {
+      var pairs = [
+        [SETTING.ENABLE_PUSH, 0],
+        [SETTING.MAX_FRAME_SIZE, this._localMaxFrame],
+        [SETTING.INITIAL_WINDOW_SIZE, DEFAULT_WINDOW]
+      ];
+      this._send(frame(FRAME.SETTINGS, 0, 0, settingsPayload(pairs)));
+    }
+    /* ── public request API ── */
+    request(opts, cb) {
+      if (this._state !== "open") {
+        var err = new Error("http2: connection not open");
+        if (cb && cb.onError) cb.onError(err);
+        else throw err;
+        return null;
+      }
+      var id = this._nextStreamId;
+      this._nextStreamId += 2;
+      var st = new Stream(this, id, cb);
+      this._streams.set(id, st);
+      st._headers = this._buildHeaders(opts);
+      if (this._active < this._maxConcurrent) this._openStream(st);
+      else this._pending.push(st);
+      return st;
+    }
+    _buildHeaders(opts) {
+      var scheme = opts.tls || opts.scheme ? "https" : opts.scheme || "http";
+      var authority = opts.authority || opts.host || "";
+      var headers = [
+        [":method", opts.method || "POST"],
+        [":scheme", opts.scheme || scheme],
+        [":path", opts.path || "/"]
+      ];
+      if (authority) headers.push([":authority", authority]);
+      var extra = opts.headers || {};
+      var keys = Object.keys(extra);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i].toLowerCase();
+        var v = extra[keys[i]];
+        if (Array.isArray(v)) for (var j = 0; j < v.length; j++) headers.push([k, String(v[j])]);
+        else headers.push([k, String(v)]);
+      }
+      return headers;
+    }
+    _openStream(st) {
+      st.state = S_OPEN;
+      this._active++;
+      st.sendWindow = Math.min(st.sendWindow, this._peerInitialWindow());
+      var block = hpackEncode(st._headers);
+      this._sendHeaderBlock(st.id, block, false);
+      if (st.endQueued) {
+        this._flushOut(st);
+        if (!st.localEnded) this._endStreamFrame(st);
+      }
+    }
+    _peerInitialWindow() {
+      return this._initialWindowSize == null ? DEFAULT_WINDOW : this._initialWindowSize;
+    }
+    /* Split a header block into HEADERS (+ CONTINUATION) frames ≤ maxFrame. */
+    _sendHeaderBlock(id, block, endStream) {
+      var max = this._peerMaxFrame;
+      var first = true;
+      var pos = 0;
+      do {
+        var n = Math.min(max, block.length - pos);
+        var chunk = block.subarray(pos, pos + n);
+        var last = pos + n >= block.length;
+        var flags = 0;
+        if (last) flags |= FLAG.END_HEADERS;
+        if (first && endStream) flags |= FLAG.END_STREAM;
+        if (first) {
+          this._send(frame(FRAME.HEADERS, flags, id, chunk));
+        } else {
+          this._send(frame(FRAME.CONTINUATION, flags, id, chunk));
+        }
+        pos += n;
+        first = false;
+      } while (pos < block.length);
+    }
+    _streamWrite(st, data, isEnd) {
+      if (st.state === S_CLOSED || st.aborted) return;
+      var bytes = toBytes(data);
+      if (bytes.length) {
+        st.outQueue.push(bytes);
+        this._flushOut(st);
+      }
+      if (isEnd) {
+        if (st.outQueue.length) st.endQueued = true;
+        else this._endStreamFrame(st);
+      }
+    }
+    _streamEnd(st, data) {
+      if (data != null) this._streamWrite(st, data, true);
+      else {
+        if (st.outQueue.length) st.endQueued = true;
+        else this._endStreamFrame(st);
+      }
+    }
+    /* Emit DATA frames honouring connection + stream send windows. */
+    _flushOut(st) {
+      if (st.state === S_IDLE) return;
+      while (st.outQueue.length) {
+        var avail = Math.min(this._connSendWindow, st.sendWindow, this._peerMaxFrame);
+        if (avail <= 0) return;
+        var head = st.outQueue[0];
+        var take = Math.min(avail, head.length - st.outOffset);
+        var slice = head.subarray(st.outOffset, st.outOffset + take);
+        this._send(frame(FRAME.DATA, 0, st.id, slice));
+        this._connSendWindow -= take;
+        st.sendWindow -= take;
+        st.outOffset += take;
+        if (st.outOffset >= head.length) {
+          st.outQueue.shift();
+          st.outOffset = 0;
+        }
+      }
+      if (st.endQueued && !st.outQueue.length) this._endStreamFrame(st);
+    }
+    _endStreamFrame(st) {
+      if (st.localEnded) return;
+      st.localEnded = true;
+      this._send(frame(FRAME.DATA, FLAG.END_STREAM, st.id, new Uint8Array(0)));
+      if (st.state === S_OPEN) st.state = S_HCL;
+      else if (st.state === S_HCR) this._closeStream(st);
+    }
+    _resetStream(st, code) {
+      if (st.state === S_CLOSED) return;
+      st.aborted = true;
+      this._send(frame(FRAME.RST_STREAM, 0, st.id, u32Payload(code)));
+      this._closeStream(st);
+    }
+    _closeStream(st) {
+      if (st.state === S_CLOSED) return;
+      var wasActive = st.state !== S_IDLE;
+      st.state = S_CLOSED;
+      this._streams.delete(st.id);
+      if (wasActive) {
+        this._active--;
+        while (this._pending.length && this._active < this._maxConcurrent) {
+          var next = this._pending.shift();
+          if (next.aborted || next.state === S_CLOSED) continue;
+          this._openStream(next);
+        }
+      }
+      this._maybeFinishClose();
+    }
+    /* ── inbound data / frame parsing ── */
+    _onData(arrayBuffer) {
+      this._input.append(new Uint8Array(arrayBuffer));
+      try {
+        this._parse();
+      } catch (e) {
+        this._failAll("parse: " + (e && e.message ? e.message : e));
+      }
+    }
+    _parse() {
+      var buf = this._input.buf, len = this._input.len;
+      for (; ; ) {
+        buf = this._input.buf;
+        len = this._input.len;
+        if (len < 9) return;
+        var flen = u24(buf, 0);
+        var type = buf[3];
+        var flags = buf[4];
+        var sid = u32(buf, 5) & 2147483647;
+        if (flen > this._localMaxFrame) {
+          this._goaway(ERR.FRAME_SIZE_ERROR, "frame too large");
+          return;
+        }
+        if (len < 9 + flen) return;
+        var payload = buf.slice(9, 9 + flen);
+        this._input.consume(9 + flen);
+        this._handleFrame(type, flags, sid, payload, flen);
+        if (this._state === "closed") return;
+      }
+    }
+    _handleFrame(type, flags, sid, payload, flen) {
+      switch (type) {
+        case FRAME.SETTINGS:
+          return this._onSettings(flags, payload, flen);
+        case FRAME.HEADERS:
+          return this._onHeaders(flags, sid, payload);
+        case FRAME.CONTINUATION:
+          return this._onContinuation(flags, sid, payload);
+        case FRAME.DATA:
+          return this._onData_(flags, sid, payload, flen);
+        case FRAME.WINDOW_UPDATE:
+          return this._onWindowUpdate(flags, sid, payload, flen);
+        case FRAME.RST_STREAM:
+          return this._onRstStream(flags, sid, payload, flen);
+        case FRAME.PING:
+          return this._onPing(flags, payload, flen);
+        case FRAME.GOAWAY:
+          return this._onGoaway(flags, payload, flen);
+        case FRAME.PRIORITY:
+          return;
+        case FRAME.PUSH_PROMISE:
+          this._goaway(ERR.PROTOCOL_ERROR, "push not allowed");
+          return;
+        default:
+          this._goaway(ERR.PROTOCOL_ERROR, "unknown frame type " + type);
+      }
+    }
+    _onSettings(flags, payload, flen) {
+      if (flags & FLAG.ACK) {
+        this._settingsAcked = true;
+        return;
+      }
+      if (flen % 6 !== 0) {
+        this._goaway(ERR.FRAME_SIZE_ERROR, "bad settings length");
+        return;
+      }
+      for (var i = 0; i + 6 <= flen; i += 6) {
+        var id = payload[i] << 8 | payload[i + 1];
+        var val = u32(payload, i + 2);
+        switch (id) {
+          case SETTING.HEADER_TABLE_SIZE:
+            this._decoder.setMaxSize(val);
+            this._peerHeaderTableSize = val;
+            break;
+          case SETTING.ENABLE_PUSH:
+            break;
+          case SETTING.MAX_CONCURRENT_STREAMS:
+            this._maxConcurrent = val;
+            break;
+          case SETTING.INITIAL_WINDOW_SIZE:
+            if (val > 4294967295) {
+              this._goaway(ERR.FLOW_CONTROL_ERROR, "window too large");
+              return;
+            }
+            this._applyInitialWindow(val);
+            break;
+          case SETTING.MAX_FRAME_SIZE:
+            if (val < 16384 || val > 16777215) {
+              this._goaway(ERR.PROTOCOL_ERROR, "bad max frame");
+              return;
+            }
+            this._peerMaxFrame = val;
+            break;
+          case SETTING.MAX_HEADER_LIST_SIZE:
+            break;
+          default:
+            break;
+        }
+      }
+      this._send(frame(FRAME.SETTINGS, FLAG.ACK, 0, new Uint8Array(0)));
+      while (this._pending.length && this._active < this._maxConcurrent) {
+        var next = this._pending.shift();
+        if (next.aborted || next.state === S_CLOSED) continue;
+        this._openStream(next);
+      }
+    }
+    _applyInitialWindow(val) {
+      var delta = val - (this._initialWindowSize == null ? DEFAULT_WINDOW : this._initialWindowSize);
+      this._initialWindowSize = val;
+      var self = this;
+      this._streams.forEach(function(st) {
+        st.sendWindow += delta;
+        self._flushOut(st);
+      });
+    }
+    _onHeaders(flags, sid, payload) {
+      var st = this._streams.get(sid);
+      if (!st) return;
+      var p = payload, plen = p.length;
+      if (flags & FLAG.PADDED) {
+        var padLen = p[0];
+        p = p.subarray(1, plen - 1 - padLen);
+      }
+      if (flags & FLAG.PRIORITY) p = p.subarray(5);
+      this._hdr = { id: sid, parts: [p.slice ? p.slice() : Uint8Array.from(p)], endStream: !!(flags & FLAG.END_STREAM) };
+      if (flags & FLAG.END_HEADERS) this._finishHeaderBlock();
+    }
+    _onContinuation(flags, sid, payload) {
+      if (!this._hdr || this._hdr.id !== sid) {
+        this._goaway(ERR.PROTOCOL_ERROR, "unexpected CONTINUATION");
+        return;
+      }
+      this._hdr.parts.push(Uint8Array.from(payload));
+      if (flags & FLAG.END_HEADERS) this._finishHeaderBlock();
+    }
+    _finishHeaderBlock() {
+      var h = this._hdr;
+      this._hdr = null;
+      var st = this._streams.get(h.id);
+      var total = 0, i;
+      for (i = 0; i < h.parts.length; i++) total += h.parts[i].length;
+      var block = new Uint8Array(total);
+      var off = 0;
+      for (i = 0; i < h.parts.length; i++) {
+        block.set(h.parts[i], off);
+        off += h.parts[i].length;
+      }
+      var headers;
+      try {
+        headers = this._decoder.decode(block);
+      } catch (e) {
+        this._goaway(ERR.COMPRESSION_ERROR, "hpack: " + e.message);
+        return;
+      }
+      if (st && st.cb.onHeaders) {
+        try {
+          st.cb.onHeaders(headers);
+        } catch (e) {
+        }
+      }
+      if (h.endStream) this._remoteEnd(st);
+    }
+    _onData_(flags, sid, payload, flen) {
+      var st = this._streams.get(sid);
+      if (!st) return;
+      var p = payload;
+      if (flags & FLAG.PADDED) {
+        var padLen = p[0];
+        p = p.subarray(1, flen - 1 - padLen);
+      }
+      if (st.cb.onData && p.length) {
+        try {
+          st.cb.onData(Uint8Array.from(p));
+        } catch (e) {
+        }
+      }
+      if (flen > 0) {
+        this._send(frame(FRAME.WINDOW_UPDATE, 0, 0, u32Payload(flen)));
+        if (st) this._send(frame(FRAME.WINDOW_UPDATE, 0, sid, u32Payload(flen)));
+      }
+      if (flags & FLAG.END_STREAM) this._remoteEnd(st);
+    }
+    _remoteEnd(st) {
+      if (!st || st.remoteEnded) return;
+      st.remoteEnded = true;
+      if (st.cb.onEnd) {
+        try {
+          st.cb.onEnd();
+        } catch (e) {
+        }
+      }
+      if (st.state === S_OPEN) st.state = S_HCR;
+      else if (st.state === S_HCL) this._closeStream(st);
+      else this._closeStream(st);
+    }
+    _onWindowUpdate(flags, sid, payload, flen) {
+      if (flen !== 4) {
+        this._goaway(ERR.FRAME_SIZE_ERROR, "WINDOW_UPDATE size");
+        return;
+      }
+      var inc = u32(payload, 0) & 2147483647;
+      if (inc === 0) {
+        this._goaway(ERR.PROTOCOL_ERROR, "zero window update");
+        return;
+      }
+      if (sid === 0) {
+        this._connSendWindow += inc;
+        var self = this;
+        this._streams.forEach(function(st2) {
+          self._flushOut(st2);
+        });
+      } else {
+        var st = this._streams.get(sid);
+        if (st) {
+          st.sendWindow += inc;
+          this._flushOut(st);
+        }
+      }
+    }
+    _onRstStream(flags, sid, payload, flen) {
+      if (flen !== 4) {
+        this._goaway(ERR.FRAME_SIZE_ERROR, "RST_STREAM size");
+        return;
+      }
+      var code = u32(payload, 0);
+      var st = this._streams.get(sid);
+      if (!st) return;
+      st.aborted = true;
+      if (st.cb.onError) {
+        try {
+          st.cb.onError(new Error("RST_STREAM " + (ERR_NAME[code] || code)));
+        } catch (e) {
+        }
+      }
+      this._closeStream(st);
+    }
+    _onPing(flags, payload, flen) {
+      if (flen !== 8) {
+        this._goaway(ERR.FRAME_SIZE_ERROR, "PING size");
+        return;
+      }
+      if (flags & FLAG.ACK) {
+        this._pongSeen = true;
+        return;
+      }
+      this._send(frame(FRAME.PING, FLAG.ACK, 0, Uint8Array.from(payload)));
+    }
+    _onGoaway(flags, payload, flen) {
+      var lastId = 0, err = 0;
+      if (flen >= 8) {
+        lastId = u32(payload, 0) & 2147483647;
+        err = u32(payload, 4);
+      }
+      this._goawayLast = lastId;
+      this._state = "closing";
+      var self = this;
+      this._streams.forEach(function(st) {
+        if (st.id > lastId) {
+          if (st.cb.onError) {
+            try {
+              st.cb.onError(new Error("GOAWAY " + (ERR_NAME[err] || err)));
+            } catch (e) {
+            }
+          }
+          self._closeStream(st);
+        }
+      });
+      var still = [];
+      for (var i = 0; i < this._pending.length; i++) {
+        var q = this._pending[i];
+        if (q.id > lastId) {
+          if (q.cb.onError) {
+            try {
+              q.cb.onError(new Error("GOAWAY refused"));
+            } catch (e) {
+            }
+          }
+          this._streams.delete(q.id);
+        } else still.push(q);
+      }
+      this._pending = still;
+      this._maybeFinishClose();
+    }
+    _goaway(code, reason) {
+      if (this._state === "closed") return;
+      this._state = "closing";
+      var payload;
+      if (reason) {
+        var r = utf8(reason);
+        payload = new Uint8Array(8 + r.length);
+        writeU32(payload, 0, this._nextStreamId - 2 >= 1 ? this._goawayLast : 0);
+        writeU32(payload, 4, code);
+        payload.set(r, 8);
+      } else {
+        payload = new Uint8Array(8);
+        writeU32(payload, 0, 0);
+        writeU32(payload, 4, code);
+      }
+      this._send(frame(FRAME.GOAWAY, 0, 0, payload));
+      this._failAll("connection error " + (ERR_NAME[code] || code) + (reason ? ": " + reason : ""));
+    }
+    _failAll(msg) {
+      var self = this;
+      this._streams.forEach(function(st) {
+        if (st.cb.onError) {
+          try {
+            st.cb.onError(new Error(msg));
+          } catch (e) {
+          }
+        }
+      });
+      this._streams.clear();
+      this._pending.length = 0;
+      this._active = 0;
+      this._shutdown();
+    }
+    _onTcpClose() {
+      if (this._state === "closed") return;
+      var self = this;
+      this._streams.forEach(function(st) {
+        if (st.cb.onError) {
+          try {
+            st.cb.onError(new Error("connection closed"));
+          } catch (e) {
+          }
+        }
+      });
+      this._streams.clear();
+      this._pending.length = 0;
+      this._shutdown();
+    }
+    _shutdown() {
+      this._state = "closed";
+      if (this._tcp && this._pal && this._pal.tcpClose) {
+        try {
+          this._pal.tcpClose(this._tcp);
+        } catch (e) {
+        }
+      }
+      this._tcp = null;
+      var cbs = this._onCloseCbs;
+      this._onCloseCbs = [];
+      for (var i = 0; i < cbs.length; i++) {
+        try {
+          cbs[i]();
+        } catch (e) {
+        }
+      }
+    }
+    _maybeFinishClose() {
+      if (this._state === "closing" && this._streams.size === 0 && this._pending.length === 0) {
+        this._shutdown();
+      }
+    }
+    /* Graceful close: send GOAWAY, stop new streams, drain in-flight. */
+    close() {
+      if (this._state === "closed") return Promise.resolve();
+      this._state = "closing";
+      var payload = new Uint8Array(8);
+      writeU32(payload, 0, Math.max(0, this._nextStreamId - 2));
+      writeU32(payload, 4, ERR.NO_ERROR);
+      this._send(frame(FRAME.GOAWAY, 0, 0, payload));
+      var self = this;
+      if (this._streams.size === 0 && this._pending.length === 0) {
+        return Promise.resolve().then(function() {
+          self._shutdown();
+        });
+      }
+      return new Promise(function(resolve) {
+        self._onCloseCbs.push(resolve);
+      });
+    }
+    /* Send a keepalive PING; resolves on ACK (or rejects if closed). */
+    ping() {
+      var self = this;
+      if (this._state !== "open") return Promise.reject(new Error("http2: not open"));
+      var data = new Uint8Array(8);
+      this._send(frame(FRAME.PING, 0, 0, data));
+      return new Promise(function(resolve) {
+        var t = setInterval(function() {
+          if (self._pongSeen) {
+            clearInterval(t);
+            self._pongSeen = false;
+            resolve();
+          } else if (self._state === "closed") {
+            clearInterval(t);
+            resolve();
+          }
+        }, 5);
+        if (t.unref) t.unref();
+      });
+    }
+  };
+  function u32Payload(v) {
+    var b = new Uint8Array(4);
+    writeU32(b, 0, v);
+    return b;
+  }
+  function writeU32(b, o, v) {
+    b[o] = v >>> 24 & 255;
+    b[o + 1] = v >> 16 & 255;
+    b[o + 2] = v >> 8 & 255;
+    b[o + 3] = v & 255;
+  }
+  function toBytes(data) {
+    if (data == null) return new Uint8Array(0);
+    if (data instanceof Uint8Array) return data;
+    if (data instanceof ArrayBuffer) return new Uint8Array(data);
+    if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    return utf8(String(data));
+  }
+  function utf8(s) {
+    var out = [];
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 128) out.push(c);
+      else if (c < 2048) out.push(192 | c >> 6, 128 | c & 63);
+      else if (c >= 55296 && c <= 56319 && i + 1 < s.length) {
+        var c2 = s.charCodeAt(i + 1);
+        if (c2 >= 56320 && c2 <= 57343) {
+          var cp = 65536 + (c - 55296 << 10) + (c2 - 56320);
+          i++;
+          out.push(240 | cp >> 18, 128 | cp >> 12 & 63, 128 | cp >> 6 & 63, 128 | cp & 63);
+        } else out.push(239, 191, 189);
+      } else out.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+    }
+    return Uint8Array.from(out);
+  }
+  function setupHttp2(pal2) {
+    _pal = pal2;
+    if (typeof pal2.tcpConnect === "function") {
+      globalThis.qwrt = globalThis.qwrt || {};
+      globalThis.qwrt.http2 = { HTTP2Client };
+    }
+  }
+
+  // src/http2-server.js
+  var DEFAULT_WINDOW2 = 65535;
+  var DEFAULT_MAX_FRAME2 = 16384;
+  var S_OPEN2 = 1;
+  var S_HCL2 = 2;
+  var S_HCR2 = 3;
+  var S_CLOSED2 = 4;
+  function ServerStream(session, id) {
+    this._session = session;
+    this.id = id;
+    this.state = S_OPEN2;
+    this.headers = null;
+    this.sendWindow = DEFAULT_WINDOW2;
+    this.outQueue = [];
+    this.outOffset = 0;
+    this._trailers = null;
+    this._endQueued = false;
+    this.headersSent = false;
+    this.localEnded = false;
+    this.remoteEnded = false;
+    this.aborted = false;
+    this.onData = null;
+    this.onEnd = null;
+    this.onError = null;
+  }
+  ServerStream.prototype.respond = function(headers) {
+    if (this.headersSent || this.localEnded || this.aborted) return;
+    this.headersSent = true;
+    this._session._sendHeaderBlock(this.id, hpackEncode(headers), false);
+  };
+  ServerStream.prototype.write = function(data) {
+    if (this.localEnded || this.aborted) return;
+    var bytes = toBytes(data);
+    if (bytes.length) {
+      this.outQueue.push(bytes);
+      this._session._flushStream(this);
+    }
+  };
+  ServerStream.prototype.end = function(trailers) {
+    if (this.localEnded || this.aborted) return;
+    this._trailers = trailers || [];
+    if (this.outQueue.length) {
+      this._endQueued = true;
+      return;
+    }
+    this._session._sendTrailers(this);
+  };
+  ServerStream.prototype.cancel = function(code) {
+    this._session._resetStream(this, code == null ? ERR.CANCEL : code);
+  };
+  var HTTP2ServerSession = class {
+    constructor(opts) {
+      opts = opts || {};
+      this._pal = opts.pal;
+      this._conn = null;
+      this._input = new InputBuf();
+      this._out = [];
+      this._flushing = false;
+      this._streams = /* @__PURE__ */ new Map();
+      this._state = "connecting";
+      this._prefaceDone = false;
+      this._lastStreamId = 0;
+      this._connSendWindow = DEFAULT_WINDOW2;
+      this._initialWindowSize = DEFAULT_WINDOW2;
+      this._peerMaxFrame = DEFAULT_MAX_FRAME2;
+      this._localMaxFrame = opts.maxFrameSize || DEFAULT_MAX_FRAME2;
+      this._maxConcurrent = opts.maxConcurrent || 128;
+      this._decoder = new HPACKDecoder(4096);
+      this._hdr = null;
+      this._goawaySent = false;
+      this._onStreamCb = opts.onStream || null;
+      this._onCloseCbs = [];
+    }
+    onStream(cb) {
+      this._onStreamCb = cb;
+    }
+    onClose(cb) {
+      this._onCloseCbs.push(cb);
+    }
+    /* Bind to a conn handle from pal.tcpListen; writes go via pal.tcpWrite.
+     * When the caller has not wired conn.ondata itself (serve() routes bytes
+     * through its own dispatch), take over the callbacks so a bare session
+     * works out of the box. */
+    attach(conn) {
+      this._conn = conn;
+      if (!conn.ondata) {
+        conn.ondata = (d) => this.feed(d);
+        conn.onclose = () => this._teardown();
+      }
+    }
+    /* Feed decrypted transport bytes (ArrayBuffer | Uint8Array). */
+    feed(data) {
+      if (this._state === "closed") return;
+      this._input.append(data instanceof Uint8Array ? data : new Uint8Array(data));
+      if (!this._prefaceDone) {
+        if (this._input.len < PREFACE.length) {
+          for (var i = 0; i < this._input.len; i++) {
+            if (this._input.buf[i] !== PREFACE[i]) {
+              this._teardown();
+              return;
+            }
+          }
+          return;
+        }
+        for (var j = 0; j < PREFACE.length; j++) {
+          if (this._input.buf[j] !== PREFACE[j]) {
+            this._teardown();
+            return;
+          }
+        }
+        this._input.consume(PREFACE.length);
+        this._prefaceDone = true;
+        this._state = "open";
+        this._sendSettings();
+      }
+      try {
+        this._parse();
+      } catch (e) {
+        this._goaway(ERR.PROTOCOL_ERROR, "parse");
+      }
+    }
+    _send(bytes) {
+      this._out.push(bytes);
+      if (this._flushing) return;
+      this._flushing = true;
+      var self = this;
+      queueMicrotask(function() {
+        self._flush();
+      });
+    }
+    _flush() {
+      this._flushing = false;
+      if (!this._out.length || !this._conn) {
+        this._out.length = 0;
+        return;
+      }
+      var total = 0, i;
+      for (i = 0; i < this._out.length; i++) total += this._out[i].length;
+      var buf = new Uint8Array(total), off = 0;
+      for (i = 0; i < this._out.length; i++) {
+        buf.set(this._out[i], off);
+        off += this._out[i].length;
+      }
+      this._out.length = 0;
+      try {
+        this._pal.tcpWrite(this._conn, buf);
+      } catch (e) {
+        this._teardown();
+      }
+    }
+    _sendSettings() {
+      var pairs = [
+        [SETTING.MAX_CONCURRENT_STREAMS, this._maxConcurrent],
+        [SETTING.INITIAL_WINDOW_SIZE, DEFAULT_WINDOW2]
+      ];
+      this._send(frame(FRAME.SETTINGS, 0, 0, settingsPayload(pairs)));
+    }
+    /* HEADERS (+ CONTINUATION) split to ≤ peer max frame size. */
+    _sendHeaderBlock(id, block, endStream) {
+      var max = this._peerMaxFrame;
+      var first = true;
+      var pos = 0;
+      do {
+        var n = Math.min(max, block.length - pos);
+        var chunk = block.subarray(pos, pos + n);
+        var last = pos + n >= block.length;
+        var flags = 0;
+        if (last) flags |= FLAG.END_HEADERS;
+        if (first && endStream) flags |= FLAG.END_STREAM;
+        if (first) this._send(frame(FRAME.HEADERS, flags, id, chunk));
+        else this._send(frame(FRAME.CONTINUATION, flags, id, chunk));
+        pos += n;
+        first = false;
+      } while (pos < block.length);
+    }
+    _sendTrailers(st) {
+      if (st.localEnded) return;
+      st.localEnded = true;
+      this._sendHeaderBlock(st.id, hpackEncode(st._trailers), true);
+      if (st.state === S_OPEN2) st.state = S_HCL2;
+      else this._closeStream(st);
+      this._maybeFinish();
+    }
+    /* Emit DATA frames honouring connection + stream send windows. */
+    _flushStream(st) {
+      if (st.state === S_CLOSED2 || st.aborted) return;
+      while (st.outQueue.length) {
+        var avail = Math.min(this._connSendWindow, st.sendWindow, this._peerMaxFrame);
+        if (avail <= 0) return;
+        var head = st.outQueue[0];
+        var take = Math.min(avail, head.length - st.outOffset);
+        var slice = head.subarray(st.outOffset, st.outOffset + take);
+        this._send(frame(FRAME.DATA, 0, st.id, slice));
+        this._connSendWindow -= take;
+        st.sendWindow -= take;
+        st.outOffset += take;
+        if (st.outOffset >= head.length) {
+          st.outQueue.shift();
+          st.outOffset = 0;
+        }
+      }
+      if (st._endQueued && !st.outQueue.length) {
+        st._endQueued = false;
+        this._sendTrailers(st);
+      }
+    }
+    _resetStream(st, code) {
+      if (st.state === S_CLOSED2) return;
+      st.aborted = true;
+      this._send(frame(FRAME.RST_STREAM, 0, st.id, u32Payload(code)));
+      this._closeStream(st);
+    }
+    _closeStream(st) {
+      if (st.state === S_CLOSED2) return;
+      st.state = S_CLOSED2;
+      this._streams.delete(st.id);
+      this._maybeFinish();
+    }
+    _maybeFinish() {
+      if (this._state === "closing" && this._streams.size === 0) this._teardown();
+    }
+    /* ── inbound frames ── */
+    _parse() {
+      for (; ; ) {
+        var buf = this._input.buf, len = this._input.len;
+        if (len < 9) return;
+        var flen = u24(buf, 0);
+        var type = buf[3];
+        var flags = buf[4];
+        var sid = u32(buf, 5) & 2147483647;
+        if (flen > this._localMaxFrame) {
+          this._goaway(ERR.FRAME_SIZE_ERROR);
+          return;
+        }
+        if (len < 9 + flen) return;
+        var payload = buf.slice(9, 9 + flen);
+        this._input.consume(9 + flen);
+        this._handleFrame(type, flags, sid, payload, flen);
+        if (this._state === "closed") return;
+      }
+    }
+    _handleFrame(type, flags, sid, payload, flen) {
+      switch (type) {
+        case FRAME.SETTINGS:
+          return this._onSettings(flags, payload, flen);
+        case FRAME.HEADERS:
+          return this._onHeaders(flags, sid, payload);
+        case FRAME.CONTINUATION:
+          return this._onContinuation(flags, sid, payload);
+        case FRAME.DATA:
+          return this._onData(flags, sid, payload, flen);
+        case FRAME.WINDOW_UPDATE:
+          return this._onWindowUpdate(flags, sid, payload, flen);
+        case FRAME.RST_STREAM:
+          return this._onRstStream(flags, sid, payload, flen);
+        case FRAME.PING:
+          return this._onPing(flags, payload, flen);
+        case FRAME.GOAWAY:
+          return this._onGoaway(payload, flen);
+        case FRAME.PRIORITY:
+          return;
+        default:
+          return;
+      }
+    }
+    _onSettings(flags, payload, flen) {
+      if (flags & FLAG.ACK) return;
+      if (flen % 6 !== 0) {
+        this._goaway(ERR.FRAME_SIZE_ERROR);
+        return;
+      }
+      for (var i = 0; i + 6 <= flen; i += 6) {
+        var id = payload[i] << 8 | payload[i + 1];
+        var val = u32(payload, i + 2);
+        switch (id) {
+          case SETTING.HEADER_TABLE_SIZE:
+            break;
+          case SETTING.ENABLE_PUSH:
+            break;
+          case SETTING.MAX_CONCURRENT_STREAMS:
+            break;
+          case SETTING.INITIAL_WINDOW_SIZE:
+            if (val > 2147483647) {
+              this._goaway(ERR.FLOW_CONTROL_ERROR);
+              return;
+            }
+            this._applyInitialWindow(val);
+            break;
+          case SETTING.MAX_FRAME_SIZE:
+            if (val < 16384 || val > 16777215) {
+              this._goaway(ERR.PROTOCOL_ERROR);
+              return;
+            }
+            this._peerMaxFrame = val;
+            break;
+          default:
+            break;
+        }
+      }
+      this._send(frame(FRAME.SETTINGS, FLAG.ACK, 0, new Uint8Array(0)));
+    }
+    _applyInitialWindow(val) {
+      var delta = val - this._initialWindowSize;
+      this._initialWindowSize = val;
+      var self = this;
+      this._streams.forEach(function(st) {
+        st.sendWindow += delta;
+        self._flushStream(st);
+      });
+    }
+    _onHeaders(flags, sid, payload) {
+      if ((sid & 1) === 0) {
+        this._goaway(ERR.PROTOCOL_ERROR);
+        return;
+      }
+      var st = this._streams.get(sid);
+      var p = payload, plen = p.length;
+      if (flags & FLAG.PADDED) {
+        var padLen = p[0];
+        p = p.subarray(1, plen - 1 - padLen);
+      }
+      if (flags & FLAG.PRIORITY) p = p.subarray(5);
+      if (st && st.headers != null) {
+        this._hdr = null;
+        if (flags & FLAG.END_STREAM) this._remoteEnd(st, flags);
+        return;
+      }
+      if (!st) {
+        if (this._streams.size >= this._maxConcurrent) {
+          this._send(frame(FRAME.RST_STREAM, 0, sid, u32Payload(ERR.REFUSED_STREAM)));
+          return;
+        }
+        if (sid <= this._lastStreamId) {
+          this._goaway(ERR.PROTOCOL_ERROR);
+          return;
+        }
+        this._lastStreamId = sid;
+        st = new ServerStream(this, sid);
+        st.sendWindow = this._initialWindowSize;
+        this._streams.set(sid, st);
+      }
+      this._hdr = { id: sid, parts: [Uint8Array.from(p)], endStream: !!(flags & FLAG.END_STREAM) };
+      if (flags & FLAG.END_HEADERS) this._finishHeaderBlock();
+    }
+    _onContinuation(flags, sid, payload) {
+      if (!this._hdr || this._hdr.id !== sid) {
+        this._goaway(ERR.PROTOCOL_ERROR);
+        return;
+      }
+      this._hdr.parts.push(Uint8Array.from(payload));
+      if (flags & FLAG.END_HEADERS) this._finishHeaderBlock();
+    }
+    _finishHeaderBlock() {
+      var h = this._hdr;
+      this._hdr = null;
+      var st = this._streams.get(h.id);
+      var total = 0, i;
+      for (i = 0; i < h.parts.length; i++) total += h.parts[i].length;
+      var block = new Uint8Array(total);
+      var off = 0;
+      for (i = 0; i < h.parts.length; i++) {
+        block.set(h.parts[i], off);
+        off += h.parts[i].length;
+      }
+      var headers;
+      try {
+        headers = this._decoder.decode(block);
+      } catch (e) {
+        this._goaway(ERR.COMPRESSION_ERROR);
+        return;
+      }
+      if (st && st.headers == null) {
+        st.headers = headers;
+        if (this._onStreamCb) {
+          try {
+            this._onStreamCb(st);
+          } catch (e) {
+          }
+        }
+      }
+      if (h.endStream) this._remoteEnd(st, 0);
+    }
+    _onData(flags, sid, payload, flen) {
+      var st = this._streams.get(sid);
+      var p = payload;
+      if (flags & FLAG.PADDED) {
+        var padLen = p[0];
+        p = p.subarray(1, flen - 1 - padLen);
+      }
+      if (st && !st.aborted && p.length && st.onData) {
+        try {
+          st.onData(Uint8Array.from(p));
+        } catch (e) {
+        }
+      }
+      if (flen > 0) {
+        this._send(frame(FRAME.WINDOW_UPDATE, 0, 0, u32Payload(flen)));
+        this._send(frame(FRAME.WINDOW_UPDATE, 0, sid, u32Payload(flen)));
+      }
+      if (flags & FLAG.END_STREAM) this._remoteEnd(st, 0);
+    }
+    _remoteEnd(st) {
+      if (!st || st.remoteEnded) return;
+      st.remoteEnded = true;
+      if (st.onEnd) {
+        try {
+          st.onEnd();
+        } catch (e) {
+        }
+      }
+      if (st.state === S_OPEN2) st.state = S_HCR2;
+      else this._closeStream(st);
+    }
+    _onWindowUpdate(flags, sid, payload, flen) {
+      if (flen !== 4) {
+        this._goaway(ERR.FRAME_SIZE_ERROR);
+        return;
+      }
+      var inc = u32(payload, 0) & 2147483647;
+      if (inc === 0) {
+        this._goaway(ERR.PROTOCOL_ERROR);
+        return;
+      }
+      if (sid === 0) {
+        this._connSendWindow += inc;
+        var self = this;
+        this._streams.forEach(function(st2) {
+          self._flushStream(st2);
+        });
+      } else {
+        var st = this._streams.get(sid);
+        if (st) {
+          st.sendWindow += inc;
+          this._flushStream(st);
+        }
+      }
+    }
+    _onRstStream(flags, sid, payload, flen) {
+      if (flen !== 4) {
+        this._goaway(ERR.FRAME_SIZE_ERROR);
+        return;
+      }
+      var st = this._streams.get(sid);
+      if (!st) return;
+      st.aborted = true;
+      if (st.onError) {
+        try {
+          st.onError(new Error("stream cancelled"));
+        } catch (e) {
+        }
+      }
+      this._closeStream(st);
+    }
+    _onPing(flags, payload, flen) {
+      if (flen !== 8) {
+        this._goaway(ERR.FRAME_SIZE_ERROR);
+        return;
+      }
+      if (flags & FLAG.ACK) return;
+      this._send(frame(FRAME.PING, FLAG.ACK, 0, Uint8Array.from(payload)));
+    }
+    _onGoaway(payload, flen) {
+      this._state = "closing";
+      this._teardown();
+    }
+    _goaway(code) {
+      if (this._goawaySent) return;
+      this._goawaySent = true;
+      var payload = new Uint8Array(8);
+      writeU32(payload, 0, this._lastStreamId);
+      writeU32(payload, 4, code);
+      this._send(frame(FRAME.GOAWAY, 0, 0, payload));
+      this._failAll();
+    }
+    _failAll() {
+      var self = this;
+      this._streams.forEach(function(st) {
+        st.aborted = true;
+        if (st.onError) {
+          try {
+            st.onError(new Error("connection error"));
+          } catch (e) {
+          }
+        }
+        st.state = S_CLOSED2;
+      });
+      this._streams.clear();
+      this._teardown();
+    }
+    /* Graceful close: GOAWAY, stop new work, drain in-flight streams, then
+     * close the TCP connection once (or immediately when nothing is open). */
+    close() {
+      if (this._state === "closed") return;
+      this._state = "closing";
+      if (this._conn && !this._goawaySent) {
+        this._goawaySent = true;
+        var payload = new Uint8Array(8);
+        writeU32(payload, 0, this._lastStreamId);
+        writeU32(payload, 4, ERR.NO_ERROR);
+        this._send(frame(FRAME.GOAWAY, 0, 0, payload));
+      }
+      if (this._streams.size === 0) this._teardown();
+    }
+    _teardown() {
+      if (this._state === "closed") return;
+      this._state = "closed";
+      if (this._conn && this._pal && this._pal.tcpClose) {
+        try {
+          this._pal.tcpClose(this._conn);
+        } catch (e) {
+        }
+      }
+      this._conn = null;
+      var cbs = this._onCloseCbs;
+      this._onCloseCbs = [];
+      for (var i = 0; i < cbs.length; i++) {
+        try {
+          cbs[i]();
+        } catch (e) {
+        }
+      }
+    }
+  };
+  function setupHttp2Server(pal2) {
+    globalThis.qwrt = globalThis.qwrt || {};
+    if (!globalThis.qwrt.http2) globalThis.qwrt.http2 = {};
+    globalThis.qwrt.http2.HTTP2ServerSession = HTTP2ServerSession;
+    globalThis.qwrt.http2.PREFACE = PREFACE;
+  }
+
+  // src/protobuf.js
+  function utf8Encode2(s) {
+    var out = [];
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 128) out.push(c);
+      else if (c < 2048) out.push(192 | c >> 6, 128 | c & 63);
+      else if (c >= 55296 && c <= 56319 && i + 1 < s.length) {
+        var c2 = s.charCodeAt(i + 1);
+        if (c2 >= 56320 && c2 <= 57343) {
+          var cp = 65536 + (c - 55296 << 10) + (c2 - 56320);
+          i++;
+          out.push(
+            240 | cp >> 18,
+            128 | cp >> 12 & 63,
+            128 | cp >> 6 & 63,
+            128 | cp & 63
+          );
+        } else out.push(239, 191, 189);
+      } else if (c >= 55296 && c <= 57343) out.push(239, 191, 189);
+      else out.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+    }
+    return Uint8Array.from(out);
+  }
+  function utf8Decode2(b) {
+    var s = "";
+    for (var i = 0; i < b.length; ) {
+      var c = b[i++];
+      if (c < 128) s += String.fromCharCode(c);
+      else if (c >= 192 && c < 224 && i < b.length) {
+        s += String.fromCharCode((c & 31) << 6 | b[i++] & 63);
+      } else if (c >= 224 && c < 240 && i + 1 < b.length) {
+        s += String.fromCharCode((c & 15) << 12 | (b[i++] & 63) << 6 | b[i++] & 63);
+      } else if (c >= 240 && i + 2 < b.length) {
+        var cp = (c & 7) << 18 | (b[i++] & 63) << 12 | (b[i++] & 63) << 6 | b[i++] & 63;
+        cp -= 65536;
+        s += String.fromCharCode(55296 + (cp >> 10), 56320 + (cp & 1023));
+      } else s += "\uFFFD";
+    }
+    return s;
+  }
+  function toBytes2(d) {
+    if (d == null) return new Uint8Array(0);
+    if (d instanceof Uint8Array) return d;
+    if (d instanceof ArrayBuffer) return new Uint8Array(d);
+    if (ArrayBuffer.isView(d)) return new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
+    return utf8Encode2(String(d));
+  }
+  var WIRE_VARINT = 0;
+  var WIRE_FIXED64 = 1;
+  var WIRE_LEN = 2;
+  var WIRE_FIXED32 = 5;
+  var SCALARS = {
+    double: { wire: WIRE_FIXED64, kind: "double", pack: true },
+    float: { wire: WIRE_FIXED32, kind: "float", pack: true },
+    int64: { wire: WIRE_VARINT, kind: "int64", pack: true },
+    uint64: { wire: WIRE_VARINT, kind: "uint64", pack: true },
+    int32: { wire: WIRE_VARINT, kind: "int32", pack: true },
+    fixed64: { wire: WIRE_FIXED64, kind: "fixed64", pack: true },
+    fixed32: { wire: WIRE_FIXED32, kind: "fixed32", pack: true },
+    bool: { wire: WIRE_VARINT, kind: "bool", pack: true },
+    string: { wire: WIRE_LEN, kind: "string", pack: false },
+    bytes: { wire: WIRE_LEN, kind: "bytes", pack: false },
+    uint32: { wire: WIRE_VARINT, kind: "uint32", pack: true },
+    sfixed32: { wire: WIRE_FIXED32, kind: "sfixed32", pack: true },
+    sfixed64: { wire: WIRE_FIXED64, kind: "sfixed64", pack: true },
+    sint32: { wire: WIRE_VARINT, kind: "sint32", pack: true },
+    sint64: { wire: WIRE_VARINT, kind: "sint64", pack: true }
+  };
+  var INT64_KINDS = { int64: 1, uint64: 1, sint64: 1, fixed64: 1, sfixed64: 1 };
+  function Writer() {
+    this.buf = new Uint8Array(256);
+    this.len = 0;
+    this._dv = null;
+  }
+  Writer.prototype._need = function(n) {
+    if (this.len + n <= this.buf.length) return;
+    var cap = this.buf.length;
+    while (cap < this.len + n) cap *= 2;
+    var b = new Uint8Array(cap);
+    b.set(this.buf.subarray(0, this.len));
+    this.buf = b;
+    this._dv = null;
+  };
+  Writer.prototype._view = function() {
+    this._need(8);
+    if (!this._dv) this._dv = new DataView(this.buf.buffer);
+    return this._dv;
+  };
+  Writer.prototype.bytes = function() {
+    return this.buf.slice(0, this.len);
+  };
+  Writer.prototype.u8 = function(v) {
+    this._need(1);
+    this.buf[this.len++] = v & 255;
+  };
+  Writer.prototype.raw = function(u8) {
+    this._need(u8.length);
+    this.buf.set(u8, this.len);
+    this.len += u8.length;
+  };
+  Writer.prototype.varintNum = function(v) {
+    v = v >>> 0;
+    while (v > 127) {
+      this.u8(v & 127 | 128);
+      v = v >>> 7;
+    }
+    this.u8(v);
+  };
+  Writer.prototype.varintBig = function(v) {
+    v = BigInt.asUintN(64, v);
+    while (v > 0x7fn) {
+      this.u8(Number(v & 0x7fn) | 128);
+      v >>= 7n;
+    }
+    this.u8(Number(v));
+  };
+  Writer.prototype.tag = function(num, wire) {
+    this.varintNum((num << 3 | wire) >>> 0);
+  };
+  Writer.prototype.fixed32 = function(v) {
+    var dv = this._view();
+    dv.setUint32(this.len, v >>> 0, true);
+    this.len += 4;
+  };
+  Writer.prototype.sfixed32 = function(v) {
+    var dv = this._view();
+    dv.setInt32(this.len, v | 0, true);
+    this.len += 4;
+  };
+  Writer.prototype.float = function(v) {
+    var dv = this._view();
+    dv.setFloat32(this.len, v, true);
+    this.len += 4;
+  };
+  Writer.prototype.fixed64 = function(v) {
+    var dv = this._view();
+    dv.setBigUint64(this.len, BigInt.asUintN(64, v), true);
+    this.len += 8;
+  };
+  Writer.prototype.sfixed64 = function(v) {
+    var dv = this._view();
+    dv.setBigInt64(this.len, BigInt.asIntN(64, v), true);
+    this.len += 8;
+  };
+  Writer.prototype.double = function(v) {
+    var dv = this._view();
+    dv.setFloat64(this.len, v, true);
+    this.len += 8;
+  };
+  Writer.prototype.lenBytes = function(u8) {
+    this.varintNum(u8.length);
+    this.raw(u8);
+  };
+  function Reader(buf) {
+    this.buf = buf instanceof Uint8Array ? buf : toBytes2(buf);
+    this.pos = 0;
+    this.len = this.buf.length;
+    this._dv = null;
+  }
+  Reader.prototype.view = function(n) {
+    if (!this._dv || this._dv.buffer !== this.buf.buffer) this._dv = new DataView(this.buf.buffer);
+    if (this.pos + n > this.len) throw new Error("protobuf: truncated");
+    return this._dv;
+  };
+  Reader.prototype.varintNum = function() {
+    var r = 0, shift = 0, b;
+    do {
+      if (this.pos >= this.len) throw new Error("protobuf: varint underflow");
+      b = this.buf[this.pos++];
+      r += (b & 127) * Math.pow(2, shift);
+      shift += 7;
+    } while (b & 128);
+    return r >>> 0;
+  };
+  Reader.prototype.varintBig = function() {
+    var r = 0n, shift = 0n, b;
+    do {
+      if (this.pos >= this.len) throw new Error("protobuf: varint underflow");
+      b = this.buf[this.pos++];
+      r |= BigInt(b & 127) << shift;
+      shift += 7n;
+    } while (b & 128);
+    return r;
+  };
+  Reader.prototype.u32 = function() {
+    var dv = this.view(4), v = dv.getUint32(this.pos, true);
+    this.pos += 4;
+    return v;
+  };
+  Reader.prototype.i32 = function() {
+    var dv = this.view(4), v = dv.getInt32(this.pos, true);
+    this.pos += 4;
+    return v;
+  };
+  Reader.prototype.f32 = function() {
+    var dv = this.view(4), v = dv.getFloat32(this.pos, true);
+    this.pos += 4;
+    return v;
+  };
+  Reader.prototype.u64 = function() {
+    var dv = this.view(8), v = dv.getBigUint64(this.pos, true);
+    this.pos += 8;
+    return v;
+  };
+  Reader.prototype.i64 = function() {
+    var dv = this.view(8), v = dv.getBigInt64(this.pos, true);
+    this.pos += 8;
+    return v;
+  };
+  Reader.prototype.f64 = function() {
+    var dv = this.view(8), v = dv.getFloat64(this.pos, true);
+    this.pos += 8;
+    return v;
+  };
+  Reader.prototype.bytes = function() {
+    var n = this.varintNum();
+    if (this.pos + n > this.len) throw new Error("protobuf: length underflow");
+    var out = this.buf.slice(this.pos, this.pos + n);
+    this.pos += n;
+    return out;
+  };
+  Reader.prototype.skip = function(wire) {
+    switch (wire) {
+      case WIRE_VARINT:
+        this.varintBig();
+        return;
+      case WIRE_FIXED64:
+        this.pos += 8;
+        return;
+      case WIRE_FIXED32:
+        this.pos += 4;
+        return;
+      case WIRE_LEN:
+        this.bytes();
+        return;
+      default:
+        throw new Error("protobuf: bad wire type " + wire);
+    }
+  };
+  function asBigInt(v, what) {
+    if (typeof v === "bigint") return v;
+    if (typeof v === "number") {
+      if (!Number.isFinite(v)) throw new Error("protobuf: non-finite " + what);
+      return BigInt(Math.trunc(v));
+    }
+    if (typeof v === "string") {
+      if (!/^[+-]?\d+$/.test(v)) throw new Error("protobuf: bad integer string for " + what);
+      return BigInt(v);
+    }
+    throw new Error("protobuf: expected integer for " + what + ", got " + typeof v);
+  }
+  function int64Out(bi, opts) {
+    return opts && opts.int64AsString ? bi.toString() : bi;
+  }
+  function EnumType(name, values) {
+    this.name = name;
+    this.kind = "enum";
+    this.values = values;
+    this.byNumber = {};
+    for (var k in values) this.byNumber[values[k]] = k;
+  }
+  EnumType.prototype.number = function(v) {
+    if (typeof v === "number") return v | 0;
+    if (typeof v === "string") {
+      if (!(v in this.values)) throw new Error("protobuf: unknown enum value " + v + " for " + this.name);
+      return this.values[v];
+    }
+    throw new Error("protobuf: bad enum value for " + this.name);
+  };
+  function MessageType(name, fields, opts) {
+    this.name = name;
+    this.kind = "message";
+    this.fields = fields;
+    this.byNumber = {};
+    this.byName = {};
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (this.byNumber[f.number]) throw new Error("protobuf: duplicate field number " + f.number + " in " + name);
+      this.byNumber[f.number] = f;
+      this.byName[f.name] = f;
+    }
+    this._opts = opts || {};
+  }
+  MessageType.prototype._default = function(f) {
+    if (f.rule === "repeated") return [];
+    if (f.rule === "map") return {};
+    if (f.type === "message") return void 0;
+    if (f.type === "enum") return 0;
+    var k = f.scalar;
+    if (k === "string") return "";
+    if (k === "bytes") return new Uint8Array(0);
+    if (k === "bool") return false;
+    if (INT64_KINDS[k]) return this._opts.int64AsString ? "0" : 0n;
+    return 0;
+  };
+  function isDefaultScalar(kind, v) {
+    if (kind === "string") return v === "";
+    if (kind === "bytes") return !v || v.length === 0;
+    if (kind === "bool") return !v;
+    if (INT64_KINDS[kind]) {
+      if (typeof v === "bigint") return v === 0n;
+      if (typeof v === "string") return v === "0" || v === "";
+      return Number(v) === 0;
+    }
+    return v === 0;
+  }
+  MessageType.prototype._writeValue = function(w, f, v) {
+    if (f.type === "message") {
+      var sub = f.messageType.encode(v);
+      w.lenBytes(sub);
+      return;
+    }
+    if (f.type === "enum") {
+      w.varintBig(BigInt.asUintN(64, BigInt(f.enumType.number(v))));
+      return;
+    }
+    switch (f.scalar) {
+      case "int32":
+      case "int64":
+      case "uint32":
+      case "uint64":
+        w.varintBig(BigInt.asUintN(64, asBigInt(v, f.name)));
+        break;
+      case "sint32": {
+        var n = Number(asBigInt(v, f.name)) | 0;
+        w.varintNum((n << 1 ^ n >> 31) >>> 0);
+        break;
+      }
+      case "sint64": {
+        var b = BigInt.asIntN(64, asBigInt(v, f.name));
+        w.varintBig(BigInt.asUintN(64, b << 1n ^ b >> 63n));
+        break;
+      }
+      case "fixed32":
+        w.fixed32(Number(asBigInt(v, f.name)));
+        break;
+      case "sfixed32":
+        w.sfixed32(Number(asBigInt(v, f.name)));
+        break;
+      case "fixed64":
+        w.fixed64(asBigInt(v, f.name));
+        break;
+      case "sfixed64":
+        w.sfixed64(asBigInt(v, f.name));
+        break;
+      case "bool":
+        w.u8(v ? 1 : 0);
+        break;
+      case "string":
+        w.lenBytes(utf8Encode2(typeof v === "string" ? v : String(v)));
+        break;
+      case "bytes":
+        w.lenBytes(toBytes2(v));
+        break;
+      case "float":
+        w.float(Number(v));
+        break;
+      case "double":
+        w.double(Number(v));
+        break;
+      default:
+        throw new Error("protobuf: unhandled scalar " + f.scalar);
+    }
+  };
+  MessageType.prototype._wireOf = function(f) {
+    if (f.type === "message" || f.type === "map") return WIRE_LEN;
+    if (f.type === "enum") return WIRE_VARINT;
+    return SCALARS[f.scalar].wire;
+  };
+  MessageType.prototype._packable = function(f) {
+    if (f.type === "enum") return true;
+    return f.type === "scalar" && SCALARS[f.scalar].pack;
+  };
+  MessageType.prototype._elemWire = function(f) {
+    return f.type === "enum" ? WIRE_VARINT : SCALARS[f.scalar].wire;
+  };
+  MessageType.prototype.encode = function(obj) {
+    var w = new Writer();
+    if (obj == null) obj = {};
+    if (typeof obj !== "object") throw new Error("protobuf: encode expects object for " + this.name);
+    for (var i = 0; i < this.fields.length; i++) {
+      var f = this.fields[i];
+      var v = obj[f.name];
+      if (v === void 0 || v === null) continue;
+      if (f.rule === "map") {
+        var keys = Object.keys(v);
+        for (var m = 0; m < keys.length; m++) {
+          if (v[keys[m]] === void 0) continue;
+          w.tag(f.number, WIRE_LEN);
+          w.lenBytes(this._encodeMapEntry(f, keys[m], v[keys[m]]));
+        }
+        continue;
+      }
+      if (f.rule === "repeated") {
+        if (!Array.isArray(v)) throw new Error("protobuf: repeated field " + f.name + " expects array");
+        if (!v.length) continue;
+        if (f.packed && this._packable(f)) {
+          var pw = new Writer();
+          for (var p = 0; p < v.length; p++) this._writeValue(pw, f, v[p]);
+          w.tag(f.number, WIRE_LEN);
+          w.lenBytes(pw.bytes());
+        } else {
+          for (var q = 0; q < v.length; q++) {
+            w.tag(f.number, this._wireOf(f));
+            this._writeValue(w, f, v[q]);
+          }
+        }
+        continue;
+      }
+      if (!f.presence) {
+        if (f.type === "scalar" && isDefaultScalar(f.scalar, v)) continue;
+        if (f.type === "enum" && (typeof v === "number" ? v === 0 : this._enumNum(f, v) === 0)) continue;
+      }
+      w.tag(f.number, this._wireOf(f));
+      this._writeValue(w, f, v);
+    }
+    return w.bytes();
+  };
+  MessageType.prototype._enumNum = function(f, v) {
+    return f.enumType.number(v);
+  };
+  MessageType.prototype._encodeMapEntry = function(f, k, v) {
+    var w = new Writer();
+    w.tag(1, f.keyWire);
+    this._writeScalarLike(w, f.keyField, k);
+    if (v !== void 0 && v !== null) {
+      w.tag(2, f.valWire);
+      if (f.valueType === "message") w.lenBytes(f.messageType.encode(v));
+      else if (f.valueType === "enum") w.varintBig(BigInt.asUintN(64, BigInt(f.enumType.number(v))));
+      else this._writeScalarLike(w, f.valField, v);
+    }
+    return w.bytes();
+  };
+  MessageType.prototype._writeScalarLike = function(w, pseudo, v) {
+    this._writeValue(w, pseudo, v);
+  };
+  MessageType.prototype.decode = function(bytes) {
+    var r = new Reader(bytes);
+    var obj = {};
+    var i;
+    for (i = 0; i < this.fields.length; i++) {
+      var f = this.fields[i];
+      if (f.rule === "repeated") obj[f.name] = [];
+      else if (f.rule === "map") obj[f.name] = {};
+      else if (!f.presence) obj[f.name] = this._default(f);
+    }
+    while (r.pos < r.len) {
+      var tag = r.varintNum();
+      var num = tag >>> 3, wire = tag & 7;
+      var fld = this.byNumber[num];
+      if (!fld) {
+        r.skip(wire);
+        continue;
+      }
+      if (fld.rule === "map") {
+        if (wire !== WIRE_LEN) {
+          r.skip(wire);
+          continue;
+        }
+        var eb = r.bytes();
+        var e = new Reader(eb), mk = void 0, mv = void 0;
+        while (e.pos < e.len) {
+          var et = e.varintNum(), en = et >>> 3, ew = et & 7;
+          if (en === 1) mk = this._readScalar(e, fld.keyField, ew);
+          else if (en === 2) mv = this._readValue(e, fld.valField, ew);
+          else e.skip(ew);
+        }
+        if (mk !== void 0) obj[fld.name][mk === void 0 ? "" : mk] = mv === void 0 ? this._mapValDefault(fld) : mv;
+        continue;
+      }
+      if (fld.rule === "repeated" && wire === WIRE_LEN && this._packable(fld)) {
+        var pb = r.bytes(), pr = new Reader(pb), ew2 = this._elemWire(fld);
+        while (pr.pos < pr.len) obj[fld.name].push(this._readValue(pr, fld, ew2));
+        continue;
+      }
+      var val = this._readValue(r, fld, wire);
+      if (fld.rule === "repeated") obj[fld.name].push(val);
+      else {
+        obj[fld.name] = val;
+        if (fld.oneof) obj[fld.oneof] = fld.name;
+      }
+    }
+    return obj;
+  };
+  MessageType.prototype._mapValDefault = function(f) {
+    if (f.valueType === "message") return void 0;
+    if (f.valueType === "enum") return 0;
+    return this._default(f.valField);
+  };
+  MessageType.prototype._readValue = function(r, f, wire) {
+    if (f.type === "message") {
+      if (wire !== WIRE_LEN) {
+        r.skip(wire);
+        return void 0;
+      }
+      return f.messageType.decode(r.bytes());
+    }
+    if (f.type === "enum") {
+      if (wire !== WIRE_VARINT) {
+        r.skip(wire);
+        return 0;
+      }
+      return Number(BigInt.asIntN(32, r.varintBig()));
+    }
+    return this._readScalar(r, f, wire);
+  };
+  MessageType.prototype._readScalar = function(r, f, wire) {
+    var k = f.scalar;
+    if (SCALARS[k].wire !== wire) {
+      r.skip(wire);
+      return this._default(f);
+    }
+    switch (k) {
+      case "int32":
+        return Number(BigInt.asIntN(32, r.varintBig()));
+      case "int64":
+        return int64Out(BigInt.asIntN(64, r.varintBig()), this._opts);
+      case "uint32":
+        return Number(BigInt.asUintN(32, r.varintBig()));
+      case "uint64":
+        return int64Out(BigInt.asUintN(64, r.varintBig()), this._opts);
+      case "sint32": {
+        var n = r.varintNum();
+        return n >>> 1 ^ -(n & 1);
+      }
+      case "sint64": {
+        var b = r.varintBig();
+        return int64Out(BigInt.asIntN(64, b >> 1n ^ -(b & 1n)), this._opts);
+      }
+      case "fixed32":
+        return r.u32();
+      case "sfixed32":
+        return r.i32();
+      case "fixed64":
+        return int64Out(BigInt.asUintN(64, r.u64()), this._opts);
+      case "sfixed64":
+        return int64Out(BigInt.asIntN(64, r.i64()), this._opts);
+      case "bool":
+        return r.varintBig() !== 0n;
+      case "string":
+        return utf8Decode2(r.bytes());
+      case "bytes":
+        return r.bytes();
+      case "float":
+        return r.f32();
+      case "double":
+        return r.f64();
+      default:
+        throw new Error("protobuf: unhandled scalar " + k);
+    }
+  };
+  function tokenize(src) {
+    var toks = [], i = 0, n = src.length;
+    while (i < n) {
+      var c = src.charCodeAt(i);
+      if (c === 32 || c === 9 || c === 10 || c === 13) {
+        i++;
+        continue;
+      }
+      if (c === 47 && i + 1 < n && src.charCodeAt(i + 1) === 47) {
+        while (i < n && src.charCodeAt(i) !== 10) i++;
+        continue;
+      }
+      if (c === 47 && i + 1 < n && src.charCodeAt(i + 1) === 42) {
+        i += 2;
+        while (i + 1 < n && !(src.charCodeAt(i) === 42 && src.charCodeAt(i + 1) === 47)) i++;
+        i += 2;
+        continue;
+      }
+      if (c === 34 || c === 39) {
+        var q = c, s = "";
+        i++;
+        while (i < n && src.charCodeAt(i) !== q) {
+          if (src.charCodeAt(i) === 92 && i + 1 < n) {
+            var e = src[i + 1];
+            s += e === "n" ? "\n" : e === "t" ? "	" : e === "r" ? "\r" : e;
+            i += 2;
+          } else s += src[i++];
+        }
+        i++;
+        toks.push({ t: "str", v: s });
+        continue;
+      }
+      if (c >= 48 && c <= 57 || c === 45 && i + 1 < n && src.charCodeAt(i + 1) >= 48 && src.charCodeAt(i + 1) <= 57) {
+        var st = i;
+        if (src.charCodeAt(i) === 45) i++;
+        if (src.charCodeAt(i) === 48 && (src.charCodeAt(i + 1) === 120 || src.charCodeAt(i + 1) === 88)) {
+          i += 2;
+          while (i < n && /[0-9a-fA-F]/.test(src[i])) i++;
+        } else {
+          while (i < n && src.charCodeAt(i) >= 48 && src.charCodeAt(i) <= 57) i++;
+          if (i < n && src.charCodeAt(i) === 46) {
+            i++;
+            while (i < n && src.charCodeAt(i) >= 48 && src.charCodeAt(i) <= 57) i++;
+          }
+          if (i < n && (src.charCodeAt(i) === 101 || src.charCodeAt(i) === 69)) {
+            i++;
+            if (i < n && (src.charCodeAt(i) === 43 || src.charCodeAt(i) === 45)) i++;
+            while (i < n && src.charCodeAt(i) >= 48 && src.charCodeAt(i) <= 57) i++;
+          }
+        }
+        var txt = src.slice(st, i);
+        toks.push({ t: "num", v: txt.indexOf(".") >= 0 || txt.indexOf("e") >= 0 || txt.indexOf("E") >= 0 ? parseFloat(txt) : parseInt(txt, 10) });
+        continue;
+      }
+      if (c >= 65 && c <= 90 || c >= 97 && c <= 122 || c === 95) {
+        var j = i;
+        while (j < n && /[A-Za-z0-9_]/.test(src[j])) j++;
+        toks.push({ t: "id", v: src.slice(i, j) });
+        i = j;
+        continue;
+      }
+      toks.push({ t: "punc", v: src[i] });
+      i++;
+    }
+    return toks;
+  }
+  function Parser(text) {
+    this.toks = tokenize(text);
+    this.i = 0;
+  }
+  Parser.prototype._peek = function(k) {
+    return this.toks[this.i + (k || 0)];
+  };
+  Parser.prototype._isId = function(v) {
+    var t = this._peek();
+    return t && t.t === "id" && (v == null || t.v === v);
+  };
+  Parser.prototype._isPunc = function(v) {
+    var t = this._peek();
+    return t && t.t === "punc" && t.v === v;
+  };
+  Parser.prototype._eatId = function(v) {
+    if (!this._isId(v)) throw new Error("protobuf: expected " + (v || "identifier") + " at token " + this.i + " (got " + (this._peek() ? JSON.stringify(this._peek().v) : "EOF") + ")");
+    return this.toks[this.i++].v;
+  };
+  Parser.prototype._eatPunc = function(v) {
+    if (!this._isPunc(v)) throw new Error('protobuf: expected "' + v + '" at token ' + this.i + " (got " + (this._peek() ? JSON.stringify(this._peek().v) : "EOF") + ")");
+    return this.toks[this.i++].v;
+  };
+  Parser.prototype._tryPunc = function(v) {
+    if (this._isPunc(v)) {
+      this.i++;
+      return true;
+    }
+    return false;
+  };
+  Parser.prototype._tryId = function(v) {
+    if (this._isId(v)) {
+      this.i++;
+      return true;
+    }
+    return false;
+  };
+  Parser.prototype._eof = function() {
+    return this.i >= this.toks.length;
+  };
+  Parser.prototype._qname = function() {
+    var s = this._eatId();
+    while (this._isPunc(".")) {
+      this.i++;
+      s += "." + this._eatId();
+    }
+    return s;
+  };
+  Parser.prototype._skipOptionList = function() {
+    if (!this._tryPunc("[")) return;
+    var depth = 1;
+    while (depth > 0) {
+      if (this._eof()) throw new Error("protobuf: unterminated option list");
+      if (this._isPunc("[")) depth++;
+      else if (this._isPunc("]")) depth--;
+      this.i++;
+    }
+  };
+  Parser.prototype._skipOption = function() {
+    while (!this._eof() && !this._isPunc(";")) {
+      if (this._isPunc("{")) {
+        var d = 1;
+        this.i++;
+        while (d > 0 && !this._eof()) {
+          if (this._isPunc("{")) d++;
+          else if (this._isPunc("}")) d--;
+          this.i++;
+        }
+        continue;
+      }
+      this.i++;
+    }
+    this._eatPunc(";");
+  };
+  Parser.prototype.parseFile = function() {
+    var file = { package: "", imports: [], messages: [], enums: [], services: [] };
+    while (!this._eof()) {
+      if (this._isId("syntax")) {
+        this.i++;
+        this._eatPunc("=");
+        this._eatId2("str");
+        this._eatPunc(";");
+        continue;
+      }
+      if (this._isId("package")) {
+        this.i++;
+        file.package = this._qname();
+        this._eatPunc(";");
+        continue;
+      }
+      if (this._isId("import")) {
+        this.i++;
+        if (this._isId("public") || this._isId("weak")) this.i++;
+        file.imports.push(this._eatId2("str").v);
+        this._eatPunc(";");
+        continue;
+      }
+      if (this._isId("option")) {
+        this.i++;
+        this._skipOption();
+        continue;
+      }
+      if (this._isId("message")) {
+        file.messages.push(this.parseMessage([]));
+        continue;
+      }
+      if (this._isId("enum")) {
+        file.enums.push(this.parseEnum([]));
+        continue;
+      }
+      if (this._isId("service")) {
+        file.services.push(this.parseService());
+        continue;
+      }
+      throw new Error("protobuf: unexpected token " + JSON.stringify(this._peek().v) + " at top level (token " + this.i + ")");
+    }
+    return file;
+  };
+  Parser.prototype._eatId2 = function(t) {
+    var tok = this._peek();
+    if (!tok || tok.t !== t) throw new Error("protobuf: expected " + t + " at token " + this.i);
+    return this.toks[this.i++];
+  };
+  Parser.prototype.parseMessage = function(scope) {
+    this._eatId("message");
+    var name = this._eatId();
+    var full = scope.concat(name);
+    this._eatPunc("{");
+    var msg = { name, full, fields: [], nested: [], nestedEnums: [], oneofs: [] };
+    while (!this._isPunc("}")) {
+      if (this._eof()) throw new Error("protobuf: unterminated message " + name);
+      if (this._isId("message")) {
+        msg.nested.push(this.parseMessage(full));
+        continue;
+      }
+      if (this._isId("enum")) {
+        msg.nestedEnums.push(this.parseEnum(full));
+        continue;
+      }
+      if (this._isId("option")) {
+        this.i++;
+        this._skipOption();
+        continue;
+      }
+      if (this._isId("reserved") || this._isId("extensions")) {
+        this.i++;
+        while (!this._isPunc(";")) this.i++;
+        this._eatPunc(";");
+        continue;
+      }
+      if (this._isId("oneof")) {
+        this.i++;
+        var oname = this._eatId();
+        this._eatPunc("{");
+        var ofields = [];
+        while (!this._isPunc("}")) ofields.push(this.parseField(full, oname));
+        this._eatPunc("}");
+        msg.oneofs.push(oname);
+        for (var oi = 0; oi < ofields.length; oi++) msg.fields.push(ofields[oi]);
+        continue;
+      }
+      if (this._isId("map")) {
+        msg.fields.push(this.parseMapField(full));
+        continue;
+      }
+      msg.fields.push(this.parseField(full, null));
+    }
+    this._eatPunc("}");
+    return msg;
+  };
+  Parser.prototype.parseField = function(scope, oneof) {
+    var label = null;
+    if (this._isId("repeated") || this._isId("optional") || this._isId("required")) {
+      label = this.toks[this.i++].v;
+    }
+    var type = this._fieldType();
+    var name = this._eatId();
+    this._eatPunc("=");
+    var numTok = this._eatId2("num");
+    var number = numTok.v;
+    var packed = null;
+    if (this._isPunc("[")) {
+      this.i++;
+      while (!this._isPunc("]")) {
+        var k = this._eatId();
+        this._eatPunc("=");
+        var vtok = this._peek();
+        this.i++;
+        if (k === "packed") packed = !(vtok.t === "id" && vtok.v === "false");
+        if (this._tryPunc(",")) continue;
+      }
+      this._eatPunc("]");
+    }
+    this._eatPunc(";");
+    if (typeof number !== "number" || number < 1) throw new Error("protobuf: bad field number for " + name);
+    return { label, type, name, number, packed, oneof, scope, isMap: false };
+  };
+  Parser.prototype.parseMapField = function(scope) {
+    this._eatId("map");
+    this._eatPunc("<");
+    var kt = this._fieldType();
+    this._eatPunc(",");
+    var vt = this._fieldType();
+    this._eatPunc(">");
+    var name = this._eatId();
+    this._eatPunc("=");
+    var number = this._eatId2("num").v;
+    if (this._isPunc("[")) this._skipOptionList();
+    this._eatPunc(";");
+    return { label: "repeated", type: kt, name, number, isMap: true, mapKey: kt, mapValue: vt, scope, packed: null, oneof: null };
+  };
+  Parser.prototype._fieldType = function() {
+    var s = "";
+    if (this._tryPunc(".")) s = ".";
+    s += this._eatId();
+    while (this._isPunc(".")) {
+      this.i++;
+      s += "." + this._eatId();
+    }
+    return s;
+  };
+  Parser.prototype.parseEnum = function(scope) {
+    this._eatId("enum");
+    var name = this._eatId();
+    var full = scope.concat(name);
+    this._eatPunc("{");
+    var values = {};
+    while (!this._isPunc("}")) {
+      if (this._eof()) throw new Error("protobuf: unterminated enum " + name);
+      if (this._isId("option")) {
+        this.i++;
+        this._skipOption();
+        continue;
+      }
+      if (this._isId("reserved")) {
+        this.i++;
+        while (!this._isPunc(";")) this.i++;
+        this._eatPunc(";");
+        continue;
+      }
+      var vn = this._eatId();
+      this._eatPunc("=");
+      var neg = this._tryPunc("-");
+      var num = this._eatId2("num").v;
+      if (typeof num !== "number") throw new Error("protobuf: bad enum value for " + vn);
+      values[vn] = neg ? -num : num;
+      if (this._isPunc("[")) this._skipOptionList();
+      this._eatPunc(";");
+    }
+    this._eatPunc("}");
+    return { name, full, values };
+  };
+  Parser.prototype.parseService = function() {
+    this._eatId("service");
+    var name = this._eatId();
+    this._eatPunc("{");
+    var methods = [];
+    while (!this._isPunc("}")) {
+      if (this._eof()) throw new Error("protobuf: unterminated service " + name);
+      if (this._isId("option")) {
+        this.i++;
+        this._skipOption();
+        continue;
+      }
+      this._eatId("rpc");
+      var mn = this._eatId();
+      this._eatPunc("(");
+      var cs = this._tryId("stream");
+      var inp = this._fieldType();
+      this._eatPunc(")");
+      this._eatId("returns");
+      this._eatPunc("(");
+      var ss = this._tryId("stream");
+      var out = this._fieldType();
+      this._eatPunc(")");
+      if (this._isPunc("{")) {
+        while (!this._isPunc("}")) this.i++;
+        this._eatPunc("}");
+      } else this._eatPunc(";");
+      methods.push({ name: mn, input: inp, output: out, clientStreaming: cs, serverStreaming: ss });
+    }
+    this._eatPunc("}");
+    return { name, methods };
+  };
+  function Registry(pkg) {
+    this.package = pkg || "";
+    this.messages = {};
+    this.enums = {};
+    this.services = {};
+    this.imports = [];
+  }
+  Registry.prototype.lookup = function(name) {
+    return this.messages[name] || this.enums[name];
+  };
+  Registry.prototype.service = function(name) {
+    var svc = this.services[name] || this.services[(this.package ? this.package + "." : "") + name] || this[name.split(".").pop()];
+    if (!svc) return void 0;
+    if (!svc.method) {
+      svc.method = function(m) {
+        var md = svc.methods[m];
+        if (!md) throw new Error("protobuf: no method " + m + " in service " + svc.fullName);
+        return md;
+      };
+    }
+    return svc;
+  };
+  function shortNames(reg) {
+    var counts = {}, all = [];
+    var k;
+    for (k in reg.messages) {
+      counts[k] = counts[k] || 0;
+      all.push([k, reg.messages[k]]);
+    }
+    var seen = {};
+    for (var i = 0; i < all.length; i++) {
+      var full = all[i][0], short = full.split(".").pop();
+      seen[short] = (seen[short] || 0) + 1;
+    }
+    for (var j = 0; j < all.length; j++) {
+      var fn = all[j][0], sn = fn.split(".").pop();
+      if (!Object.prototype.hasOwnProperty.call(reg, fn)) reg[fn] = all[j][1];
+      if (seen[sn] === 1 && !Object.prototype.hasOwnProperty.call(reg, sn)) reg[sn] = all[j][1];
+    }
+  }
+  function resolveName(reg, typeStr, scopeNames) {
+    if (typeStr.charAt(0) === ".") {
+      var abs = typeStr.slice(1);
+      return reg.messages[abs] || reg.enums[abs];
+    }
+    var chain = (reg.package ? reg.package.split(".") : []).concat(scopeNames);
+    var parts = typeStr.split(".");
+    for (var k = chain.length; k >= 0; k--) {
+      var cand = chain.slice(0, k).concat(parts).join(".");
+      var hit = reg.messages[cand] || reg.enums[cand];
+      if (hit) return hit;
+    }
+    return void 0;
+  }
+  function buildField(reg, raw) {
+    var f = { name: raw.name, number: raw.number, oneof: raw.oneof || null };
+    if (raw.isMap) {
+      f.rule = "map";
+      f.type = "map";
+      f.presence = false;
+      f.packed = false;
+      var kres = resolveName(reg, raw.mapKey, []);
+      if (!SCALARS[raw.mapKey] || raw.mapKey === "float" || raw.mapKey === "double" || raw.mapKey === "bytes") {
+        if (kres) throw new Error("protobuf: illegal map key type " + raw.mapKey);
+        throw new Error("protobuf: unknown map key type " + raw.mapKey);
+      }
+      f.keyField = { name: raw.name + "_key", number: 1, type: "scalar", scalar: raw.mapKey, rule: "singular", presence: false, packed: false, oneof: null };
+      f.keyWire = SCALARS[raw.mapKey].wire;
+      var vres = resolveName(reg, raw.mapValue, raw.scope);
+      if (!vres) {
+        if (!SCALARS[raw.mapValue]) throw new Error("protobuf: unknown map value type " + raw.mapValue + " for " + raw.name);
+        f.valueType = "scalar";
+        f.valField = { name: raw.name + "_val", number: 2, type: "scalar", scalar: raw.mapValue, rule: "singular", presence: false, packed: false, oneof: null };
+        f.valWire = SCALARS[raw.mapValue].wire;
+      } else if (vres.kind === "message") {
+        f.valueType = "message";
+        f.messageType = vres;
+        f.valWire = WIRE_LEN;
+        f.valField = { name: raw.name + "_val", number: 2, type: "message", messageType: vres };
+      } else {
+        f.valueType = "enum";
+        f.enumType = vres;
+        f.valWire = WIRE_VARINT;
+        f.valField = { name: raw.name + "_val", number: 2, type: "enum", enumType: vres };
+      }
+      return f;
+    }
+    var resolved = resolveName(reg, raw.type, raw.scope);
+    if (resolved && resolved.kind === "message") {
+      f.type = "message";
+      f.messageType = resolved;
+      f.presence = true;
+    } else if (resolved && resolved.kind === "enum") {
+      f.type = "enum";
+      f.enumType = resolved;
+      f.presence = raw.label === "optional" || !!raw.oneof;
+    } else if (SCALARS[raw.type]) {
+      f.type = "scalar";
+      f.scalar = raw.type;
+      f.presence = raw.label === "optional" || !!raw.oneof;
+    } else {
+      throw new Error('protobuf: unknown type "' + raw.type + '" for field ' + raw.name);
+    }
+    f.rule = raw.label === "repeated" ? "repeated" : "singular";
+    if (f.rule === "repeated") {
+      f.packed = raw.packed == null ? f.type === "scalar" ? SCALARS[f.scalar].pack : f.type === "enum" : !!raw.packed;
+      f.presence = false;
+    } else {
+      f.packed = false;
+    }
+    return f;
+  }
+  function registerBuiltins(reg) {
+    var empty = new MessageType("google.protobuf.Empty", [], reg._opts);
+    reg.messages["google.protobuf.Empty"] = empty;
+    var ts = new MessageType("google.protobuf.Timestamp", [
+      { name: "seconds", number: 1, type: "scalar", scalar: "int64", rule: "singular", presence: false, packed: false, oneof: null },
+      { name: "nanos", number: 2, type: "scalar", scalar: "int32", rule: "singular", presence: false, packed: false, oneof: null }
+    ], reg._opts);
+    reg.messages["google.protobuf.Timestamp"] = ts;
+    var du = new MessageType("google.protobuf.Duration", [
+      { name: "seconds", number: 1, type: "scalar", scalar: "int64", rule: "singular", presence: false, packed: false, oneof: null },
+      { name: "nanos", number: 2, type: "scalar", scalar: "int32", rule: "singular", presence: false, packed: false, oneof: null }
+    ], reg._opts);
+    reg.messages["google.protobuf.Duration"] = du;
+    var wrappers = {
+      DoubleValue: ["double"],
+      FloatValue: ["float"],
+      Int64Value: ["int64"],
+      UInt64Value: ["uint64"],
+      Int32Value: ["int32"],
+      UInt32Value: ["uint32"],
+      BoolValue: ["bool"],
+      StringValue: ["string"],
+      BytesValue: ["bytes"]
+    };
+    for (var w in wrappers) {
+      reg.messages["google.protobuf." + w] = new MessageType("google.protobuf." + w, [
+        { name: "value", number: 1, type: "scalar", scalar: wrappers[w][0], rule: "singular", presence: false, packed: false, oneof: null }
+      ], reg._opts);
+    }
+  }
+  function parseProto(text, opts) {
+    opts = opts || {};
+    var file = new Parser(String(text)).parseFile();
+    var reg = new Registry(file.package);
+    reg._opts = opts;
+    reg.imports = file.imports;
+    registerBuiltins(reg);
+    function fq(full) {
+      return (reg.package ? reg.package + "." : "") + full.join(".");
+    }
+    function addEnums(list) {
+      for (var i = 0; i < list.length; i++) {
+        var e = list[i];
+        var full = fq(e.full);
+        reg.enums[full] = new EnumType(full, e.values);
+      }
+    }
+    function walkEnums(msg) {
+      addEnums(msg.nestedEnums);
+      for (var i = 0; i < msg.nested.length; i++) walkEnums(msg.nested[i]);
+    }
+    addEnums(file.enums);
+    for (var fi = 0; fi < file.messages.length; fi++) walkEnums(file.messages[fi]);
+    function addMsgShells(msg) {
+      var full = fq(msg.full);
+      reg.messages[full] = new MessageType(full, [], opts);
+      for (var i = 0; i < msg.nested.length; i++) addMsgShells(msg.nested[i]);
+    }
+    for (var mi = 0; mi < file.messages.length; mi++) addMsgShells(file.messages[mi]);
+    function fillMsg(msg) {
+      var full = fq(msg.full);
+      var mt = reg.messages[full];
+      var fields = [];
+      for (var i = 0; i < msg.fields.length; i++) fields.push(buildField(reg, msg.fields[i]));
+      mt.fields = fields;
+      mt.byNumber = {};
+      mt.byName = {};
+      for (var j = 0; j < fields.length; j++) {
+        var f = fields[j];
+        if (mt.byNumber[f.number]) throw new Error("protobuf: duplicate field number " + f.number + " in " + full);
+        mt.byNumber[f.number] = f;
+        mt.byName[f.name] = f;
+      }
+      mt.oneofs = msg.oneofs;
+      for (var k = 0; k < msg.nested.length; k++) fillMsg(msg.nested[k]);
+    }
+    for (var fj = 0; fj < file.messages.length; fj++) fillMsg(file.messages[fj]);
+    for (var si = 0; si < file.services.length; si++) {
+      var sd = file.services[si];
+      var sfull = (reg.package ? reg.package + "." : "") + sd.name;
+      var svc = { name: sd.name, fullName: sfull, methods: {} };
+      for (var mj = 0; mj < sd.methods.length; mj++) {
+        var md = sd.methods[mj];
+        var inScope = [];
+        var rt = resolveName(reg, md.input, inScope) || resolveName(reg, md.input, [sd.name]);
+        var ot = resolveName(reg, md.output, inScope) || resolveName(reg, md.output, [sd.name]);
+        if (!rt || rt.kind !== "message") throw new Error("protobuf: unknown request type " + md.input + " for " + sd.name + "." + md.name);
+        if (!ot || ot.kind !== "message") throw new Error("protobuf: unknown response type " + md.output + " for " + sd.name + "." + md.name);
+        svc.methods[md.name] = {
+          name: md.name,
+          service: sfull,
+          path: "/" + sfull + "/" + md.name,
+          requestType: rt,
+          responseType: ot,
+          clientStreaming: !!md.clientStreaming,
+          serverStreaming: !!md.serverStreaming
+        };
+      }
+      reg.services[sfull] = svc;
+      var sn = sd.name;
+      if (!Object.prototype.hasOwnProperty.call(reg, sn)) reg[sn] = svc;
+    }
+    shortNames(reg);
+    return reg;
+  }
+  function setupProtobuf(pal2) {
+    globalThis.protobuf = {
+      parseProto,
+      MessageType,
+      utf8Encode: utf8Encode2,
+      utf8Decode: utf8Decode2
+    };
+  }
+
+  // src/grpc.js
+  var _pal2 = null;
+  var Status = {
+    OK: 0,
+    CANCELLED: 1,
+    UNKNOWN: 2,
+    INVALID_ARGUMENT: 3,
+    DEADLINE_EXCEEDED: 4,
+    NOT_FOUND: 5,
+    ALREADY_EXISTS: 6,
+    PERMISSION_DENIED: 7,
+    RESOURCE_EXHAUSTED: 8,
+    FAILED_PRECONDITION: 9,
+    ABORTED: 10,
+    OUT_OF_RANGE: 11,
+    UNIMPLEMENTED: 12,
+    INTERNAL: 13,
+    UNAVAILABLE: 14,
+    DATA_LOSS: 15,
+    UNAUTHENTICATED: 16
+  };
+  var StatusName = {
+    0: "OK",
+    1: "CANCELLED",
+    2: "UNKNOWN",
+    3: "INVALID_ARGUMENT",
+    4: "DEADLINE_EXCEEDED",
+    5: "NOT_FOUND",
+    6: "ALREADY_EXISTS",
+    7: "PERMISSION_DENIED",
+    8: "RESOURCE_EXHAUSTED",
+    9: "FAILED_PRECONDITION",
+    10: "ABORTED",
+    11: "OUT_OF_RANGE",
+    12: "UNIMPLEMENTED",
+    13: "INTERNAL",
+    14: "UNAVAILABLE",
+    15: "DATA_LOSS",
+    16: "UNAUTHENTICATED"
+  };
+  var HTTP_TO_GRPC = {
+    400: 13,
+    401: 16,
+    403: 7,
+    404: 12,
+    429: 14,
+    502: 14,
+    503: 14,
+    504: 14
+  };
+  var StatusError = class extends Error {
+    constructor(message, code, metadata, details) {
+      super("grpc: " + (StatusName[code] || code) + ": " + message);
+      this.name = "StatusError";
+      this.rawMessage = message;
+      this.code = code | 0;
+      this.codeName = StatusName[this.code] || String(this.code);
+      this.metadata = metadata || null;
+      this.details = details == null ? null : details;
+    }
+  };
+  var B64A = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  function b64Encode(bytes) {
+    var out = "", i;
+    for (i = 0; i + 2 < bytes.length; i += 3) {
+      var n = bytes[i] << 16 | bytes[i + 1] << 8 | bytes[i + 2];
+      out += B64A[n >> 18 & 63] + B64A[n >> 12 & 63] + B64A[n >> 6 & 63] + B64A[n & 63];
+    }
+    var rem = bytes.length - i;
+    if (rem === 1) {
+      out += B64A[bytes[i] >> 2 & 63] + B64A[bytes[i] << 4 & 63] + "==";
+    } else if (rem === 2) {
+      var m = bytes[i] << 8 | bytes[i + 1];
+      out += B64A[m >> 10 & 63] + B64A[m >> 4 & 63] + B64A[m << 2 & 63] + "=";
+    }
+    return out;
+  }
+  function b64Decode(s) {
+    var clean = String(s).replace(/[^A-Za-z0-9+/]/g, ""), out = [], i;
+    for (i = 0; i + 3 < clean.length; i += 4) {
+      var n = B64A.indexOf(clean[i]) << 18 | B64A.indexOf(clean[i + 1]) << 12 | B64A.indexOf(clean[i + 2]) << 6 | B64A.indexOf(clean[i + 3]);
+      out.push(n >> 16 & 255, n >> 8 & 255, n & 255);
+    }
+    var rem = clean.length - i;
+    if (rem >= 2) {
+      var a = B64A.indexOf(clean[i]) << 18 | B64A.indexOf(clean[i + 1]) << 12;
+      out.push(a >> 16 & 255);
+      if (rem === 3) {
+        a |= B64A.indexOf(clean[i + 2]) << 6;
+        out.push(a >> 8 & 255);
+      }
+    }
+    return Uint8Array.from(out);
+  }
+  function percentDecode(s) {
+    if (s.indexOf("%") < 0) return s;
+    try {
+      return decodeURIComponent(s);
+    } catch (e) {
+      return s;
+    }
+  }
+  function frameMessage(payload) {
+    var out = new Uint8Array(5 + payload.length);
+    out[0] = 0;
+    out[1] = payload.length >>> 24 & 255;
+    out[2] = payload.length >>> 16 & 255;
+    out[3] = payload.length >>> 8 & 255;
+    out[4] = payload.length & 255;
+    out.set(payload, 5);
+    return out;
+  }
+  function FrameSplitter(maxSize, onMessage) {
+    this._buf = new Uint8Array(0);
+    this._max = maxSize;
+    this._onMessage = onMessage;
+  }
+  FrameSplitter.prototype.push = function(bytes) {
+    var merged = new Uint8Array(this._buf.length + bytes.length);
+    merged.set(this._buf, 0);
+    merged.set(bytes, this._buf.length);
+    this._buf = merged;
+    this._drain();
+  };
+  FrameSplitter.prototype._drain = function() {
+    while (this._buf.length >= 5) {
+      var b = this._buf;
+      if (b[0] !== 0) throw new StatusError("compressed responses are not supported", Status.INTERNAL);
+      var len = b[1] * 16777216 + (b[2] << 16) + (b[3] << 8) + b[4] >>> 0;
+      if (len > this._max) {
+        throw new StatusError(
+          "received message of " + len + " bytes exceeds maxRecvMsgSize (" + this._max + ")",
+          Status.RESOURCE_EXHAUSTED
+        );
+      }
+      if (b.length < 5 + len) break;
+      this._onMessage(b.subarray(5, 5 + len));
+      this._buf = b.slice(5 + len);
+    }
+  };
+  FrameSplitter.prototype.pending = function() {
+    return this._buf.length !== 0;
+  };
+  var RESERVED = {
+    "grpc-status": 1,
+    "grpc-message": 1,
+    "grpc-encoding": 1,
+    "grpc-accept-encoding": 1,
+    "grpc-timeout": 1,
+    "grpc-status-details-bin": 1
+  };
+  function encodeMetadata(headers) {
+    var out = {};
+    if (!headers) return out;
+    Object.keys(headers).forEach(function(k) {
+      var key = k.toLowerCase();
+      var v = headers[k];
+      if (v == null) return;
+      if (/-bin$/.test(key)) {
+        out[key] = typeof v === "string" ? v : b64Encode(v);
+      } else {
+        out[key] = Array.isArray(v) ? v.map(String) : String(v);
+      }
+    });
+    return out;
+  }
+  function readHeaderBlock(pairs) {
+    var res = { metadata: {}, status: null, statusText: null, httpStatus: null };
+    for (var i = 0; i < pairs.length; i++) {
+      var k = pairs[i][0], v = pairs[i][1];
+      if (k.charAt(0) === ":") {
+        if (k === ":status") res.httpStatus = parseInt(v, 10) || null;
+        continue;
+      }
+      var lk = k.toLowerCase();
+      if (lk === "grpc-status") res.status = parseInt(v, 10);
+      else if (lk === "grpc-message") res.statusText = percentDecode(v);
+      else if (lk === "grpc-status-details-bin") res.detailsBin = b64Decode(v);
+      else if (!RESERVED[lk]) res.metadata[lk] = /-bin$/.test(lk) ? b64Decode(v) : v;
+    }
+    return res;
+  }
+  function resolveCall(method, opts, registry) {
+    var m = null;
+    if (method && typeof method === "object" && method.path) {
+      m = method;
+    } else if (typeof method === "string") {
+      var path = method.charAt(0) === "/" ? method : "/" + method;
+      var parts = path.slice(1).split("/");
+      registry = opts.registry || registry;
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        throw new Error('grpc: bad method path "' + method + '" (expected /pkg.Service/Method)');
+      }
+      var svc = registry && (registry.services[parts[0]] || registry.service && registry.service(parts[0]));
+      var bound = svc && svc.methods[parts[1]];
+      m = bound || { path, requestType: opts.requestType, responseType: opts.responseType };
+    } else {
+      throw new Error("grpc: invoke(method, req) needs a /pkg.Svc/M string or a bound method object");
+    }
+    var reqType = m.requestType || opts.requestType;
+    var respType = m.responseType || opts.responseType;
+    if (!reqType || !respType) {
+      if (typeof method === "string" && !opts.requestType && !opts.responseType) {
+        reqType = { encode: function(o) {
+          return new Uint8Array(0);
+        }, kind: "message" };
+        respType = { decode: function(b) {
+          return null;
+        }, kind: "message" };
+      } else {
+        throw new Error("grpc: cannot resolve request/response types for " + m.path + " \u2014 pass a method from loadProto(), or opts.requestType/respType");
+      }
+    }
+    if (typeof reqType.encode !== "function" || typeof respType.decode !== "function") {
+      throw new Error("grpc: message types for " + m.path + " lack encode/decode");
+    }
+    return {
+      path: m.path,
+      reqType,
+      respType,
+      streaming: !!(m.clientStreaming || m.serverStreaming)
+    };
+  }
+  function Channel(target, opts) {
+    this._t = target;
+    this._opts = opts || {};
+    this._pal = this._opts.pal || _pal2;
+    this._registry = this._opts.registry || null;
+    this._maxRecv = this._opts.maxRecvMsgSize || 4 * 1024 * 1024;
+    this._conn = null;
+    this._closed = false;
+  }
+  Channel.prototype._connect = function() {
+    if (this._closed) return Promise.reject(new StatusError("channel is closed", Status.UNAVAILABLE));
+    if (this._conn) return this._conn.promise;
+    var self = this;
+    var client = null;
+    var promise = HTTP2Client.connect({
+      host: this._t.host,
+      port: this._t.port,
+      pal: this._pal,
+      tls: this._t.tls ? true : void 0,
+      servername: this._t.servername,
+      alpn: this._t.tls ? ["h2"] : void 0,
+      ca: this._t.ca
+    }).then(function(c) {
+      client = c;
+      c._onCloseCbs.push(function() {
+        if (self._conn && self._conn.client === c) self._conn = null;
+      });
+      return c;
+    }).catch(function(e) {
+      if (self._conn && self._conn.client === client) self._conn = null;
+      throw new StatusError(
+        "failed to connect to " + self._t.host + ":" + self._t.port + ": " + e.message,
+        Status.UNAVAILABLE
+      );
+    });
+    this._conn = { client: null, promise };
+    promise.then(function(c) {
+      if (self._conn) self._conn.client = c;
+    }, function() {
+    });
+    return promise;
+  };
+  Channel.prototype._drop = function(client) {
+    if (this._conn && this._conn.client === client) this._conn = null;
+  };
+  Channel.prototype.invoke = function(method, req, opts) {
+    var call;
+    try {
+      call = resolveCall(method, opts || {}, this._registry);
+    } catch (e) {
+      return Promise.reject(e instanceof StatusError ? e : new StatusError(e.message, Status.INVALID_ARGUMENT));
+    }
+    if (call.streaming) {
+      return Promise.reject(new StatusError(
+        "streaming RPCs are not supported yet: " + call.path,
+        Status.UNIMPLEMENTED
+      ));
+    }
+    var payload;
+    try {
+      payload = frameMessage(call.reqType.encode(req));
+    } catch (e) {
+      return Promise.reject(new Error("grpc: failed to encode request for " + call.path + ": " + e.message));
+    }
+    var self = this;
+    return this._once(call, payload, opts || {}, false).catch(function(err) {
+      if (err && err.__grpcRetry) return self._once(call, payload, opts || {}, true);
+      throw err;
+    });
+  };
+  Channel.prototype._once = function(call, payload, opts, isRetry) {
+    var self = this;
+    return this._connect().then(function(client) {
+      return new Promise(function(resolve, reject) {
+        var settled = false;
+        var timer = null;
+        var messages = [];
+        var frameErr = null;
+        var httpStatus = null;
+        var status = null, statusText = null, detailsBin = null;
+        var respMeta = {};
+        var splitter = new FrameSplitter(self._maxRecv, function(m) {
+          messages.push(m);
+        });
+        var headers = {
+          "content-type": "application/grpc+proto",
+          "te": "trailers",
+          "grpc-accept-encoding": "identity",
+          "user-agent": "qwrt-grpc-js/1.0"
+        };
+        var timeoutMs = opts.timeoutMs;
+        if (timeoutMs != null) {
+          var whole = Math.floor(timeoutMs);
+          if (!(whole > 0)) {
+            reject(new StatusError("timeoutMs must be a positive number of milliseconds", Status.INVALID_ARGUMENT));
+            return;
+          }
+          headers["grpc-timeout"] = Math.min(99999999, whole) + "m";
+          timer = setTimeout(function() {
+            if (settled) return;
+            settled = true;
+            try {
+              stream.cancel(ERR.CANCEL);
+            } catch (e) {
+            }
+            self._drop(client);
+            reject(new StatusError(
+              "deadline exceeded after " + whole + "ms calling " + call.path,
+              Status.DEADLINE_EXCEEDED
+            ));
+          }, whole);
+          if (timer.unref) timer.unref();
+        }
+        Object.assign(headers, encodeMetadata(opts.headers));
+        function mergeMeta(from) {
+          Object.keys(from).forEach(function(k) {
+            respMeta[k] = from[k];
+          });
+        }
+        function finish() {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          if (frameErr) {
+            reject(frameErr);
+            return;
+          }
+          var code = status;
+          if (code == null || isNaN(code)) {
+            code = httpStatus != null && HTTP_TO_GRPC[httpStatus] != null ? HTTP_TO_GRPC[httpStatus] : messages.length ? Status.INTERNAL : Status.UNAVAILABLE;
+            statusText = statusText || "missing grpc-status (HTTP :status " + httpStatus + ")";
+          }
+          if (code !== Status.OK) {
+            reject(new StatusError(statusText || StatusName[code] || "RPC failed", code, respMeta, detailsBin));
+            return;
+          }
+          if (!messages.length) {
+            reject(new StatusError("response is missing the reply message", Status.INTERNAL));
+            return;
+          }
+          var reply;
+          try {
+            reply = call.respType.decode(messages[0]);
+          } catch (e) {
+            reject(new StatusError("failed to decode reply for " + call.path + ": " + e.message, Status.INTERNAL));
+            return;
+          }
+          if (opts.onMetadata) {
+            try {
+              opts.onMetadata(respMeta);
+            } catch (e) {
+            }
+          }
+          resolve(reply);
+        }
+        var stream = client.request({
+          method: "POST",
+          scheme: self._t.tls ? "https" : "http",
+          path: call.path,
+          authority: self._t.authority || self._t.host + ":" + self._t.port,
+          headers
+        }, {
+          onHeaders: function(pairs) {
+            var blk;
+            try {
+              blk = readHeaderBlock(pairs);
+            } catch (e) {
+              frameErr = e;
+              return;
+            }
+            if (blk.httpStatus != null && httpStatus == null) httpStatus = blk.httpStatus;
+            if (blk.status != null && !isNaN(blk.status)) status = blk.status;
+            if (blk.statusText != null) statusText = blk.statusText;
+            if (blk.detailsBin != null) detailsBin = blk.detailsBin;
+            mergeMeta(blk.metadata);
+          },
+          onData: function(bytes) {
+            try {
+              splitter.push(bytes);
+            } catch (e) {
+              if (settled) return;
+              settled = true;
+              if (timer) clearTimeout(timer);
+              try {
+                stream.cancel(ERR.CANCEL);
+              } catch (e2) {
+              }
+              reject(e instanceof StatusError ? e : new StatusError(e.message, Status.INTERNAL));
+            }
+          },
+          onEnd: finish,
+          onError: function(err2) {
+            if (settled) return;
+            self._drop(client);
+            settled = true;
+            if (timer) clearTimeout(timer);
+            var e = new StatusError(err2 && err2.message || "transport error", Status.UNAVAILABLE);
+            if (!isRetry && status == null && !messages.length) e.__grpcRetry = true;
+            reject(e);
+          }
+        });
+        if (!stream) {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          var err = new StatusError("connection is not usable", Status.UNAVAILABLE);
+          if (!isRetry) err.__grpcRetry = true;
+          reject(err);
+          return;
+        }
+        try {
+          stream.end(payload);
+        } catch (e) {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          reject(new StatusError(e && e.message || "write failed", Status.UNAVAILABLE));
+        }
+      });
+    });
+  };
+  Channel.prototype.close = function() {
+    this._closed = true;
+    var conn = this._conn;
+    this._conn = null;
+    if (!conn) return Promise.resolve();
+    var c = conn.client;
+    if (!c) {
+      return conn.promise.then(function(x) {
+        return x.close();
+      }, function() {
+      });
+    }
+    return c.close();
+  };
+  function parseTarget(url, defaultTls) {
+    var s = String(url || "").trim();
+    var scheme = null;
+    var m = /^([a-z][a-z0-9+.-]*):\/\//i.exec(s);
+    if (m) {
+      scheme = m[1].toLowerCase();
+      s = s.slice(m[0].length);
+    }
+    var tls = scheme == null ? !!defaultTls : scheme === "https" || scheme === "grpcs" || scheme === "h2";
+    if (scheme != null && !tls && scheme !== "http" && scheme !== "grpc" && scheme !== "h2c") {
+      throw new Error('grpc: unsupported scheme "' + m[1] + '" \u2014 use grpc(s):// or http(s)://');
+    }
+    var slash = s.indexOf("/");
+    if (slash >= 0) s = s.slice(0, slash);
+    var host, port;
+    if (s.charAt(0) === "[") {
+      var close = s.indexOf("]");
+      if (close < 0) throw new Error("grpc: bad IPv6 target " + JSON.stringify(url));
+      host = s.slice(1, close);
+      port = s.charAt(close + 1) === ":" ? s.slice(close + 2) : "";
+    } else {
+      var colon = s.lastIndexOf(":");
+      if (colon < 0) {
+        host = s;
+        port = "";
+      } else {
+        host = s.slice(0, colon);
+        port = s.slice(colon + 1);
+      }
+    }
+    if (!host) throw new Error("grpc: empty target " + JSON.stringify(url));
+    var nport = port === "" ? tls ? 443 : 50051 : parseInt(port, 10);
+    if (!(nport > 0 && nport < 65536)) throw new Error("grpc: bad port in target " + JSON.stringify(url));
+    return {
+      host,
+      port: nport,
+      authority: host + ":" + nport,
+      tls,
+      servername: host,
+      ca: void 0
+    };
+  }
+  function createChannel(url, opts) {
+    opts = opts || {};
+    var t = parseTarget(url, true);
+    if (opts.tls) {
+      if (opts.tls.ca != null) t.ca = opts.tls.ca;
+      if (opts.tls.servername != null) t.servername = opts.tls.servername;
+    }
+    return new Channel(t, opts);
+  }
+  function createInsecureChannel(target, opts) {
+    return new Channel(parseTarget(target, false), opts || {});
+  }
+  function loadProto(text, opts) {
+    return parseProto(text, opts);
+  }
+  function setupGrpc(pal2) {
+    _pal2 = pal2;
+    globalThis.qwrt = globalThis.qwrt || {};
+    globalThis.grpc = {
+      Status,
+      StatusName,
+      StatusError,
+      Channel,
+      loadProto,
+      createChannel,
+      createInsecureChannel
+    };
+  }
+
+  // src/grpc-server.js
+  function percentEncode(s) {
+    try {
+      return encodeURI(s);
+    } catch (e) {
+      return s;
+    }
+  }
+  function toStatus(e) {
+    if (e instanceof StatusError) {
+      return new StatusError(e.rawMessage != null ? e.rawMessage : e.message, e.code | 0);
+    }
+    if (e && typeof e.code === "number" && e.message !== void 0) {
+      return new StatusError(String(e.message), e.code | 0);
+    }
+    return new StatusError(e && e.message || "internal error", Status.INTERNAL);
+  }
+  function parseRequestHeaders(pairs) {
+    var res = { path: null, contentType: "", metadata: {} };
+    for (var i = 0; i < pairs.length; i++) {
+      var k = pairs[i][0], v = pairs[i][1];
+      if (k === ":path") {
+        res.path = v;
+        continue;
+      }
+      if (k.charAt(0) === ":") continue;
+      var lk = k.toLowerCase();
+      if (lk === "content-type") {
+        res.contentType = v;
+        continue;
+      }
+      if (RESERVED[lk]) continue;
+      res.metadata[lk] = /-bin$/.test(lk) ? b64Decode(v) : v;
+    }
+    return res;
+  }
+  var GrpcServer = class {
+    constructor(opts) {
+      opts = opts || {};
+      this._methods = /* @__PURE__ */ Object.create(null);
+      this._maxRecv = opts.maxRecvMsgSize || 4 * 1024 * 1024;
+    }
+    /* Register every service of a loadProto() registry. impls maps method names
+     * (e.g. {SayHello: fn}) to unary handlers; absent entries dispatch to
+     * UNIMPLEMENTED when called. */
+    addService(registry, impls) {
+      if (!registry || typeof registry !== "object" || !registry.services) {
+        throw new Error("grpc: addService(registry, impls?) needs a loadProto() result");
+      }
+      for (var sname in registry.services) {
+        var svc = registry.services[sname];
+        if (!svc.methods) continue;
+        for (var mname in svc.methods) {
+          var md = svc.methods[mname];
+          if (md.clientStreaming || md.serverStreaming) continue;
+          this.addHandler(md, impls && impls[mname]);
+        }
+      }
+    }
+    /* Register one method: `method` is a bound method object (from
+     * loadProto(...).service('pkg.Svc').method('M')) or a '/pkg.Svc/M' path;
+     * in the latter case `types = {requestType, responseType}` is required.
+     * `impl` may be null to register the signature (calls → UNIMPLEMENTED). */
+    addHandler(method, impl, types) {
+      var md;
+      if (method && typeof method === "object" && method.path) {
+        md = method;
+      } else if (typeof method === "string") {
+        types = types || impl && (impl.requestType || impl.responseType) ? {
+          requestType: impl.requestType,
+          responseType: impl.responseType
+        } : types;
+        if (!types || !types.requestType || !types.responseType) {
+          throw new Error("grpc: addHandler(path, impl, {requestType, responseType}) required");
+        }
+        var path = method.charAt(0) === "/" ? method : "/" + method;
+        md = { path, requestType: types.requestType, responseType: types.responseType };
+      } else {
+        throw new Error("grpc: addHandler(methodOrPath, impl) needs a bound method or /pkg.Svc/M path");
+      }
+      this._methods[md.path] = { method: md, impl: impl || null };
+    }
+    /* Serve one h2 request stream. */
+    _handleStream(stream) {
+      var self = this;
+      var parsed;
+      try {
+        parsed = parseRequestHeaders(stream.headers || []);
+      } catch (e) {
+        this._respondError(stream, new StatusError("bad request metadata", Status.INTERNAL));
+        return;
+      }
+      var entry = parsed.path ? this._methods[parsed.path] : null;
+      if (!entry) {
+        this._respondError(stream, new StatusError(
+          "method " + parsed.path + " is not implemented",
+          Status.UNIMPLEMENTED
+        ));
+        return;
+      }
+      if (/^application\/grpc/.test(parsed.contentType) === false) {
+        this._respondError(stream, new StatusError(
+          "content-type must be application/grpc*",
+          Status.UNIMPLEMENTED
+        ));
+        return;
+      }
+      var reqBytes = null;
+      var framingError = null;
+      var splitter = new FrameSplitter(self._maxRecv, function(m) {
+        reqBytes = m;
+      });
+      stream.onData = function(chunk) {
+        try {
+          splitter.push(chunk);
+        } catch (e) {
+          framingError = e instanceof StatusError ? e : new StatusError(e.message, Status.INTERNAL);
+        }
+      };
+      stream.onEnd = function() {
+        if (stream.aborted) return;
+        if (framingError) {
+          self._respondError(stream, framingError);
+          return;
+        }
+        var request;
+        try {
+          request = entry.method.requestType.decode(reqBytes || new Uint8Array(0));
+        } catch (e) {
+          self._respondError(stream, new StatusError(
+            "failed to decode request: " + e.message,
+            Status.INTERNAL
+          ));
+          return;
+        }
+        var call = {
+          path: entry.method.path,
+          method: entry.method,
+          request,
+          metadata: parsed.metadata
+        };
+        var result;
+        try {
+          if (!entry.impl) {
+            self._respondError(stream, new StatusError("method " + entry.method.path + " has no handler", Status.UNIMPLEMENTED));
+            return;
+          }
+          result = entry.impl(call);
+        } catch (e) {
+          self._respondError(stream, toStatus(e));
+          return;
+        }
+        if (result && typeof result.then === "function") {
+          result.then(
+            function(val) {
+              self._respondOk(stream, entry.method, val);
+            },
+            function(e) {
+              self._respondError(stream, toStatus(e));
+            }
+          );
+        } else {
+          self._respondOk(stream, entry.method, result);
+        }
+      };
+      stream.onError = function() {
+      };
+    }
+    _respondOk(stream, method, val) {
+      if (stream.aborted || stream.localEnded) return;
+      var payload;
+      try {
+        payload = method.responseType.encode(val);
+      } catch (e) {
+        this._respondError(stream, new StatusError(
+          "failed to encode response: " + e.message,
+          Status.INTERNAL
+        ));
+        return;
+      }
+      var body = frameMessage(payload);
+      stream.respond([
+        [":status", "200"],
+        ["content-type", "application/grpc+proto"],
+        ["grpc-encoding", "identity"]
+      ]);
+      stream.write(body);
+      stream.end([["grpc-status", "0"]]);
+    }
+    _respondError(stream, status) {
+      if (stream.aborted || stream.localEnded) return;
+      var statusName = StatusName[status.code] || String(status.code);
+      var hs = [
+        [":status", "200"],
+        ["content-type", "application/grpc+proto"],
+        ["grpc-status", String(status.code)]
+      ];
+      var msg = status.rawMessage != null ? String(status.rawMessage) : status.message != null ? String(status.message) : statusName;
+      if (msg) hs.push(["grpc-message", percentEncode(msg)]);
+      if (!stream.headersSent) {
+        stream.end(hs);
+      } else {
+        stream.end(hs);
+      }
+    }
+  };
+  function createServer(opts) {
+    return new GrpcServer(opts);
+  }
+  function setupGrpcServer(pal2) {
+    globalThis.grpc = globalThis.grpc || {};
+    globalThis.grpc.Server = GrpcServer;
+    globalThis.grpc.createServer = createServer;
+  }
+
+  // src/grpc-stack.js
   function setupGrpcStack() {
+    setupHttp2(pal);
+    setupHttp2Server(pal);
+    setupProtobuf(pal);
+    setupGrpc(pal);
+    setupGrpcServer(pal);
   }
 
   // src/index.js

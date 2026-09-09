@@ -251,6 +251,15 @@ export function setupHttpServer(pal) {
     var hostname = options.hostname || '0.0.0.0';
     var wsRoutes = options.ws || {};
     var activeServer = { closed: false };
+    /* h2/gRPC 分流：QWRT_WITH_GRPC=ON 时 grpc-stack 已把 HTTP2ServerSession 与
+     * PREFACE 挂到 qwrt.http2；options.grpc 为 grpc.createServer() 实例时，
+     * h2 连接上的流路由到 gRPC 服务端（ALPN 'h2' 或明文前导识别）。 */
+    var h2api = (globalThis.qwrt && globalThis.qwrt.http2) || null;
+    var H2SessionClass = (h2api && h2api.HTTP2ServerSession) || null;
+    var H2Preface = (h2api && h2api.PREFACE) || null;
+    var H2_PREFACE_LEN = H2Preface ? H2Preface.length : 0;
+    var grpcServer = options.grpc || null;
+
     if (activeInstance && !activeInstance.closed)
       throw new Error('serve: a server is already running (call srv.close() first)');
     activeInstance = activeServer;
@@ -400,6 +409,25 @@ export function setupHttpServer(pal) {
       var idleTimer = null;
       var bodyState = null;  // {controller, remaining, received} of the in-flight request body
       conns.push(conn);
+      /* ── h2/gRPC 分流状态（首段数据一次性判定）── */
+      var h2session = null;
+      var h2Decided = false;   // 已判定非 h2（HTTP/1.1）
+      var preBuf = null;       // 明文前导累积缓冲
+      function startH2() {
+        var session = new H2SessionClass({ pal: pal });
+        session.attach(conn);
+        if (grpcServer) {
+          session.onStream(function (st) { grpcServer._handleStream(st); });
+        } else {
+          /* 无 gRPC server：通用 h2 请求 → 404 */
+          session.onStream(function (st) {
+            st.respond([[':status', '404'], ['content-type', 'text/plain']]);
+            st.end([]);
+          });
+        }
+        h2session = session;
+        return session;
+      }
 
       function resetIdle() {
         clearTimeout(idleTimer);
@@ -439,6 +467,45 @@ export function setupHttpServer(pal) {
         }
         data = data instanceof Uint8Array ? data : new Uint8Array(data);
         resetIdle();
+        /* ── h2/gRPC 分流（仅首段数据判定一次）── */
+        if (h2session) { h2session.feed(data); return; }
+        if (!h2Decided && H2SessionClass) {
+          if (conn.alpn === 'h2') {
+            /* TLS 且 ALPN 协商 h2 → 直接 h2 路径（前导随解密流到达） */
+            h2Decided = true;
+            startH2().feed(data);
+            return;
+          }
+          if (conn.alpn == null) {
+            /* 明文连接：嗅探 24 字节前导 "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"。
+             * 前导可跨 TCP 段：累积直到凑满或字节失配判非 h2。 */
+            var merged = new Uint8Array((preBuf ? preBuf.length : 0) + data.length);
+            if (preBuf) merged.set(preBuf, 0);
+            merged.set(data, preBuf ? preBuf.length : 0);
+            preBuf = merged;
+            var pn = Math.min(preBuf.length, H2_PREFACE_LEN);
+            var pm = true;
+            for (var pi = 0; pi < pn; pi++) {
+              if (preBuf[pi] !== H2Preface[pi]) { pm = false; break; }
+            }
+            if (!pm) {
+              /* 非 h2：整段交回 HTTP/1.1 解析 */
+              h2Decided = true;
+              data = preBuf;
+              preBuf = null;
+            } else if (preBuf.length < H2_PREFACE_LEN) {
+              return; // 前导未完，等待更多字节
+            } else {
+              h2Decided = true;
+              startH2().feed(preBuf);
+              preBuf = null;
+              return;
+            }
+          } else {
+            /* TLS 但 ALPN 非 h2 → HTTP/1.1 */
+            h2Decided = true;
+          }
+        }
 
         if (bodyState) {
           /* pure body bytes — feed the stream directly (no string round-trip) */
@@ -624,6 +691,8 @@ export function setupHttpServer(pal) {
 
       conn.onclose = function(code) {
         clearTimeout(idleTimer);
+        if (h2session) { try { h2session._teardown(); } catch (e) {} h2session = null; }
+
         var idx = conns.indexOf(conn);
         if (idx >= 0) conns.splice(idx, 1);
         if (ws) {
@@ -715,10 +784,21 @@ export function setupHttpServer(pal) {
 
     var listener;
     var tls = options.tls;
-    if (tls && tls.cert && tls.key)
-      listener = pal.tcpListen(port, hostname, 128, handleConnection, tls);
-    else
+    if (tls && tls.cert && tls.key) {
+      /* h2 栈存在且用户未指定 alpn：默认补 ['h2','http/1.1']，让 TLS 端口
+       * 同时服务 h2（gRPC）与 HTTP/1.1。显式 alpn 优先。 */
+      var tlsCfg = tls;
+      if (H2SessionClass && !tlsCfg.alpn) {
+        tlsCfg = {};
+        for (var tk in tls) {
+          if (typeof tls[tk] !== 'function' && tls[tk] !== undefined) tlsCfg[tk] = tls[tk];
+        }
+        tlsCfg.alpn = ['h2', 'http/1.1'];
+      }
+      listener = pal.tcpListen(port, hostname, 128, handleConnection, tlsCfg);
+    } else {
       listener = pal.tcpListen(port, hostname, 128, handleConnection);
+    }
     var conns = [];
     activeServer.close = function() {
       activeServer.closed = true;

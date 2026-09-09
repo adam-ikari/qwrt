@@ -15,12 +15,16 @@
 
 import { pal } from './pal.js';
 import { setupHttp2 } from './http2.js';
+import { setupHttp2Server } from './http2-server.js';
 import { setupProtobuf } from './protobuf.js';
 import { setupGrpc } from './grpc.js';
+import { setupGrpcServer } from './grpc-server.js';
 
 export function setupGrpcStack() {
   setupHttp2(pal);
+  setupHttp2Server(pal);
   setupProtobuf(pal);
   setupGrpc(pal);
+  setupGrpcServer(pal);
 }
 

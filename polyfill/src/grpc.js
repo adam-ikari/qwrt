@@ -53,6 +53,7 @@ export class StatusError extends Error {
   constructor(message, code, metadata, details) {
     super('grpc: ' + (StatusName[code] || code) + ': ' + message);
     this.name = 'StatusError';
+    this.rawMessage = message;  // unprefixed text; servers send this as grpc-message
     this.code = code | 0;
     this.codeName = StatusName[this.code] || String(this.code);
     this.metadata = metadata || null;
@@ -538,5 +539,9 @@ export function setupGrpc(pal) {
   };
 }
 
-export { Channel, Status, StatusName, loadProto, createChannel, createInsecureChannel };
+export {
+  Channel, Status, StatusName, loadProto, createChannel, createInsecureChannel,
+  // Shared with grpc-server.js (the server side reuses the same wire model).
+  FrameSplitter, frameMessage, encodeMetadata, b64Decode, RESERVED,
+};
 
