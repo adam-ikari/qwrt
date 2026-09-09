@@ -5,20 +5,20 @@ category: reference
 status: active
 tags: [perf, worker, runtime, baseline]
 created: "2026-09-08T16:56:22"
-updated: "2026-09-08T17:13:48"
+updated: "2026-09-09T00:14:59"
 ---
 
 <!-- compiled_truth -->
 运行时性能基线（R1-R6，THREAD vs PROCESS 双后端）。比值=PROCESS/THREAD。开发机与 CI runner 各记一套；来源 test/bench_runtime.py + ci.yml runtime-perf job（设计文档 docs/plans/2026-09-04-runtime-perf-benchmark-design.md §5.2 指定本页）。
 
 ## 本地基线（Ryzen 5800H / PVE 6.17，Release build，commit f4ab5776，2026-09-04）
-- R1 冷启动：待补 Release 数值（Debug+ASan 参考 40–73ms，见 startup-memory-benchmark 页）
+- R1 冷启动：median 15.9ms（n=5，Release build_rel，2026-09-09 跨运行时实测回填；Debug+ASan 参考 40–73ms，见 startup-memory-benchmark 页）
 - R2 spawn ready：THREAD 9.46ms → PROCESS 14.24ms（**1.51×**，polyfill 注入主导；裸 new Worker 反而 PROCESS 更快 0.22×）
 - R2b terminate：THREAD 7.5µs → PROCESS 10.1ms（**1353×**，PROCESS 三级终止同步阻塞）
 - R3 往返：0B/1KB/64KB 比值 **1.19× / 1.00× / 0.97×**（与线程并列；64KB ~140ms/op 序列化主导）
 - R4 吞吐：THREAD 5927 → PROCESS 1769 msg/s（**0.3×**，PROCESS 曾受洪水卡死限制，9b7c0781 已根治）
 - R5 worker VmHWM：THREAD 22.4MB vs PROCESS 13.1MB（PROCESS 无宿主 polyfill 负担）
-- R6 eval：CPU 密集与后端无关，仅单后端采样（数值待补）
+- R6 eval：int 28.2 / closure 12.9 / str 8.7 M ops/s（Release build_rel，2026-09-09 跨运行时实测回填；仅单后端采样，CPU 密集与后端无关）
 
 ## CI 环境基线（GitHub Actions ubuntu-latest，HEAD ccb3de18，2026-09-08 首跑成功）
 - R1 冷启动：median 7.48ms（n=3）
@@ -29,6 +29,17 @@ updated: "2026-09-08T17:13:48"
 - R5 worker VmHWM：THREAD 21.7MB vs PROCESS 12.8MB（PROCESS 无宿主 polyfill 负担）
 - R6 eval：int 52.0 / closure 27.7 / str 13.6 M ops/s（仅单后端采样）
 - 来源：run #34255495676 / HEAD ccb3de18，job "runtime perf (workers)" success，artifact runtime-perf-json。前置失败两连（无 artifact）：#34253382900（esbuild 缺 npm ci）、#34254235073（polyfill rebuild 先于 CMake build → qjsc not found）；本轮 ccb3de18 修顺序后成功。
+
+## 跨运行时对比（qwrt vs Node/Bun/Txiki，2026-09-09，本机 Ryzen 5800H / build_rel Release）
+- 驱动：test/bench_cross_runtime.py（新增）+ test/bench/runtime/bench-eval-cross.js（同一 JS 代码 qwrt/node/bun/tjs 四运行时共用）；指标 R1 冷启动 / R6 eval 吞吐（1M iter）/ R5 进程峰值 VmHWM。设计文档 §8。
+- 数值表（R1 ms / R6 M ops/s / R5 KB）：
+  - qwrt：15.88 / int 28.2 · closure 12.9 · str 8.7 / 14,580
+  - node v22.22.2：31.98 / 1,042 · 1,038 · 23.4 / 183,236
+  - bun 1.3.14：15.84 / 1,468 · 917 · 54.1 / 163,536
+  - tjs v26.6.0：15.87 / 36.6 · 17.2 · 9.9 / 10,696
+- 比值 vs qwrt：启动 node 2.01×（bun/tjs ~1.00×）；int/closure 吞吐 node 37/81×、bun 52/71×（str 仅 2.7/6.2×）；RSS node 12.6×、bun 11.2×；tjs 全轴 ~1×（同 QuickJS 引擎族，RSS 0.73× 反而更小）。两轮完整复跑一致（±10% 内；bun R1 双峰 15.8~32ms，复跑中位数落 15.8ms）
+- 结论：**启动** qwrt≈tjs≈bun（15.8~15.9ms），node 2× 慢；**内存是最大差异化优势**（qwrt 14.6MB vs node/bun 160-183MB，11-13×）；**吞吐** JIT 快 37-81×，str 差距最小 2.7-6.2×；tjs 同引擎互证（1.15-1.34×）。qwrt/Txiki 定位「够用吞吐 + 极小内存/快启动」。
+- Txiki 构建注记：官方 release 无 linux 预编译包（仅 macOS/Windows）；源码构建需 gcc-12（GCC 11 编 ada.h 的 constexpr std::string_view 失败）+ mbedtls framework submodule + patch `-Wno-unknown-pragmas`；tjs v26.6.0 改子命令 `tjs eval 'expr'` / `tjs run script.js [args]`，脚本参数经 `tjs.args`。
 
 
 ## Timeline
@@ -73,4 +84,16 @@ updated: "2026-09-08T17:13:48"
   kind: decision
   summary: "CI 首跑成功（run #34255495676 / HEAD ccb3de18）：R1 7.48ms；spawn ready THREAD 4.64ms→PROCESS 5.93ms 1.28×；terminate 1799×；往返 0.78/1.03/0.99×；吞吐 0.98×（19211 vs 18833 msg/s）；worker VmHWM 21.7 vs 12.8MB；R6 int/closure/str 52.0/27.7/13.6 M ops/s——qjsc 顺序 bug 修复后 CI 基线落档"
   source: ci-baseline-fill2 session
+  affects: [runtime-perf-baseline]
+
+- time: 2026-09-09T00:14:44
+  kind: decision
+  summary: "追加跨运行时对比段（qwrt vs Node/Bun/Txiki，2026-09-09 本机实测）"
+  source: "cross-runtime-bench session (bench_cross_runtime.py)"
+  affects: [runtime-perf-baseline]
+
+- time: 2026-09-09T00:14:59
+  kind: decision
+  summary: "跨运行时首测落档（2026-09-09 本机 Ryzen 5800H，qwrt build_rel Release）：R1 15.88ms / node 31.98（2.01×）、bun 15.84、tjs 15.87；R6 int qwrt 28.2 vs node 1042（37×）bun 1468（52×）tjs 36.6（1.3×）；R5 qwrt 14.6MB vs node 183MB（12.6×）bun 164MB（11.2×）tjs 10.7MB（0.73×）——内存最大差异化优势，启动三系并列，吞吐 JIT 快 37-81×（str 仅 2.7-6.2×）。Txiki 需 gcc-12 源码构建，暂不入 CI"
+  source: "cross-runtime-bench session (test/bench_cross_runtime.py)"
   affects: [runtime-perf-baseline]

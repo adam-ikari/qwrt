@@ -238,4 +238,63 @@ async function pingPong(w, buf, iters) {
 
 ---
 
+# 8. 跨运行时对比（qwrt vs Node/Bun/Txiki）
+
+> 状态：**已落地并出首轮实测**（2026-09-09，本机 sandbox-001 / Ryzen 5800H / PVE 6.17，qwrt = build_rel Release）。新增驱动 `test/bench_cross_runtime.py` + JS 基准 `test/bench/runtime/bench-eval-cross.js`（所有运行时加载同一份代码）。Txiki 系源码构建（gcc-12 工具链，见 §8.4）。
+
+## 8.1 动机与范围
+
+qwrt 定位是**嵌入式 QuickJS 运行时**（小内存、快启动）；对比对象是**全功能运行时**（Node/V8、Bun/JSC）与**同系 QuickJS 实现**（Txiki.js）。要突出的定位差异：
+
+| 轴 | qwrt / Txiki | Node / Bun |
+|---|---|---|
+| 启动 | 快（解释器 + 轻运行时，无 JIT 编译器预热） | 慢（V8/JSC 启动 + JIT 基础设施加载） |
+| 内存 | 小（单解释器 + 小堆） | 大（JIT 代码空间 + 大堆） |
+| 吞吐 | 解释执行（无 JIT） | JIT 优化后高吞吐 |
+
+跨运行时可比指标只取 **R1（冷启动）/ R6（eval 吞吐）/ R5（进程峰值内存，VmHWM）**。R2–R4 worker 语义跨运行时差异大（Node worker_threads、Bun Worker、qwrt 双后端），不做跨运行时对比——仍是 qwrt 内部双后端对照（§2）。文件/网络不对比（超出范围）。
+
+## 8.2 方法（公平性）
+
+- **同一代码**：`bench-eval-cross.js`（bench-eval.js 的可移植版）——qwrt/node/bun/tjs 全部加载它。argv 自适应各运行时约定：node/bun `process.argv`、qwrt `globalThis.arguments`、tjs `tjs.args`（v26+ 全 argv 含子命令，按脚本路径切片）。
+- **同一负载**：R6 warmup 3 + 采样 5 取中位数，iter=10^6（JIT 运行时已被充分预热——预热与迭代数正是「JIT vs 解释器」差别的诚实呈现，不另做预跑预热）；R1 `<bin> -e/... 'console.log(1)'` ×5 取中位数；R5 进程跑 eval 期间轮询 `/proc/<pid>/status` VmHWM（无 GNU time，沿用 bench_runtime.py 的 VmHWM 轮询法）。
+- **同一冷进程**：R1/R5/R6 全部冷启动进程测量（用户视角真实数字），JIT 运行时不做「预热后计时」偏袒处理。
+
+## 8.3 实测（2026-09-09，本机，qwrt = build_rel Release / node v22.22.2 / bun 1.3.14 / tjs v26.6.0）
+
+驱动：`python3 test/bench_cross_runtime.py --bins qwrt=./build_rel/qwrt,node=$(which node),bun=$(which bun),tjs=/tmp/tjs-src/build/tjs`
+
+| 运行时 | R1 冷启动 (ms) | R6 int (M ops/s) | R6 closure | R6 str | R5 峰值 RSS (KB) |
+|---|---|---|---|---|---|
+| qwrt (Release) | 15.88 | 28.2 | 12.9 | 8.7 | 14,580 |
+| node v22.22.2 | 31.98 | 1,042 | 1,038 | 23.4 | 183,236 |
+| bun 1.3.14 | 15.84 | 1,468 | 917 | 54.1 | 163,536 |
+| tjs v26.6.0 | 15.87 | 36.6 | 17.2 | 9.9 | 10,696 |
+
+比值 vs qwrt（>1 = 更慢/更大；吞吐方向相反 = 更快）：
+
+| | R1 | int | closure | str | RSS |
+|---|---|---|---|---|---|
+| node | 2.01× | 37.0× | 80.8× | 2.7× | 12.6× |
+| bun | 1.00× | 52.1× | 71.3× | 6.2× | 11.2× |
+| tjs | 1.00× | 1.30× | 1.34× | 1.15× | 0.73× |
+
+两轮完整复跑数值一致（±10% 内；bun R1 双峰 15.8~32ms，复跑中位数落 15.8ms）。
+
+**定位结论**：
+1. **启动**：qwrt（15.9ms）= tjs（15.9ms）= bun 最快档（15.8ms）≈ node 的 1/2——「嵌入式快启动」实锤，且 bun（JIT 系）启动也不慢，此轴优势不悬殊。
+2. **内存**：qwrt 14.6MB、tjs 10.7MB（更裸的 quickjs+libuv）vs node 183MB / bun 164MB（**11–13×**）——内存是最大的差异化优势，嵌入式场景决定性。
+3. **吞吐**：JIT 运行时 int/closure 快 **37–81×**；字符串拼接差距最小（**2.7–6.2×**，解释器在字符串路径不差）；tjs ≈ qwrt（1.15–1.34×，同 QuickJS-ng 引擎族，tjs 略快——构建选项/配置差异）。qwrt/Txiki 定位在「够用吞吐 + 极小内存/快启动」，不与 JIT 比吞吐。
+
+## 8.4 环境注记
+
+- **Txiki.js 构建成本高**：官方 release 无 linux 预编译包（仅 macOS/Windows），需源码构建；本机踩坑两处——mbedtls 内嵌 submodule（framework）需单独 `git submodule update --init`；**GCC 11 编译 ada.h 失败**（`constexpr std::string_view` 转换需 GCC 12+ 的 libstdc++），装 g++-12 后通过；另 `-Werror` 与 GCC 不识 `#pragma region`（上游 bug，clang 才认识）需本地 patch `-Wno-unknown-pragmas`。CI 上加 tjs 的成本 = apt 装 g++-12 + 约 3 分钟源码构建，**暂不建议入 CI**（本机数据为主；Node runner 自带、bun 可 curl 装，若未来要加，只加 node/bun 两个轻量项）。
+- **tjs CLI 差异**：v26.6.0 起改用子命令 `tjs eval 'expr'` / `tjs run script.js [args]`，脚本参数经 `tjs.args`（全 argv）暴露——bench-eval-cross.js 与驱动均按此适配。
+- **本机绝对数值低于 CI**（qwrt int 28 vs CI 52 M ops/s）：CI runner（ubuntu-latest）与本机 PVE sandbox 的 CPU/调度差异，比值结论不受影响。
+
+---
+
+> 附件/引用（跨运行时）：`test/bench_cross_runtime.py`、`test/bench/runtime/bench-eval-cross.js`（本方案新增）；txiki.js v26.6.0 源码构建于 /tmp/tjs-src（gcc-12，patch 一处 CMakeLists `-Wno-unknown-pragmas`）。
+---
+
 > 附件/引用：`docs/plans/2026-09-04-multi-process-model.md`（§1.4 判据表、§4.4 信封、§9.2 终止、§10.1 mock 策略、§12.2 性能实测）；`test/bench_httpserver.py` + `.github/workflows/ci.yml`（httpserver-perf job 模式）；`brain/pages/httpserver-perf-baseline.md`、`brain/pages/startup-memory-benchmark.md`（现有基线）；`polyfill/src/worker.js`（spawnWorker/workerPost 插桩点）；`src/cli.c`（`QWRT_WORKER_BACKEND` env）；`polyfill/src/performance.js`（performance.now 计时源）。
