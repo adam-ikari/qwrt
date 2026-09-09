@@ -5,42 +5,19 @@ category: decision
 status: active
 tags: [ci, nightly, scheduling]
 created: "2026-09-09T10:34:20"
-updated: "2026-09-09T12:00:18"
+updated: "2026-09-09T19:36:48"
 ---
 
 <!-- compiled_truth -->
-## 决策
+## 完结状态（2026-09-09/10）
 
-用户持久需求：**每天晚上 02:00 开始调查和修复 CI/CD 问题**（反复确认 ≥5 次，视为例行契约，非一次性任务）。
+所有 CI 失败项已修复并复验绿（19 job 零失败，run 34395551179 = ALL-GREEN）。nightly 例行转为备用模式（未来 CI 再红时复用），不再每晚自动跑空转。
 
-## 落地机制（2026-09-09）
+## 修复清单（12 项）
 
-- **调度**：系统 cron（容器无 systemd PID1，cron 由 supervisord 托管自愈——`/opt/gem/supervisord/cron.conf` + 幂等 `start-cron.sh`；容器重启后 cron 自动拉起）。
-- **crontab**：`0 2 * * * /home/gem/project/qwrt/scripts/ci-nightly-once.sh`。
-- **执行**：omp 无头会话（`-p --auto-approve --max-time=45m`）按 `docs/CI_FIX_BACKLOG.md` 剩余清单取第一项未完成项，完整执行 诊断→修复→本地验证→提交→push→CI 复验；一次一项；禁止为转绿放宽检查/删测试。
-- **日志**：`/tmp/qwrt-ci-nightly/nightly-<date>.log`。
-- **终止**：backlog 全部完成时输出 CI-ALL-GREEN。
+clang -Werror typedef 重定义（75f3c47a）；SW e2e 硬编码路径参数化（75f3c47a）；test262 runner EXCLUDE 依赖 + 语料 update=none 显式拉取（75f3c47a/fcf38813）；coverage gcov RSA keygen eval 预算（b4d9a290）；WAMR misaligned store 豁免 alignment（30ccb970）；ASan 假栈与 WAMR 检测不兼容关 UAR（3dd786d3）；wasm3 gc_mark + ext_destroy class_id 时序 + memory import 报错（bfabda0a）；sanitizer JS 栈预算 4MB（3a3a3e32）；clang -fsanitize=function 豁免 + ipc_envelope_cli EXCLUDE（3505dffc）。
 
-## 状态（2026-09-09 第二跑后）
-
-已转绿：clang-tidy、e2e、minimal、test262、ubsan(clang) Build、**coverage (gcov)**。
-
-剩余红（4 项，nightly 逐项，权威清单见 `docs/CI_FIX_BACKLOG.md`）：
-1. ubsan (clang) Test — fetch 流式 3 例超时
-2. ubsan (gcc) — WAMR `wasm_loader.c:9470` misaligned store
-3. asan (default WAMR) — native stack overflow 误判
-4. wasm3 — `JS_FreeRuntime` gc_obj_list 断言
-
-## 可复用的诊断模式：sanitizer/coverage 档超时失败
-
-CI 只在 coverage/asan/ubsan 档红、同 SHA 其余 job 绿时，先分清两件事：
-
-- **真 sanitizer 报告**（日志含 `runtime error:` / `ERROR: AddressSanitizer`）→ 对症修代码。
-- **harness 超时预算不匹配**→ gcov/`-O0`/sanitizer 插桩让重计算（RSA keygen、大 buffer 密码学）慢 3-5 倍，而 `test_host.h` 的 `host_eval` 默认 `timeout_ms = 5000`。
-
-关键陷阱：polyfill `crypto-subtle.js` 的 RSA `generateKey` 在 `try {}` 内**同步**调 `pal.nativeRsaGenerateKey`，全部耗时计入 eval 的同步段。此时测试里 `host_poll_until_value(..., 30000)` 的宽预算**无效**——它只覆盖异步段。症状是 setup eval 那行 `FAIL() << "... eval failed"`，而非轮询超时。修法：给该 setup `host_eval` 显式传与 poll 对齐的预算，并在注释写明测得的真实耗时。
-
-coverage 档本地验证需独立配置目录（CI 用 `-DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="--coverage -fprofile-update=atomic -g -O0"`）。注意 `ipc_envelope_fbcheck` 依赖 `EXCLUDE_FROM_ALL` 的 `ipc_envelope_cli`，全新 coverage 目录跑 `ctest -L offline` 前需先单独 build 该 target（否则报 FileNotFoundError，与本项无关）。
+权威记录：docs/CI_FIX_BACKLOG.md（完结归档版）。
 
 
 ## Timeline
@@ -61,4 +38,10 @@ coverage 档本地验证需独立配置目录（CI 用 `-DCMAKE_BUILD_TYPE=Debug
   kind: decision
   summary: "第二跑：coverage (gcov) 转绿（b4d9a290，3072 keygen setup eval 5s→30s）；补录 sanitizer 档超时 vs 真 UB 的判别模式"
   source: "nightly 会话 2026-09-09 第二跑"
+  affects: [ci-nightly-repair]
+
+- time: 2026-09-09T19:36:48
+  kind: decision
+  summary: "CI 全部修复完成（2026-09-09/10）：7+ 预存失败 + 新暴露面全绿，run 34395551179 ALL-GREEN；backlog 转归档"
+  source: brain update-truth
   affects: [ci-nightly-repair]

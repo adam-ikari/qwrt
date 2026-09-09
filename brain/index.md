@@ -1,10 +1,10 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-09T12:00:18.060Z._
+_Auto-generated. Last updated 2026-09-09T19:36:48.254Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [c-js-layering](pages/c-js-layering.md) — category: decision | tags: [arch, layering, policy] | # C/JS 分层原则与标准（判据摘要）
-- [ci-nightly-repair](pages/ci-nightly-repair.md) — category: decision | tags: [ci, nightly, scheduling] | ## 决策
+- [ci-nightly-repair](pages/ci-nightly-repair.md) — category: decision | tags: [ci, nightly, scheduling] | ## 完结状态（2026-09-09/10）
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
 - [crypto-subtle-wrapkey](pages/crypto-subtle-wrapkey.md) — category: decision | tags: [crypto, webcrypto, wrapkey] | - **背景**：crypto.subtle 此前缺 `wrapKey`/`unwrapKey`（WebCrypto 标准方法）。
