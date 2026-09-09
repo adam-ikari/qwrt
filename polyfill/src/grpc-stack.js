@@ -14,17 +14,32 @@
  */
 
 import { pal } from './pal.js';
+import { lazyUnit } from './lazy.js';
 import { setupHttp2 } from './http2.js';
 import { setupHttp2Server } from './http2-server.js';
 import { setupProtobuf } from './protobuf.js';
 import { setupGrpc } from './grpc.js';
 import { setupGrpcServer } from './grpc-server.js';
 
+/**
+ * G 单元（lazy 注册式，设计 §3.4）：把 setupGrpcStack 职责从"执行"改为
+ * "注册惰性组"。grpc / protobuf / qwrt.http2 三个挂载面共享一次 setup——
+ * 首次访问其中任一触发 5 个子 setup（保持既有顺序）。
+ *
+ * QWRT_WITH_GRPC=OFF 时 index.js 引的是 grpc-stack-stub.js（空函数）→ 本
+ * 模块整体不进 bundle → 无任何 getter 注册 → grpc.xxx 直接 ReferenceError，
+ * 与现状一致（OFF 零字节承诺不破）。
+ */
 export function setupGrpcStack() {
-  setupHttp2(pal);
-  setupHttp2Server(pal);
-  setupProtobuf(pal);
-  setupGrpc(pal);
-  setupGrpcServer(pal);
+  lazyUnit(
+    ['grpc', 'protobuf'],
+    [[globalThis.qwrt, 'http2']],
+    function () {
+      setupHttp2(pal);
+      setupHttp2Server(pal);
+      setupProtobuf(pal);
+      setupGrpc(pal);
+      setupGrpcServer(pal);
+    });
 }
 

@@ -26,9 +26,20 @@
  *   pal.storageGet(key) -> Promise<string|null>
  *   pal.storageSet(key, value) -> Promise<void>
  *   pal.storageDel(key) -> Promise<void>
+ *
+ * Lazy 化（设计文档 2026-09-09-polyfill-lazy-init.md）：
+ *   14 eager + 17 lazy = 31 个 setup 调用。核心/薄模块 eager（直接 setup
+ *   调用，行为与历史一致）；重量级/场景专属模块 lazy——经 lazy.js 的 lazyUnit
+ *   注册成"首次访问才 setup"的 getter。所有 lazy 注册必须在 setupContext
+ *   （_pristine 快照）之前完成（§3.6），且对 JS 消费者与 eager 逐位等价
+ *   （§2.5 消费者无感契约，test/test_polyfill_lazy_gtest.cpp 钉住）。
+ *
+ * 级联（§2.3）：F→S→B；W→M；SW→W→M；WS→CS；serve→G（serve() 首次执行读
+ * qwrt.http2 触发）。eager 主线保证 lazy 全部前提就绪。
  */
 
 import { pal } from './pal.js';
+import { lazyUnit } from './lazy.js';
 import { setupConsole } from './console.js';
 import { setupPerformance } from './performance.js';
 import { setupTimers } from './timers.js';
@@ -65,83 +76,164 @@ import { setupContext } from './context.js';
 import { setupGrpcStack } from '@qwrt/grpc-stack';
 
 // ================================================================
-// Core APIs (WinterTC standard)
+// 宿主对象 eager 空壳（设计 §3.2）：globalThis.qwrt 全局对象替代原
+// fs.js/storage.js/http2.js/grpc.js 各自的 `if (!globalThis.qwrt)` 就地创建。
+// qwrt.fs / qwrt.storage / qwrt.http2 子属性均为 lazy getter（见下）。
+// ================================================================
+
+globalThis.qwrt = {};
+
+// ================================================================
+// Eager（14 单元，启动即 setup）——设计 §2.2
+// 注意顺序约束：navigator/crypto 必须先于其 lazy 子属性 getter 注册
+// （navigator.serviceWorker / crypto.subtle）；context 必须最后（快照）。
 // ================================================================
 
 setupConsole(pal);
-setupPerformance(pal);
-setupTimers(pal);
 setupEventTarget();
 setupAbort();
 setupErrorEvents();
+setupPerformance(pal);
+setupTimers(pal);
 setupURL();
 setupEncoding(pal);
-
-// ================================================================
-// Web APIs (WinterTC standard)
-// ================================================================
-
-setupFetch(pal);
-setupMessageChannel(pal);
-setupBroadcastChannel();
-setupCacheStorage();
-setupEventSource(pal);
-setupWebSocket(pal);
-setupHttpServer(pal);
-setupHostMessaging(pal);
-setupStreams(pal);
-setupBlobFileFormData();
-setupURLPattern();
-setupNavigatorReportError();
-
-// ================================================================
-// Extension APIs (mounted on globalThis.qwrt.*)
-// ================================================================
-
-setupFS(pal);
-setupStorage(pal);
-
-// ================================================================
-// gRPC / HTTP2 stack (globalThis.grpc / protobuf / qwrt.http2)
-//
-// Serialization policy: protobuf is the only codec, so a qwrt client
-// interoperates with any standard gRPC peer. See src/grpc.js header.
-// ================================================================
-
-setupGrpcStack();
-
-// ================================================================
-// Web Storage (localStorage — Storage interface, synchronous + persisted)
-// ================================================================
-
-setupLocalStorage(pal);
 setupTextEncoding(pal);
+setupNavigatorReportError();
 setupCrypto(pal);
-setupCryptoSubtle(pal);
-
-// ================================================================
-// Global utility: structuredClone (enhanced)
-// ================================================================
-
+setupHostMessaging(pal);
 setupStructuredClone();
 
 // ================================================================
-// Web Worker (real-thread workers, needs __qwrt_serialize__/__qwrt_deserialize__)
+// Lazy（17 单元，首次访问触发）——设计 §2.3
+// 全部注册必须在 setupContext 之前完成（§3.6：_pristine 快照把 lazy 名
+// 全部收录，挂起捕获天然跳过）。ensure 互相级联（F→S/B、W→M、SW→W、
+// WS→CS、serve→G）。
 // ================================================================
 
-setupWorker(pal);
+/* M — message-channel（MessageEvent 被 host-messaging dispatch 触发） */
+var ensureM = lazyUnit(
+  ['MessageChannel', 'MessagePort', 'MessageEvent',
+   '__qwrt_lookup_port__', '__qwrt_deliver_port_msg__', '__qwrt_port_from_ref__'],
+  [],
+  function () { setupMessageChannel(pal); });
+
+/* S — streams（17 个流 API，一次 setup） */
+var ensureS = lazyUnit(
+  ['ReadableStream', 'ReadableStreamDefaultController', 'ReadableStreamDefaultReader',
+   'ReadableByteStreamController', 'ReadableStreamBYOBReader', 'ReadableStreamBYOBRequest',
+   'WritableStream', 'WritableStreamDefaultController', 'WritableStreamDefaultWriter',
+   'TransformStream', 'TransformStreamDefaultController',
+   'ByteLengthQueuingStrategy', 'CountQueuingStrategy',
+   'CompressionStream', 'DecompressionStream', 'TextEncoderStream', 'TextDecoderStream'],
+  [],
+  function () { setupStreams(pal); });
+
+/* B — blob / file / formdata */
+var ensureB = lazyUnit(
+  ['Blob', 'File', 'FormData'],
+  [],
+  function () { setupBlobFileFormData(); });
+
+/* F — fetch（级联 S → B） */
+lazyUnit(
+  ['fetch', 'Headers', 'Request', 'Response'],
+  [],
+  function () { ensureS(); ensureB(); setupFetch(pal); });
+
+/* W — worker（级联 M） */
+var ensureW = lazyUnit(
+  ['Worker', '__qwrt_worker_post__'],
+  [],
+  function () { ensureM(); setupWorker(pal); });
+
+/* SW — service-worker（子属性 getter，级联 W → M） */
+lazyUnit(
+  [],
+  [[globalThis.navigator, 'serviceWorker']],
+  function () { ensureW(); setupServiceWorker(pal); });
+
+/* G — grpc-stack（grpc/protobuf 全局 + qwrt.http2 子属性，注册式）：
+ * QWRT_WITH_GRPC=OFF 时 grpc-stack-stub.js 的 setupGrpcStack 为空函数 →
+ * 无任何 getter、API 不存在（与现状一致）。 */
+setupGrpcStack();
+
+/* C — cache-storage（Cache/CacheStorage/caches 共享一次 setup） */
+lazyUnit(
+  ['Cache', 'CacheStorage', 'caches'],
+  [],
+  function () { setupCacheStorage(); });
+
+/* CS — crypto.subtle 子属性 + CryptoKey/SubtleCrypto 全局（共享一次 setup）
+ * 惰性钩子对齐：setupCryptoSubtle 只注册 pal.__installCryptoSubtle__，
+ * 实际安装由 crypto 扩展（QWRT_WITH_CRYPTO_EXT）的 init 钩子调用。lazy 下
+ * 扩展 init 跑在 polyfill 注入之后、本 ensure 之前——native 钩子已就位但
+ * installer 未注册，故此处先 setupCryptoSubtle 再自行补调 installer（仅当
+ * 扩展存在，以 pal.nativeDigest 判定）；扩展缺席时恢复 eager 语义
+ * （crypto.subtle 保持 undefined 数据属性）。 */
+var ensureCS = lazyUnit(
+  ['CryptoKey', 'SubtleCrypto'],
+  [[globalThis.crypto, 'subtle']],
+  function () {
+    setupCryptoSubtle(pal);
+    if (typeof pal.nativeDigest === 'function' &&
+        typeof pal.__installCryptoSubtle__ === 'function') {
+      pal.__installCryptoSubtle__();
+    } else if (!('subtle' in globalThis.crypto)) {
+      globalThis.crypto.subtle = undefined;   /* 扩展缺席：恢复 eager own-prop */
+    }
+  });
+
+/* WS — websocket（级联 CS，握手 SHA-1 用 crypto.subtle） */
+lazyUnit(
+  ['WebSocket', 'CloseEvent'],
+  [],
+  function () { ensureCS(); setupWebSocket(pal); });
+
+/* ES — event-source */
+lazyUnit(
+  ['EventSource'],
+  [],
+  function () { setupEventSource(pal); });
+
+/* BC — broadcast-channel */
+lazyUnit(
+  ['BroadcastChannel'],
+  [],
+  function () { setupBroadcastChannel(); });
+
+/* UP — url-pattern */
+lazyUnit(
+  ['URLPattern'],
+  [],
+  function () { setupURLPattern(); });
+
+/* serve — HTTP/1 server（首次执行读 qwrt.http2 触发 G 级联） */
+lazyUnit(
+  ['serve'],
+  [],
+  function () { setupHttpServer(pal); });
+
+/* FS — qwrt.fs 子属性 */
+lazyUnit(
+  [],
+  [[globalThis.qwrt, 'fs']],
+  function () { setupFS(pal); });
+
+/* ST — qwrt.storage 子属性 */
+lazyUnit(
+  [],
+  [[globalThis.qwrt, 'storage']],
+  function () { setupStorage(pal); });
+
+/* LS — local-storage */
+lazyUnit(
+  ['localStorage'],
+  [],
+  function () { setupLocalStorage(pal); });
 
 // ================================================================
-// Service Worker (SW-0: registration + lifecycle + messaging; SW runs on a
-// dedicated worker thread via setupWorker's Worker class — must come after it)
-// ================================================================
-
-setupServiceWorker(pal);
-
-// ================================================================
-// Multi-context + soft suspend/resume (must run AFTER all other setups —
-// 它拍下"当前枚举全局键"作 _pristine 快照，挂起只捕获快照之后新增的键)
+// Multi-context + soft suspend/resume（必须最后：_pristine 快照收录全部
+// lazy getter 名——挂起捕获只抓快照之后新增的键）
 // ================================================================
 
 setupContext(pal);
-

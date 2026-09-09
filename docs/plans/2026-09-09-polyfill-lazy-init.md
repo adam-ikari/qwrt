@@ -1,8 +1,8 @@
 # qwrt Polyfill lazy 初始化设计（Polyfill 改为 lazy 初始化）
 
-> 状态：**设计待评审 —— 实施移交 polyfill 域 worker（H4 完成后接棒）**
+> 状态：**已实施（2026-09-09）**——lazy.js 机制 + index.js 14 eager/17 lazy 注册面 + grpc-stack.js 注册式 G 单元；透明性测试（新增 14 项）本地全绿（build_citest，Debug，QWRT_WITH_GRPC=OFF），polyfill 81 + context/fetch 回归无破坏。启动/内存量化权威基线以 CI runtime-perf 为准。
 > 日期：2026-09-09
-> 范围：`polyfill/src/index.js` 全量 setup 顺序执行 → lazy 化重构。仅设计文档，**不碰代码**（实施 worker 正在改 polyfill 代码域：H4 `http2-server.js`/`grpc-server.js`/`grpc-stack.js` 接线）。
+> 范围：`polyfill/src/index.js` 全量 setup 顺序执行 → lazy 化重构。实施落地：`polyfill/src/lazy.js`（新增，installLazy/installLazyProp/lazyUnit）、`polyfill/src/index.js`（注册面）、`polyfill/src/grpc-stack.js`（G 单元注册式）、`test/test_polyfill_lazy_gtest.cpp`（新增透明性契约）。
 > 关联：`brain/pages/runtime-perf-baseline.md`（护城河基线与分阶段量化目标）、`docs/plans/2026-09-03-grpc-http2-design.md`（QWRT_WITH_GRPC 门控）、`docs/plans/2026-09-04-suspend-restore-design.md`（context 快照语义约束）。
 > 基准：HEAD `48bd747d`；本机 R1 15.9ms / 14.6MB 为历史参考，**权威基线仅 CI**（R1 7.48ms，ubuntu-latest）。
 
@@ -10,7 +10,7 @@
 
 # TL;DR
 
-1. **分裂 13 eager + 17 lazy 单元**：核心基础设施（console/timers/event-target/abort/error-events/url/encoding/text-encoding/performance/navigator/host-messaging/structured-clone/context + crypto 壳）eager；重量级或场景专属 API（fetch/streams/blob/worker/message-channel/service-worker/caches/websocket/eventsource/broadcast/url-pattern/serve/http2+grpc 栈/localStorage/fs/storage/crypto.subtle）lazy。
+1. **分裂 14 eager + 17 lazy 单元**：核心基础设施（console/timers/event-target/abort/error-events/url/encoding/text-encoding/performance/navigator/host-messaging/structured-clone/context + crypto 壳）eager；重量级或场景专属 API（fetch/streams/blob/worker/message-channel/service-worker/caches/websocket/eventsource/broadcast/url-pattern/serve/http2+grpc 栈/localStorage/fs/storage/crypto.subtle）lazy。
 2. **机制最小侵入**：`installLazy(name, init)` 定义 `configurable:true, enumerable:true` 的 getter——首次 get 先 `delete` 该属性、再跑**原有 setupXxx 原样执行**（保证模块内 `globalThis.x = v` 赋值正常落数据属性），此后属性稳定。**25 个既有 setup 函数体零改动**，只改 index.js 调用方式 + 新增惰性注册模块。
 3. **非属性面 API**（`qwrt.fs`/`navigator.serviceWorker`/`crypto.subtle`）用「宿主对象 eager 空壳 + 子属性 getter」；`caches` 为 `globalThis.caches` 直 getter（首次访问才 `new CacheStorage()`）。
 4. **QWRT_WITH_GRPC 门控保持构建期**（OFF 零字节进 bundle 不变）：lazy 下把 `setupGrpcStack` 职责从"执行"改为"注册惰性组"（grpc/protobuf/qwrt.http2 三面共享一次 setup）——因为 stub 版为空函数，OFF 时天然无 getter、API 不存在，与现状一致。
@@ -59,7 +59,7 @@
 | host-messaging.js | setupHostMessaging | `postMessage`/`__qwrt_dispatch__`/`onmessage` 属性（依赖 `MessageEvent`，dispatch 时构造） |
 | structured-clone.js | setupStructuredClone | `structuredClone`/`__qwrt_serialize__`/`__qwrt_deserialize__` |
 | fetch.js | setupFetch | `fetch`/`Headers`/`Request`/`Response` |
-| streams.js | setupStreams | ReadableStream 系 5、WritableStream 系 3、TransformStream 系 2、QueuingStrategy 2、Compression/DecompressionStream、TextEncoderStream/TextDecoderStream（共 16） |
+| streams.js | setupStreams | ReadableStream 系 5、WritableStream 系 3、TransformStream 系 2、QueuingStrategy 2、Compression/DecompressionStream、TextEncoderStream/TextDecoderStream（共 17） |
 | blob-file-formdata.js | setupBlobFileFormData | `Blob`/`File`/`FormData` |
 | message-channel.js | setupMessageChannel | `MessageChannel`/`MessagePort`/`MessageEvent` + `__qwrt_lookup_port__`/`__qwrt_deliver_port_msg__`/`__qwrt_port_from_ref__` |
 | worker.js | setupWorker | `Worker` + 覆盖 `__qwrt_worker_post__`/`__qwrt_dispatch__` |
@@ -74,11 +74,8 @@
 | storage.js | setupStorage | `qwrt.storage`（子属性） |
 | local-storage.js | setupLocalStorage | `localStorage`（实例） |
 | crypto.js | setupCrypto | `crypto`（实例）/`Crypto` |
-## 2.3 lazy（17 单元，首次访问触发）——含级联依赖
-| grpc-stack.js 单元 | setupGrpcStack | `grpc`/`protobuf`/`qwrt.http2`（HTTP1 的 serve 分流点）；含 http2/http2-server/protobuf/grpc/grpc-server 五个子模块 |
-| context.js | setupContext | `__qwrt_ctx_capture__`/`__qwrt_ctx_restore__`/`qwrtContext` |
 
-## 2.2 eager（13 项，启动即 setup）——必须，理由 = 依赖分析
+## 2.2 eager（14 项，启动即 setup）——必须，理由 = 依赖分析
 
 | 模块 | 依赖方向（谁依赖它） | 理由 |
 |---|---|---|
@@ -89,19 +86,18 @@
 | timers | 全部异步路径（事件循环语言级） | 无可置疑的基础；错误流经 reportError |
 | url | fetch/WebSocket/EventSource/Worker/http-server 构造期 `new URL` 解析 | WinterTC 核心；覆盖面最广的"构造期类型" |
 | encoding（atob/btoa） | 各类 base64 工具路径 | 核心且薄 |
-| text-encoding | event-source/websocket(握手)/http-server/crypto/http 通用编解码，隐式依赖**密度最高** | 级联爆炸面最大，放 eager 主线换确定性 |
+| error-events | event-target/navigator 错误上报构造期依赖 `ErrorEvent` | 极薄两个类；`reportError`/unhandledrejection 路径构造期依赖 |
 | navigator（navigator/self/reportError） | timers.js:65 guard `reportError`；event-target 错误上报 | `self` 别名 + 全局错误报告必须早于任何错误路径；navigator 对象本身轻；**serviceWorker 子属性例外（lazy）** |
 | host-messaging | C bridge 入站 `__qwrt_dispatch__`；worker.js 捕获 hostDispatch 委托 | 宿主↔JS 消息入口必须常驻；`MessageEvent` 依赖走 lazy-M 级联 |
 | structured-clone | worker/message-channel/context 跨线程序列化中枢；`structuredClone` 本身是基础 API | 消息传递是 qwrt 主场景，惰性收益小、级联复杂度高 |
 | crypto 壳（crypto/Crypto） | websocket 等 RSA 无关路径也用 `getRandomValues`；`crypto.subtle` 是子属性（例外 lazy） | 对象薄；getRandomValues 基础 |
 | context | 最后一环 | `_pristine` 快照必须拍在"全部 setup 完成、所有 lazy getter 已注册"之后（§3.6） |
 
-## 2.3 lazy（19 单元，首次访问触发）——含级联依赖
-
+## 2.3 lazy（17 单元，首次访问触发）——含级联依赖
 | 单元 | 触发表面 | 级联（首次触发时同步执行） | 理由 |
 |---|---|---|---|
 | F fetch | `fetch`/`Headers`/`Request`/`Response` | → S streams → B blob/formdata | 常用但非启动必用；重量（Body 消费/序列化/构造器） |
-| S streams | 16 个流 API | 无 | 仅流式处理场景；被 F 级联亦常被直接使用 |
+| S streams | 17 个流 API | 无 | 仅流式处理场景；被 F 级联亦常被直接使用 |
 | B blob | `Blob`/`File`/`FormData` | 无 | 仅多媒体/上传路径 |
 | M message-channel | `MessageChannel`/`MessagePort`/`MessageEvent` + 3 个跨线程 helper | 依赖 structured-clone(eager) | 仅显式消息传递；被 W 与 structured-clone 引用（级联成立即可） |
 | W worker | `Worker`（连带路由 helper 覆盖） | → M | 仅 `new Worker`；重（Map 路由 + PROCESS 封装）；依赖 host-messaging 捕获在先（eager 保证） |
@@ -125,6 +121,25 @@ BC（broadcast）、UP（url-pattern）、FS/ST（qwrt 扩展）个体极薄，�
 
 **请注意**：`crypto` 壳与 `text-encoding` 放 eager 是基于隐式依赖密度的抉择——lazy 它们的个别收益 < 0.1ms，却要承担全链级联爆炸的回归风险，**明确不做**。
 
+## 2.5 消费者无感契约（透明性红线，测试钉住）
+
+懒加载对 JS 消费者必须完全无感——任何 JS 代码不得观察到 lazy 与 eager 的差异。以下 8 条为硬契约，由 `test/test_polyfill_lazy_gtest.cpp`（透明性测试）逐条钉住：
+
+1. **属性可见性**：首次访问前 `name in globalThis` 为 true、`typeof` 与 eager 一致、`Object.keys`/`for...in`/`Object.getOwnPropertyNames` 均包含该 name（getter `enumerable:true`）——不得出现"属性不存在"的中间态。
+2. **首次访问后退化为数据属性**：descriptor 的 writable/configurable/enumerable 与 eager 安装结果**逐位一致**；此后任何访问不再触发任何副作用（getter 已被 delete，属性稳定为 data property）。
+3. **函数身份**：首次访问后 `fn.name`/`fn.length`/`fn.prototype` 与 eager 一致；多次访问返回同一引用（稳定）。
+4. **类**：`instanceof` 正常、`constructor.name` 一致、`new X()` 正常、`X.prototype` 引用稳定。
+5. **删除语义**：`delete globalThis.x` 后行为与 eager 相同（getter 自删后即数据属性，删除即消失，不得"复活"）。
+6. **幂等/重入**：重复访问、并发路径（同一 tick 内多模块级联）不产生重复 setup 或中间态泄漏。
+7. **无顺序副作用泄漏**：级联 setup 顺序不得让消费者观察到"先访问 A 导致 B 提前存在"的差异（若 B 本应 eager 则 B 保持 eager；lazy↔lazy 的级联是设计内语义，见 §2.3 级联列）。
+8. **宿主对象子属性**（`qwrt.fs`/`navigator.serviceWorker`/`crypto.subtle`）：宿主对象 eager 空壳，子属性 getter 化——`'fs' in qwrt` 语义与 eager 一致。
+
+**透明性测试**（`test/test_polyfill_lazy_gtest.cpp`，随 build_citest ctest 跑）：
+- 对**每个** lazy API 断言上述契约（访问前可见性/typeof/enumerable；访问后 descriptor 位相等/身份稳定）；
+- **表面等价测试**：构造"eager 基线描述表"（每个 API 的期望 descriptor/typeof），逐项比对 lazy 构建实际值——差异必须为空；
+- 级联断言：`navigator.serviceWorker` 首次访问 → `Worker`/`MessageChannel` 级联就绪且各自 descriptor 位相等；
+- 回归：全量既有 e2e/gtest 全绿。
+
 ---
 
 # 3. 惰性机制
@@ -134,8 +149,6 @@ BC（broadcast）、UP（url-pattern）、FS/ST（qwrt 扩展）个体极薄，�
 新增 `polyfill/src/lazy.js`（唯一新模块，约 25 行），其余**所有既有 setupXxx 函数体原样不动**：
 
 ```js
-1. 全 17 单元 lazy 化（含级联：F→S/B、W→M、SW→W、WS→CS、serve→G）。
-// Object.keys(globalThis) 枚举面与现状（直接赋值）一致。
 export function installLazy(name, init) {
   Object.defineProperty(globalThis, name, {
     configurable: true,   // delete 需要
@@ -243,7 +256,7 @@ export function installLazy(name, init) {
 3. 回归：上述 API 首次访问正确 + 二次稳定；现有 e2e/gtest 绿。**冒烟必须是"用前不 setup、用后可用"**（如 `'caches' in globalThis` 为 true 但读取才 `new CacheStorage`）。
 
 **P1 — 全量 lazy + 分类表落地**
-1. 全 19 单元 lazy 化（含级联：F→S/B、W→M、SW→W、WS→CS、serve→G）。
+1. 全 17 单元 lazy 化（含级联：F→S/B、W→M、SW→W、WS→CS、serve→G）。
 2. `grpc-stack.js` 改注册式；`index.js` 重构为「eager 冲 + lazy 注册 + setupContext 最后」。
 3. eager 空壳 `qwrt` 对象、`crypto.subtle`/`navigator.serviceWorker`/`qwrt.fs`/`qwrt.storage` 子属性 getter。
 4. 全量回归（fetch/worker/sw/crypto/ws/es/serve/grpc/localStorage/context suspend-resume）。
