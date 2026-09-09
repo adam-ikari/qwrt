@@ -61,7 +61,10 @@ add_qwrt_gtest(test_ipc_envelope_gtest)
 # C99 + ipc_envelope.c (no libuv); the python driver needs the official
 # flatbuffers package. Registered only when both are available so stock
 # `ctest -L offline` never fails on machines without `pip install flatbuffers`.
-add_executable(ipc_envelope_cli EXCLUDE_FROM_ALL ipc_envelope_cli.c
+# 不能 EXCLUDE_FROM_ALL：CI 干净全量构建（cmake --build --parallel）按
+# EXCLUDE 不产出 CLI → fbcheck 测试找不到二进制必挂（本地增量构建残留的
+# 旧产物会掩盖此问题，见 test262 runner 同款教训）。纯 C99 极小，全量无害。
+add_executable(ipc_envelope_cli ipc_envelope_cli.c
                ../src/ipc_envelope.c)
 target_include_directories(ipc_envelope_cli PRIVATE ${PROJECT_SOURCE_DIR}/src)
 find_package(Python3 COMPONENTS Interpreter QUIET)

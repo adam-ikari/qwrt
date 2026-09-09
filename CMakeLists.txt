@@ -38,6 +38,13 @@ endif()
 if(CMAKE_C_FLAGS MATCHES "-fsanitize=" OR CMAKE_C_FLAGS_DEBUG MATCHES "-fsanitize=")
     add_compile_definitions(QWRT_SANITIZE_BUILD=1)
     message(STATUS "Sanitizer build detected — QWRT_SANITIZE_BUILD=1")
+    # clang 的 -fsanitize=function 对 quickjs-ng 的函数指针类型混用
+    # （js_realloc 经 DynBuf realloc_func 的 size_t 声明链路）系统性误报
+    # （UrlSearchParams 等路径实测触发）——编译期豁免该单项，其余 undefined
+    # 检查保留。gcc 无 function sanitizer，无副作用。
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        add_compile_options(-fno-sanitize=function)
+    endif()
 endif()
 # Map mode letter to integer for the compile-time define
 if(QWRT_POLYFILL_MODE STREQUAL "C")
