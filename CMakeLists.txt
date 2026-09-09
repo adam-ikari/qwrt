@@ -32,6 +32,13 @@ if(NOT QWRT_POLYFILL_MODE MATCHES "^(C|A|B|D)$")
     message(FATAL_ERROR "QWRT_POLYFILL_MODE must be C, A, B, or D (got '${QWRT_POLYFILL_MODE}')")
 endif()
 
+# sanitizer 构建检测（ASan/UBSan/TSan）：CMAKE_C_FLAGS 显式注入
+# -fsanitize=* 的配置视为 sanitizer 档。注入 QWRT_SANITIZE_BUILD，供
+# qwrt.c 等提升 JS 栈预算（sanitizer 帧放大易误报 QuickJS stack overflow）。
+if(CMAKE_C_FLAGS MATCHES "-fsanitize=" OR CMAKE_C_FLAGS_DEBUG MATCHES "-fsanitize=")
+    add_compile_definitions(QWRT_SANITIZE_BUILD=1)
+    message(STATUS "Sanitizer build detected — QWRT_SANITIZE_BUILD=1")
+endif()
 # Map mode letter to integer for the compile-time define
 if(QWRT_POLYFILL_MODE STREQUAL "C")
     set(_qwrt_polyfill_mode_num 0)

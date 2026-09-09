@@ -118,6 +118,14 @@ int qwrt_runtime_init(qwrt_t *rt)
     /* Create JSRuntime (shared across all contexts) */
     rt->jsrt = JS_NewRuntime();
     if (!rt->jsrt) return -1;
+#ifdef QWRT_SANITIZE_BUILD
+    /* sanitizer（ASan/UBSan）插桩使每个 JS 帧的 C 栈开销放大 2-5 倍：
+     * QuickJS 默认 1MB JS 栈预算（JS_DEFAULT_STACK_SIZE）在宿主调用链
+     * 较深时误报 "stack overflow"（fetch/streams 同步链实测触发）。将预算
+     * 放大到 qwrt 线程默认栈的一半（8MB/2），普通构建不受影响（该宏仅
+     * sanitizer 构建注入，见 CMakeLists sanitizer 检测）。 */
+    JS_SetMaxStackSize(rt->jsrt, 4 * 1024 * 1024);
+#endif
     /* CTL-0 §3.9：安装 runtime 级中断处理器——只读 ctl_interrupt 原子标志。 */
     JS_SetInterruptHandler(rt->jsrt, qwrt_ctl_interrupt_handler, rt);
     JS_SetRuntimeOpaque(rt->jsrt, rt);
