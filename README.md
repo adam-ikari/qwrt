@@ -31,6 +31,14 @@ cmake --build build -j$(nproc)
 ```
 The WinterTC polyfill ships as precompiled bytecode with the JavaScript source
 stripped (`qjsc -s`), shrinking the embedded polyfill bytecode by ~87%.
+Polyfill initialization is lazy: core infrastructure (console, timers, event
+targets, abort, URL, encoding, performance, navigator, structured clone, ...)
+is set up at injection, while heavier or scenario-specific APIs (fetch,
+streams, blob, worker, message-channel, caches, websocket, serve, fs,
+storage, crypto.subtle, ...) initialize on first access. JS consumers observe
+no difference — every name is visible (`in`/`Object.keys`) before first use
+and resolves to the same descriptors as an eager install — so unused feature
+APIs cost no setup time, closures, or resident instances.
 
 ### Minimal Example
 
@@ -192,7 +200,13 @@ platform-backend option anymore.
 | `QWRT_WITH_CRYPTO_EXT` | ON | crypto.subtle extension (undefined when OFF) |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8/Base64 extension |
 | `QWRT_WITH_NONUTF_ENCODINGS` | OFF | non-UTF encoding labels (Latin-1, replacement) in TextDecoder |
-| `QWRT_WITH_GRPC` | OFF | gRPC/HTTP2 client (h2 + HPACK + protobuf; adds ~143KB to polyfill bundle when ON) |
+
+> Note: `QWRT_WITH_GRPC` is **not** a CMake option. It gates the gRPC/HTTP2
+> stack (h2 + HPACK + protobuf + grpc, ~3.5k lines) inside the polyfill
+> **build** step: `QWRT_WITH_GRPC=1 node polyfill/build.js` regenerates the
+> embedded bytecode (`src/polyfill_default.c`) with the stack included. The
+> default build excludes it entirely (zero bytes in the bundle). Rebuild the
+> bytecode before configuring CMake if you need gRPC.
 
 ### Build Targets (`QWRT_BUILD_*`)
 
