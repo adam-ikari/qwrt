@@ -198,10 +198,17 @@ jobs:
 
       - name: Test (offline, ASan + leak detection)
         env:
-          ASAN_OPTIONS: detect_leaks=1
+          # GCC 13+ ASan 默认开 detect_stack_use_after_return（假栈）：WAMR 栈
+          # 边界检测用局部变量地址比对真实栈底，假栈在堆上、地址更低 → 所有
+          # wasm 调用误报 "native stack overflow"。关 UAR 假栈（其余检测不变），
+          # gcc-12 UAR=1/0 双向复现（2026-09-09）。
+          ASAN_OPTIONS: detect_leaks=1:detect_stack_use_after_return=0
         run: ctest -L offline --output-on-failure
         working-directory: build
 
+  # ============================================================================
+  # ubsan: undefined behavior sanitizer, gcc + clang matrix.
+  # ============================================================================
   ubsan:
     runs-on: ubuntu-latest
     strategy:
@@ -210,7 +217,6 @@ jobs:
         compiler:
           - { cc: gcc, cxx: g++ }
           - { cc: clang, cxx: clang++ }
-    name: ubsan (${{ matrix.compiler.cc }})
     steps:
       - uses: actions/checkout@v4
         with:
