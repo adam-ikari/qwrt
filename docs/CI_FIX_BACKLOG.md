@@ -41,3 +41,12 @@
 - 提交：中文 conventional commit；push master；`gh run watch` 复验并对比
   上一次失败面（comm -23）。
 - 一次会话完成一项即止（防上下文溢出）；多项时按序取第一未完成项。
+
+## 调度持久化（2026-09-09 补）
+
+- 容器无 systemd PID1，init = supervisord（/opt/gem/supervisord.conf）。
+- cron 自愈已入 supervisord：/opt/gem/supervisord/cron.conf +
+  /opt/gem/start-cron.sh（幂等：已有 cron 守护则 sleep infinity，避免
+  crond.pid 锁冲突）——容器重启后 cron 自动拉起，crontab 条目随之生效。
+- crontab 条目：`0 2 * * * /home/gem/project/qwrt/scripts/ci-nightly-once.sh`。
+- 无需手动恢复；会话期 hub 常驻调度已弃用。
