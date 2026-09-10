@@ -389,13 +389,18 @@ endif()
 # 仓库内预生成的 polyfill_default.c 与默认构建选项匹配，可直接编译；
 # 只有改了模式/选项才需要宿主先跑 `npm --prefix polyfill ci`。
 find_program(NPM_EXECUTABLE npm)
-if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/esbuild")
+if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/esbuild" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng/qjsc.c")
     set(_polyfill_rebuild_enabled TRUE)
     add_custom_target(polyfill_rebuild
         COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
         COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
         VERBATIM
     )
+    # qjsc 是 build.js 生成字节码的编译器——必须先于 rebuild 就绪
+    # （并行构建 race：rebuild 跑在 quickjs-ng 子目录之前 → "qjsc not found"）。
+    if(TARGET qjsc)
+        add_dependencies(polyfill_rebuild qjsc)
+    endif()
     message(STATUS "Polyfill rebuild enabled (esbuild found)")
 else()
     set(_polyfill_rebuild_enabled FALSE)
