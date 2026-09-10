@@ -25,12 +25,25 @@ option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
 option(QWRT_BUILD_EXAMPLES "Build example programs" OFF)
 
-set(QWRT_POLYFILL_MODE "C" CACHE STRING
-    "Polyfill bytecode embedding mode: C=const .rodata array (default), A=zlib-compressed + heap decompress, B=external .polyfill file, D=custom host hook")
+set(QWRT_POLYFILL_MODE "rodata" CACHE STRING
+    "Polyfill bytecode embedding: rodata=const .rodata array (default) | compressed=zlib-compressed .rodata, decompressed to heap at load | external=external .polyfill file (QWRT_POLYFILL_FILE) | host=host hook qwrt_polyfill_load_custom()")
 
-if(NOT QWRT_POLYFILL_MODE MATCHES "^(C|A|B|D)$")
-    message(FATAL_ERROR "QWRT_POLYFILL_MODE must be C, A, B, or D (got '${QWRT_POLYFILL_MODE}')")
+# Normalise: accept legacy single letters (C/A/B/D) and any case.
+string(TOLOWER "${QWRT_POLYFILL_MODE}" _polyfill_mode)
+if(_polyfill_mode STREQUAL "c")
+    set(_polyfill_mode rodata)
+elseif(_polyfill_mode STREQUAL "a")
+    set(_polyfill_mode compressed)
+elseif(_polyfill_mode STREQUAL "b")
+    set(_polyfill_mode external)
+elseif(_polyfill_mode STREQUAL "d")
+    set(_polyfill_mode host)
 endif()
+
+if(NOT _polyfill_mode MATCHES "^(rodata|compressed|external|host)$")
+    message(FATAL_ERROR "QWRT_POLYFILL_MODE must be rodata|compressed|external|host (got '${QWRT_POLYFILL_MODE}')")
+endif()
+set(QWRT_POLYFILL_MODE "${_polyfill_mode}")
 
 # sanitizer 构建检测（ASan/UBSan/TSan）：CMAKE_C_FLAGS 显式注入
 # -fsanitize=* 的配置视为 sanitizer 档。注入 QWRT_SANITIZE_BUILD，供
@@ -46,24 +59,24 @@ if(CMAKE_C_FLAGS MATCHES "-fsanitize=" OR CMAKE_C_FLAGS_DEBUG MATCHES "-fsanitiz
         add_compile_options(-fno-sanitize=function)
     endif()
 endif()
-# Map mode letter to integer for the compile-time define
-if(QWRT_POLYFILL_MODE STREQUAL "C")
+# Map mode name to integer for the compile-time define
+if(QWRT_POLYFILL_MODE STREQUAL "rodata")
     set(_qwrt_polyfill_mode_num 0)
-elseif(QWRT_POLYFILL_MODE STREQUAL "A")
+elseif(QWRT_POLYFILL_MODE STREQUAL "compressed")
     set(_qwrt_polyfill_mode_num 1)
-elseif(QWRT_POLYFILL_MODE STREQUAL "B")
+elseif(QWRT_POLYFILL_MODE STREQUAL "external")
     set(_qwrt_polyfill_mode_num 2)
-elseif(QWRT_POLYFILL_MODE STREQUAL "D")
+elseif(QWRT_POLYFILL_MODE STREQUAL "host")
     set(_qwrt_polyfill_mode_num 3)
 endif()
 
-# Mode A requires miniz (tinfl inflate) via QWRT_WITH_COMPRESS
-if(QWRT_POLYFILL_MODE STREQUAL "A" AND NOT QWRT_WITH_COMPRESS)
-    message(FATAL_ERROR "QWRT_POLYFILL_MODE=A requires QWRT_WITH_COMPRESS=ON (miniz inflate)")
+# compressed mode requires miniz (tinfl inflate) via QWRT_WITH_COMPRESS
+if(QWRT_POLYFILL_MODE STREQUAL "compressed" AND NOT QWRT_WITH_COMPRESS)
+    message(FATAL_ERROR "QWRT_POLYFILL_MODE=compressed requires QWRT_WITH_COMPRESS=ON (miniz inflate)")
 endif()
 
-if(QWRT_POLYFILL_MODE STREQUAL "B")
-    message(STATUS "Polyfill mode B: bytecode loaded from external .polyfill file (QWRT_POLYFILL_FILE)")
+if(QWRT_POLYFILL_MODE STREQUAL "external")
+    message(STATUS "Polyfill mode external: bytecode loaded from external .polyfill file (QWRT_POLYFILL_FILE)")
 endif()
 
 # WAMR and wasm3 are mutually exclusive (both register the WebAssembly global)
@@ -505,6 +518,12 @@ if(QWRT_BUILD_DEBUGGER)
 endif()
 
 add_library(qwrt STATIC ${_qwrt_core_sources})
+
+# polyfill_default.c 是生成产物（build.js 按 QWRT_POLYFILL_MODE /
+# QWRT_WITH_NONUTF_ENCODINGS 产出不同符号面）。此前 polyfill_rebuild 是
+# 孤儿 target（无消费者 DEPENDS），切换模式后源文件不重新生成 → 链接
+# undefined（如 compressed 模式的 qwrt_default_polyfill_compressed）。
+add_dependencies(qwrt polyfill_rebuild)
 
 # Let a parent project add its own extension sources to the qwrt target so
 # &my_foo_ext is visible to context.c (which instantiates the QWRT_EXTENSIONS

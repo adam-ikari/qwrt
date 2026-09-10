@@ -17,14 +17,14 @@
 #include <string.h>
 #include <errno.h>
 
-#if QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_A
+#if QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_COMPRESSED
 # include <miniz.h>
 #endif
 
 /* ================================================================
  * Mode C — const array in .rodata (default)
  * ================================================================ */
-#if QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_C
+#if QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_RODATA
 
 int qwrt_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
 {
@@ -42,7 +42,7 @@ void qwrt_polyfill_unload(void *owner)
 /* ================================================================
  * Mode A — zlib-compressed array → heap decompress
  * ================================================================ */
-#elif QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_A
+#elif QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_COMPRESSED
 
 int qwrt_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
 {
@@ -79,7 +79,7 @@ void qwrt_polyfill_unload(void *owner)
 /* ================================================================
  * Mode B — external .polyfill file
  * ================================================================ */
-#elif QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_B
+#elif QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_EXTERNAL
 
 /*
  * File path resolution (first match wins):
@@ -160,7 +160,7 @@ void qwrt_polyfill_unload(void *owner)
 /* ================================================================
  * Mode D — host-provided custom hook (weak symbols)
  * ================================================================ */
-#else /* QWRT_POLYFILL_MODE_D */
+#else /* QWRT_POLYFILL_MODE_HOST */
 
 __attribute__((weak))
 int qwrt_polyfill_load_custom(const uint8_t **out, size_t *out_len, void **owner)

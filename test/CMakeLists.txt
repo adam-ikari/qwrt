@@ -32,7 +32,7 @@ function(add_qwrt_gtest name)
     target_compile_definitions(${name} PRIVATE QWRT_USE_MOCK_LIBUV)
     target_link_libraries(${name} qwrt mock_libuv GTest::gtest_main pthread)
     add_test(NAME ${name} COMMAND ${name})
-    if(QWRT_POLYFILL_MODE STREQUAL "B")
+    if(QWRT_POLYFILL_MODE STREQUAL "external")
         set_tests_properties(${name} PROPERTIES
             LABELS "offline"
             ENVIRONMENT "QWRT_POLYFILL_FILE=${PROJECT_SOURCE_DIR}/dist/polyfill_default.polyfill")
