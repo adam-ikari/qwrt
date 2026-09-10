@@ -106,7 +106,7 @@ const esbuildOptions = {
   format: 'iife',
   globalName: 'qwrt_polyfill',
   target: ['es2020'],
-  minify: false,
+  minify: true,
   define: {
     'QWRT_WITH_NONUTF_ENCODINGS': QWRT_WITH_NONUTF_ENCODINGS ? '1' : '0',
   },
