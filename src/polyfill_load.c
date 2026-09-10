@@ -1,14 +1,17 @@
 /*
- * qwrt Polyfill Bytecode Loader (mode A/B/C/D)
+ * qwrt Polyfill Bytecode Loader (mode: rodata | compressed | external | host)
  *
  * Provides the unified interface qwrt_polyfill_load / qwrt_polyfill_unload.
  * Which storage backend is used depends on the compile-time macro
  * QWRT_POLYFILL_MODE (set by CMake's -DQWRT_POLYFILL_MODE=<mode>).
  *
- *   C (default) — const array in .rodata, no heap allocation.
- *   A — zlib-compressed array in .rodata, decompressed to heap at load.
- *   B — external .polyfill file read into heap at load.
- *   D — delegates to the weak qwrt_polyfill_load_custom() hook.
+ *   rodata (default)   — const array in .rodata, no heap allocation.
+ *   compressed         — lz4-block-compressed array in .rodata, decompressed
+ *                        to heap at load (raw LZ4 block via LZ4_decompress_safe;
+ *                        build.js produces the block via cmake target
+ *                        qwrt_lz4_compress — same vendored lz4, same format).
+ *   external           — external .polyfill file read into heap at load.
+ *   host               — delegates to the weak qwrt_polyfill_load_custom().
  */
 
 #include "qwrt_internal.h"
@@ -18,7 +21,7 @@
 #include <errno.h>
 
 #if QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_COMPRESSED
-# include <miniz.h>
+# include "lz4.h"
 #endif
 
 /* ================================================================
@@ -40,40 +43,39 @@ void qwrt_polyfill_unload(void *owner)
 }
 
 /* ================================================================
- * Mode A — zlib-compressed array → heap decompress
+ * compressed — lz4-block-compressed array → heap decompress
  * ================================================================ */
 #elif QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_COMPRESSED
 
 int qwrt_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
 {
-    size_t decomp_len = 0;
-    void *decomp = tinfl_decompress_mem_to_heap(
-        qwrt_default_polyfill_compressed,
-        qwrt_default_polyfill_compressed_len,
-        &decomp_len,
-        TINFL_FLAG_PARSE_ZLIB_HEADER);
+    uint8_t *decomp = malloc(qwrt_default_polyfill_orig_len);
     if (!decomp) {
-        fprintf(stderr, "[qwrt] polyfill: zlib decompression failed "
-                "(compressed %zu bytes)\n",
-                qwrt_default_polyfill_compressed_len);
+        fprintf(stderr, "[qwrt] polyfill: lz4 decompress OOM (%zu bytes)\n",
+                qwrt_default_polyfill_orig_len);
         return QWRT_ERR_NO_MEMORY;
     }
-    if (decomp_len != qwrt_default_polyfill_orig_len) {
-        mz_free(decomp);
-        fprintf(stderr, "[qwrt] polyfill: decompressed size mismatch "
-                "%zu != expected %zu\n",
-                decomp_len, qwrt_default_polyfill_orig_len);
+    int rc = LZ4_decompress_safe((const char *)qwrt_default_polyfill_compressed,
+                                 (char *)decomp,
+                                 (int)qwrt_default_polyfill_compressed_len,
+                                 (int)qwrt_default_polyfill_orig_len);
+    if (rc < 0 || (size_t)rc != qwrt_default_polyfill_orig_len) {
+        free(decomp);
+        fprintf(stderr, "[qwrt] polyfill: lz4 decompression failed "
+                "(rc=%d, compressed %zu, expected %zu)\n",
+                rc, qwrt_default_polyfill_compressed_len,
+                qwrt_default_polyfill_orig_len);
         return QWRT_ERR_GENERIC;
     }
     *out    = (const uint8_t *)decomp;
-    *out_len = decomp_len;
+    *out_len = qwrt_default_polyfill_orig_len;
     *owner  = decomp;
     return 0;
 }
 
 void qwrt_polyfill_unload(void *owner)
 {
-    mz_free(owner);
+    free(owner);
 }
 
 /* ================================================================

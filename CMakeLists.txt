@@ -70,9 +70,9 @@ elseif(QWRT_POLYFILL_MODE STREQUAL "host")
     set(_qwrt_polyfill_mode_num 3)
 endif()
 
-# compressed mode requires miniz (tinfl inflate) via QWRT_WITH_COMPRESS
-if(QWRT_POLYFILL_MODE STREQUAL "compressed" AND NOT QWRT_WITH_COMPRESS)
-    message(FATAL_ERROR "QWRT_POLYFILL_MODE=compressed requires QWRT_WITH_COMPRESS=ON (miniz inflate)")
+# compressed mode requires the vendored lz4 (decoder + build-time compressor)
+if(QWRT_POLYFILL_MODE STREQUAL "compressed" AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/lz4/lib/lz4.c")
+    message(FATAL_ERROR "QWRT_POLYFILL_MODE=compressed requires vendored lz4 (deps/lz4/lib/lz4.c missing — run: git submodule update --init deps/lz4)")
 endif()
 
 if(QWRT_POLYFILL_MODE STREQUAL "external")
@@ -145,6 +145,26 @@ if(QWRT_WITH_COMPRESS)
     add_subdirectory(${MINIZ_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/miniz)
 
     message(STATUS "Compression support enabled (miniz)")
+endif()
+
+# ============================================================================
+# lz4 dependency (polyfill bytecode compression mode)
+# ============================================================================
+set(LZ4_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/lz4/lib" CACHE PATH "lz4 lib dir")
+if(EXISTS "${LZ4_SRC_DIR}/lz4.c")
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    add_library(lz4_static STATIC
+        "${LZ4_SRC_DIR}/lz4.c"
+        "${LZ4_SRC_DIR}/lz4hc.c")
+    target_include_directories(lz4_static PUBLIC "${LZ4_SRC_DIR}")
+    # lz4.h warns about unused Kxx constants at -Wall -Wextra -Werror paths
+    target_compile_options(lz4_static PRIVATE -w)
+    # 压缩器 CLI（构建期工具，供 polyfill/build.js 调用；不进安装面）
+    add_executable(qwrt_lz4_compress EXCLUDE_FROM_ALL "${LZ4_SRC_DIR}/lz4.c" cmake/lz4_compress_main.c)
+    target_include_directories(qwrt_lz4_compress PRIVATE "${LZ4_SRC_DIR}")
+    message(STATUS "lz4 vendored (${LZ4_SRC_DIR}) — polyfill compressed mode + build tool")
+else()
+    message(STATUS "lz4 not vendored (deps/lz4/lib/lz4.c missing) — polyfill compressed mode unavailable")
 endif()
 
 # ============================================================================
@@ -383,16 +403,11 @@ if(QWRT_WITH_NONUTF_ENCODINGS)
 else()
     set(_polyfill_env QWRT_WITH_NONUTF_ENCODINGS=0)
 endif()
-
-# esbuild 可用性守卫：CI 的非 e2e job 不执行 npm ci（无 node_modules），
-# 强制依赖会让所有 job 崩在 polyfill rebuild。缺 esbuild 时告警并跳过——
-# 仓库内预生成的 polyfill_default.c 与默认构建选项匹配，可直接编译；
-# 只有改了模式/选项才需要宿主先跑 `npm --prefix polyfill ci`。
 find_program(NPM_EXECUTABLE npm)
 if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/esbuild" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng/qjsc.c")
     set(_polyfill_rebuild_enabled TRUE)
     add_custom_target(polyfill_rebuild
-        COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
+        COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} QWRT_LZ4_COMPRESS=${CMAKE_BINARY_DIR}/qwrt_lz4_compress npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
         COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
         VERBATIM
     )
@@ -401,7 +416,10 @@ if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/
     if(TARGET qjsc)
         add_dependencies(polyfill_rebuild qjsc)
     endif()
-    message(STATUS "Polyfill rebuild enabled (esbuild found)")
+    # compressed 模式产物由该工具生成（EXCLUDE_FROM_ALL——显式拉进依赖）
+    if(TARGET qwrt_lz4_compress)
+        add_dependencies(polyfill_rebuild qwrt_lz4_compress)
+    endif()
 else()
     set(_polyfill_rebuild_enabled FALSE)
     add_custom_target(polyfill_rebuild
@@ -649,6 +667,10 @@ if(UNIX AND NOT ESP_PLATFORM)
 endif()
 target_link_libraries(qwrt PUBLIC ${_qwrt_core_libs})
 
+
+if(QWRT_POLYFILL_MODE STREQUAL "compressed")
+    target_link_libraries(qwrt PUBLIC lz4_static)
+endif()
 # Conditional WASM engine linking
 if(QWRT_WITH_WAMR)
     target_link_libraries(qwrt PUBLIC vmlib)
