@@ -384,11 +384,27 @@ else()
     set(_polyfill_env QWRT_WITH_NONUTF_ENCODINGS=0)
 endif()
 
-add_custom_target(polyfill_rebuild
-    COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
-    COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
-    VERBATIM
-)
+# esbuild 可用性守卫：CI 的非 e2e job 不执行 npm ci（无 node_modules），
+# 强制依赖会让所有 job 崩在 polyfill rebuild。缺 esbuild 时告警并跳过——
+# 仓库内预生成的 polyfill_default.c 与默认构建选项匹配，可直接编译；
+# 只有改了模式/选项才需要宿主先跑 `npm --prefix polyfill ci`。
+find_program(NPM_EXECUTABLE npm)
+if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/esbuild")
+    set(_polyfill_rebuild_enabled TRUE)
+    add_custom_target(polyfill_rebuild
+        COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
+        COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
+        VERBATIM
+    )
+    message(STATUS "Polyfill rebuild enabled (esbuild found)")
+else()
+    set(_polyfill_rebuild_enabled FALSE)
+    add_custom_target(polyfill_rebuild
+        COMMAND ${CMAKE_COMMAND} -E echo "polyfill_rebuild: skipped (esbuild/node_modules missing — using pre-generated src/polyfill_default.c)"
+        VERBATIM
+    )
+    message(STATUS "Polyfill rebuild DISABLED — esbuild/node_modules not found; using pre-generated src/polyfill_default.c. Run `npm --prefix polyfill ci` then re-configure to enable.")
+endif()
 
 # ============================================================================
 # WAMR dependency (default WASM engine) — built from source via add_subdirectory
@@ -520,10 +536,10 @@ endif()
 add_library(qwrt STATIC ${_qwrt_core_sources})
 
 # polyfill_default.c 是生成产物（build.js 按 QWRT_POLYFILL_MODE /
-# QWRT_WITH_NONUTF_ENCODINGS 产出不同符号面）。此前 polyfill_rebuild 是
-# 孤儿 target（无消费者 DEPENDS），切换模式后源文件不重新生成 → 链接
-# undefined（如 compressed 模式的 qwrt_default_polyfill_compressed）。
-add_dependencies(qwrt polyfill_rebuild)
+# QWRT_WITH_NONUTF_ENCODINGS 产出不同符号面），esbuild 可用时构建前先再生。
+if(_polyfill_rebuild_enabled)
+    add_dependencies(qwrt polyfill_rebuild)
+endif()
 
 # Let a parent project add its own extension sources to the qwrt target so
 # &my_foo_ext is visible to context.c (which instantiates the QWRT_EXTENSIONS
