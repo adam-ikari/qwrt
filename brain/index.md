@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-11T00:12:24.386Z._
+_Auto-generated. Last updated 2026-09-11T00:13:33.253Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [c-js-layering](pages/c-js-layering.md) — category: decision | tags: [arch, layering, policy] | # C/JS 分层原则与标准（判据摘要）
@@ -8,6 +8,7 @@ _Auto-generated. Last updated 2026-09-11T00:12:24.386Z._
 - [console-output-routing](pages/console-output-routing.md) — category: decision | tags: [console, cli, behavior] | ## compiled_truth
 - [crypto-subtle-gtest](pages/crypto-subtle-gtest.md) — category: decision | tags: [crypto, gtest, webcrypto] | ## 决策
 - [crypto-subtle-wrapkey](pages/crypto-subtle-wrapkey.md) — category: decision | tags: [crypto, webcrypto, wrapkey] | - **背景**：crypto.subtle 此前缺 `wrapKey`/`unwrapKey`（WebCrypto 标准方法）。
+- [decision-principles](pages/decision-principles.md) — category: decision | tags: [decision, principles, methodology] | ## 决策三原则（用户拍板 2026-09-11，项目级约束）
 - [examples-tree](pages/examples-tree.md) — category: decision | tags: [build, examples] | - 示例程序放在根目录 examples/ 下，每个示例一个子目录（examples/hello, examples/worker），不再放根目录 example.c。
 - [f4-security-audit](pages/f4-security-audit.md) — category: decision | tags: [security, audit] | ## F4 安全审计结论
 - [fetch-proxy-support](pages/fetch-proxy-support.md) — category: decision | tags: [fetch, proxy, connect, tls, uv_io] | - **背景**：B2「fetch 完善」剩余项「代理」—— 出站 fetch 需要能走公司/环境 HTTP 代理。
