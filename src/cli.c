@@ -44,10 +44,10 @@ typedef struct {
  * decoded length, or -1 on malformed input. Used to pull the v/e fields out
  * of the {"ok":...,"v":...,"e":...} eval envelope for the REPL.
  *
- * 为何留在 CLI 不并入 qwrt_internal.h 共享份/不走 JS_ParseJSON：cli.c 刻意
- * 只 include 公共头 qwrt/qwrt.h，是 libqwrt 的 dogfood 宿主（引擎内部 API
- * 不可见）；message_cb 在宿主回调窗口，不在引擎内。裁决：
- * docs/architecture/c-js-layering.md §6.6。 */
+ * 为何留在 CLI（不引 cJSON、不走 JS_ParseJSON）：cli.c 刻意
+ * 只 include 公共头 qwrt/qwrt.h，是 libqwrt 的 dogfood 宿主（引擎内部
+ * API 与库内部依赖均不可见）；message_cb 在宿主回调窗口，不在引擎内。
+ * 裁决：docs/architecture/c-js-layering.md §6.6。 */
 static int json_unescape(const char *s, char *out, size_t out_cap) {
     if (!s || *s != '"') {
         return -1;
@@ -163,7 +163,8 @@ static const char *kCliBootstrap =
  * test_host.h's JSON_string.
  * 留在 C 的原因：调用点 build_bootstrap/run_code/repl 在 qwrt_create 之前
  * 构造 bootstrap——此刻引擎尚不存在（循环依赖），JS.stringify 不可用；
- * 且 CLI 是不摸引擎内部 API 的 dogfood 宿主（见 json_unescape 注释）。 */
+ * 且 CLI 是不摸引擎内部 API 的 dogfood 宿主——cJSON 是 libqwrt 的内部
+ * 依赖（不出公共接口），示例宿主不引它（见 json_unescape 注释、§6.6）。 */
 static char *json_escape(const char *s) {
     size_t n = strlen(s) * 6 + 3;
     char *out = malloc(n), *p = out;

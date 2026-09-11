@@ -1,0 +1,8 @@
+Vendored snapshot — NOT a git submodule. Manual snapshot for offline builds.
+
+Source:   https://github.com/DaveGamble/cJSON (DaveGamble/cJSON)
+Version:  v1.7.19 (latest release at vendoring time, 2026-09-11)
+Commit:   c859b25da02955fef659d658b8f324b5cde87be3 (tag v1.7.19)
+License:  MIT (see LICENSE)
+Files:    cJSON.c, cJSON.h, LICENSE — upstream-verbatim, no local modifications.
+Upstream: https://github.com/DaveGamble/cJSON/tree/v1.7.19

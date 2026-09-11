@@ -252,16 +252,44 @@ polyfill bundle 是**单一替换单元**（`build.js` 打包 + `QWRT_WITH_GRPC`
 - **结论**：lock-free MPSC 消息队列归 C（src/msgq.c）。
 - **依据**：性能关键（每消息一次 ACQ_REL exchange + 内存序精细控制，规避 PVE 6.17 futex 唤醒不可靠）+ 接口稳定（`qwrt_msg_push/pop/has_pending/free` 四符号长期不变）。线程安全是 C 才能表达的能力（C3 + C4）。
 
-## 6.6 C 层手写 JSON 取值/解析四站点：全部留 C，纯查找型归并一份
+## 6.6 C 层 JSON 三站点：统一 vendored cJSON（用户指令：不手写）
 
-- **结论**（2026-09-11，逐站点核查调用时机/线程/生命周期后裁决）：
-  1. `debugger_dap.c`（json_parse_string/json_get/json_get_int，增量 parser）：留 C。解析点 `dap_on_stopped` 暂停泵运行在 JS 断点内——世界冻结、引擎栈在断点现场，`JS_ParseJSON` 属引擎重入。增量 parser 结构体独立保留，不并入共享份。
-  2. `control.c`（ctl_json_find_val/get_str/get_int）：留 C + 归并。`qwrt_control` 在生产者线程，无 JSContext（JSRuntime 归 qwrt 线程所有），且 interrupt 要求 runtime 暂停/未初始化也能入队生效；完整解析已在 dispatch（qwrt 线程）走 `JS_ParseJSON`。三份本地提取器删除，改用 qwrt_internal.h 共享份。
-  3. `ipc_process.c`（json_find_int）：留 C + 归并。两个调用点都在 JS context 尚不存在的窗口——父进程 spawn 同步握手、子进程 rt_main 启动顺序 handshake（步骤 2）先于 qwrt_t init（步骤 3）。改走 JS 需倒置启动顺序。改用共享份。
-  4. `cli.c`（json_escape/json_unescape）：留 C，不归并。escape 调用点在 `qwrt_create` 之前构造 bootstrap（引擎不存在，循环依赖）；cli.c 刻意只 include 公共头 `qwrt/qwrt.h`，是 libqwrt 的 dogfood 宿主，不可见引擎内部 API。
-- **归并**：control + ipc 的纯字符串查找型取值（不 build parser 状态、无转义解码、无嵌套/数组遍历）归并为 `qwrt_internal.h` 的 `qwrt_json_find_val/get_str/get_int` static inline 一份（4 份实现 → 2 份：共享份 + DAP parser）。只服务扁平 JSON 顶层简单标量；需要更多 JSON 语义时应把解析挪 JS 层，而非扩展轮子。
-- **vendor 评估**（oss-library-policy，jsmn/cJSON/parson 候选）：均不 vendor。DAP parser ~280 行且 serializer 另占其半，jsmn 只替换解析半边、行为零收益纯迁移成本，且 `test_dap_gtest` 8 场景已锁定行为——若未来 DAP 需全量协议化（增量扩展困难成实测负担）再评 vendor；control/ipc 3 字段/3 整数提取，vendor 任何库均为依赖倒挂；cli 在公共宿主面，引第三方库进示例宿主更糟。vendor 是引入依赖（vendored 文件 + CMake + 上游跟进），同收益取更小。
-- **共同前提**：四处取值对象均为受信任/自产 JSON（IDE 客户端、本进程回执信封、自产 handshake、自产 eval 信封），非攻击面；恶意输入场景不适用此裁决。
+- **结论**（2026-09-11 改判，用户指令推翻同日"手写共享份"裁决）：C 层 JSON
+  一律用 vendored 开源库 **cJSON**（deps/cjson/，v1.7.19，MIT，
+  cJSON.c + cJSON.h 单文件，严格 C99，上游原样快照）——不自制轮子。
+  C 层本身归 C 的裁决不变，变的只是实现来源：手写 JSON 基建全部删除。
+  1. `debugger_dap.c`（原 json_parser/json_parse_string/json_get/
+     json_get_int/json_emit/json_emit_string，~280 行）：**cJSON 替换**。
+     C 层时机论证仍成立——解析点 `dap_on_stopped` 暂停泵运行在 JS 断点内，
+     世界冻结、引擎栈在断点现场，`JS_ParseJSON` 属引擎重入。但 DAP 是
+     Content-Length 分帧、整帧到手才解析（`dap_read_message`），无增量
+     解析需求，`cJSON_Parse` 直接可用；序列化改 `cJSON_CreateObject` +
+     `Add*` 构建 + `cJSON_PrintUnformatted`。行为由 `test_dap_gtest`
+     锁定（3 用例 8 场景全过）。
+  2. `control.c`（原共享份 qwrt_json_get_str/get_int 调用点）：**cJSON
+     替换**。`qwrt_control` 在生产者线程，无 JSContext（JSRuntime 归
+     qwrt 线程所有），且 interrupt 要求 runtime 暂停/未初始化也能入队
+     生效——C 层时机不变；字段提取改 `cJSON_Parse` +
+     `cJSON_GetObjectItemCaseSensitive`（correl/timeout_ms/op 三字段，
+     缺字段失败路径不变）。完整解析仍在 dispatch（qwrt 线程）走
+     `JS_ParseJSON`。
+  3. `ipc_process.c`（原共享份调用点）：**cJSON 替换**。两个调用点都在
+     JS context 尚不存在的窗口——父进程 spawn 同步握手、子进程 rt_main
+     启动顺序 handshake/ack（步骤 2）先于 qwrt_t init（步骤 3）。改走
+     JS 需倒置启动顺序，时机论证不变；handshake/ack 提取（v/role/id、
+     ok/v）改 `cJSON_IsNumber` + `valueint`，缺字段语义不变。
+  4. `cli.c`（json_escape/json_unescape）：**保留手写，不改**。escape
+     调用点在 `qwrt_create` 之前构造 bootstrap（引擎不存在，循环依赖）；
+     cli.c 刻意只 include 公共头 `qwrt/qwrt.h`，是 libqwrt 的 dogfood
+     宿主——cJSON 是库内部依赖（不出公共接口），引它进宿主示例违反
+     dogfood 边界。最小 escape 函数留在宿主侧。
+- **替换实现**：`qwrt_internal.h` 的 `qwrt_json_find_val/get_str/get_int`
+  static inline 共享份删除；`deps/cjson/`（cJSON.c/cJSON.h/LICENSE/
+  SNAPSHOT）按 deps 现行机制 vendored，`add_library(cjson STATIC)` 链接
+  进 libqwrt，不安装、不导出公共头。
+- **共同前提**（不变）：各站点取值对象均为受信任/自产 JSON（IDE 客户端、
+  本进程回执信封、自产 handshake、自产 eval 信封），非攻击面；cJSON 在
+  此前提下的正确性收益是转义解码/嵌套遍历等语义完整性，而非安全加固。
 
 ---
 

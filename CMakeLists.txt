@@ -168,6 +168,16 @@ else()
 endif()
 
 # ============================================================================
+# cJSON dependency (C-layer JSON: control plane field extraction, IPC
+# handshake parsing, DAP message parse/serialize)
+# ============================================================================
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+add_library(cjson STATIC deps/cjson/cJSON.c)
+target_include_directories(cjson PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/deps/cjson")
+target_compile_options(cjson PRIVATE -w)
+message(STATUS "cJSON vendored (deps/cjson, v1.7.19) — C-layer JSON")
+
+# ============================================================================
 # Crypto extension (mbedTLS for native crypto.subtle)
 #
 # Reuses the mbedTLS source build from the QWRT_WITH_TLS block above. If TLS
@@ -671,6 +681,8 @@ target_link_libraries(qwrt PUBLIC ${_qwrt_core_libs})
 if(QWRT_POLYFILL_MODE STREQUAL "compressed")
     target_link_libraries(qwrt PUBLIC lz4_static)
 endif()
+# C-layer JSON (control/ipc/DAP sites, see c-js-layering §6.6)
+target_link_libraries(qwrt PUBLIC cjson)
 # Conditional WASM engine linking
 if(QWRT_WITH_WAMR)
     target_link_libraries(qwrt PUBLIC vmlib)

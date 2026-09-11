@@ -12,6 +12,7 @@
 
 #include "ipc_process.h"
 #include "qwrt_internal.h"
+#include <cJSON.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,24 +136,43 @@ size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok)
  * 为何必须在 C 层：两个调用点都在 JS 不可重入窗口——父进程 qwrt_proc_spawn
  * 的同步握手窗口、子进程 rt_main 的启动顺序 handshake/ack（生命周期步骤 2）
  * 先于 qwrt_t init（步骤 3），JS context 尚不存在，JS_ParseJSON 不可用
- * （裁决：docs/architecture/c-js-layering.md §6.6）。取值 helper 用
- * qwrt_internal.h 归并后的全项目共享份（纯字符串查找型，扁平顶层字段）。
- * 消息由本文件 build_handshake/build_ack 生成，格式自产自销。 */
+ * （裁决：docs/architecture/c-js-layering.md §6.6）。字段提取用 vendored
+ * cJSON（用户指令：不手写）。消息由本文件 build_handshake/build_ack 生成，
+ * 格式自产自销。 */
 
 int qwrt_ipc_parse_handshake(const char *json, int *out_v,
                              int *out_role, int *out_id)
 {
-    if (qwrt_json_get_int(json, "v", out_v) < 0) return -1;
-    if (qwrt_json_get_int(json, "role", out_role) < 0) return -1;
-    if (qwrt_json_get_int(json, "id", out_id) < 0) return -1;
-    return 0;
+    cJSON *j = cJSON_Parse(json);
+    if (!j) return -1;
+    int rc = -1;
+    const cJSON *vv = cJSON_GetObjectItemCaseSensitive(j, "v");
+    const cJSON *role = cJSON_GetObjectItemCaseSensitive(j, "role");
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(j, "id");
+    if (cJSON_IsNumber(vv) && cJSON_IsNumber(role) && cJSON_IsNumber(id)) {
+        *out_v = vv->valueint;
+        *out_role = role->valueint;
+        *out_id = id->valueint;
+        rc = 0;
+    }
+    cJSON_Delete(j);
+    return rc;
 }
 
 int qwrt_ipc_parse_ack(const char *json, int *out_ok, int *out_v)
 {
-    if (qwrt_json_get_int(json, "ok", out_ok) < 0) return -1;
-    if (qwrt_json_get_int(json, "v", out_v) < 0) return -1;
-    return 0;
+    cJSON *j = cJSON_Parse(json);
+    if (!j) return -1;
+    int rc = -1;
+    const cJSON *ok = cJSON_GetObjectItemCaseSensitive(j, "ok");
+    const cJSON *vv = cJSON_GetObjectItemCaseSensitive(j, "v");
+    if (cJSON_IsNumber(ok) && cJSON_IsNumber(vv)) {
+        *out_ok = ok->valueint;
+        *out_v = vv->valueint;
+        rc = 0;
+    }
+    cJSON_Delete(j);
+    return rc;
 }
 
 /* ── Binary path detection ── */

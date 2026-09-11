@@ -33,9 +33,10 @@ struct qwrt_ctl_recept_s {
  * 字段。JSRuntime 归 qwrt 线程所有，生产者线程无 JSContext 可用，且
  * interrupt 命令要求 runtime 暂停/未初始化时也能入队生效——JS_ParseJSON
  * 不可用，必须在 C 层做（裁决：docs/architecture/c-js-layering.md §6.6）。
- * 完整解析在 dispatch（qwrt 线程）用 JS_ParseJSON；取值 helper 用
- * qwrt_internal.h 归并后的全项目共享份（纯字符串查找型，扁平顶层字段，
- * correl 约定为简单 id：无转义/嵌套）。 */
+ * 完整解析在 dispatch（qwrt 线程）用 JS_ParseJSON；此处用 vendored
+ * cJSON（用户指令：不手写）。correl 约定为简单 id：无转义/嵌套。 */
+
+#include <cJSON.h>
 
 /* ── Receipt helpers (qwrt thread) ── */
 
@@ -194,9 +195,20 @@ int qwrt_control(qwrt_t *rt, const char *bytes, size_t len)
     buf[len] = '\0';
 
     int timeout_ms = 5000;
-    char *op = qwrt_json_get_str(buf, "op");
-    char *correl = qwrt_json_get_str(buf, "correl");
-    qwrt_json_get_int(buf, "timeout_ms", &timeout_ms);
+    char *op = NULL, *correl = NULL;
+    cJSON *j = cJSON_Parse(buf);
+    if (j) {
+        const cJSON *opv = cJSON_GetObjectItemCaseSensitive(j, "op");
+        const cJSON *correlv = cJSON_GetObjectItemCaseSensitive(j, "correl");
+        const cJSON *tmv = cJSON_GetObjectItemCaseSensitive(j, "timeout_ms");
+        if (cJSON_IsString(opv) && opv->valuestring)
+            op = strdup(opv->valuestring);
+        if (cJSON_IsString(correlv) && correlv->valuestring)
+            correl = strdup(correlv->valuestring);
+        if (cJSON_IsNumber(tmv))
+            timeout_ms = tmv->valueint;
+        cJSON_Delete(j);
+    }
 
     /* interrupt：投递即生效——原子标志在生产者线程置位（§1.1 唯一例外）。
      * 命令消息照常入队只为 correl 回执。 */
@@ -414,7 +426,16 @@ void qwrt_control_dispatch(qwrt_t *rt, qwrt_msg_t *m)
 
     /* fail-closed（§1.3）：先以登记时的同一提取器核验条目——过期的命令
      * 作废（TIMEOUT），已被 reap 回收的跳过（回执已发）。 */
-    char *correl0 = qwrt_json_get_str(m->data, "correl");
+    char *correl0 = NULL;
+    {
+        cJSON *j = cJSON_Parse(m->data);
+        if (j) {
+            const cJSON *cv = cJSON_GetObjectItemCaseSensitive(j, "correl");
+            if (cJSON_IsString(cv) && cv->valuestring)
+                correl0 = strdup(cv->valuestring);
+            cJSON_Delete(j);
+        }
+    }
     if (!ctl_claim(rt, correl0)) {
         free(correl0);
         return;

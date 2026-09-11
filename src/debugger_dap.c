@@ -21,15 +21,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <poll.h>
 #include <unistd.h>
 
 /* ================================================================
- * Minimal JSON (parser + serializer)
+ * JSON（vendored cJSON）
  *
- * Hand-rolled to keep protocol I/O independent of the debuggee JS/GC state.
- * Only handles the subset DAP uses: object, array, string, number, bool, null.
+ * 协议 I/O 用 vendored cJSON（deps/cjson/，v1.7.19，MIT）——用户指令：
+ * C 层 JSON 不手写。帧重组（dap_read_message）按 Content-Length 读完整
+ * 一帧后才解析，无增量解析需求，cJSON_Parse 直接可用。
  *
  * 为何必须在 C 层（勿删/勿改走 JS_ParseJSON）：解析点 dap_on_stopped 暂停泵
  * 运行在 JS 断点内——世界冻结（async JS/PAL 回调不前进，debugger.c 有
@@ -37,214 +37,7 @@
  * 裁决留痕：docs/architecture/c-js-layering.md §6.6。
  * ================================================================ */
 
-typedef struct {
-    const char *p;    /* current parse cursor */
-    const char *end;
-    int error;
-} json_parser;
-
-/* forward decls */
-static void json_parse_string(json_parser *j, char **out);
-static void json_emit(char **buf, size_t *cap, size_t *len, const char *s, size_t n);
-
-/* Append bytes to a growable buffer. */
-static void json_emit(char **buf, size_t *cap, size_t *len, const char *s, size_t n)
-{
-    if (*len + n + 1 > *cap) {
-        size_t nc = *cap ? *cap : 64;
-        while (nc < *len + n + 1) nc *= 2;
-        char *nb = realloc(*buf, nc);
-        if (!nb) { return; }  /* OOM: best effort, drop */
-        *buf = nb;
-        *cap = nc;
-    }
-    memcpy(*buf + *len, s, n);
-    *len += n;
-    (*buf)[*len] = '\0';
-}
-
-/* Append a C string literal (auto-length via sizeof — no magic numbers). */
-#define je_lit(buf, cap, len, lit) json_emit((buf), (cap), (len), (lit), sizeof((lit)) - 1)
-
-/* Append a JSON string literal of [str,n] (with escaping). */
-static void json_emit_string(char **buf, size_t *cap, size_t *len,
-                             const char *str, size_t n)
-{
-    je_lit(buf, cap, len, "\"");
-    size_t i;
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)str[i];
-        switch (c) {
-        case '"': je_lit(buf, cap, len, "\\\""); break;
-        case '\\': je_lit(buf, cap, len, "\\\\"); break;
-        case '\n': je_lit(buf, cap, len, "\\n"); break;
-        case '\r': je_lit(buf, cap, len, "\\r"); break;
-        case '\t': je_lit(buf, cap, len, "\\t"); break;
-        case '\b': je_lit(buf, cap, len, "\\b"); break;
-        case '\f': je_lit(buf, cap, len, "\\f"); break;
-        default:
-            if (c < 0x20) {
-                char esc[8];
-                int m = snprintf(esc, sizeof(esc), "\\u%04x", c);
-                json_emit(buf, cap, len, esc, (size_t)m);
-            } else {
-                json_emit(buf, cap, len, (const char *)&str[i], 1);
-            }
-        }
-    }
-    je_lit(buf, cap, len, "\"");
-}
-
-/* Parse a "..." string literal (j->p on the opening "). On success j->p is
- * past the closing "; *out is a malloc'd, unescaped C string. */
-static void json_parse_string(json_parser *j, char **out)
-{
-    *out = NULL;
-    if (j->p >= j->end || *j->p != '"') { j->error = 1; return; }
-    j->p++;
-    size_t cap = 16, len = 0;
-    char *buf = malloc(cap);
-    if (!buf) { j->error = 1; return; }
-    while (j->p < j->end && *j->p != '"') {
-        char c = *j->p++;
-        if (c == '\\' && j->p < j->end) {
-            char e = *j->p++;
-            switch (e) {
-            case 'n': c = '\n'; break;
-            case 'r': c = '\r'; break;
-            case 't': c = '\t'; break;
-            case 'b': c = '\b'; break;
-            case 'f': c = '\f'; break;
-            case '"': c = '"'; break;
-            case '\\': c = '\\'; break;
-            case '/': c = '/'; break;
-            case 'u': {
-                if (j->p + 4 <= j->end) {
-                    unsigned int u = 0; int k;
-                    for (k = 0; k < 4; k++) {
-                        char h = j->p[k];
-                        u <<= 4;
-                        if (h >= '0' && h <= '9') u |= (unsigned)(h - '0');
-                        else if (h >= 'a' && h <= 'f') u |= (unsigned)(h - 'a' + 10);
-                        else if (h >= 'A' && h <= 'F') u |= (unsigned)(h - 'A' + 10);
-                        else { j->error = 1; free(buf); return; }
-                    }
-                    j->p += 4;
-                    if (u < 0x80) {
-                        c = (char)u;
-                    } else {
-                        if (len + 4 >= cap) {
-                            while (len + 4 >= cap) cap *= 2;
-                            char *nb = realloc(buf, cap);
-                            if (!nb) { j->error = 1; free(buf); return; }
-                            buf = nb;
-                        }
-                        if (u < 0x800) {
-                            buf[len++] = (char)(0xC0 | (u >> 6));
-                            buf[len++] = (char)(0x80 | (u & 0x3F));
-                        } else {
-                            buf[len++] = (char)(0xE0 | (u >> 12));
-                            buf[len++] = (char)(0x80 | ((u >> 6) & 0x3F));
-                            buf[len++] = (char)(0x80 | (u & 0x3F));
-                        }
-                        continue;
-                    }
-                } else { j->error = 1; free(buf); return; }
-                break;
-            }
-            default: c = e; break;
-            }
-        }
-        if (len + 1 >= cap) {
-            cap *= 2;
-            char *nb = realloc(buf, cap);
-            if (!nb) { j->error = 1; free(buf); return; }
-            buf = nb;
-        }
-        buf[len++] = c;
-    }
-    if (j->p >= j->end || *j->p != '"') { j->error = 1; free(buf); return; }
-    j->p++;
-    buf[len] = '\0';
-    *out = buf;
-}
-
-/* Lookup a field in a JSON object string: finds "key" : <value>. Returns a
- * malloc'd copy of the value: for strings, the raw unquoted+unescaped text;
- * for objects/arrays, the verbatim JSON substring; for scalars, the token.
- * NULL if not found. */
-static char *json_get(const char *json, const char *key)
-{
-    if (!json || !key) return NULL;
-    size_t klen = strlen(key);
-    const char *p = json;
-    while ((p = strstr(p, "\"")) != NULL) {
-        if (strncmp(p + 1, key, klen) == 0 && p[1 + klen] == '"') {
-            const char *q = p + 1 + klen + 1;
-            while (*q && isspace((unsigned char)*q)) q++;
-            if (*q == ':') {
-                q++;
-                while (*q && isspace((unsigned char)*q)) q++;
-                if (*q == '"') {
-                    /* string value: unquote + unescape */
-                    json_parser j = { q, json + strlen(json), 0 };
-                    char *out = NULL;
-                    json_parse_string(&j, &out);
-                    if (j.error) { free(out); return NULL; }
-                    return out;
-                } else if (*q == '{' || *q == '[') {
-                    /* object/array value: copy verbatim, tracking depth/strings */
-                    int depth = 0, in_str = 0;
-                    const char *start = q;
-                    do {
-                        char ch = *q;
-                        if (in_str) {
-                            if (ch == '\\' && q[1]) { q += 2; continue; }
-                            if (ch == '"') in_str = 0;
-                            q++;
-                        } else {
-                            if (ch == '"') in_str = 1;
-                            else if (ch == '{' || ch == '[') depth++;
-                            else if (ch == '}' || ch == ']') depth--;
-                            q++;
-                        }
-                    } while (*q && depth > 0);
-                    size_t n = (size_t)(q - start);
-                    char *out = malloc(n + 1);
-                    if (!out) return NULL;
-                    memcpy(out, start, n);
-                    out[n] = '\0';
-                    return out;
-                } else {
-                    /* number/bool/null token */
-                    const char *e = q;
-                    while (*e && *e != ',' && *e != '}' && *e != ']' &&
-                           !isspace((unsigned char)*e)) e++;
-                    size_t n = (size_t)(e - q);
-                    char *out = malloc(n + 1);
-                    if (!out) return NULL;
-                    memcpy(out, q, n);
-                    out[n] = '\0';
-                    return out;
-                }
-            }
-        }
-        p++;
-        while (*p && *p != '"') { if (*p == '\\' && p[1]) p++; p++; }
-        if (*p == '"') p++;
-    }
-    return NULL;
-}
-
-/* Lookup a numeric field. Returns 0 if found, -1 otherwise; value in *out. */
-static int json_get_int(const char *json, const char *key, long *out)
-{
-    char *v = json_get(json, key);
-    if (!v) return -1;
-    *out = strtol(v, NULL, 10);
-    free(v);
-    return 0;
-}
+#include <cJSON.h>
 
 /* ================================================================
  * DAP session state
@@ -276,50 +69,48 @@ static void dap_send(qwrt_dap_t *d, const char *json)
 /* Build & send an event: {"type":"event","event":name,"body":body,...} */
 static void dap_send_event(qwrt_dap_t *d, const char *event, const char *body_json)
 {
-    char *buf = NULL; size_t cap = 0, len = 0;
-    je_lit(&buf, &cap, &len, "{\"type\":\"event\",\"seq\":");
-    char seqbuf[32];
-    int m = snprintf(seqbuf, sizeof(seqbuf), "%d", ++d->seq);
-    json_emit(&buf, &cap, &len, seqbuf, (size_t)m);
-    je_lit(&buf, &cap, &len, ",\"event\":\"");
-    json_emit(&buf, &cap, &len, event, strlen(event));
-    je_lit(&buf, &cap, &len, "\"");
+    cJSON *msg = cJSON_CreateObject();
+    if (!msg) return;
+    cJSON_AddStringToObject(msg, "type", "event");
+    cJSON_AddNumberToObject(msg, "seq", ++d->seq);
+    cJSON_AddStringToObject(msg, "event", event);
     if (body_json && body_json[0]) {
-        je_lit(&buf, &cap, &len, ",\"body\":");
-        json_emit(&buf, &cap, &len, body_json, strlen(body_json));
+        cJSON *body = cJSON_Parse(body_json);
+        if (body)
+            cJSON_AddItemToObject(msg, "body", body);
     }
-    je_lit(&buf, &cap, &len, "}");
-    dap_send(d, buf);
-    free(buf);
+    char *buf = cJSON_PrintUnformatted(msg);
+    cJSON_Delete(msg);
+    if (buf) {
+        dap_send(d, buf);
+        free(buf);   /* cJSON_PrintUnformatted uses malloc — free, not cJSON_Free */
+    }
 }
 
 /* Build & send a response: type "response", success, command, body, message. */
 static void dap_send_response(qwrt_dap_t *d, int request_seq, const char *command,
                               int success, const char *body_json, const char *error_msg)
 {
-    char *buf = NULL; size_t cap = 0, len = 0;
-    je_lit(&buf, &cap, &len, "{\"type\":\"response\",\"request_seq\":");
-    char tmp[32];
-    int m = snprintf(tmp, sizeof(tmp), "%d", request_seq);
-    json_emit(&buf, &cap, &len, tmp, (size_t)m);
-    je_lit(&buf, &cap, &len, ",\"seq\":");
-    m = snprintf(tmp, sizeof(tmp), "%d", ++d->seq);
-    json_emit(&buf, &cap, &len, tmp, (size_t)m);
-    je_lit(&buf, &cap, &len, ",\"command\":\"");
-    json_emit(&buf, &cap, &len, command, strlen(command));
-    je_lit(&buf, &cap, &len, "\",\"success\":");
-    json_emit(&buf, &cap, &len, success ? "true" : "false", success ? 4 : 5);
+    cJSON *msg = cJSON_CreateObject();
+    if (!msg) return;
+    cJSON_AddStringToObject(msg, "type", "response");
+    cJSON_AddNumberToObject(msg, "request_seq", request_seq);
+    cJSON_AddNumberToObject(msg, "seq", ++d->seq);
+    cJSON_AddStringToObject(msg, "command", command);
+    cJSON_AddBoolToObject(msg, "success", success ? 1 : 0);
     if (body_json && body_json[0]) {
-        je_lit(&buf, &cap, &len, ",\"body\":");
-        json_emit(&buf, &cap, &len, body_json, strlen(body_json));
+        cJSON *body = cJSON_Parse(body_json);
+        if (body)
+            cJSON_AddItemToObject(msg, "body", body);
     }
-    if (error_msg) {
-        je_lit(&buf, &cap, &len, ",\"message\":");
-        json_emit_string(&buf, &cap, &len, error_msg, strlen(error_msg));
+    if (error_msg)
+        cJSON_AddStringToObject(msg, "message", error_msg);
+    char *buf = cJSON_PrintUnformatted(msg);
+    cJSON_Delete(msg);
+    if (buf) {
+        dap_send(d, buf);
+        free(buf);
     }
-    je_lit(&buf, &cap, &len, "}");
-    dap_send(d, buf);
-    free(buf);
 }
 
 /* ================================================================
@@ -358,11 +149,27 @@ static char *dap_read_message(qwrt_dap_t *d, int *out_seq, char **out_command,
     body[content_length] = '\0';
 
     {
-        char *s = json_get(body, "seq");
-        if (s) { *out_seq = (int)strtol(s, NULL, 10); free(s); }
+        cJSON *j = cJSON_Parse(body);
+        if (j) {
+            const cJSON *seqv = cJSON_GetObjectItemCaseSensitive(j, "seq");
+            if (cJSON_IsNumber(seqv))
+                *out_seq = seqv->valueint;
+            const cJSON *cmdv = cJSON_GetObjectItemCaseSensitive(j, "command");
+            if (cJSON_IsString(cmdv) && cmdv->valuestring)
+                *out_command = strdup(cmdv->valuestring);
+            /* arguments：保持既有接口——malloc'd JSON 子串（嵌套对象），
+             * 由各 handler 再解析。 */
+            const cJSON *argsv = cJSON_GetObjectItemCaseSensitive(j, "arguments");
+            if (argsv) {
+                char *raw = cJSON_PrintUnformatted(argsv);
+                if (raw) {
+                    *out_arguments = strdup(raw);
+                    free(raw);
+                }
+            }
+            cJSON_Delete(j);
+        }
     }
-    *out_command = json_get(body, "command");
-    *out_arguments = json_get(body, "arguments");
     return body;
 }
 
@@ -475,117 +282,135 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
     if (strcmp(command, "stackTrace") == 0) {
         qwrt_debug_frame *frames = NULL; int n = 0;
         qwrt_debug_get_call_frames(d->dbg, &frames, &n);
-        char *buf = NULL; size_t cap = 0, len = 0;
-        je_lit(&buf, &cap, &len, "{\"stackFrames\":[");
+        cJSON *body = cJSON_CreateObject();
+        cJSON *arr = cJSON_AddArrayToObject(body, "stackFrames");
         int i;
-        for (i = 0; i < n; i++) {
-            if (i) je_lit(&buf, &cap, &len, ",");
-            char fb[512];
-            int m = snprintf(fb, sizeof(fb),
-                "{\"id\":%d,\"name\":", frames[i].id);
-            json_emit(&buf, &cap, &len, fb, (size_t)m);
-            json_emit_string(&buf, &cap, &len,
-                frames[i].name ? frames[i].name : "<anonymous>",
-                frames[i].name ? strlen(frames[i].name) : 12);
-            m = snprintf(fb, sizeof(fb),
-                ",\"line\":%d,\"column\":%d,\"source\":{\"path\":",
-                frames[i].line, frames[i].column);
-            json_emit(&buf, &cap, &len, fb, (size_t)m);
-            json_emit_string(&buf, &cap, &len,
-                frames[i].source_path ? frames[i].source_path : "",
-                frames[i].source_path ? strlen(frames[i].source_path) : 0);
-            je_lit(&buf, &cap, &len, "}}");
+        for (i = 0; arr && i < n; i++) {
+            cJSON *f = cJSON_CreateObject();
+            if (!f) break;
+            cJSON_AddNumberToObject(f, "id", frames[i].id);
+            cJSON_AddStringToObject(f, "name",
+                frames[i].name ? frames[i].name : "<anonymous>");
+            cJSON_AddNumberToObject(f, "line", frames[i].line);
+            cJSON_AddNumberToObject(f, "column", frames[i].column);
+            cJSON *src = cJSON_AddObjectToObject(f, "source");
+            if (src)
+                cJSON_AddStringToObject(src, "path",
+                    frames[i].source_path ? frames[i].source_path : "");
+            cJSON_AddItemToArray(arr, f);
         }
-        je_lit(&buf, &cap, &len, "],\"totalFrames\":");
-        char tb[32]; int tm = snprintf(tb, sizeof(tb), "%d", n);
-        json_emit(&buf, &cap, &len, tb, (size_t)tm);
-        je_lit(&buf, &cap, &len, "}");
-        dap_send_response(d, req_seq, "stackTrace", 1, buf, NULL);
+        cJSON_AddNumberToObject(body, "totalFrames", n);
+        char *buf = body ? cJSON_PrintUnformatted(body) : NULL;
+        cJSON_Delete(body);
+        dap_send_response(d, req_seq, "stackTrace", 1, buf ? buf : "", NULL);
         free(buf);
         qwrt_debug_free_frames(frames, n);
         return 0;
     }
     if (strcmp(command, "scopes") == 0) {
         long fid = 0;
-        json_get_int(args, "frameId", &fid);
+        if (args) {
+            cJSON *ja = cJSON_Parse(args);
+            if (ja) {
+                const cJSON *fv = cJSON_GetObjectItemCaseSensitive(ja, "frameId");
+                if (cJSON_IsNumber(fv))
+                    fid = fv->valueint;
+                cJSON_Delete(ja);
+            }
+        }
         qwrt_debug_scope *scopes = NULL; int n = 0;
         int rc = qwrt_debug_get_scopes(d->dbg, (int)fid, &scopes, &n);
         if (rc < 0) {
             dap_send_response(d, req_seq, "scopes", 1, "{\"scopes\":[]}", NULL);
             return 0;
         }
-        char *buf = NULL; size_t cap = 0, len = 0;
-        je_lit(&buf, &cap, &len, "{\"scopes\":[");
+        cJSON *body = cJSON_CreateObject();
+        cJSON *arr = cJSON_AddArrayToObject(body, "scopes");
         int i;
-        for (i = 0; i < n; i++) {
-            if (i) je_lit(&buf, &cap, &len, ",");
-            char fb[256];
-            int m = snprintf(fb, sizeof(fb),
-                "{\"name\":");
-            json_emit(&buf, &cap, &len, fb, (size_t)m);
-            json_emit_string(&buf, &cap, &len, scopes[i].name, strlen(scopes[i].name));
-            m = snprintf(fb, sizeof(fb),
-                ",\"variablesReference\":%d,\"expensive\":%s}",
-                scopes[i].variables_reference,
-                scopes[i].expensive ? "true" : "false");
-            json_emit(&buf, &cap, &len, fb, (size_t)m);
+        for (i = 0; arr && i < n; i++) {
+            cJSON *s = cJSON_CreateObject();
+            if (!s) break;
+            cJSON_AddStringToObject(s, "name", scopes[i].name);
+            cJSON_AddNumberToObject(s, "variablesReference",
+                                    scopes[i].variables_reference);
+            cJSON_AddBoolToObject(s, "expensive", scopes[i].expensive ? 1 : 0);
+            cJSON_AddItemToArray(arr, s);
         }
-        je_lit(&buf, &cap, &len, "]}");
-        dap_send_response(d, req_seq, "scopes", 1, buf, NULL);
+        char *buf = body ? cJSON_PrintUnformatted(body) : NULL;
+        cJSON_Delete(body);
+        dap_send_response(d, req_seq, "scopes", 1, buf ? buf : "", NULL);
         free(buf);
         qwrt_debug_free_scopes(scopes, n);
         return 0;
     }
     if (strcmp(command, "variables") == 0) {
         long vr = 0;
-        json_get_int(args, "variablesReference", &vr);
+        if (args) {
+            cJSON *ja = cJSON_Parse(args);
+            if (ja) {
+                const cJSON *rv = cJSON_GetObjectItemCaseSensitive(ja,
+                    "variablesReference");
+                if (cJSON_IsNumber(rv))
+                    vr = rv->valueint;
+                cJSON_Delete(ja);
+            }
+        }
         qwrt_debug_var *vars = NULL; int n = 0;
         int rc = qwrt_debug_get_variables(d->dbg, (int)vr, &vars, &n);
         if (rc < 0) {
             dap_send_response(d, req_seq, "variables", 1, "{\"variables\":[]}", NULL);
             return 0;
         }
-        char *buf = NULL; size_t cap = 0, len = 0;
-        je_lit(&buf, &cap, &len, "{\"variables\":[");
+        cJSON *body = cJSON_CreateObject();
+        cJSON *arr = cJSON_AddArrayToObject(body, "variables");
         int i;
-        for (i = 0; i < n; i++) {
-            if (i) je_lit(&buf, &cap, &len, ",");
-            je_lit(&buf, &cap, &len, "{\"name\":");
-            json_emit_string(&buf, &cap, &len, vars[i].name, vars[i].name ? strlen(vars[i].name) : 0);
-            je_lit(&buf, &cap, &len, ",\"value\":");
-            json_emit_string(&buf, &cap, &len,
-                vars[i].value_json ? vars[i].value_json : "undefined",
-                vars[i].value_json ? strlen(vars[i].value_json) : 9);
-            char fb[64];
-            int m = snprintf(fb, sizeof(fb), ",\"variablesReference\":0,\"type\":\"%s\"}",
+        for (i = 0; arr && i < n; i++) {
+            cJSON *v = cJSON_CreateObject();
+            if (!v) break;
+            cJSON_AddStringToObject(v, "name",
+                vars[i].name ? vars[i].name : "");
+            /* value_json 是 JS 值的 JSON 表示（如 "1"），按原实现作为
+             * 字符串字段嵌入。 */
+            cJSON_AddStringToObject(v, "value",
+                vars[i].value_json ? vars[i].value_json : "undefined");
+            cJSON_AddNumberToObject(v, "variablesReference", 0);
+            cJSON_AddStringToObject(v, "type",
                 vars[i].type ? vars[i].type : "object");
-            json_emit(&buf, &cap, &len, fb, (size_t)m);
+            cJSON_AddItemToArray(arr, v);
         }
-        je_lit(&buf, &cap, &len, "]}");
-        dap_send_response(d, req_seq, "variables", 1, buf, NULL);
+        char *buf = body ? cJSON_PrintUnformatted(body) : NULL;
+        cJSON_Delete(body);
+        dap_send_response(d, req_seq, "variables", 1, buf ? buf : "", NULL);
         free(buf);
         qwrt_debug_free_vars(vars, n);
         return 0;
     }
     if (strcmp(command, "evaluate") == 0) {
-        char *expr = json_get(args, "expression");
+        char *expr = NULL;
         long fid = 0;
-        json_get_int(args, "frameId", &fid);
+        if (args) {
+            cJSON *ja = cJSON_Parse(args);
+            if (ja) {
+                const cJSON *ev = cJSON_GetObjectItemCaseSensitive(ja, "expression");
+                if (cJSON_IsString(ev) && ev->valuestring)
+                    expr = strdup(ev->valuestring);
+                const cJSON *fv = cJSON_GetObjectItemCaseSensitive(ja, "frameId");
+                if (cJSON_IsNumber(fv))
+                    fid = fv->valueint;
+                cJSON_Delete(ja);
+            }
+        }
         char *val = NULL, *err = NULL;
         int rc = qwrt_debug_evaluate(d->dbg, (int)fid, expr ? expr : "", &val, &err);
-        if (rc == 0 && val) {
-            char *buf = NULL; size_t cap = 0, len = 0;
-            je_lit(&buf, &cap, &len, "{\"result\":");
-            json_emit_string(&buf, &cap, &len, val, strlen(val));
-            je_lit(&buf, &cap, &len, ",\"variablesReference\":0}");
-            dap_send_response(d, req_seq, "evaluate", 1, buf, NULL);
-            free(buf);
-        } else {
-            char *buf = NULL; size_t cap = 0, len = 0;
-            je_lit(&buf, &cap, &len, "{\"result\":");
-            json_emit_string(&buf, &cap, &len, err ? err : "error", err ? strlen(err) : 5);
-            je_lit(&buf, &cap, &len, ",\"variablesReference\":0}");
-            dap_send_response(d, req_seq, "evaluate", 0, buf, err ? err : "evaluate failed");
+        cJSON *body = cJSON_CreateObject();
+        if (body) {
+            cJSON_AddStringToObject(body, "result",
+                (rc == 0 && val) ? val : (err ? err : "error"));
+            cJSON_AddNumberToObject(body, "variablesReference", 0);
+            char *buf = cJSON_PrintUnformatted(body);
+            cJSON_Delete(body);
+            dap_send_response(d, req_seq, "evaluate", rc == 0 ? 1 : 0, buf ? buf : "",
+                              rc == 0 ? NULL : (err ? err : "evaluate failed"));
             free(buf);
         }
         free(expr); free(val); free(err);
@@ -757,87 +582,49 @@ void qwrt_dap_detach(qwrt_t *rt)
  * (qwrt_dap_service) so breakpoints added mid-run take effect immediately. */
 static void dap_handle_set_breakpoints(qwrt_dap_t *d, const char *args, int req_seq)
 {
-    /* args.source.path + args.breakpoints[].line */
-    char *path = json_get(args, "path");
-    /* parse breakpoints array: each element is { "line":N, "condition":"..." } */
+    /* args.source.path + args.breakpoints[].line（+ 可选 condition） */
+    cJSON *ja = cJSON_Parse(args ? args : "");
+    cJSON *bps = ja ? cJSON_GetObjectItemCaseSensitive(ja, "breakpoints") : NULL;
+    const cJSON *src = ja ? cJSON_GetObjectItemCaseSensitive(ja, "source") : NULL;
+    const char *path = (cJSON_IsObject(src) &&
+                        cJSON_IsString(cJSON_GetObjectItemCaseSensitive(src, "path")))
+        ? cJSON_GetObjectItemCaseSensitive(src, "path")->valuestring : NULL;
+
     qwrt_debug_clear_breakpoints(d->dbg);
-    if (path) {
-        const char *bp = strstr(args ? args : "", "\"breakpoints\"");
-        if (bp) {
-            const char *p = strchr(bp, '[');
-            const char *e = p ? strchr(p, ']') : NULL;
-            const char *q = p ? p + 1 : NULL;
-            while (q && (!e || q < e)) {
-                /* find the next breakpoint object '{' */
-                const char *obj = strchr(q, '{');
-                if (!obj || (e && obj >= e)) break;
-                const char *obje = strchr(obj, '}');
-                if (!obje) break;
-                /* extract line within [obj, obje] */
-                const char *lp = strstr(obj, "\"line\"");
-                if (lp && lp < obje) {
-                    lp = strchr(lp, ':');
-                    if (lp && lp < obje) {
-                        long ln = strtol(lp + 1, NULL, 10);
-                        if (ln > 0) {
-                            /* extract optional condition within this object */
-                            char *cond = NULL;
-                            const char *cp = strstr(obj, "\"condition\"");
-                            if (cp && cp < obje) {
-                                cp = strchr(cp, ':');
-                                if (cp && cp < obje) {
-                                    /* parse the string value */
-                                    const char *cs = cp + 1;
-                                    while (*cs && (*cs == ' ' || *cs == '\t')) cs++;
-                                    if (*cs == '"') {
-                                        json_parser jp = { cs, obje, 0 };
-                                        json_parse_string(&jp, &cond);
-                                    }
-                                }
-                            }
-                            qwrt_debug_add_breakpoint(d->dbg, path, (int)ln, cond);
-                            free(cond);
-                        }
-                    }
-                }
-                q = obje + 1;
-            }
+    if (path && cJSON_IsArray(bps)) {
+        const cJSON *bp = NULL;
+        cJSON_ArrayForEach(bp, bps) {
+            const cJSON *ln = cJSON_GetObjectItemCaseSensitive(bp, "line");
+            if (!cJSON_IsNumber(ln) || ln->valueint <= 0)
+                continue;
+            const cJSON *cond = cJSON_GetObjectItemCaseSensitive(bp, "condition");
+            const char *condstr = (cJSON_IsString(cond) && cond->valuestring)
+                ? cond->valuestring : NULL;
+            qwrt_debug_add_breakpoint(d->dbg, path, ln->valueint, condstr);
         }
     }
+
     /* respond with verified breakpoints (echo lines) */
-    char *buf = NULL; size_t cap = 0, len = 0;
-    je_lit(&buf, &cap, &len, "{\"breakpoints\":[");
-    int first = 1;
-    if (path) {
-        const char *bp = strstr(args ? args : "", "\"breakpoints\"");
-        if (bp) {
-            const char *p = strchr(bp, '[');
-            const char *e = p ? strchr(p, ']') : NULL;
-            const char *q = p ? p + 1 : NULL;
-            while (q && (!e || q < e)) {
-                const char *obj = strchr(q, '{');
-                if (!obj || (e && obj >= e)) break;
-                const char *obje = strchr(obj, '}');
-                if (!obje) break;
-                const char *lp = strstr(obj, "\"line\"");
-                if (lp && lp < obje) {
-                    lp = strchr(lp, ':');
-                    if (lp && lp < obje) {
-                        long ln = strtol(lp + 1, NULL, 10);
-                        if (!first) je_lit(&buf, &cap, &len, ",");
-                        first = 0;
-                        char fb[64];
-                        int m = snprintf(fb, sizeof(fb), "{\"verified\":true,\"line\":%ld}", ln);
-                        json_emit(&buf, &cap, &len, fb, (size_t)m);
-                    }
-                }
-                q = obje + 1;
-            }
+    cJSON *body = cJSON_CreateObject();
+    cJSON *arr = cJSON_AddArrayToObject(body, "breakpoints");
+    if (path && cJSON_IsArray(bps)) {
+        const cJSON *bp = NULL;
+        cJSON_ArrayForEach(bp, bps) {
+            const cJSON *ln = cJSON_GetObjectItemCaseSensitive(bp, "line");
+            if (!cJSON_IsNumber(ln) || ln->valueint <= 0)
+                continue;
+            cJSON *v = cJSON_CreateObject();
+            if (!v) break;
+            cJSON_AddBoolToObject(v, "verified", 1);
+            cJSON_AddNumberToObject(v, "line", ln->valueint);
+            cJSON_AddItemToArray(arr, v);
         }
     }
-    je_lit(&buf, &cap, &len, "]}");
-    dap_send_response(d, req_seq, "setBreakpoints", 1, buf, NULL);
-    free(buf); free(path);
+    char *buf = body ? cJSON_PrintUnformatted(body) : NULL;
+    cJSON_Delete(body);
+    cJSON_Delete(ja);
+    dap_send_response(d, req_seq, "setBreakpoints", 1, buf ? buf : "", NULL);
+    free(buf);
 }
 
 int qwrt_dap_configure(qwrt_t *rt)
