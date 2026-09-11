@@ -130,39 +130,28 @@ size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok)
     return (n < 0 || (size_t)n >= cap) ? 0 : (size_t)n;
 }
 
-static int json_find_int(const char *json, const char *key, int *out)
-{
-    char pattern[32];
-    snprintf(pattern, sizeof pattern, "\"%s\"", key);
-    const char *p = strstr(json, pattern);
-    if (!p) return -1;
-    p += strlen(pattern);
-    while (*p && *p != ':') p++;
-    if (*p != ':') return -1;
-    p++;
-    while (*p == ' ' || *p == '\t' || *p == '\n') p++;
-    int neg = 0;
-    if (*p == '-') { neg = 1; p++; }
-    if (*p < '0' || *p > '9') return -1;
-    int val = 0;
-    while (*p >= '0' && *p <= '9') { val = val * 10 + (*p - '0'); p++; }
-    *out = neg ? -val : val;
-    return 0;
-}
+/* ── Handshake / ack parsing ──
+ *
+ * 为何必须在 C 层：两个调用点都在 JS 不可重入窗口——父进程 qwrt_proc_spawn
+ * 的同步握手窗口、子进程 rt_main 的启动顺序 handshake/ack（生命周期步骤 2）
+ * 先于 qwrt_t init（步骤 3），JS context 尚不存在，JS_ParseJSON 不可用
+ * （裁决：docs/architecture/c-js-layering.md §6.6）。取值 helper 用
+ * qwrt_internal.h 归并后的全项目共享份（纯字符串查找型，扁平顶层字段）。
+ * 消息由本文件 build_handshake/build_ack 生成，格式自产自销。 */
 
 int qwrt_ipc_parse_handshake(const char *json, int *out_v,
                              int *out_role, int *out_id)
 {
-    if (json_find_int(json, "v", out_v) < 0) return -1;
-    if (json_find_int(json, "role", out_role) < 0) return -1;
-    if (json_find_int(json, "id", out_id) < 0) return -1;
+    if (qwrt_json_get_int(json, "v", out_v) < 0) return -1;
+    if (qwrt_json_get_int(json, "role", out_role) < 0) return -1;
+    if (qwrt_json_get_int(json, "id", out_id) < 0) return -1;
     return 0;
 }
 
 int qwrt_ipc_parse_ack(const char *json, int *out_ok, int *out_v)
 {
-    if (json_find_int(json, "ok", out_ok) < 0) return -1;
-    if (json_find_int(json, "v", out_v) < 0) return -1;
+    if (qwrt_json_get_int(json, "ok", out_ok) < 0) return -1;
+    if (qwrt_json_get_int(json, "v", out_v) < 0) return -1;
     return 0;
 }
 

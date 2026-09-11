@@ -27,62 +27,15 @@ struct qwrt_ctl_recept_s {
     uint64_t deadline_ns;   /* uv_hrtime() + timeout_ms * 1e6 */
     struct qwrt_ctl_recept_s *next;
 };
-
-/* ── Minimal JSON value extractor (producer-thread, no JSRuntime) ──
+/* ── 控制命令字段提取（生产者线程，无 JSContext）──
  *
  * 只在 qwrt_control（生产者线程）用于提取 correl/timeout_ms/op 三个顶层
- * 字段（无 JSContext 可用——JSRuntime 归 qwrt 线程所有）。完整解析在
- * dispatch（qwrt 线程）用 JS_ParseJSON。对扁平 JSON 对象足够；correl
- * 约定为简单 id（无转义/嵌套）。 */
-
-static const char *ctl_json_find_val(const char *json, const char *key)
-{
-    size_t klen = strlen(key);
-    const char *p = json;
-    while (*p) {
-        if (*p == '"') {
-            const char *q = p + 1;
-            size_t i;
-            for (i = 0; i < klen && q[i] && q[i] != '"'; i++) {
-                if (q[i] != key[i]) break;
-            }
-            if (i == klen && q[i] == '"') {
-                p = q + klen + 1;   /* skip past closing quote */
-                while (*p == ' ' || *p == '\t' || *p == '\n' || *p == ':')
-                    p++;
-                return p;
-            }
-        }
-        p++;
-    }
-    return NULL;
-}
-
-static char *ctl_json_get_str(const char *json, const char *key)
-{
-    const char *p = ctl_json_find_val(json, key);
-    if (!p || *p != '"') return NULL;
-    p++;                        /* skip opening quote */
-    const char *start = p;
-    while (*p && *p != '"') p++;
-    if (*p != '"') return NULL;
-    size_t len = (size_t)(p - start);
-    char *out = (char *)malloc(len + 1);
-    if (!out) return NULL;
-    memcpy(out, start, len);
-    out[len] = '\0';
-    return out;
-}
-
-static int ctl_json_get_int(const char *json, const char *key, int default_val)
-{
-    const char *p = ctl_json_find_val(json, key);
-    if (!p) return default_val;
-    int v = 0, sign = 1;
-    if (*p == '-') { sign = -1; p++; }
-    while (*p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); p++; }
-    return sign * v;
-}
+ * 字段。JSRuntime 归 qwrt 线程所有，生产者线程无 JSContext 可用，且
+ * interrupt 命令要求 runtime 暂停/未初始化时也能入队生效——JS_ParseJSON
+ * 不可用，必须在 C 层做（裁决：docs/architecture/c-js-layering.md §6.6）。
+ * 完整解析在 dispatch（qwrt 线程）用 JS_ParseJSON；取值 helper 用
+ * qwrt_internal.h 归并后的全项目共享份（纯字符串查找型，扁平顶层字段，
+ * correl 约定为简单 id：无转义/嵌套）。 */
 
 /* ── Receipt helpers (qwrt thread) ── */
 
@@ -240,9 +193,10 @@ int qwrt_control(qwrt_t *rt, const char *bytes, size_t len)
     memcpy(buf, bytes, len);
     buf[len] = '\0';
 
-    char *op = ctl_json_get_str(buf, "op");
-    char *correl = ctl_json_get_str(buf, "correl");
-    int timeout_ms = ctl_json_get_int(buf, "timeout_ms", 5000);
+    int timeout_ms = 5000;
+    char *op = qwrt_json_get_str(buf, "op");
+    char *correl = qwrt_json_get_str(buf, "correl");
+    qwrt_json_get_int(buf, "timeout_ms", &timeout_ms);
 
     /* interrupt：投递即生效——原子标志在生产者线程置位（§1.1 唯一例外）。
      * 命令消息照常入队只为 correl 回执。 */
@@ -460,7 +414,7 @@ void qwrt_control_dispatch(qwrt_t *rt, qwrt_msg_t *m)
 
     /* fail-closed（§1.3）：先以登记时的同一提取器核验条目——过期的命令
      * 作废（TIMEOUT），已被 reap 回收的跳过（回执已发）。 */
-    char *correl0 = ctl_json_get_str(m->data, "correl");
+    char *correl0 = qwrt_json_get_str(m->data, "correl");
     if (!ctl_claim(rt, correl0)) {
         free(correl0);
         return;

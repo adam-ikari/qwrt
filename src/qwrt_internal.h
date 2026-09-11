@@ -20,6 +20,11 @@ typedef struct qwrt_ctx_s qwrt_ctx_t;   /* 前置声明：qwrt_proc_handle_t 用
 #include <uv.h>
 #endif
 
+/* qwrt_json_* 共享取值 helper（本文件下方 static inline）所需。
+ * queue.h 之前：保持其余内容 include 顺序不变。 */
+#include <stdlib.h>
+#include <string.h>
+
 /* libuv's intrusive queue primitives (uv__queue). Used by msgq.c as the
  * lock-free MPSC container; also needed for the qwrt_msg_t layout above. */
 #include "queue.h"
@@ -56,6 +61,75 @@ typedef struct qwrt_ctx_s qwrt_ctx_t;   /* 前置声明：qwrt_proc_handle_t 用
 /* Silence -Wunused-parameter for fixed-signature callbacks (e.g. QuickJS
  * JSCFunction prototypes require this_val/argc/argv even when unused). */
 #define QWRT_UNUSED(x) ((void)(x))
+
+/* ── Shared flat-JSON scalar extraction（纯字符串查找型取值，全项目唯一份）──
+ *
+ * 归并原 control.c（ctl_json_*）与 ipc_process.c（json_find_int）的手写实现。
+ * 调用点都在 JS 不可重入窗口（生产者线程无 JSContext / 子进程 JS context
+ * 尚未建立），JS_ParseJSON 不可用——为何必须在 C 层见
+ * docs/architecture/c-js-layering.md §6.6。只服务扁平 JSON 顶层简单标量：
+ * 不 build parser 状态、不解转义、不遍历嵌套/数组；完整解析一律走 qwrt
+ * 线程的 JS_ParseJSON（control dispatch / bridge msgq 同款）。需要更多
+ * JSON 语义时应把该解析挪 JS 层，而不是扩展这里的轮子。 */
+
+/* 找顶层 "key": 后的值起点（跳过空白与冒号）。找不到返回 NULL。
+ * 键匹配带闭引号校验（"role" 不会误配 "roles"），合法 JSON 的键/字符串值
+ * 中不可能出现未转义的 "key" 字面量，故无键误报。 */
+static inline const char *qwrt_json_find_val(const char *json, const char *key)
+{
+    size_t klen = strlen(key);
+    const char *p = json;
+    while (*p) {
+        if (*p == '"') {
+            const char *q = p + 1;
+            size_t i;
+            for (i = 0; i < klen && q[i] && q[i] != '"'; i++) {
+                if (q[i] != key[i]) break;
+            }
+            if (i == klen && q[i] == '"') {
+                p = q + klen + 1;   /* skip past closing quote */
+                while (*p == ' ' || *p == '\t' || *p == '\n' || *p == ':')
+                    p++;
+                return p;
+            }
+        }
+        p++;
+    }
+    return NULL;
+}
+
+/* 提取顶层字符串字段的裸文本（无转义解码——correl 等约定为简单 id）。
+ * 返回 malloc'd NUL 结尾副本；缺字段/非字符串返回 NULL。 */
+static inline char *qwrt_json_get_str(const char *json, const char *key)
+{
+    const char *p = qwrt_json_find_val(json, key);
+    if (!p || *p != '"') return NULL;
+    p++;                        /* skip opening quote */
+    const char *start = p;
+    while (*p && *p != '"') p++;
+    if (*p != '"') return NULL;
+    size_t len = (size_t)(p - start);
+    char *out = (char *)malloc(len + 1);
+    if (!out) return NULL;
+    memcpy(out, start, len);
+    out[len] = '\0';
+    return out;
+}
+
+/* 提取顶层整数字段（手写十进制解析）。返回 0 并写 *out；缺字段/非数字
+ * 返回 -1 且不动 *out（调用方自行给默认值）。 */
+static inline int qwrt_json_get_int(const char *json, const char *key, int *out)
+{
+    const char *p = qwrt_json_find_val(json, key);
+    if (!p) return -1;
+    int neg = 0;
+    if (*p == '-') { neg = 1; p++; }
+    if (*p < '0' || *p > '9') return -1;
+    int val = 0;
+    while (*p >= '0' && *p <= '9') { val = val * 10 + (*p - '0'); p++; }
+    *out = neg ? -val : val;
+    return 0;
+}
 
 /* ── I/O error codes (used by uv_io.c / bridge) ── */
 

@@ -30,6 +30,11 @@
  *
  * Hand-rolled to keep protocol I/O independent of the debuggee JS/GC state.
  * Only handles the subset DAP uses: object, array, string, number, bool, null.
+ *
+ * 为何必须在 C 层（勿删/勿改走 JS_ParseJSON）：解析点 dap_on_stopped 暂停泵
+ * 运行在 JS 断点内——世界冻结（async JS/PAL 回调不前进，debugger.c 有
+ * 重入门），JS 引擎栈在断点现场，此时调 JS_ParseJSON 属引擎重入。
+ * 裁决留痕：docs/architecture/c-js-layering.md §6.6。
  * ================================================================ */
 
 typedef struct {
