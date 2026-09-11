@@ -24,7 +24,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <time.h>
 #include <poll.h>
 
 /* ── Pipe read state (one pipe per child process — static is fine) ── */
@@ -38,12 +37,6 @@ static struct {
     uint32_t frame_len; /* expected frame body length (0 = need 4-byte hdr) */
 } g_rx;
 
-static int64_t now_ms_local(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
 /* Hand-rolled substring match — replaces glibc memmem, a GNU extension that
  * would force _GNU_SOURCE (violates the project's C99 discipline). */
 static int has_substring(const uint8_t *hay, size_t hlen, const char *needle)
@@ -259,7 +252,7 @@ int main(int argc, char **argv)
         free(env_buf);
 
         /* Read ack (5s deadline) */
-        int64_t deadline = now_ms_local() + QWRT_IPC_HANDSHAKE_TIMEOUT_MS;
+        int64_t deadline = qwrt_now_ms() + QWRT_IPC_HANDSHAKE_TIMEOUT_MS;
         uint8_t *ack_frame = NULL;
         size_t ack_flen = 0;
         if (qwrt_ipc_read_frame(parent_fd, &ack_frame, &ack_flen, deadline) < 0) {

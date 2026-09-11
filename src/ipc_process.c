@@ -28,12 +28,6 @@
 
 /* ── Helpers ── */
 
-static int64_t now_ms(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
 
 /* All fds written here are socketpair(AF_UNIX) sockets. Use send() with
  * MSG_NOSIGNAL so a write to a dead peer returns EPIPE instead of raising
@@ -60,7 +54,7 @@ static int read_all_deadline(int fd, void *buf, size_t len, int64_t deadline_ms)
     char *p = (char *)buf;
     size_t off = 0;
     while (off < len) {
-        int64_t remaining = deadline_ms - now_ms();
+        int64_t remaining = deadline_ms - qwrt_now_ms();
         if (remaining <= 0) return -1;
         struct pollfd pfd = { .fd = fd, .events = POLLIN };
         int pr = poll(&pfd, 1, (int)remaining);
@@ -330,7 +324,7 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
         }
 
         /* Read child's handshake (5s deadline) */
-        int64_t deadline = now_ms() + QWRT_IPC_HANDSHAKE_TIMEOUT_MS;
+        int64_t deadline = qwrt_now_ms() + QWRT_IPC_HANDSHAKE_TIMEOUT_MS;
         uint8_t *hs_frame = NULL;
         size_t hs_flen = 0;
         if (qwrt_ipc_read_frame(pfd, &hs_frame, &hs_flen, deadline) < 0) {
@@ -440,7 +434,7 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
     }
 
     /* Tier 2: poll for exit */
-    int64_t deadline = now_ms() + timeout_ms;
+    int64_t deadline = qwrt_now_ms() + timeout_ms;
     for (;;) {
         int status;
         pid_t r;
@@ -452,7 +446,7 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
             return 0;
         }
         if (r < 0) break;
-        if (now_ms() >= deadline) break;
+        if (qwrt_now_ms() >= deadline) break;
         struct timespec ts = { .tv_sec = 0, .tv_nsec = 10 * 1000000 };
         nanosleep(&ts, NULL);
     }

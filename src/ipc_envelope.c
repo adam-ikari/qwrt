@@ -2,35 +2,11 @@
  * IPC Envelope codec — see ipc_envelope.h for schema + canonical layout.
  */
 #include "ipc_envelope.h"
+#include "le_bytes.h"
+
 
 #include <string.h>
 
-/* Little-endian accessors. On LE hosts direct loads are cheapest; a BE port
- * would swap these helpers. */
-static uint32_t rd32(const uint8_t *p)
-{
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
-
-static void wr32(uint8_t *p, uint32_t v)
-{
-    p[0] = (uint8_t)v;
-    p[1] = (uint8_t)(v >> 8);
-    p[2] = (uint8_t)(v >> 16);
-    p[3] = (uint8_t)(v >> 24);
-}
-
-static uint16_t rd16(const uint8_t *p)
-{
-    return (uint16_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8));
-}
-
-static void wr16(uint8_t *p, uint16_t v)
-{
-    p[0] = (uint8_t)v;
-    p[1] = (uint8_t)(v >> 8);
-}
 
 size_t ipc_envelope_encode(uint8_t *out, size_t cap,
                            int32_t source, int32_t target, int8_t kind,
@@ -39,19 +15,19 @@ size_t ipc_envelope_encode(uint8_t *out, size_t cap,
     size_t need = IPC_ENVELOPE_ENCODED_SIZE(payload_len);
     if (!out || need > cap) return 0;
 
-    wr32(out + 0, 16);                 /* root uoffset -> table at +16       */
-    wr16(out + 4, 12);                 /* vtable_len: 2 hdr u16 + 4 slots u16 */
-    wr16(out + 6, 20);                 /* table_len                          */
-    wr16(out + 8, 4);                  /* vtable slot 0 (source)             */
-    wr16(out + 10, 8);                 /* vtable slot 1 (target)             */
-    wr16(out + 12, 12);                /* vtable slot 2 (kind)               */
-    wr16(out + 14, 16);                /* vtable slot 3 (payload)            */
-    wr32(out + 16, 12);                /* soffset: vtable(+4) = table(+16)-12 */
-    wr32(out + 20, (uint32_t)source);
-    wr32(out + 24, (uint32_t)target);
+    qwrt_wr32(out + 0, 16);            /* root uoffset -> table at +16       */
+    qwrt_wr16(out + 4, 12);            /* vtable_len: 2 hdr u16 + 4 slots u16 */
+    qwrt_wr16(out + 6, 20);            /* table_len                          */
+    qwrt_wr16(out + 8, 4);             /* vtable slot 0 (source)             */
+    qwrt_wr16(out + 10, 8);            /* vtable slot 1 (target)             */
+    qwrt_wr16(out + 12, 12);           /* vtable slot 2 (kind)               */
+    qwrt_wr16(out + 14, 16);           /* vtable slot 3 (payload)            */
+    qwrt_wr32(out + 16, 12);           /* soffset: vtable(+4) = table(+16)-12 */
+    qwrt_wr32(out + 20, (uint32_t)source);
+    qwrt_wr32(out + 24, (uint32_t)target);
     out[28] = (uint8_t)kind;           /* +29..31 pad                        */
-    wr32(out + 32, 4);                 /* payload uoffset -> vector at +36   */
-    wr32(out + 36, payload_len);
+    qwrt_wr32(out + 32, 4);            /* payload uoffset -> vector at +36   */
+    qwrt_wr32(out + 36, payload_len);
     if (payload_len) memcpy(out + 40, payload, payload_len);
     return need;
 }
@@ -74,7 +50,7 @@ static uint16_t slot_voff(const uint8_t *vt, uint16_t vt_len, unsigned id)
 {
     uint16_t need = (uint16_t)(6u + 2u * id);
     if (vt_len < need) return 0;
-    return rd16(vt + 4 + 2u * id);
+    return qwrt_rd16(vt + 4 + 2u * id);
 }
 
 int ipc_envelope_decode(const uint8_t *buf, size_t len,
@@ -89,32 +65,32 @@ int ipc_envelope_decode(const uint8_t *buf, size_t len,
     }
     if (!buf || !view || len < 8) return -1;
 
-    uint32_t root = rd32(buf);                         /* root uoffset at 0 */
+    uint32_t root = qwrt_rd32(buf);                    /* root uoffset at 0  */
     if (root < 4 || root > len - 4) return -1;         /* soffset must fit */
 
-    int32_t soffset = (int32_t)rd32(buf + root);
+    int32_t soffset = (int32_t)qwrt_rd32(buf + root);
     if (soffset < 0 || (size_t)soffset > root) return -1;
     const uint8_t *vt = buf + root - (size_t)soffset;  /* vtable = table-soffset */
     if ((size_t)(vt - buf) > len - 4) return -1;       /* vtable hdr must fit */
-    uint16_t vt_len = rd16(vt);
+    uint16_t vt_len = qwrt_rd16(vt);
     if ((size_t)(vt - buf) + vt_len > len) return -1;  /* vt_len untrusted */
 
     const uint8_t *psrc = field_at(buf, len, root, slot_voff(vt, vt_len, 0), 4);
     const uint8_t *ptgt = field_at(buf, len, root, slot_voff(vt, vt_len, 1), 4);
     const uint8_t *pknd = field_at(buf, len, root, slot_voff(vt, vt_len, 2), 1);
 
-    view->source = psrc ? (int32_t)rd32(psrc) : 0;
-    view->target = ptgt ? (int32_t)rd32(ptgt) : 0;
+    view->source = psrc ? (int32_t)qwrt_rd32(psrc) : 0;
+    view->target = ptgt ? (int32_t)qwrt_rd32(ptgt) : 0;
     view->kind = pknd ? (int8_t)pknd[0] : 0;
 
     const uint8_t *ppl = field_at(buf, len, root, slot_voff(vt, vt_len, 3), 4);
     if (ppl) {
         /* Vector uoffset is relative to its own position. */
         size_t self = (size_t)(ppl - buf);
-        uint32_t uoff = rd32(ppl);
+        uint32_t uoff = qwrt_rd32(ppl);
         if (uoff == 0 || uoff > len - 4 - self) return -1;
         size_t hdr = self + uoff;                      /* vector len field  */
-        uint32_t vlen = rd32(buf + hdr);
+        uint32_t vlen = qwrt_rd32(buf + hdr);
         if (vlen > len - 4 - hdr) return -1;           /* data must fit     */
         view->payload = buf + hdr + 4;
         view->payload_len = vlen;

@@ -172,31 +172,6 @@ static int raw_inflate(JSContext *ctx,
 /* crc32 由 miniz mz_crc32 提供 */
 
 
-/* ================================================================
- * Write/read little-endian helpers
- * ================================================================ */
-
-/* wr32 与 ipc_envelope rd32 同构（写侧），待统一 */
-static void wr32(uint8_t *p, uint32_t v)
-{
-    p[0] = (uint8_t)(v & 0xFF);
-    p[1] = (uint8_t)((v >> 8) & 0xFF);
-    p[2] = (uint8_t)((v >> 16) & 0xFF);
-    p[3] = (uint8_t)((v >> 24) & 0xFF);
-}
-
-/* 与 ipc_envelope rd16 同构，待统一 */
-static uint16_t rd16(const uint8_t *p)
-{
-    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
-}
-
-/* 与 ipc_envelope rd32 同构，待统一 */
-static uint32_t rd32(const uint8_t *p)
-{
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
 
 /* ================================================================
  * Header/trailer size constants
@@ -292,7 +267,7 @@ static JSValue js_pal_native_compress(JSContext *ctx, JSValueConst this_val,
         buf[1] = 0x8B;  /* ID2 */
         buf[2] = 0x08;  /* CM = deflate */
         buf[3] = 0x00;  /* FLG = no extra fields */
-        wr32(buf + 4, 0);  /* MTIME = 0 */
+        qwrt_wr32(buf + 4, 0);  /* MTIME = 0 */
         buf[8] = 0x00;  /* XFL */
         buf[9] = 0xFF;  /* OS = unknown */
     }
@@ -317,11 +292,11 @@ static JSValue js_pal_native_compress(JSContext *ctx, JSValueConst this_val,
 
     /* Write trailer */
     if (fmt == FORMAT_DEFLATE) {
-        wr32(buf + hdr_size + raw_len, (uint32_t)adler);
+        qwrt_wr32(buf + hdr_size + raw_len, (uint32_t)adler);
     } else {
         uint32_t crc = (uint32_t)mz_crc32(MZ_CRC32_INIT, in_bytes, in_len);
-        wr32(buf + hdr_size + raw_len, crc);
-        wr32(buf + hdr_size + raw_len + 4, (uint32_t)(in_len & 0xFFFFFFFFu));
+        qwrt_wr32(buf + hdr_size + raw_len, crc);
+        qwrt_wr32(buf + hdr_size + raw_len + 4, (uint32_t)(in_len & 0xFFFFFFFFu));
     }
 
     size_t total_len = hdr_size + raw_len + trl_size;
@@ -402,7 +377,7 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 
         if (flg & 0x04) {  /* FEXTRA */
             if (offset + 2 > in_len) return JS_ThrowTypeError(ctx, "nativeDecompress: truncated gzip extra");
-            uint16_t xlen = rd16(in_bytes + offset);
+            uint16_t xlen = qwrt_rd16(in_bytes + offset);
             if (offset + 2 + xlen > in_len) return JS_ThrowTypeError(ctx, "nativeDecompress: truncated gzip extra field");
             offset += 2 + xlen;
         }
@@ -444,15 +419,15 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 
     /* Verify checksums */
     if (fmt == FORMAT_DEFLATE) {
-        uint32_t expected_adler = rd32(in_bytes + in_len - 4);
+        uint32_t expected_adler = qwrt_rd32(in_bytes + in_len - 4);
         uint32_t actual_adler = (uint32_t)mz_adler32(1, out, out_len);
         if (actual_adler != expected_adler) {
             js_free(ctx, out);
             return JS_ThrowTypeError(ctx, "nativeDecompress: zlib Adler-32 checksum mismatch");
         }
     } else if (fmt == FORMAT_GZIP) {
-        uint32_t expected_crc = rd32(in_bytes + in_len - 8);
-        uint32_t expected_size = rd32(in_bytes + in_len - 4);
+        uint32_t expected_crc = qwrt_rd32(in_bytes + in_len - 8);
+        uint32_t expected_size = qwrt_rd32(in_bytes + in_len - 4);
         if ((out_len & 0xFFFFFFFFu) != expected_size) {
             js_free(ctx, out);
             return JS_ThrowTypeError(ctx, "nativeDecompress: gzip ISIZE mismatch");

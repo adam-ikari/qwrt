@@ -22,6 +22,8 @@ typedef struct qwrt_ctx_s qwrt_ctx_t;   /* 前置声明：qwrt_proc_handle_t 用
 
 /* C 层 JSON 一律用 vendored cJSON（<cjson.h>，deps/cjson/）——使用方
  * （control.c / ipc_process.c / debugger_dap.c）各自 include。 */
+#include <stdint.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -565,6 +567,21 @@ void qwrt_ctl_resolve(qwrt_t *rt, const char *correl, const char *json, size_t l
 uint64_t uv_io_hrtime(void);
 void uv_io_log(int level, const char *msg);
 void uv_io_random_bytes(uint8_t *buf, size_t len);
+
+/* Monotonic clock in milliseconds. Ignores clock_gettime failure (same
+ * behavior the former per-file copies had): CLOCK_MONOTONIC cannot fail with
+ * EINVAL, so worst case the caller sees a stale/zero timestamp. */
+static inline int64_t qwrt_now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+/* ── Cross-file small helpers (shared, header-inline in C99) ── */
+
+/* Little-endian accessors live in le_bytes.h (dependency-free; ipc_envelope.c
+ * must stay buildable without libuv/quickjs), pulled in below. */
+#include "le_bytes.h"
 
 #ifdef __cplusplus
 }
