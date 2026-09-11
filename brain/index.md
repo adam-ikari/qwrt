@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-11T12:18:37.601Z._
+_Auto-generated. Last updated 2026-09-11T13:59:39.722Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [c-js-layering](pages/c-js-layering.md) — category: decision | tags: [arch, layering, policy] | # C/JS 分层原则与标准（判据摘要）
@@ -19,7 +19,7 @@ _Auto-generated. Last updated 2026-09-11T12:18:37.601Z._
 - [httpserver-ws-fixes](pages/httpserver-ws-fixes.md) — category: decision | tags: [http-server, websocket, uvhttp, llhttp] | uvhttp 在 qwrt 中的底层修复（均改 deps/uvhttp 源码）：1) HPE_PAUSED_UPGRADE 时 llhttp 暂停未恢复——分发前显式 llhttp_resume；2) WS 握手 101 后 uvhttp 仍尝试 HTTP 解析导致状态错乱——升
 - [httpserver-ws-protocol](pages/httpserver-ws-protocol.md) — category: decision | tags: [http-server, websocket, protocol] | polyfill/src/http-server.js（纯 JS 层 WS 协议）：
 - [libuv-io-uring-workaround](pages/libuv-io-uring-workaround.md) — category: decision | tags: [libuv, io-uring, linux, workaround] | deps/libuv/src/unix/linux.c 有一处本地补丁（未提交到上游）：让 `UV_USE_IO_URING=0` 真正禁用 io_uring。
-- [oss-library-policy](pages/oss-library-policy.md) — category: decision | tags: [deps, policy, oss] | ---
+- [oss-library-policy](pages/oss-library-policy.md) — category: decision | tags: [deps, policy, oss] | # 开源库引入与替换原则
 - [polyfill-bundling-policy](pages/polyfill-bundling-policy.md) — category: decision | tags: [polyfill, bundling, memory] | ## 启动加速决策链（2026-09-10 用户拍板）
 - [quickjs-upstream-merge-strategy](pages/quickjs-upstream-merge-strategy.md) — category: decision | tags: [build, upstream] | ## 现状
 - [qwrt-positioning](pages/qwrt-positioning.md) — category: decision | # qwrt 定位（用户拍板 2026-09-09，2026-09-10 更新）
