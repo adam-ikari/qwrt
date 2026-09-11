@@ -1,6 +1,6 @@
 # Qwrt.js 开发路线图（整体项目）
 
-> 定位：**Qwrt.js — 可嵌入 QuickJS 运行时**。
+> 定位：**Qwrt.js — 通用嵌入式 JS 运行时（可嵌入 QuickJS）**，非专属应用运行时；为宿主/平台层将其用作"应用运行时引擎"预留灵活接口。
 > libuv-native、WinterTC 兼容、多上下文 + Web Workers、宿主↔运行时消息、
 > 原生扩展（TLS/crypto/compress/WASM）、独立 CLI、服务端能力（serve）。
 > 状态：滚动规划，随实际进展更新。最后更新：2026-09。
