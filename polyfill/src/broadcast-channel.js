@@ -37,14 +37,9 @@ export function setupBroadcastChannel() {
       var peers = channels.get(this._name);
       if (!peers) return;
       // Structured-clone the message so receivers get an independent copy
-      // (spec requirement). Fall back to the reference if cloning throws.
-      var data;
-      try {
-        data = (typeof structuredClone === 'function')
-          ? structuredClone(message) : message;
-      } catch (e) {
-        data = message;
-      }
+      // (spec requirement). Serialization failure throws DataCloneError
+      // per HTML spec — never fall back to passing the live reference.
+      var data = structuredClone(message);
       peers.forEach(function(peer) {
         if (peer !== this && !peer._closed) {
           peer.dispatchEvent(new MessageEvent('message', { data: data }));

@@ -9,12 +9,6 @@
  */
 
 export function setupTextEncoding(pal) {
-  /* Native encode is registered by the textcodec C extension AFTER the
-   * polyfill bundle is evaluated (ext init runs post-injection), so a
-   * one-shot `typeof` check here would permanently see undefined. Probe
-   * lazily on every call instead. */
-  var useNativeDecode = typeof pal.nativeDecodeUtf8 === 'function';
-
   function TextEncoder() {
     this.encoding = 'utf-8';
   }
@@ -174,13 +168,8 @@ export function setupTextEncoding(pal) {
       }
       return str;
     }
-
-    /* UTF-8 decode follows */
-    /* Native decode is fast but doesn't support stream mode or proper error
-     * handling. Always use the JS path for correctness. */
-    if (false && useNativeDecode && !streamMode && !(this._buffer && this._buffer.length > 0)) {
-      return pal.nativeDecodeUtf8(bytes);
-    }
+    /* C 版 nativeDecodeUtf8 缺流式（stream:true）、fatal、U+FFFD 替换三语义
+     * （ext_textcodec.c），补齐前不启用，UTF-8 decode 恒走 JS 路径。 */
 
     /* Prepend any buffered incomplete bytes from a previous stream:true call */
     var allBytes;

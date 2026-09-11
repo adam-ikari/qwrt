@@ -88,11 +88,20 @@ export function setupHttpServer(pal) {
     return out;
   }
 
-  /* ── WS accept computation ── */
+  /* ── WS accept computation ──
+   * 语义归 JS（RFC 6455 握手协议），算力下沉：SHA-1 优先走 mbedTLS 的
+   * pal.nativeDigest（crypto 扩展），base64 优先走 pal.nativeBtoa（textcodec
+   * 扩展）。两者均在 polyfill 注入后注册，必须每次调用探测。扩展被编译
+   * 开关（QWRT_WITH_CRYPTO_EXT / QWRT_WITH_TEXTCODEC）关掉时走 JS fallback。 */
   function wsAccept(key) {
     var raw = new Uint8Array(key.length + WS_GUID.length);
     for (var i = 0; i < key.length; i++) raw[i] = key.charCodeAt(i);
     for (var i = 0; i < WS_GUID.length; i++) raw[key.length + i] = WS_GUID.charCodeAt(i);
+    if (typeof pal.nativeDigest === 'function' &&
+        typeof globalThis.btoa === 'function') {
+      var digest = pal.nativeDigest('SHA-1', raw);
+      return globalThis.btoa(String.fromCharCode.apply(null, digest));
+    }
     return b64encode(sha1Bytes(raw));
   }
 

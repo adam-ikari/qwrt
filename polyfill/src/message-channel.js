@@ -23,6 +23,9 @@ export function setupMessageChannel(pal) {
   if (typeof globalThis.EventTarget !== 'function') {
     throw new Error('MessagePort requires EventTarget to be loaded first');
   }
+  if (typeof globalThis.structuredClone !== 'function') {
+    throw new Error('MessagePort requires structuredClone to be loaded first');
+  }
 
   /* Local port registry: id → MessagePort. Each thread has its own copy of
    * this module (separate JSRuntime), so the Map is per-thread. */
@@ -124,9 +127,7 @@ export function setupMessageChannel(pal) {
         // Structured clone the message data
         var data;
         try {
-          data = typeof globalThis.structuredClone === 'function'
-            ? globalThis.structuredClone(message, transfer ? { transfer: transfer } : undefined)
-            : JSON.parse(JSON.stringify(message));
+          data = globalThis.structuredClone(message, transfer ? { transfer: transfer } : undefined);
         } catch (e) {
           // If structured clone fails, send a messageerror
           var errorEvent = new MessageEvent('messageerror', { data: e });
