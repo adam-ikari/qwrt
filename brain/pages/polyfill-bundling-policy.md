@@ -5,18 +5,21 @@ category: decision
 status: active
 tags: [polyfill, bundling, memory]
 created: "2026-09-10T01:38:27"
-updated: "2026-09-10T01:38:27"
+updated: "2026-09-11T00:12:24"
 ---
 
 <!-- compiled_truth -->
-# Polyfill 打包策略（用户拍板 2026-09-10）
+## 启动加速决策链（2026-09-10 用户拍板）
 
-- **放弃** polyfill 拆独立 bundle / 外置文件分发（模式 B 的"分发用途"不再推进）。polyfill 与 qwrt 引擎**强绑定**：qjsc 字节码绑 quickjs-ng 版本 + pal 契约内部化，拆包的"独立升级"卖点不成立。
-- polyfill 与 libqwrt 同步发版、原子升级（模式 C 内嵌 .rodata 为唯一分发形态；模式 B/D 保留为宿主调试/定制后门，非产品路径）。
-- **唯一优化方向：polyfill 内存占用**（字节码体积 + 运行时驻留）。
-  - 已落地：lazy 初始化（未用 API 零启动/内存成本）、QWRT_WITH_GRPC 门控（OFF 零字节）
-  - 模式 A（zlib 压缩内嵌）已存在，字节码 154KB 压缩收益可量化
-  - 可选后续：qjsc strip 再核对、按模块砍死代码、bytecode 去重
+- 动机：加速 qwrt_create（R1 7.5ms，polyfill 占 ~2ms）。
+- 已否决路径：① 跨 context 复用反序列化字节码（QuickJS realm 绑定，实测同对象两 context 执行均写入第一个 context 的 global——b->realm 在反序列化时定死，无法摊薄）② context 预热池（复杂、驻留内存、跨 realm 不可共享，奥卡姆否决）③ 字节码级分片（esbuild 拆多入口按需 ReadObject——收益 <1ms 且每块仍要反序列化）。
+- **最终形态（保留）**：**属性级懒加载**（已实现 6c27d6a9 + 10bff38e）：14 eager + 17 lazy 单元，eval 压至 0.02ms；ReadObject（~2ms）为 QuickJS 一次性反序列化硬成本，无法 lazy。
+- 首启剩余 2ms 属引擎固有；最大头为 WAMR/libuv init（~5.5ms，73%）——未来若继续压启动，那是主战场。
+
+## 启动时间构成（实测）
+
+- JS_NewContext 0.4ms；JS_ReadObject ~2ms（不可省）；eval 0.02ms（lazy 已省）；WAMR/libuv init ~5.5ms。
+- 模式：rodata 150KB（lz4 压缩 99KB，模式可切换）；minify 已启用。
 
 
 ## Timeline
@@ -30,5 +33,11 @@ updated: "2026-09-10T01:38:27"
 - time: 2026-09-10T01:38:27
   kind: decision
   summary: Rewrote compiled_truth to the new best understanding
+  source: brain update-truth
+  affects: [polyfill-bundling-policy]
+
+- time: 2026-09-11T00:12:24
+  kind: decision
+  summary: "决策补充（2026-09-10）：放弃 context 缓存/预热池/字节码分片——属性级懒加载为最终形态"
   source: brain update-truth
   affects: [polyfill-bundling-policy]
