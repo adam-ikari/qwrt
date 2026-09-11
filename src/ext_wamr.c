@@ -38,7 +38,54 @@
 typedef struct wamr_state_t {
     uint32_t initialized;   /* CAS state: 0=uninit 1=ready 2=init-in-progress */
 } wamr_state_t;
-static wamr_state_t g_wamr_state;   /* process singleton, M-R1 §13.2: see CAS state machine in wamr_ext_init */
+static wamr_state_t g_wamr_state;   /* process singleton, M-R1 §13.2: see CAS state machine in wamr_ensure_runtime */
+
+/* Ensure the WAMR runtime is initialized (process-once) and this thread has
+ * its signal env. Called lazily from the JS entry points that actually touch
+ * the WAMR API — a runtime that never uses WebAssembly never pays init.
+ * Returns 0 on success, -1 on failure. Idempotent: the CAS state machine
+ * makes the real init run exactly once per process, and WAMR's
+ * wasm_runtime_init_thread_env is a no-op when the thread env exists.
+ *
+ * Initialize WAMR runtime (once). M-R1 §13.2: 多实例（如并发 worker
+ * 线程同时走到这里）必须只让一个线程跑 wasm_runtime_init——WAMR 全局
+ * 状态（内存池/函数表）不支持并发 init。CAS 状态机：
+ *   0 = 未初始化 → CAS 报主者 → init → 置 1
+ *   1 = 已初始化 / 初始化完成 → 直接通过
+ *   2 = 初始化进行中（非报主者 spin 等待；报主者失败回滚到 0）
+ * 项目严格 -std=c99（无 _Atomic）：uint32_t + __atomic 内建，与
+ * bridge.c g_qwrt_next_port_id 同款。 */
+static int wamr_ensure_runtime(void)
+{
+    {
+        uint32_t zero = 0, inprogress = 2;
+        if (__atomic_compare_exchange_n(&g_wamr_state.initialized, &zero,
+                                        inprogress, 0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE)) {
+            if (!wasm_runtime_init()) {
+                __atomic_store_n(&g_wamr_state.initialized, 0,
+                                 __ATOMIC_RELEASE);   /* 回滚：后续实例可重试 */
+                return -1;
+            }
+            __atomic_store_n(&g_wamr_state.initialized, 1, __ATOMIC_RELEASE);
+        } else {
+            while (__atomic_load_n(&g_wamr_state.initialized,
+                                   __ATOMIC_ACQUIRE) != 1)
+                sched_yield();   /* 并发实例等首次 init 落定 */
+        }
+    }
+
+    /* Per-thread signal env: 每个 qwrt 实例跑在自己的 worker 线程上，而
+     * WAMR 的 thread signal env（thread_signal_inited）是线程局部状态，
+     * 仅在首次 runtime init 的线程里被设置。不初始化的话，第二个及以后
+     * 的实例（新线程）调用 wasm 函数会报
+     * "thread signal env not inited"。该调用幂等（thread_signal_inited
+     * 已置位时直接返回成功）。 */
+    if (!wasm_runtime_init_thread_env()) {
+        return -1;
+    }
+    return 0;
+}
 
 /* ================================================================
  * Opaque JS object helpers — wrap WAMR handles for GC
@@ -392,6 +439,9 @@ static JSValue wamr_wasm_validate(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
 {
     (void)this_val;
+    if (wamr_ensure_runtime() != 0) {
+        return JS_ThrowInternalError(ctx, "WebAssembly: WAMR runtime init failed");
+    }
     if (argc < 1) {
         return JS_ThrowTypeError(ctx, "WebAssembly.validate requires at least 1 argument");
     }
@@ -595,6 +645,9 @@ static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
         return JS_DupValue(ctx, argv[0]);
     }
 
+    if (wamr_ensure_runtime() != 0) {
+        return JS_ThrowInternalError(ctx, "WebAssembly: WAMR runtime init failed");
+    }
     uint8_t *bytes;
     size_t byte_len;
     if (wamr_extract_buffer(ctx, argv[0], &bytes, &byte_len) < 0) {
@@ -1289,6 +1342,10 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
         return JS_ThrowTypeError(ctx, "WebAssembly.Instance: first argument must be a WebAssembly.Module");
     }
 
+    if (wamr_ensure_runtime() != 0) {
+        return JS_ThrowInternalError(ctx, "WebAssembly: WAMR runtime init failed");
+    }
+
     /* Import-object support: resolve every declared import against the
      * importObject (argv[1]) and register the JS functions as WAMR natives
      * before instantiation. A module that declares imports without a usable
@@ -1699,42 +1756,6 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 {
     JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
-
-    /* Initialize WAMR runtime (once). M-R1 §13.2: 多实例（如并发 worker
-     * 线程同时走到这里）必须只让一个线程跑 wasm_runtime_init——WAMR 全局
-     * 状态（内存池/函数表）不支持并发 init。CAS 状态机：
-     *   0 = 未初始化 → CAS 报主者 → init → 置 1
-     *   1 = 已初始化 / 初始化完成 → 直接通过
-     *   2 = 初始化进行中（非报主者 spin 等待；报主者失败回滚到 0）
-     * 项目严格 -std=c99（无 _Atomic）：uint32_t + __atomic 内建，与
-     * bridge.c g_qwrt_next_port_id 同款。 */
-    {
-        uint32_t zero = 0, inprogress = 2;
-        if (__atomic_compare_exchange_n(&g_wamr_state.initialized, &zero,
-                                        inprogress, 0, __ATOMIC_ACQ_REL,
-                                        __ATOMIC_ACQUIRE)) {
-            if (!wasm_runtime_init()) {
-                __atomic_store_n(&g_wamr_state.initialized, 0,
-                                 __ATOMIC_RELEASE);   /* 回滚：后续实例可重试 */
-                return -1;
-            }
-            __atomic_store_n(&g_wamr_state.initialized, 1, __ATOMIC_RELEASE);
-        } else {
-            while (__atomic_load_n(&g_wamr_state.initialized,
-                                   __ATOMIC_ACQUIRE) != 1)
-                sched_yield();   /* 并发实例等首次 init 落定 */
-        }
-    }
-
-    /* Per-thread signal env: 每个 qwrt 实例跑在自己的 worker 线程上，而
-     * WAMR 的 thread signal env（thread_signal_inited）是线程局部状态，
-     * 仅在首次 runtime init 的线程里被设置。不初始化的话，第二个及以后
-     * 的实例（新线程）调用 wasm 函数会报
-     * "thread signal env not inited"。该调用幂等（thread_signal_inited
-     * 已置位时直接返回成功）。 */
-    if (!wasm_runtime_init_thread_env()) {
-        return -1;
-    }
 
     /* Register JS classes for Module/Instance */
     wamr_register_classes(rt, ctx);
