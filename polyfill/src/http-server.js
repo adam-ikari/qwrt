@@ -12,7 +12,7 @@
 export function setupHttpServer(pal) {
   if (typeof pal.tcpListen !== 'function') return;
 
-  var WS_GUID = '258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5';  // RFC 6455
+  var WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';  // RFC 6455 §1.3
   var PMD_TAIL = new Uint8Array([0, 0, 0xFF, 0xFF]);  // RFC 7692 §7.2.2 inflate tail
   /* 请求头区上限：超过即视为恶意/异常，防 raw 缓冲无界增长（内存 DoS） */
   var MAX_HEADER_SIZE = 64 * 1024;
@@ -90,8 +90,9 @@ export function setupHttpServer(pal) {
 
   /* ── WS accept computation ──
    * 语义归 JS（RFC 6455 握手协议），算力下沉：SHA-1 优先走 mbedTLS 的
-   * pal.nativeDigest（crypto 扩展），base64 优先走 pal.nativeBtoa（textcodec
-   * 扩展）。两者均在 polyfill 注入后注册，必须每次调用探测。扩展被编译
+   * pal.nativeDigest（crypto 扩展），digest 经 globalThis.btoa 编码——
+   * btoa 内部对纯 ASCII 委托 nativeBtoa（textcodec 扩展）、高位字节走
+   * JS 查表。两者均在 polyfill 注入后注册，必须每次调用探测。扩展被编译
    * 开关（QWRT_WITH_CRYPTO_EXT / QWRT_WITH_TEXTCODEC）关掉时走 JS fallback。 */
   function wsAccept(key) {
     var raw = new Uint8Array(key.length + WS_GUID.length);

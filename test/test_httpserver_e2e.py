@@ -140,7 +140,7 @@ class WSClient:
         self.status = int(resp.split(b" ", 2)[1])
         expected = base64.b64encode(
             __import__("hashlib").sha1(
-                (key + "258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5").encode()).digest()).decode()  # RFC 6455
+                (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()  # RFC 6455
         if self.status != 101 or b"Sec-WebSocket-Accept: " + expected.encode() not in resp \
            and b"sec-websocket-accept: " + expected.encode() not in resp:
             raise RuntimeError("WS handshake failed: %r" % resp[:200])
@@ -1135,7 +1135,7 @@ def _raw_ws_handshake(c):
         if ln.lower().startswith(b"sec-websocket-key:"):
             key = ln.split(b":", 1)[1].strip()
     accept = base64.b64encode(
-        hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-5AB5D3D5D5E5").digest())
+        hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
     c.sendall(b"HTTP/1.1 101 Switching Protocols\r\n"
               b"Upgrade: websocket\r\nConnection: Upgrade\r\n"
               b"Sec-WebSocket-Accept: " + accept + b"\r\n\r\n")

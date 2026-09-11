@@ -34,7 +34,7 @@ HTTP_PROXY=http://127.0.0.1:18082 NO_PROXY=127.0.0.1,example.com \
 [client] via-proxy : status=200  x-proxied-by=qwrt-fetch-proxy-example  body=origin-hello
 [origin] GET /direct
 [client] direct    : status=200  x-proxied-by=null  body=origin-hello
-[client] internet  : status=200  len=1256  (NO_PROXY 直连)   # 网络可用时
+[client] internet  : status=200  len=<可变>  (NO_PROXY 直连)   # 网络可用时
 [client] done
 ```
 

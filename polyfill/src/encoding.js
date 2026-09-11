@@ -26,7 +26,7 @@ export function setupEncoding(pal) {
 
     /* nativeBtoa 由 textcodec 扩展在 polyfill 注入之后注册（context.c 注入
      * vs ext init），one-shot typeof 探测在 setup 时恒为 false，必须每次
-     * 调用探测（模式同 text-encoding.js:24 的 nativeEncodeUtf8）。
+     * 调用探测（模式同 text-encoding.js:18 的 nativeEncodeUtf8）。
      * 本循环同时完成两件事：
      *   1. Latin1 范围校验（>0xFF 抛 InvalidCharacterError，规范语义）；
      *   2. asciiOnly 判定 —— C 版 nativeBtoa 经 JS_ToCStringLen 拿到的是
