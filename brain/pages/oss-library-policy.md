@@ -5,6 +5,17 @@ category: decision
 status: active
 tags: [deps, policy, oss]
 created: "2026-09-04T13:27:08"
+updated: "2026-09-11T12:18:37"
+---
+
+<!-- compiled_truth -->
+---
+id: oss-library-policy
+title: "开源库引入与替换原则（项目级政策）"
+category: decision
+status: active
+tags: [deps, policy, oss]
+created: "2026-09-04T13:27:08"
 updated: "2026-09-07T08:45:02"
 ---
 
@@ -36,7 +47,10 @@ updated: "2026-09-07T08:45:02"
 - 候选库已否决：libwebsockets（自带事件循环，架空 pal.tcp*，违架构铁律）、picohttpparser（只吃头解析，收益不足）、nghttp2（vendor + C 绑定层成本远超 660 行现实现）、protobufjs（~200KB 且假设 Node 生态）、whatwg-fetch/undici/ws polyfill（需 XHR/Node API）。
 - 顺手清理项：`polyfill/src/index.js` 的 queueMicrotask 守卫 polyfill 是死代码（quickjs-ng 内置），可删。
 
-## 后续决策的用法
+## 2026-09-11 C 层 JSON：vendored cJSON（裁决反转）
+
+- **裁决**：C 层 JSON 解析/序列化一律使用 vendored 官方库快照 **cJSON v1.7.19**（`deps/cjson/`，上游 commit c859b25，MIT，上游原样纯快照，**禁 submodule**），禁自制轮子。本裁决推翻同日早先的"手写共享份"方案（37d1e9c2：control/ipc JSON 归并手写 `qwrt_json_*`），由用户指令"不要手写"触发，落地 commit 08985bb8（净删 201 行手写 JSON 基建；验证 offline 20/20、dap 3/3、mp1_process_e2e PASS）。
+- **唯一例外**：宿主 `cli.c` 的最小 escape——只 include cJSON 公共头，宿主边界不新增运行时 JSON 基建。
 
 新模块默认自制 + harness 测试；要引库时先对三条件逐条举证，并核对上面的基线裁决；观察对象只在触发条件成立时换，触发条件变更须走本页 update-truth；"保留"裁决按复核机制周期性重举证，CVE 与规范演进立即触发。
 
@@ -72,3 +86,47 @@ updated: "2026-09-07T08:45:02"
   summary: "更正：本页 2026-09-07T08:02:42 的 'SW1 Service Worker scope 级匹配语义落地，urlpattern-polyfill 替换…' 条目为误记——未发生 url-pattern.js→urlpattern-polyfill 替换，url.js 也未换 whatwg-url。该条内容与 SW 实际里程碑（fetch 拦截，非 scope 匹配）不符，属错误写入；正确记录见 [[service-worker-stack]]。本页 compiled_truth 审计基线（url-pattern.js 仍为自制子集，观察对象）不受影响。"
   source: "brain 记录复核修正"
   affects: [oss-library-policy]
+
+
+## Timeline
+
+- time: 2026-09-04T13:27:08
+  kind: decision
+  summary: "Created this page: 开源库引入与替换原则（项目级政策）"
+  source: "开源库替换审计会话（oss-replace-audit）"
+  affects: [oss-library-policy]
+
+- time: 2026-09-04T13:27:55
+  kind: decision
+  summary: "固化开源库审计+评审结论为项目级引入与替换原则：默认自制+三条件门槛+2026-09 全量审计基线（uv_io.c→llhttp 唯一建议替换；url.js/url-pattern.js 观察对象带触发条件；其余保留）"
+  source: "开源库替换审计会话（oss-replace-audit，5 scout 并行审计）"
+  affects: [oss-library-policy]
+
+- time: 2026-09-04T15:29:38
+  kind: decision
+  summary: "评审闭环（design-philosophy critique T3/T7）：uv_io.c→llhttp 替换裁决加硬触发（缺口实测触发 / 缺陷修复前强制评估）；新增复核机制（年度全量重举证 + CVE/规范演进事件触发）；hpack.js 从保留名单移入观察名单（interop 故障或规范表修订触发）；保留裁决明示受复核机制约束"
+  source: brain update-truth
+  affects: [oss-library-policy]
+
+- time: 2026-09-07T08:02:42
+  kind: note
+  summary: "SW1 Service Worker scope 级匹配语义落地，urlpattern-polyfill 替换自维护 url-pattern.js 子集实现并规避 IDNA 解析 bug，配套 url.js 换 whatwg-url，回归 + 24/24 worker gtest + 4/4 套件全绿。"
+  source: "SW1 Service Worker 里程碑"
+  affects: [oss-library-policy]
+
+- time: 2026-09-07T08:45:02
+  kind: note
+  summary: "更正：本页 2026-09-07T08:02:42 的 'SW1 Service Worker scope 级匹配语义落地，urlpattern-polyfill 替换…' 条目为误记——未发生 url-pattern.js→urlpattern-polyfill 替换，url.js 也未换 whatwg-url。该条内容与 SW 实际里程碑（fetch 拦截，非 scope 匹配）不符，属错误写入；正确记录见 [[service-worker-stack]]。本页 compiled_truth 审计基线（url-pattern.js 仍为自制子集，观察对象）不受影响。"
+  source: "brain 记录复核修正"
+  affects: [oss-library-policy]
+
+- time: 2026-09-11T12:18:27
+  kind: decision
+  summary: "C 层 JSON 裁决反转：由\"手写共享份\"（37d1e9c2）改判为 vendored cJSON v1.7.19 官方快照（deps/cjson/ c859b25，MIT，禁 submodule），C 层 JSON 一律用库、禁自制轮子；宿主 cli.c 最小 escape 为唯一例外（只 include 公共头）。触发：用户指令\"不要手写\"；落地 commit 08985bb8（净删 201 行手写 JSON 基建）"
+  source: brain update-truth
+  affects: [oss-library-policy]
+
+- time: 2026-09-11T12:18:37
+  kind: reversal
+  summary: "2026-09-11 用户指令\"不要手写\"推翻同日早先\"C 层 JSON 手写共享份\"裁决（37d1e9c2：control/ipc 归并手写 qwrt_json_*）：C 层 JSON 一律 vendored 官方库快照（cJSON v1.7.19，deps/cjson/ 快照 c859b25，MIT，禁 submodule），禁自制轮子；宿主 cli.c 最小 escape 为唯一例外（只 include 公共头）。落地 commit 08985bb8（净删 201 行），验证 offline 20/20、dap 3/3、mp1_process_e2e PASS"
+  affects: [c-js-layering]
