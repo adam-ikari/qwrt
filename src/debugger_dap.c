@@ -388,9 +388,10 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
                               const char *args, int req_seq);
 
 /* The DAP callback for on_stopped. Pumps DAP requests until a flow command.
- * Note: async JS cannot advance while paused — the loop is driven by the qwrt
- * thread, which is inside JS_Eval here. Async-while-paused needs a later
- * model change (TODO: pump uv_run from a poll timeout). */
+ * Design note: while paused the world is frozen by design — async JS (timers,
+ * PAL callbacks) does not advance, and the re-entrancy guard in debugger.c
+ * suppresses PAL-driven re-entry. This matches standard debugger semantics
+ * (freeze on break). */
 static void dap_on_stopped(qwrt_debug_t *dbg, const char *reason, int thread_id)
 {
     (void)thread_id;
