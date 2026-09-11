@@ -31,9 +31,10 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 - mbedTLS（TLS + crypto.subtle）、miniz（compress）、textcodec（UTF-8/Base64）
 
 ### 质量
-- gtest（mock_libuv 离线确定性）ctest offline 13/13 全绿；e2e 10 PASS + 0 SKIP
-- CI 12 job：minimal / feature-matrix / wamr / wasm3 / asan / ubsan / release /
-  coverage / debugger / test262 / clang-tidy / httpserver-perf
+- gtest（mock_libuv 离线确定性）ctest offline 20/20 全绿；e2e 19 PASS
+- CI 16 job：minimal / feature-matrix / wamr / wasm3 / asan / ubsan / release /
+  coverage / debugger / test262 / clang-tidy / httpserver-perf / h2-client-perf /
+  runtime-perf / cross-runtime / e2e
 - 服务端性能基线（wrk，阈值=基线 50%）：tiny 12.6k / small 3.1k / medium(16K) 256 / post 10.5k
 
 ## 二、架构原则
@@ -73,10 +74,10 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| A1 | **异步文件 I/O 回归** ✅ | `fsRead/fsReadBinary` 已改回异步（`uv_io_fs_read`），修复根因（`uv_fs_read` 直接写入 iov 目标缓冲，删除多余 memcpy / UAF）。`fsExists/fsList/fsRemove/fsWrite` 走 `uv_io_*` 异步原语，补测试即可。 | 多连接并发读文件不阻塞事件循环；e2e fs 往返；ctest offline 13/13 |
-| A2 | **多上下文 / Worker 健壮性** ✅ | 软挂起边界 4 例（destroy 后 resume 同槽、坏 state 路径、skipped 语义、10 轮循环复用）、transferable 错误路径全覆盖（重复/不可转移/detached → DataCloneError 无副作用）、worker 错误事件流补齐（timer 回调异步抛错接入 reportError）。修 2 个实现缺口（timers 错误流、detached transfer 校验）。 | gtest + 压力：suspend 6/6、worker 23/23、offline ctest 14/14 |
+| A1 | **异步文件 I/O 回归** ✅ | `fsRead/fsReadBinary` 已改回异步（`uv_io_fs_read`），修复根因（`uv_fs_read` 直接写入 iov 目标缓冲，删除多余 memcpy / UAF）。`fsExists/fsList/fsRemove/fsWrite` 走 `uv_io_*` 异步原语，补测试即可。 | 多连接并发读文件不阻塞事件循环；e2e fs 往返；ctest offline 20/20 |
+| A2 | **多上下文 / Worker 健壮性** ✅ | 软挂起边界 4 例（destroy 后 resume 同槽、坏 state 路径、skipped 语义、10 轮循环复用）、transferable 错误路径全覆盖（重复/不可转移/detached → DataCloneError 无副作用）、worker 错误事件流补齐（timer 回调异步抛错接入 reportError）。修 2 个实现缺口（timers 错误流、detached transfer 校验）。 | gtest + 压力：suspend 6/6、worker 23/23、offline ctest 20/20 |
 | A3 | 引擎升级跟进 | QuickJS-ng 上游合并策略（小补丁 diff 管理）。 | test262 通过率 |
-| A4 | DAP 调试器完善 | `debugger_dap.c` TODO：uv_run 轮询超时驱动；多上下文断点。 | 集成测试 |
+| A4 | DAP 调试器完善 ✅ | 裁决：暂停=世界冻结 by design（与 debugger.c re-entrancy guard 一致）；过时 TODO 删除。多上下文断点在单活动 context 协作模型下由全局断点表正确覆盖（伪需求不实现）。 | test_dap_gtest 3/3（ctest -L dap） |
 
 ### B. WinterTC 标准合规
 
@@ -106,16 +107,6 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | D4 | **WS server 增强** ✅ | 分片 ✅、子协议协商 ✅、permessage-deflate ✅（RFC 7692：协商、RSV1 收发、上下文 takeover；C 层流式 deflate/inflate 原语 `pal.deflate*/inflate*`）。Ping/Pong 保活不做（应用层策略）。 | e2e 16/16；ASan 0 泄漏 |
 | D5 | **大响应性能** ✅ | 大文件 `fsReadBinary` 零拷贝（uv_io 直写 JS ArrayBuffer backing，无中间拷贝）；修复非 keep-alive 大响应截断（uv_close 取消未决 uv_write）与对象响应后多发 500 的 return 缺失；SIGPIPE 忽略（wrk 中断连不再崩）。 | wrk 提升；e2e 19/19；TLS 压测不崩 |
 
-
-### H. gRPC/HTTP2
-
-| # | 工作项 | 说明 | 验证 |
-|---|--------|------|------|
-| H1 | **Phase0 — pal.tcpConnect TLS 客户端 + ALPN h2 协商** ✅ | `tcpConnect` 新增可选 `opts.tls`（`{ca?, servername?, alpn:['h2']}`），照搬 `uv_io.c` TLS 客户端模板；握手后 `mbedtls_ssl_get_alpn_protocol` 校验 "h2"，否则 `onerror`。 | e2e 30/30（含 6 TLS 用例） |
-| H2 | **Phase1 — 纯 JS HTTP/2 客户端栈** ✅ | `hpack.js`（HPACK 编解码，61 项静态表 + 257 项 Huffman 表 + 动态表）+ `http2.js`（帧层 + 多路复用 + 连接/流双窗口流控 + CONTINUATION 重组 + trailers + PING/RST/GOAWAY）。 | hpack 14/14 + 帧 16/16 + e2e 22/22 |
-| H3 | **Phase2 — gRPC unary 客户端 + proto3/flatbuffers 序列化 + QWRT_WITH_GRPC 编译开关** ✅ | `protobuf.js`（动态 proto3 子集解析器 + wire 编解码）+ `flatbuffers.js`（FlatBuffers 编解码）+ `grpc.js`（unary 语义、5 字节消息前缀、trailers、grpc-status 映射、deadline、metadata）。`QWRT_WITH_GRPC` CMake 开关（默认 OFF）：ON 时将 h2/HPACK/gRPC/protobuf/flatbuffers 打入 polyfill bundle；OFF 时完全消除（零字节进 bundle）。 | grpc e2e 24/24 + flatbuffers 70/70 + ctest 15/15 无回归；OFF 构建 268KB 全消除 / ON 411KB |
-| H4 | **Phase3 — 服务端 gRPC（serve() ALPN 分发 + h2 server）** ✅ | `tcpListen` TLS 加 ALPN `h2`；明文连接嗅探 `PRI * HTTP/2.0` 前导自动切 h2c；服务端 h2 引擎 + gRPC 服务端语义。决策点：HPACK 不下沉 C（架构铁律：协议在 JS，C 只给原语）。 | http2-server.js（~486 行，帧层/流控/PING/RST/GOAWAY）+ grpc-server.js（~226 行，unary/路由/trailers/StatusError 映射）；serve() 分流 alpn=h2(TLS)→h2 / 24 字节前导→h2c；grpc harness 服务端节 + gtest 全绿（76b50cd9 + ce3e09fc） |
-| H5 | **flatbuffers JS 层退役** ✅ | 用户决策：flatbuffers 定位为纯 C 层内部格式（当前无 C 消费者，不实现）。JS 层退役理由：JS 急切 decode 无性能优势，zero-copy 仅在 C 层成立；Worker 间为同进程共享内存通信，非 IPC 场景，无需跨进程序列化协议。gRPC 序列化 protobuf-only；删除 flatbuffers.js / grpc loadFlatbuffers / flatbuffers harness。 | grpc_harness protobuf + grpc-js 节全绿；ctest offline 无回归 |
 ### E. 工具链
 
 | # | 工作项 | 说明 | 验证 |
@@ -127,7 +118,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| F1 | CI 全绿 ✅(本地) | 消除 SKIP（gzip）✅；feature-matrix / ASan / UBSan 待 push 后 CI 确认。 | CI 状态 |
+| F1 | CI 全绿 ✅（远端连续通过） | 消除 SKIP（gzip）✅。 | CI 状态 |
 | F2 | **覆盖率** ✅ | fs 错误路径（读缺失/写缺失目录/readdir 缺失/unlink 缺失）、多块大文件读取、readdir >32 条目扩容、WS 客户端错误路径（拒绝连接/非 WS 端点握手）补测。 | gtest + e2e 19/19 ✅ |
 | F3 | **启动/内存** ✅ | 大文件零拷贝评估落地：`fsReadBinary` ArrayBuffer 直写（uv_io_fs_read_ex + bridge_zc），fstat 定容 + EOF probe，超容/错误回退 malloc。 | 基准 + e2e 19/19 |
 | F4 | 安全审计 ✅ | 路径穿越、消息边界、TLS 证书校验、原型链污染四领域审计；发现并修复 4 漏洞（structured-clone `__proto__` 污染 ×2 处路径、msgq malloc OOM、clone 字节流长度无界、http 头对象污染），新增 3 回归测试。 | polyfill gtest 68/68；e2e 17/17 ✅ |
@@ -136,15 +127,25 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| G1 | API 参考 | serve / fs / compress / crypto / worker 文档（网站 + repo）。 | 文档可跑通 |
-| G2 | examples 扩充 | httpserver 已做；补 worker 编排、流式管道、代理。 | example 可跑 |
+| G1 | API 参考 ✅ | serve / fs / compress / crypto / worker 文档（网站 + repo）。 | 文档可跑通 |
+| G2 | examples 扩充 ✅ | httpserver 已做；worker 编排、流式管道已有；代理示例由 e2e fetch-proxy 用例覆盖，独立 example 待补。 | example 可跑 |
 | G3 | **打包** ✅ | `qwrt.pc`（原 libqwrt.pc，完整 Libs）、静态库目标（libqwrt/libqwrt_full）+ 全部 vendored 依赖归档安装完整、无系统依赖构建；WAMR fast-jit 关闭（vmlib 纯 C）。 | CMake 验证 ✅（pkg-config 消费方编译/链接/运行 OK） |
+
+### H. gRPC/HTTP2
+
+| # | 工作项 | 说明 | 验证 |
+|---|--------|------|------|
+| H1 | **Phase0 — pal.tcpConnect TLS 客户端 + ALPN h2 协商** ✅ | `tcpConnect` 新增可选 `opts.tls`（`{ca?, servername?, alpn:['h2']}`），照搬 `uv_io.c` TLS 客户端模板；握手后 `mbedtls_ssl_get_alpn_protocol` 校验 "h2"，否则 `onerror`。 | e2e 30/30（含 6 TLS 用例） |
+| H2 | **Phase1 — 纯 JS HTTP/2 客户端栈** ✅ | `hpack.js`（HPACK 编解码，61 项静态表 + 257 项 Huffman 表 + 动态表）+ `http2.js`（帧层 + 多路复用 + 连接/流双窗口流控 + CONTINUATION 重组 + trailers + PING/RST/GOAWAY）。 | hpack 14/14 + 帧 16/16 + e2e 22/22 |
+| H3 | **Phase2 — gRPC unary 客户端 + proto3/flatbuffers 序列化 + QWRT_WITH_GRPC 编译开关** ✅ | `protobuf.js`（动态 proto3 子集解析器 + wire 编解码）+ `flatbuffers.js`（FlatBuffers 编解码）+ `grpc.js`（unary 语义、5 字节消息前缀、trailers、grpc-status 映射、deadline、metadata）。`QWRT_WITH_GRPC` CMake 开关（默认 OFF）：ON 时将 h2/HPACK/gRPC/protobuf/flatbuffers 打入 polyfill bundle；OFF 时完全消除（零字节进 bundle）。 | grpc e2e 24/24 + flatbuffers 70/70 + ctest 15/15 无回归；OFF 构建 268KB 全消除 / ON 411KB |
+| H4 | **Phase3 — 服务端 gRPC（serve() ALPN 分发 + h2 server）** ✅ | `tcpListen` TLS 加 ALPN `h2`；明文连接嗅探 `PRI * HTTP/2.0` 前导自动切 h2c；服务端 h2 引擎 + gRPC 服务端语义。决策点：HPACK 不下沉 C（架构铁律：协议在 JS，C 只给原语）。 | http2-server.js（~486 行，帧层/流控/PING/RST/GOAWAY）+ grpc-server.js（~226 行，unary/路由/trailers/StatusError 映射）；serve() 分流 alpn=h2(TLS)→h2 / 24 字节前导→h2c；grpc harness 服务端节 + gtest 全绿（76b50cd9 + ce3e09fc） |
+| H5 | **flatbuffers JS 层退役** ✅ | 用户决策：flatbuffers 定位为纯 C 层内部格式（当前无 C 消费者，不实现）。JS 层退役理由：JS 急切 decode 无性能优势，zero-copy 仅在 C 层成立；Worker 间为同进程共享内存通信，非 IPC 场景，无需跨进程序列化协议。gRPC 序列化 protobuf-only；删除 flatbuffers.js / grpc loadFlatbuffers / flatbuffers harness。 | grpc_harness protobuf + grpc-js 节全绿；ctest offline 无回归 |
 
 ## 四、里程碑节奏
 
 | 里程碑 | 内容 | 节奏 |
 |--------|------|------|
-| M1 ✅ | **异步 I/O 回归 + gzip 恢复 + fs 全路径测试**（A1/B1/F1本地完成；CI 待 push 确认） | 1 周 |
+| M1 ✅ | **异步 I/O 回归 + gzip 恢复 + fs 全路径测试**（A1/B1/F1 完成，CI 已确认） | 1 周 |
 | M2 ✅ | **HTTP/1.1 细节 + WS 增强 + 流式 body**（D1–D4 全部完成） | 2–4 周 |
 | M3 ✅ | fetch 完善 + streams 覆盖 + WASM 流式（B2/B3/C1 全部完成） | 1–2 月 |
 | M4 ✅ | **质量与性能（F 全项）+ 大响应优化（D5）**（F2/F3 + C2/C3 + D5 + E1/E2 全部完成） | 持续 |
@@ -154,7 +155,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | 里程碑 | gtest | e2e | 额外门槛 |
 |--------|-------|-----|----------|
-| M1 ✅ | 13/13 | 10/10 | fs 多连接并发不阻塞（已验）；ASan 无 fs 崩溃 |
+| M1 ✅ | 20/20 | 19/19 | fs 多连接并发不阻塞（已验）；ASan 无 fs 崩溃 |
 | M2 | 全绿 | HTTP/1.1+WS 全绿 | wrk 无回退 |
 | M3 | 全绿 | 全绿 | test262 通过率不降 |
 | M4 ✅ | 全绿 | 全绿 | asan/ubsan 清零；wrk 大响应显著提升；TLS 压测 2600+ 连接 0 崩溃 |
@@ -171,6 +172,6 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 ## 七、参考
 
 - `README.md` — 项目定位 / API / WinterTC 模块表 / 构建选项
-- `brain/pages/` — 各领域决策（worker-transferable、wintertc-byob-streams、wasm-engine-integration、httpserver-perf-baseline 等 16 页）
+- `brain/pages/` — 各领域决策（worker-transferable、wintertc-byob-streams、wasm-engine-integration、httpserver-perf-baseline 等 35 页）
 - `examples/httpserver/` — 应用层完整 HTTP 服务器示例
 - `test/` — gtest 套件 + e2e + mock_libuv
