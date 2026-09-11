@@ -132,7 +132,7 @@ TEST(IpcEnvelope, TruncatedPrefixes)
     const uint8_t payload[] = {1, 2, 3, 4};
     std::vector<uint8_t> buf(IPC_ENVELOPE_ENCODED_SIZE(4));
     size_t n = ipc_envelope_encode(buf.data(), buf.size(), 3, 4,
-                                   IPC_ENV_KIND_ERROR, payload, 4);
+                                   IPC_ENV_KIND_CONTROL, payload, 4);
     ASSERT_EQ(n, buf.size());
     for (size_t cut = 0; cut < n; cut++) {
         ipc_envelope_view_t v;

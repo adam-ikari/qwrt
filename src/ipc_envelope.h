@@ -49,8 +49,6 @@ extern "C" {
 
 /* kind — matches design doc §4.1 */
 #define IPC_ENV_KIND_MESSAGE        0
-#define IPC_ENV_KIND_PORT_TRANSFER  1
-#define IPC_ENV_KIND_ERROR          2
 #define IPC_ENV_KIND_CONTROL        3
 
 /* Canonical encoding is always fully populated: 40 bytes of header/table
