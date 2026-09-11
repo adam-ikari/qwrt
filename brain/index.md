@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-11T00:13:33.253Z._
+_Auto-generated. Last updated 2026-09-11T10:02:27.061Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [c-js-layering](pages/c-js-layering.md) — category: decision | tags: [arch, layering, policy] | # C/JS 分层原则与标准（判据摘要）
@@ -30,6 +30,7 @@ _Auto-generated. Last updated 2026-09-11T00:13:33.253Z._
 - [streams-b3-semantics](pages/streams-b3-semantics.md) — category: decision | tags: [streams, wintertc, ecma-429] | - **背景**：ROADMAP B3（streams 覆盖）对照 WHATWG Streams 语义审计 polyfill/src/streams.js，发现 pipeTo/tee/pipeThrough/releaseLock 四处真实缺口。
 - [test262-ctest-fix](pages/test262-ctest-fix.md) — category: decision | tags: [test262, ctest, cmake] | ## 现象
 - [urlpattern-modifier-fix](pages/urlpattern-modifier-fix.md) — category: decision | tags: [urlpattern, wintertc, ecma429, polyfill] | ## 问题
+- [wamr-init-lazy](pages/wamr-init-lazy.md) — category: decision | tags: [wamr, startup, lazy-init] | ## 决策
 - [wasm-engine-integration](pages/wasm-engine-integration.md) — category: decision | tags: [wasm, wamr, threading] | # WAMR 线程环境（关键坑）
 - [wintertc-byob-streams](pages/wintertc-byob-streams.md) — category: decision | tags: [wintertc, streams, byob, ecma-429] | - **背景**：ECMA-429（WinterTC Minimum common web API，2025 snapshot）要求 Streams 的三个 BYOB 接口必须暴露在 globalThis 上：`ReadableByteStreamController`、`Rea
 - [wintertc-crypto-performance-globals](pages/wintertc-crypto-performance-globals.md) — category: decision | tags: [wintertc, ecma-429, crypto, performance] | - **背景**：ECMA-429（WinterTC Minimum common web API）WEBCRYPTO 要求 globalThis 暴露 `Crypto`/`CryptoKey`/`SubtleCrypto`/`crypto`，HR-TIME 要求 `Perfor

@@ -15,7 +15,7 @@ description: Qwrt.js architecture design document — C99 runtime layering, comp
 > `qwrt_get_runtime_data`/`qwrt_set_runtime_data`/`qwrt_free`），宿主与运行时通过
 > JSON 消息通信；`platform/` 树、`qwrt_pal.h`、`QWRT_PAL_*` 选项与
 > `qwrt_eval`/`qwrt_tick` 等旧 API 全部删除。当前设计见
-> `docs/superpowers/specs/2026-08-12-qwrt-libuv-native-design.md`，测试用 mock_libuv。
+> `docs/archive/superpowers/specs/2026-08-12-qwrt-libuv-native-design.md`，测试用 mock_libuv。
 > 下文 §3、§4、§7、§8、§9、§12 均为旧架构内容，仅作历史参考。
 
 ## 1. 概述

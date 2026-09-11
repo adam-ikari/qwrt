@@ -23,7 +23,7 @@ updated: "2026-08-28T15:53:31"
 - time: 2026-08-14T09:22:43
   kind: decision
   summary: "Created this page: Worker 错误事件流设计"
-  source: docs/superpowers/plans/2026-08-14-standard-compliance.md Task 1
+  source: docs/archive/superpowers/plans/2026-08-14-standard-compliance.md Task 1
   affects: [worker-error-events]
 
 - time: 2026-08-14T09:22:48

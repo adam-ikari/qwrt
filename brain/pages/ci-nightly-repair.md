@@ -2,7 +2,7 @@
 id: ci-nightly-repair
 title: "CI 修复例行：每晚 02:00 自动调查修复"
 category: decision
-status: active
+status: completed
 tags: [ci, nightly, scheduling]
 created: "2026-09-09T10:34:20"
 updated: "2026-09-09T19:36:48"

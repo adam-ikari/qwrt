@@ -4,7 +4,7 @@
 > 日期：2026-09-09
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式/边缘）——"这该进 C 还是 JS"的唯一裁决依据，供所有新模块/新能力归类时引用。
 > 背景：用户指令——**C 与 JS 分层需要有原则和标准**。本文从第一性原理 + 现有实现（协议栈先例、spawn 分层化、信封/队列归类）归纳，将 ROADMAP §二.1 的单一表述（"能力原语 vs 协议策略"）展开为可逐条引用的判据、灰区决策流程与全量模块归类清单。
-> 依据：ROADMAP §二.1；`docs/plans/2026-09-03-grpc-http2-design.md` §2.2-2.4；`docs/plans/2026-09-04-multi-process-model.md` §4；commit `606acb81`（spawn 分层化）；`polyfill/src/*.js`；`src/msgq.c`、`src/ipc_envelope.c`；brain `[[oss-library-policy]]`、`[[qwrt-positioning]]`、`[[httpserver-ws-fixes]]`、`[[wpt-runner-removed]]`。
+> 依据：ROADMAP §二.1；`docs/archive/plans/2026-09-03-grpc-http2-design.md` §2.2-2.4；`docs/archive/plans/2026-09-04-multi-process-model.md` §4；commit `606acb81`（spawn 分层化）；`polyfill/src/*.js`；`src/msgq.c`、`src/ipc_envelope.c`；brain `[[oss-library-policy]]`、`[[qwrt-positioning]]`、`[[httpserver-ws-fixes]]`、`[[wpt-runner-removed]]`。
 > 冲突处置：本文件与 brain 决策页冲突时，以 brain 为准修订本文件（ROADMAP §二.9 SSOT 分工同款）。
 
 **核心结论（TL;DR）**
@@ -252,6 +252,17 @@ polyfill bundle 是**单一替换单元**（`build.js` 打包 + `QWRT_WITH_GRPC`
 - **结论**：lock-free MPSC 消息队列归 C（src/msgq.c）。
 - **依据**：性能关键（每消息一次 ACQ_REL exchange + 内存序精细控制，规避 PVE 6.17 futex 唤醒不可靠）+ 接口稳定（`qwrt_msg_push/pop/has_pending/free` 四符号长期不变）。线程安全是 C 才能表达的能力（C3 + C4）。
 
+## 6.6 C 层手写 JSON 取值/解析四站点：全部留 C，纯查找型归并一份
+
+- **结论**（2026-09-11，逐站点核查调用时机/线程/生命周期后裁决）：
+  1. `debugger_dap.c`（json_parse_string/json_get/json_get_int，增量 parser）：留 C。解析点 `dap_on_stopped` 暂停泵运行在 JS 断点内——世界冻结、引擎栈在断点现场，`JS_ParseJSON` 属引擎重入。增量 parser 结构体独立保留，不并入共享份。
+  2. `control.c`（ctl_json_find_val/get_str/get_int）：留 C + 归并。`qwrt_control` 在生产者线程，无 JSContext（JSRuntime 归 qwrt 线程所有），且 interrupt 要求 runtime 暂停/未初始化也能入队生效；完整解析已在 dispatch（qwrt 线程）走 `JS_ParseJSON`。三份本地提取器删除，改用 qwrt_internal.h 共享份。
+  3. `ipc_process.c`（json_find_int）：留 C + 归并。两个调用点都在 JS context 尚不存在的窗口——父进程 spawn 同步握手、子进程 rt_main 启动顺序 handshake（步骤 2）先于 qwrt_t init（步骤 3）。改走 JS 需倒置启动顺序。改用共享份。
+  4. `cli.c`（json_escape/json_unescape）：留 C，不归并。escape 调用点在 `qwrt_create` 之前构造 bootstrap（引擎不存在，循环依赖）；cli.c 刻意只 include 公共头 `qwrt/qwrt.h`，是 libqwrt 的 dogfood 宿主，不可见引擎内部 API。
+- **归并**：control + ipc 的纯字符串查找型取值（不 build parser 状态、无转义解码、无嵌套/数组遍历）归并为 `qwrt_internal.h` 的 `qwrt_json_find_val/get_str/get_int` static inline 一份（4 份实现 → 2 份：共享份 + DAP parser）。只服务扁平 JSON 顶层简单标量；需要更多 JSON 语义时应把解析挪 JS 层，而非扩展轮子。
+- **vendor 评估**（oss-library-policy，jsmn/cJSON/parson 候选）：均不 vendor。DAP parser ~280 行且 serializer 另占其半，jsmn 只替换解析半边、行为零收益纯迁移成本，且 `test_dap_gtest` 8 场景已锁定行为——若未来 DAP 需全量协议化（增量扩展困难成实测负担）再评 vendor；control/ipc 3 字段/3 整数提取，vendor 任何库均为依赖倒挂；cli 在公共宿主面，引第三方库进示例宿主更糟。vendor 是引入依赖（vendored 文件 + CMake + 上游跟进），同收益取更小。
+- **共同前提**：四处取值对象均为受信任/自产 JSON（IDE 客户端、本进程回执信封、自产 handshake、自产 eval 信封），非攻击面；恶意输入场景不适用此裁决。
+
 ---
 
 # 7. 违反案例警示：uvhttp（协议进 C 的实际代价）
@@ -281,8 +292,8 @@ git 历史中 C 层 HTTP 服务器引入又整体移除——这是本标准的*
 # 8. 引用关系
 
 - ROADMAP §二.1（能力原语 vs 协议策略）——本文是其展开与操作化。
-- `docs/plans/2026-09-03-grpc-http2-design.md` §2.2-2.4——h2 选型、nghttp2 否决、D-HPACK 决策点。
-- `docs/plans/2026-09-04-multi-process-model.md` §4——信封 fb、payload 结构化克隆字节的层界。
+- `docs/archive/plans/2026-09-03-grpc-http2-design.md` §2.2-2.4——h2 选型、nghttp2 否决、D-HPACK 决策点。
+- `docs/archive/plans/2026-09-04-multi-process-model.md` §4——信封 fb、payload 结构化克隆字节的层界。
 - commit `606acb81`——spawn 分层化范例。
 - brain `[[oss-library-policy]]`——"默认自制 + 单向举证"门槛模式，本文灰区默认归 JS 同构。
 - brain `[[qwrt-positioning]]`——IoT 连接性中枢定位，约束能力面边界。

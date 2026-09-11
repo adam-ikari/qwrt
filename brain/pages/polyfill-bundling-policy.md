@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [polyfill, bundling, memory]
 created: "2026-09-10T01:38:27"
-updated: "2026-09-11T00:12:24"
+updated: "2026-09-11T10:02:27"
 ---
 
 <!-- compiled_truth -->
@@ -41,3 +41,8 @@ updated: "2026-09-11T00:12:24"
   summary: "决策补充（2026-09-10）：放弃 context 缓存/预热池/字节码分片——属性级懒加载为最终形态"
   source: brain update-truth
   affects: [polyfill-bundling-policy]
+
+- time: 2026-09-11T10:02:27
+  kind: reversal
+  summary: "指向 wamr-init-lazy——WAMR init 主战场已由懒加载解决（3a8c26e9），启动 R1 降至 4.82ms median"
+  affects: [wamr-init-lazy]

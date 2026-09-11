@@ -11,7 +11,7 @@ updated: "2026-09-09T01:01:11"
 <!-- compiled_truth -->
 > **测试策略（2026-09-09 用户拍板）：性能基准一律在 CI 环境（GitHub Actions ubuntu-latest）执行，不使用本机。** 本机（Ryzen 5800H / PVE）受负载（竞争 load 8-15）、构建类型（Debug/Release 混用）、环境漂移影响，数值不可复现；CI runner 机器一致、可复现，是唯一权威基线来源。本机仅在开发期做 `--quick` 快速冒烟（验证 harness 能跑），本机数值**不作权威基线、不记录为基线**。本页全部本机数值为**一次性测量（历史参考）**，权威基线见下方 CI 环境基线段 / CI cross-runtime job。
 
-运行时性能基线（R1-R6，THREAD vs PROCESS 双后端）。比值=PROCESS/THREAD。来源 test/bench_runtime.py + ci.yml runtime-perf job（设计文档 docs/plans/2026-09-04-runtime-perf-benchmark-design.md §5.2 指定本页）。
+运行时性能基线（R1-R6，THREAD vs PROCESS 双后端）。比值=PROCESS/THREAD。来源 test/bench_runtime.py + ci.yml runtime-perf job（设计文档 docs/archive/plans/2026-09-04-runtime-perf-benchmark-design.md §5.2 指定本页）。
 
 ## 本地基线（Ryzen 5800H / PVE 6.17，Release build，commit f4ab5776，2026-09-04）——**历史参考**（2026-09-09 起基准仅 CI 环境，本机不测；数值保留作历史）
 - R1 冷启动：median 15.9ms（n=5，Release build_rel，2026-09-09 跨运行时实测回填；Debug+ASan 参考 40–73ms，见 startup-memory-benchmark 页）
@@ -61,7 +61,7 @@ updated: "2026-09-09T01:01:11"
 - time: 2026-09-08T16:56:45
   kind: decision
   summary: "本地首轮基线落档（Ryzen 5800H / Release / f4ab5776）：spawn ready 1.51×、terminate 1353×、往返 ~1×、吞吐 0.3×、worker VmHWM 22.4 vs 13.1MB——证伪原 ≫10×/10~50× 预测量级"
-  source: docs/plans/2026-09-04-runtime-perf-benchmark-design.md
+  source: docs/archive/plans/2026-09-04-runtime-perf-benchmark-design.md
   affects: [runtime-perf-baseline]
 
 - time: 2026-09-08T16:56:45

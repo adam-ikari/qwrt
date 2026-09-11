@@ -234,7 +234,7 @@ Example: the Web Crypto 65536-byte cap on `getRandomValues` lives in
 - `docs/` is a VitePress site (`.vitepress/`, `zh/`) plus design docs
   (`qwrt-architecture-design.md` — PAL sections marked deprecated after the
   libuv-native migration) and the current migration spec
-  (`docs/superpowers/specs/2026-08-12-qwrt-libuv-native-design.md`).
+  (`docs/archive/superpowers/specs/2026-08-12-qwrt-libuv-native-design.md`).
 
 <!-- BEGIN brain.md -->
 ## Project Brain
