@@ -1747,6 +1747,168 @@ TEST_F(PolyfillTest, EventSourceNon200NoReconnect) {
     EXPECT_FALSE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 400));
 }
 
+TEST_F(PolyfillTest, EventSourceRetryBackoffTiming) {
+    /* P1-6 补课：retry: 改变重连延时的"时间维度"验证。既有
+     * EventSourceReconnectLastEventId 只验证重连发生 + 头带 Last-Event-ID，
+     * 未验证延时本身——retry 被忽略/单位错/写死 0 都测不出来。
+     * mock_libuv 的 timer 按单调时钟触发，host_poll_until_value 的预算按
+     * 真实流逝时间记账，可安全断言窗口。 */
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _esConns.push({url:url, headers:headers, onHeaders:onHeaders, onData:onData, onEnd:onEnd}); return 0;\n"
+        "};\n"
+        "var es = new EventSource('http://x/s');\n"
+        "'ok'", &v));
+    /* 首连 200 + retry: 50 → 重连延时从默认 3000ms 缩到 50ms */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(200, '{}');\n"
+        "_esConns[0].onData(new TextEncoder().encode('retry: 50\\n\\n').buffer);\n"
+        "globalThis.__t0 = performance.now();\n"
+        "_esConns[0].onEnd(0);\n"
+        "'ok'", &v));
+    /* 40ms 预算内第二次连接不得出现（retry 生效 → 延时 50ms > 40ms）；
+     * 若 retry 被忽略（仍 3000ms）或被写成 0（立即重连），这里都会抓到。 */
+    EXPECT_FALSE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 40));
+    ASSERT_TRUE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 1000)) << v;
+    /* 第二次连接发生在 ~50ms 量级而非 3000ms 量级：上一步 1s 预算成功即覆盖。
+     * reconnection time 是 EventSource 对象级状态：retry 设置后跨流持久，
+     * 不因新连接重置回 3000ms。第三次重连仍应在 ~50ms 量级出现；若实现
+     * 每流重置，500ms 预算内不会有第三次连接。 */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[1].onEnd(0);\n"
+        "'ok'", &v));
+    ASSERT_TRUE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "3", &v, 500)) << v;
+}
+
+TEST_F(PolyfillTest, EventSourceReconnectDropsPartialBufferedData) {
+    /* P1-6 补课：跨流解析器状态隔离。流 1 收到未终结的 data: 行（无空行
+     * dispatch）后 onEnd → 重连。已缓冲的 "stale" 不得在流 2 泄漏派发，
+     * 否则重连后消费端收到不属于新流的数据。 */
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _esConns.push({url:url, headers:headers, onHeaders:onHeaders, onData:onData, onEnd:onEnd}); return 0;\n"
+        "};\n"
+        "var es = new EventSource('http://x/s');\n"
+        "var _rec = '';\n"
+        "es.onmessage = function(ev){ _rec += '[' + ev.data.replace(/\\n/g, '<LF>') + '|' + ev.lastEventId + ']'; };\n"
+        "'ok'", &v));
+    /* 流 1：retry: 10 + 无空行收尾的 data 行 → 不派发，重连 */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(200, '{}');\n"
+        "_esConns[0].onData(new TextEncoder().encode('retry: 10\\ndata: stale\\n').buffer);\n"
+        "_esConns[0].onEnd(0);\n"
+        "JSON.stringify([_rec, es.readyState])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"\",0]")) << "got: " << v;
+    /* 流 2：一行完整 data + 空行 → 只派发 fresh，无 stale */
+    ASSERT_TRUE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 2000));
+    ASSERT_TRUE(host_value(h,
+        "_esConns[1].onHeaders(200, '{}');\n"
+        "_esConns[1].onData(new TextEncoder().encode('data: fresh\\n\\n').buffer);\n"
+        "JSON.stringify(_rec)", &v));
+    EXPECT_NE(std::string::npos, v.find("[fresh|]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, EventSourceParserFieldEdgeCases) {
+    /* P1-6 补课：字段词法边界。①无冒号行（整行是字段名、值空 → 已知字段
+     * 都不命中）；②retry: 非数字 → 不改变重连延时；③id 值含 NUL → 该 id
+     * 忽略（Last-Event-ID 不得带上）；④未知字段 → 忽略不崩。
+     * 防的 bug：parseInt 宽松解析、NUL 混入请求头、词法分支把无冒号行当
+     * data。 */
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _esConns.push({url:url, headers:headers, onHeaders:onHeaders, onData:onData, onEnd:onEnd}); return 0;\n"
+        "};\n"
+        "var es = new EventSource('http://x/s');\n"
+        "var _rec = ''; var _err = 0;\n"
+        "es.onmessage = function(ev){ _rec += '[' + ev.data + ']'; };\n"
+        "es.onerror = function(){ _err++; };\n"
+        "'ok'", &v));
+    /* 无冒号 data/event/retry 变体 + 非法 retry + NUL id + 未知字段 + 真数据 */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(200, '{}');\n"
+        "_esConns[0].onData(new TextEncoder().encode('data\\nevent\\nretry: abc\\nbogus x\\nid: bad\\u0000id\\ndata: real\\n\\n').buffer);\n"
+        "_esConns[0].onEnd(0);\n"
+        "JSON.stringify([_rec.replace(/\\n/g, '<LF>'), _err, es.readyState])", &v));
+    /* 恰好派发一条 real（data 行的值含换行拼接 LF——无冒号 data 行贡献空串）；
+     * 错误事件恰一次（onEnd 重连） */
+    EXPECT_NE(std::string::npos, v.find("\"[<LF>real]\",1,0")) << "got: " << v;
+    /* 重连延时保持默认 3000ms：400ms 内第二次连接不得出现 */
+    EXPECT_FALSE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 400));
+    /* 等默认延时重连，验证 NUL id 没进 Last-Event-ID 头 */
+    ASSERT_TRUE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 3500));
+    ASSERT_TRUE(host_value(h,
+        "var _h = JSON.parse(_esConns[1].headers);\n"
+        "JSON.stringify([_h['Last-Event-ID'] === undefined ? null : _h['Last-Event-ID']])", &v));
+    /* NUL id 被忽略 → 不设 Last-Event-ID 头（键不存在 → 序列化为 [null]） */
+    EXPECT_NE(std::string::npos, v.find("[null]")) << "got: " << v;
+}
+
+TEST_F(PolyfillTest, EventSourceConnectThrowReconnects) {
+    /* P1-6 补课：连接发起阶段同步 throw（httpRequestStream 抛错）必须按网络
+     * 错误处理：error 事件 + 按延时重连，而不是冒泡出构造/挂死/CLOSED。
+     * 让第二次连接抛错（而非首连）——首连的 error 在构造器内同步派发，此时
+     * 调用方还没机会绑定 onerror，可观察面只剩"重连发生"。 */
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var _attempts = 0; var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _attempts++;\n"
+        "  if (_attempts === 2) throw new Error('dial fail');\n"
+        "  _esConns.push({url:url, headers:headers, onHeaders:onHeaders, onData:onData, onEnd:onEnd}); return 0;\n"
+        "};\n"
+        "var es = new EventSource('http://x/s');\n"
+        "var _err = 0;\n"
+        "es.onerror = function(){ _err++; };\n"
+        "'ok'", &v));
+    /* 首连 200 + retry: 10 缩短重连延时；onEnd → 网络错误：error + CONNECTING */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(200, '{}');\n"
+        "_esConns[0].onData(new TextEncoder().encode('retry: 10\\n\\n').buffer);\n"
+        "_esConns[0].onEnd(0);\n"
+        "JSON.stringify([_err, es.readyState])", &v));
+    EXPECT_NE(std::string::npos, v.find("[1,0]")) << "got: " << v;
+    /* 第二次连接同步 throw → 按网络错误处理：error 计到 2、该尝试不入列，
+     * 且继续重连（第三次尝试入列）。终态 [_attempts,_err,_esConns,readyState]
+     * = [3,2,2,0]；若 catch 缺失，异常会冒泡使构造/定时器回调中断，终态不再
+     * 出现；若不重连，_esConns.length 停在 1。 */
+    ASSERT_TRUE(host_poll_until_value(h,
+        "JSON.stringify([_attempts, _err, _esConns.length, es.readyState])",
+        "[3,2,2,0]", &v, 2000)) << v;
+}
+
+TEST_F(PolyfillTest, EventSourceCloseMidStreamInert) {
+    /* P1-6 补课：close() 之后迟到的 onData/onEnd 必须全部失效——不派发
+     * 消息、不触发 error、不重连。防的 bug：close 后回调仍写解析器状态或
+     * 触发重连（连接关不掉 = 断开后无限重连风暴）。 */
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var _esConns = [];\n"
+        "__native__.httpRequestStream = function(url, method, headers, body, onHeaders, onData, onEnd) {\n"
+        "  _esConns.push({url:url, headers:headers, onHeaders:onHeaders, onData:onData, onEnd:onEnd}); return 0;\n"
+        "};\n"
+        "var es = new EventSource('http://x/s');\n"
+        "var _rec = ''; var _err = 0;\n"
+        "es.onmessage = function(ev){ _rec += '[' + ev.data + ']'; };\n"
+        "es.onerror = function(){ _err++; };\n"
+        "'ok'", &v));
+    /* OPEN 后 close，再喂完整事件 + 流结束 */
+    ASSERT_TRUE(host_value(h,
+        "_esConns[0].onHeaders(200, '{}');\n"
+        "es.close();\n"
+        "_esConns[0].onData(new TextEncoder().encode('data: late\\n\\n').buffer);\n"
+        "_esConns[0].onEnd(0);\n"
+        "JSON.stringify([_rec, _err, es.readyState, _esConns.length])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"\",0,2,1]")) << "got: " << v;
+    /* 400ms 无重连（若 onEnd 击穿 closed 防护会重连） */
+    EXPECT_FALSE(host_poll_until_value(h, "JSON.stringify(_esConns.length)", "2", &v, 400));
+}
+
 // ================================================================
 // ECMA-429 Minimum Common Web API gap coverage
 // （已实现但此前无 gtest 覆盖的规范表面）

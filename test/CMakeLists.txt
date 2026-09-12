@@ -55,6 +55,7 @@ add_qwrt_gtest(test_bridge_stream_gtest)
 add_qwrt_gtest(test_fetch_stream_gtest)
 add_qwrt_gtest(test_polyfill_gtest)
 add_qwrt_gtest(test_polyfill_lazy_gtest)
+add_qwrt_gtest(test_host_messaging_gtest)   # host-messaging 边界直接测试（P2-10）
 add_qwrt_gtest(test_ipc_envelope_gtest)
 
 # IPC Envelope wire-format cross-verification (M-P0): the CLI helper is pure
