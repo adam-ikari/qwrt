@@ -765,7 +765,13 @@ jobs:
             --rc lcov_branch_coverage=1 \
             --exclude '*/deps/*' --exclude '*/test/*' \
             --ignore-errors unused
-          lcov --summary coverage.info
+          lcov --summary coverage.info 2>&1 | tee lcov_summary.txt
+          # Line-coverage floor: first baseline 50% (measured 53.7% on
+          # 2026-09-12); tighten as coverage grows.
+          PCT=$(sed -n 's/.*lines\.*: \([0-9.]*\)%.*/\1/p' lcov_summary.txt | head -1)
+          echo "line coverage: ${PCT}%"
+          awk -v p="$PCT" 'BEGIN { exit (p+0 >= 50.0) ? 0 : 1 }' || {
+            echo "::error::line coverage ${PCT}% is below the 50% floor"; exit 1; }
 
   # ============================================================================
   # Debugger: applies the QuickJS-ng patch and runs DAP tests.
@@ -868,3 +874,76 @@ jobs:
 
       - name: Build (with clang-tidy)
         run: cmake --build build --parallel
+
+  # ============================================================================
+  # fuzz-smoke: libFuzzer smoke run over the QuickJS bytecode deserializer
+  # (JS_ReadObject with JS_READ_OBJ_BYTECODE) — the loader path qwrt uses for
+  # the embedded polyfill and the worker boot shims, i.e. parse of bytes that
+  # do not come from the trusted build. Corpus-less 60 s smoke: it is a crash
+  # gate (ASan), not a proof of safety. There is no in-tree fuzz harness of
+  # our own yet (only the vendored lz4/mbedtls ones), so the harness is
+  # generated inline here; promote it to fuzz/ if this job earns its keep.
+  # ============================================================================
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    name: fuzz-smoke (libFuzzer bytecode reader)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build clang
+
+      - name: Configure (clang, fuzzer + ASan instrumentation)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=fuzzer-no-link,address -g -O1"
+
+      - name: Build quickjs-ng (instrumented)
+        run: cmake --build build --target qjs --parallel
+
+      - name: Build harness (inline, links the instrumented libqjs.a)
+        run: |
+          cat > fuzz_bc.c <<'EOF'
+          /* Minimal libFuzzer harness: feeds arbitrary bytes to the QuickJS
+           * bytecode deserializer (JS_ReadObject + JS_READ_OBJ_BYTECODE) — the
+           * parse qwrt performs on the embedded polyfill (src/context.c) and
+           * on worker boot shims (src/qwrt.c). Read-only: the resulting value
+           * is freed, never evaluated. */
+          #include <stddef.h>
+          #include <stdint.h>
+          #include "quickjs.h"
+
+          int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
+          {
+              JSRuntime *rt = JS_NewRuntime();
+              if (!rt)
+                  return 0;
+              JSContext *ctx = JS_NewContext(rt);
+              if (ctx) {
+                  JSValue val = JS_ReadObject(ctx, data, size, JS_READ_OBJ_BYTECODE);
+                  JS_FreeValue(ctx, val);
+                  JS_FreeContext(ctx);
+              }
+              JS_FreeRuntime(rt);
+              return 0;
+          }
+          EOF
+          clang -O1 -g -fsanitize=fuzzer,address \
+            -I deps/quickjs-ng \
+            fuzz_bc.c build/deps/quickjs-ng/libqjs.a \
+            -lm -lpthread -ldl \
+            -o fuzz_bc
+
+      - name: Fuzz (60 s smoke, no corpus)
+        env:
+          # ASan's shadows make the process start at ~2 GB RSS, and LSan does
+          # not work under the runner's tracing — hence the raised limit and
+          # the leak check off. Neither weakens crash/UB detection.
+          ASAN_OPTIONS: detect_leaks=0
+        run: ./fuzz_bc -max_total_time=60 -rss_limit_mb=4096 -timeout=25 -print_final_stats=1

@@ -5,7 +5,7 @@
 > 原生扩展（TLS/crypto/compress/WASM）、独立 CLI、服务端能力（serve）。
 > 状态：滚动规划，随实际进展更新。最后更新：2026-09。
 
-## 一、现状基线（2026-08）
+## 一、现状基线（2026-09）
 
 ### 运行时核心
 - QuickJS-ng 引擎（ES2023，C99 补丁构建）、libuv 内部线程 + 事件循环
@@ -14,11 +14,12 @@
 - Web Workers（`new Worker(url)` 真并行线程）+ `structuredClone` / transferable
 - DAP 调试器（`QWRT_BUILD_DEBUGGER`，QuickJS-ng 打补丁）
 
-### WinterTC 标准面（21 模块）
+### WinterTC 标准面（21 模块）+ Service Worker 子集
 fetch / console / crypto.subtle / streams(含 BYOB) / timers / fs / storage /
 encoding / url / URLPattern / abort / performance / event-target / blob(File,
 FormData) / message-channel / navigator / structured-clone / error-events /
-BroadcastChannel / CacheStorage / EventSource(SSE)。
+BroadcastChannel / CacheStorage / EventSource(SSE)；Service Worker（qwrt SW 子集：
+fetch 拦截 + Cache + update，2026-09 合入 master，见 D6）。
 
 ### 服务端能力（应用层协议，qwrt 给原语）
 - `serve()` 纯 JS HTTP/HTTPS/WS 服务器（TCP/TLS listener 在 C，协议在 JS）
@@ -32,9 +33,10 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 ### 质量
 - gtest（mock_libuv 离线确定性）ctest offline 20/20 全绿；e2e 19 PASS
-- CI 16 job：minimal / feature-matrix / wamr / wasm3 / asan / ubsan / release /
-  coverage / debugger / test262 / clang-tidy / httpserver-perf / h2-client-perf /
-  runtime-perf / cross-runtime / e2e
+- CI 20 job：all-features-off / feature-matrix / wamr / wasm3 / polyfill-external /
+  polyfill-compressed / nonutf-encodings / asan / ubsan / release /
+  httpserver-perf / h2-client-perf / runtime-perf / cross-runtime / e2e /
+  coverage（行覆盖 ≥50% 断言）/ debugger / test262 / clang-tidy / fuzz-smoke（libFuzzer 字节码读取 60s 冒烟）
 - 服务端性能基线（wrk，阈值=基线 50%）：tiny 12.6k / small 3.1k / medium(16K) 256 / post 10.5k
 
 ## 二、架构原则
@@ -92,7 +94,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
-| C1 | **WASM 引擎** ✅ | WAMR 默认 + wasm3 特性对等（streaming API 补齐：`compileStreaming`/`instantiateStreaming`，与 WAMR 语义等价）；修复 `QWRT_DEFAULT_EXTENSIONS` 从未注册 wasm3 的根因（wasm3 构建下 `WebAssembly` 全局缺失）；streaming 测试门控 WAMR OR WASM3。 | gtest 3/3（wasm3）+ 3/3（WAMR 回归）；端到端 `instantiateStreaming` add(20,22)=42 |
+| C1 | **WASM 引擎** ✅ | 双引擎去留已定案（2026-09 用户裁决）：WAMR（默认，Fast Interp + AOT，懒加载）与 wasm3 均保留，互斥编译，不删任一。wasm3 特性对等（streaming API 补齐：`compileStreaming`/`instantiateStreaming`，与 WAMR 语义等价）；修复 `QWRT_DEFAULT_EXTENSIONS` 从未注册 wasm3 的根因（wasm3 构建下 `WebAssembly` 全局缺失）；streaming 测试门控 WAMR OR WASM3。 | gtest 3/3（wasm3）+ 3/3（WAMR 回归）；端到端 `instantiateStreaming` add(20,22)=42 |
 | C2 | **TLS/crypto** ✅ | SNI 多证书（精确 + `*.suffix` 通配）+ 证书热加载（引用计数：旧 ctx 等连接关闭后才释放，修复 https 压测 TLS 关闭路径 SIGSEGV/UAF）；crypto.subtle 补齐 ECDSA/ECDH（P-256/384/521 generateKey/import/export(jwk)/sign/verify/deriveBits）、HKDF（SHA-1..512）、AES-KW wrap/unwrap（RFC 3394）。 | gtest 全绿；e2e 19/19；TLS 压测 2600+ 连接 0 崩溃；crypto smoke ECDSA/ECDH/HKDF/AES-KW 全过 |
 | C3 | **压缩** ✅ | miniz 压缩缓存（相同 body 只压一次，可移植 uvhttp 时代 LRU）；httpserver 示例 gzip 结果缓存进 LRU entry.gz。 | 基准 + 正确性；16KB gzip 吞吐与未压缩持平 |
 
@@ -106,6 +108,8 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | D3 | **连接生命周期** ✅ | 空闲超时（serve idleTimeout，默认30s，0禁用）、Connection: close 排空、优雅停止（onclose 清理 conns）。 | e2e 12/12；ctest 13/13 |
 | D4 | **WS server 增强** ✅ | 分片 ✅、子协议协商 ✅、permessage-deflate ✅（RFC 7692：协商、RSV1 收发、上下文 takeover；C 层流式 deflate/inflate 原语 `pal.deflate*/inflate*`）。Ping/Pong 保活不做（应用层策略）。 | e2e 16/16；ASan 0 泄漏 |
 | D5 | **大响应性能** ✅ | 大文件 `fsReadBinary` 零拷贝（uv_io 直写 JS ArrayBuffer backing，无中间拷贝）；修复非 keep-alive 大响应截断（uv_close 取消未决 uv_write）与对象响应后多发 500 的 return 缺失；SIGPIPE 忽略（wrk 中断连不再崩）。 | wrk 提升；e2e 19/19；TLS 压测不崩 |
+
+| D6 | **Service Worker 栈（SW-0..3）** ✅ | fetch 客户端拦截 + 离线缓存 + 消息通信，SW 跑独立 Worker 线程。SW-0 注册/生命周期状态机；SW-1 fetch 拦截（`__qwrt_sw_intercept__` 钩子 + 30s 超时回退 + 防递归）；SW-2 Cache API 集成（`cache.addAll`/`caches.match`/`Response.clone` tee）；SW-3 更新机制（`update()` 同步读 SW 脚本字节对比，未变跳过安装；controller 切换点延至 activate_done，新 SW install/activate 期间旧 SW 保持拦截，无控制真空）。语义简化拍板：全局唯一注册、scope 接受但忽略、install 完成即 skipWaiting+激活。 | SW e2e 5 套件全绿（含 sw3-update）；决策详情 brain `service-worker-stack` |
 
 ### E. 工具链
 
@@ -128,13 +132,12 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
 | G1 | API 参考 ✅ | serve / fs / compress / crypto / worker 文档（网站 + repo）。 | 文档可跑通 |
-| G2 | examples 扩充 ✅ | httpserver 已做；worker 编排、流式管道已有；代理示例由 e2e fetch-proxy 用例覆盖，独立 example 待补。 | example 可跑 |
+| G2 | examples 扩充 ✅ | httpserver 已做；worker 编排、流式管道已有；fetch-proxy 独立 example 已补（HTTP(S)_PROXY / NO_PROXY 三行为演示）。examples/CMakeLists.txt 全量收编 4 个 JS example，qjsc 编译校验进门。 | example 可跑 |
 | G3 | **打包** ✅ | `qwrt.pc`（原 libqwrt.pc，完整 Libs）、静态库目标（libqwrt/libqwrt_full）+ 全部 vendored 依赖归档安装完整、无系统依赖构建；WAMR fast-jit 关闭（vmlib 纯 C）。 | CMake 验证 ✅（pkg-config 消费方编译/链接/运行 OK） |
 
 ### H. gRPC/HTTP2
 
 | # | 工作项 | 说明 | 验证 |
-|---|--------|------|------|
 | H1 | **Phase0 — pal.tcpConnect TLS 客户端 + ALPN h2 协商** ✅ | `tcpConnect` 新增可选 `opts.tls`（`{ca?, servername?, alpn:['h2']}`），照搬 `uv_io.c` TLS 客户端模板；握手后 `mbedtls_ssl_get_alpn_protocol` 校验 "h2"，否则 `onerror`。 | e2e 30/30（含 6 TLS 用例） |
 | H2 | **Phase1 — 纯 JS HTTP/2 客户端栈** ✅ | `hpack.js`（HPACK 编解码，61 项静态表 + 257 项 Huffman 表 + 动态表）+ `http2.js`（帧层 + 多路复用 + 连接/流双窗口流控 + CONTINUATION 重组 + trailers + PING/RST/GOAWAY）。 | hpack 14/14 + 帧 16/16 + e2e 22/22 |
 | H3 | **Phase2 — gRPC unary 客户端 + proto3/flatbuffers 序列化 + QWRT_WITH_GRPC 编译开关** ✅ | `protobuf.js`（动态 proto3 子集解析器 + wire 编解码）+ `flatbuffers.js`（FlatBuffers 编解码）+ `grpc.js`（unary 语义、5 字节消息前缀、trailers、grpc-status 映射、deadline、metadata）。`QWRT_WITH_GRPC` CMake 开关（默认 OFF）：ON 时将 h2/HPACK/gRPC/protobuf/flatbuffers 打入 polyfill bundle；OFF 时完全消除（零字节进 bundle）。 | grpc e2e 24/24 + flatbuffers 70/70 + ctest 15/15 无回归；OFF 构建 268KB 全消除 / ON 411KB |
@@ -172,6 +175,6 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 ## 七、参考
 
 - `README.md` — 项目定位 / API / WinterTC 模块表 / 构建选项
-- `brain/pages/` — 各领域决策（worker-transferable、wintertc-byob-streams、wasm-engine-integration、httpserver-perf-baseline 等 35 页）
+- `brain/pages/` — 各领域决策（worker-transferable、wintertc-byob-streams、wasm-engine-integration、service-worker-stack 等 36 页）
 - `examples/httpserver/` — 应用层完整 HTTP 服务器示例
 - `test/` — gtest 套件 + e2e + mock_libuv
