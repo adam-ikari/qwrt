@@ -4,8 +4,7 @@
  * WASM runtime using wasm3 engine — pure sandbox model.
  * WASM modules have NO access to system APIs: no filesystem,
  * no network, no host functions. Only pure computation + linear memory.
- *
- * When QWRT_HAS_WASM3 is defined, uses real wasm3 engine.
+ * When QWRT_WITH_WASM3 is defined, uses real wasm3 engine.
  * Otherwise, provides stub JS API surface that throws on use.
  */
 
@@ -19,8 +18,7 @@
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #endif
-
-#ifdef QWRT_HAS_WASM3
+#if QWRT_WITH_WASM3
 #include "wasm3.h"
 #include "m3_env.h"
 #include "m3_function.h"
@@ -2048,8 +2046,7 @@ static int wasm3_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
     (void)rt;
     return 0;
 }
-
-#else /* !QWRT_HAS_WASM3 — stub implementation */
+#else /* !QWRT_WITH_WASM3 — stub implementation */
 
 /* ================================================================
  * Stub WebAssembly implementation — throws "engine not linked"
@@ -2157,8 +2154,7 @@ static int wasm3_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
     (void)rt;
     return 0;
 }
-
-#endif /* QWRT_HAS_WASM3 */
+#endif /* QWRT_WITH_WASM3 */
 
 /* ================================================================
  * Extension definition

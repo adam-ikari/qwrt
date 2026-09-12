@@ -164,6 +164,124 @@ jobs:
         working-directory: build
 
   # ============================================================================
+  # Polyfill mode=external: bytecode loaded at runtime from
+  # dist/polyfill_default.polyfill (built by polyfill/build.js Mode B).
+  # Covers the external-file loader leg of QWRT_POLYFILL_MODE.
+  # ============================================================================
+  polyfill-external:
+    runs-on: ubuntu-latest
+    name: polyfill-external (QWRT_POLYFILL_MODE=external)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Install Node (polyfill rebuild)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DQWRT_BUILD_TESTS=ON \
+            -DQWRT_POLYFILL_MODE=external
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test (offline; tests get QWRT_POLYFILL_FILE via test/CMakeLists.txt)
+        run: ctest -L offline --output-on-failure
+        working-directory: build
+
+  # ============================================================================
+  # Polyfill mode=compressed: lz4-compressed .rodata, decompressed to heap
+  # at load. Exercises the vendored-lz4 compressor/decompressor pair.
+  # ============================================================================
+  polyfill-compressed:
+    runs-on: ubuntu-latest
+    name: polyfill-compressed (QWRT_POLYFILL_MODE=compressed)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Install Node (polyfill rebuild)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DQWRT_BUILD_TESTS=ON \
+            -DQWRT_POLYFILL_MODE=compressed
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test (offline)
+        run: ctest -L offline --output-on-failure
+        working-directory: build
+
+  # ============================================================================
+  # Non-UTF encodings: QWRT_WITH_NONUTF_ENCODINGS=ON adds Latin-1/replacement
+  # labels to TextDecoder and rebuilds the polyfill with them enabled.
+  # ============================================================================
+  nonutf-encodings:
+    runs-on: ubuntu-latest
+    name: nonutf (QWRT_WITH_NONUTF_ENCODINGS=ON)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Install Node (polyfill rebuild)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DQWRT_BUILD_TESTS=ON \
+            -DQWRT_WITH_NONUTF_ENCODINGS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test (offline)
+        run: ctest -L offline --output-on-failure
+        working-directory: build
+
+  # ============================================================================
   # Sanitizers: ASan + UBSan with WAMR default engine.
   # ============================================================================
   asan:

@@ -322,7 +322,7 @@ struct qwrt_t {
      * and one qwrt_t owns one JSRuntime, so these live here (not per-context).
      * void* for engine types (e.g. wasm3 IM3Environment) to keep this header
      * free of third-party includes; ext_*.c cast as needed. */
-#ifdef QWRT_HAS_WASM3
+#if QWRT_WITH_WASM3
     JSClassID wasm3_module_class_id;
     JSClassID wasm3_instance_class_id;
     JSClassID wasm3_func_closure_class_id;
@@ -332,16 +332,16 @@ struct qwrt_t {
     JSClassID wasm3_global_class_id;
     void *wasm3_env;   /* IM3Environment */
 #endif
-#ifdef QWRT_HAS_WAMR
+#if QWRT_WITH_WAMR
     JSClassID wamr_module_class_id;
     JSClassID wamr_instance_class_id;
     JSClassID wamr_global_class_id;
 #endif
-#ifdef QWRT_WITH_COMPRESS
+#if QWRT_WITH_COMPRESS
     JSClassID compress_deflate_class_id;
     JSClassID compress_inflate_class_id;
 #endif
-#ifdef QWRT_WITH_CRYPTO_EXT
+#if QWRT_WITH_CRYPTO_EXT
     /* Per-runtime EC RNG (mbedtls_entropy_context / mbedtls_ctr_drbg_context).
      * Lazy-seeded on first EC op; one DRBG per runtime so concurrent
      * runtimes (workers on their own threads) never share a CTR_DRBG

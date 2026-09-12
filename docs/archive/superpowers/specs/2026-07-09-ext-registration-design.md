@@ -165,7 +165,7 @@ endif()
 - **wamr 关闭时的默认集**：`QWRT_DEFAULT_EXTENSIONS` 列了 `&qwrt_wamr_ext`，
   若用户 `QWRT_WITH_WAMR=OFF`，则该符号未定义 → 默认集会链接失败。处理：
   `qwrt_ext_registry.h` 用 `QWRT_EXT_IF_WITH(WAMR, &qwrt_wamr_ext)` 之类条件宏，
-  仅在 `QWRT_WITH_WAMR`/`QWRT_HAS_WAMR` 定义时才产出该项。内置扩展的默认集
+  仅在 `QWRT_WITH_WAMR` 定义时才产出该项。内置扩展的默认集
   一律走条件宏，保证"关掉对应 `QWRT_WITH_*` 时默认集自动剔除该项"。
 
 ## wamr 设为默认 WASM 引擎

@@ -5,8 +5,7 @@
  * Pure sandbox model — WASM modules have NO access to system APIs:
  * no filesystem, no network, no host functions. Only pure
  * computation + linear memory.
- *
- * When QWRT_HAS_WAMR is defined, uses real WAMR engine.
+ * When QWRT_WITH_WAMR is enabled, uses real WAMR engine.
  * Otherwise, provides stub JS API surface that throws on use.
  */
 
@@ -14,8 +13,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sched.h>   /* sched_yield: WAMR singleton init spin */
-
-#ifdef QWRT_HAS_WAMR
+#if QWRT_WITH_WAMR
 #include "wasm_export.h"
 
 /* Suppress cast-function-type warnings for QuickJS getter/setter CFunctions.
@@ -1870,8 +1868,7 @@ static int wamr_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
     (void)rt;
     return 0;
 }
-
-#else /* !QWRT_HAS_WAMR — stub implementation */
+#else /* !QWRT_WITH_WAMR — stub implementation */
 
 /* ================================================================
  * Stub WebAssembly implementation — throws "engine not linked"
@@ -1980,7 +1977,7 @@ static int wamr_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
     return 0;
 }
 
-#endif /* QWRT_HAS_WAMR */
+#endif /* QWRT_WITH_WAMR */
 
 /* ================================================================
  * Extension definition

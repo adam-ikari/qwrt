@@ -713,8 +713,7 @@ endif()
 # All QWRT_WITH_* are defined as 0 or 1 (not just defined when ON) so the
 # QWRT_EXT_IF_WITH conditional macro in qwrt_ext_registry.h can resolve a
 # disabled built-in to a NULL slot. PUBLIC so consumers (tests, examples) can
-# see which extensions are compiled in. QWRT_HAS_* (kept for the ext .c
-# sources that already use it) mirrors the ON case.
+# see which extensions are compiled in.
 target_compile_definitions(qwrt PUBLIC
     QWRT_WITH_WAMR=$<BOOL:${QWRT_WITH_WAMR}>
     QWRT_WITH_WASM3=$<BOOL:${QWRT_WITH_WASM3}>
@@ -729,16 +728,11 @@ if(QWRT_WITH_WAMR)
     target_include_directories(qwrt PUBLIC
         ${WAMR_DIR}/core/iwasm/include
     )
-    target_compile_definitions(qwrt PUBLIC QWRT_HAS_WAMR=1)
-endif()
-if(QWRT_WITH_WASM3)
-    target_compile_definitions(qwrt PUBLIC QWRT_HAS_WASM3=1)
 endif()
 if(QWRT_WITH_CRYPTO_EXT)
     target_include_directories(qwrt PUBLIC
         ${MBEDCRYPTO_INCLUDE_DIR}
     )
-    target_compile_definitions(qwrt PUBLIC QWRT_HAS_CRYPTO_EXT=1)
 endif()
 
 # Core link libraries — qjs (QuickJS-ng) and libm are always needed.
