@@ -1079,8 +1079,8 @@ static void tcp_listener_handle_finalizer(JSRuntime *jsrt, JSValue val)
 static void tcp_listener_close_cb(uv_handle_t *handle) {
     qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)handle->data;
     if (l) {
-        /* Detach the JS handle wrapper so a stale handle (tcpCloseListener /
-         * tcpReloadTls after close) cannot dereference the freed listener. */
+        /* Detach the JS handle wrapper so a stale handle (tcpCloseListener
+         * after close) cannot dereference the freed listener. */
         if (l->jsctx && l->rt && JS_IsObject(l->handle_obj)) {
             tcp_listener_handle_t *h = JS_GetOpaque(l->handle_obj, l->rt->tcp_listener_class_id);
             if (h) h->listener = NULL;
@@ -1304,37 +1304,6 @@ JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
     return obj;
 }
 
-/* ── PAL: tcpReloadTls(listenerHandle, tlsObj) -> bool ── */
-static JSValue js_pal_tcp_reload_tls(JSContext *ctx, JSValueConst this_val,
-                                     int argc, JSValueConst *argv) {
-    (void)this_val;
-    if (argc < 2 || !JS_IsObject(argv[0]) || !JS_IsObject(argv[1])) {
-        return JS_ThrowTypeError(ctx, "tcpReloadTls(listenerHandle, tlsObj) required");
-    }
-
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
-    if (!rt) return JS_FALSE;
-    tcp_listener_handle_t *h = JS_GetOpaque(argv[0], rt->tcp_listener_class_id);
-    if (!h || !h->listener) return JS_FALSE;
-    qwrt_tcp_listener_t *l = h->listener;
-#if QWRT_WITH_TLS
-    if (!l || l->closed || !l->tls_ctx) return JS_FALSE;
-
-    qwrt_tls_server_ctx_t *new_ctx = tls_server_ctx_new(ctx, argv[1]);
-    if (!new_ctx) return JS_EXCEPTION;
-
-    /* Swap in the new context; in-flight connections keep a reference to
-     * the old one (refs > 1) and free it when they close. */
-    qwrt_tls_server_ctx_t *old = l->tls_ctx;
-    l->tls_ctx = new_ctx;
-    tls_server_ctx_unref(old);
-    return JS_TRUE;
-#else
-    (void)l;
-    return JS_FALSE;
-#endif
-}
-
 /* ── PAL: tcpCloseListener(handle) ── */
 JSValue js_pal_tcp_close_listener(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv) {
@@ -1373,5 +1342,4 @@ void qwrt_tcp_io_init(JSContext *ctx, JSValue pal) {
     JS_SetPropertyStr(ctx, pal, "tcpClose", JS_NewCFunction(ctx, js_pal_tcp_close, "tcpClose", 1));
     JS_SetPropertyStr(ctx, pal, "tcpListen", JS_NewCFunction(ctx, js_pal_tcp_listen, "tcpListen", 4));
     JS_SetPropertyStr(ctx, pal, "tcpCloseListener", JS_NewCFunction(ctx, js_pal_tcp_close_listener, "tcpCloseListener", 1));
-    JS_SetPropertyStr(ctx, pal, "tcpReloadTls", JS_NewCFunction(ctx, js_pal_tcp_reload_tls, "tcpReloadTls", 2));
 }

@@ -484,8 +484,11 @@ endif()
 find_program(NPM_EXECUTABLE npm)
 if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/esbuild" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng/qjsc.c")
     set(_polyfill_rebuild_enabled TRUE)
+    # 源依赖：polyfill/src/** 变更必须触发 rebuild，否则旧字节码静默进产物
+    file(GLOB_RECURSE QWRT_POLYFILL_SRC "${CMAKE_SOURCE_DIR}/polyfill/src/*.js")
     add_custom_target(polyfill_rebuild
         COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_WITH_GRPC=$<BOOL:${QWRT_WITH_GRPC}> QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} QWRT_LZ4_COMPRESS=${CMAKE_BINARY_DIR}/qwrt_lz4_compress npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
+        DEPENDS ${QWRT_POLYFILL_SRC}
         COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_WITH_GRPC=${QWRT_WITH_GRPC} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
         VERBATIM
     )

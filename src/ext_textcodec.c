@@ -2,8 +2,7 @@
  * qwrt TextCodec Extension
  *
  * Native UTF-8 encode/decode and Base64 encode/decode.
- * Registers pal.nativeEncodeUtf8, pal.nativeDecodeUtf8,
- * pal.nativeBtoa, pal.nativeAtob on the JS pal object.
+ * Registers pal.nativeEncodeUtf8, pal.nativeBtoa, pal.nativeAtob on the JS pal object.
  *
  * Hand-written C — no external library needed.
  * The algorithms are simple and the win comes from avoiding
@@ -38,47 +37,6 @@ static JSValue js_pal_native_encode_utf8(JSContext *ctx, JSValueConst this_val,
      * NUL, corrupting binary payloads, so it must not be used here. */
     JSValue result = JS_NewUint8ArrayCopy(ctx, (const uint8_t *)str, len);
     JS_FreeCString(ctx, str);
-    return result;
-}
-
-/* ================================================================
- * UTF-8 decode: Uint8Array -> JS string
- * ================================================================ */
-
-static JSValue js_pal_native_decode_utf8(JSContext *ctx, JSValueConst this_val,
-                                         int argc, JSValueConst *argv)
-{
-    (void)this_val; (void)argc;
-    if (argc < 1) {
-        return JS_ThrowTypeError(ctx, "nativeDecodeUtf8 requires 1 argument");
-    }
-
-    const uint8_t *bytes;
-    size_t byte_len;
-    size_t offset = 0, length = 0;
-
-    /* Support (bytes) and (bytes, offset, length) overloads */
-    bytes = JS_GetUint8Array(ctx, &byte_len, argv[0]);
-    if (!bytes) {
-        bytes = JS_GetArrayBuffer(ctx, &byte_len, argv[0]);
-    }
-    if (!bytes) {
-        return JS_ThrowTypeError(ctx, "nativeDecodeUtf8: data must be ArrayBuffer or Uint8Array");
-    }
-
-    if (argc >= 2 && !JS_IsUndefined(argv[1])) {
-        JS_ToInt64(ctx, (int64_t *)&offset, argv[1]);
-    }
-    if (argc >= 3 && !JS_IsUndefined(argv[2])) {
-        JS_ToInt64(ctx, (int64_t *)&length, argv[2]);
-    }
-
-    if (offset > byte_len) offset = byte_len;
-    if (length == 0) length = byte_len - offset;
-    if (offset + length > byte_len) length = byte_len - offset;
-
-    /* QuickJS JS_NewStringLen accepts UTF-8 directly */
-    JSValue result = JS_NewStringLen(ctx, (const char *)(bytes + offset), length);
     return result;
 }
 
@@ -275,8 +233,6 @@ static int textcodec_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
 
     JS_SetPropertyStr(ctx, pal, "nativeEncodeUtf8",
         JS_NewCFunction(ctx, js_pal_native_encode_utf8, "nativeEncodeUtf8", 1));
-    JS_SetPropertyStr(ctx, pal, "nativeDecodeUtf8",
-        JS_NewCFunction(ctx, js_pal_native_decode_utf8, "nativeDecodeUtf8", 3));
     JS_SetPropertyStr(ctx, pal, "nativeBtoa",
         JS_NewCFunction(ctx, js_pal_native_btoa, "nativeBtoa", 1));
     JS_SetPropertyStr(ctx, pal, "nativeAtob",

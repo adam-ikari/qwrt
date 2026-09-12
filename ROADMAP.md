@@ -93,7 +93,7 @@ BroadcastChannel / CacheStorage / EventSource(SSE)。
 | # | 工作项 | 说明 | 验证 |
 |---|--------|------|------|
 | C1 | **WASM 引擎** ✅ | WAMR 默认 + wasm3 特性对等（streaming API 补齐：`compileStreaming`/`instantiateStreaming`，与 WAMR 语义等价）；修复 `QWRT_DEFAULT_EXTENSIONS` 从未注册 wasm3 的根因（wasm3 构建下 `WebAssembly` 全局缺失）；streaming 测试门控 WAMR OR WASM3。 | gtest 3/3（wasm3）+ 3/3（WAMR 回归）；端到端 `instantiateStreaming` add(20,22)=42 |
-| C2 | **TLS/crypto** ✅ | SNI 多证书（精确 + `*.suffix` 通配）+ 证书热加载 `tcpReloadTls`（引用计数：旧 ctx 等连接关闭后才释放，修复 https 压测 TLS 关闭路径 SIGSEGV/UAF）；crypto.subtle 补齐 ECDSA/ECDH（P-256/384/521 generateKey/import/export(jwk)/sign/verify/deriveBits）、HKDF（SHA-1..512）、AES-KW wrap/unwrap（RFC 3394）。 | gtest 全绿；e2e 19/19；TLS 压测 2600+ 连接 0 崩溃；crypto smoke ECDSA/ECDH/HKDF/AES-KW 全过 |
+| C2 | **TLS/crypto** ✅ | SNI 多证书（精确 + `*.suffix` 通配）+ 证书热加载（引用计数：旧 ctx 等连接关闭后才释放，修复 https 压测 TLS 关闭路径 SIGSEGV/UAF）；crypto.subtle 补齐 ECDSA/ECDH（P-256/384/521 generateKey/import/export(jwk)/sign/verify/deriveBits）、HKDF（SHA-1..512）、AES-KW wrap/unwrap（RFC 3394）。 | gtest 全绿；e2e 19/19；TLS 压测 2600+ 连接 0 崩溃；crypto smoke ECDSA/ECDH/HKDF/AES-KW 全过 |
 | C3 | **压缩** ✅ | miniz 压缩缓存（相同 body 只压一次，可移植 uvhttp 时代 LRU）；httpserver 示例 gzip 结果缓存进 LRU entry.gz。 | 基准 + 正确性；16KB gzip 吞吐与未压缩持平 |
 
 

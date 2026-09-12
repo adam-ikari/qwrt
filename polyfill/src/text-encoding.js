@@ -4,7 +4,7 @@
  * Pure JS implementation of the Web Encoding API with native acceleration.
  * Handles UTF-8 encoding/decoding including surrogate pairs.
  *
- * When pal.nativeEncodeUtf8/nativeDecodeUtf8 are available (textcodec extension),
+ * When pal.nativeEncodeUtf8 is available (textcodec extension),
  * uses native C for significantly faster encode/decode on large strings.
  */
 
@@ -168,8 +168,8 @@ export function setupTextEncoding(pal) {
       }
       return str;
     }
-    /* C 版 nativeDecodeUtf8 缺流式（stream:true）、fatal、U+FFFD 替换三语义
-     * （ext_textcodec.c），补齐前不启用，UTF-8 decode 恒走 JS 路径。 */
+    /* UTF-8 decode 恒走 JS 路径：本实现完整支持流式（stream:true）、fatal
+     * 与 U+FFFD 替换语义。 */
 
     /* Prepend any buffered incomplete bytes from a previous stream:true call */
     var allBytes;
