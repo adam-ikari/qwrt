@@ -97,29 +97,34 @@ static JSValue js_pal_native_btoa(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeError(ctx, "nativeBtoa requires 1 argument");
     }
 
+    /* WHATWG btoa semantics: the input is a binary string where each
+     * UTF-16 code unit contributes its low 8 bits (charCodeAt(i) & 0xFF)
+     * as one byte. Must read via the UTF-16 accessor — JS_ToCStringLen
+     * yields UTF-8 bytes, which would expand code points >= 0x80 into
+     * several bytes (é -> C3 A9) and break the binary-string contract. */
     size_t len = 0;
-    const char *str = JS_ToCStringLen(ctx, &len, argv[0]);
+    const uint16_t *str = JS_ToCStringLenUTF16(ctx, &len, argv[0]);
     if (!str) return JS_EXCEPTION;
     size_t out_len = 4 * ((len + 2) / 3);
     char *out = (char *)js_malloc(ctx, out_len + 1);
     if (!out) {
-        JS_FreeCString(ctx, str);
+        JS_FreeCStringUTF16(ctx, str);
         return JS_ThrowOutOfMemory(ctx);
     }
 
     size_t i, j;
     for (i = 0, j = 0; i + 2 < len; i += 3) {
-        uint32_t n = ((uint32_t)(unsigned char)str[i] << 16) |
-                     ((uint32_t)(unsigned char)str[i+1] << 8) |
-                     (uint32_t)(unsigned char)str[i+2];
+        uint32_t n = ((uint32_t)(str[i] & 0xFF) << 16) |
+                     ((uint32_t)(str[i+1] & 0xFF) << 8) |
+                     (uint32_t)(str[i+2] & 0xFF);
         out[j++] = b64_table[(n >> 18) & 0x3F];
         out[j++] = b64_table[(n >> 12) & 0x3F];
         out[j++] = b64_table[(n >> 6) & 0x3F];
         out[j++] = b64_table[n & 0x3F];
     }
     if (i < len) {
-        uint32_t n = (uint32_t)(unsigned char)str[i] << 16;
-        if (i + 1 < len) n |= (uint32_t)(unsigned char)str[i+1] << 8;
+        uint32_t n = (uint32_t)(str[i] & 0xFF) << 16;
+        if (i + 1 < len) n |= (uint32_t)(str[i+1] & 0xFF) << 8;
         out[j++] = b64_table[(n >> 18) & 0x3F];
         out[j++] = b64_table[(n >> 12) & 0x3F];
         out[j++] = (i + 1 < len) ? b64_table[(n >> 6) & 0x3F] : '=';
@@ -127,7 +132,7 @@ static JSValue js_pal_native_btoa(JSContext *ctx, JSValueConst this_val,
     }
     out[j] = '\0';
 
-    JS_FreeCString(ctx, str);
+    JS_FreeCStringUTF16(ctx, str);
     JSValue result = JS_NewString(ctx, out);
     js_free(ctx, out);
     return result;
@@ -169,7 +174,7 @@ static JSValue js_pal_native_atob(JSContext *ctx, JSValueConst this_val,
     if (!str) return JS_EXCEPTION;
     /* Strip whitespace and validate */
     size_t clean_len = 0;
-    uint8_t *clean = (uint8_t *)js_malloc(ctx, len);
+    uint8_t *clean = (uint8_t *)js_malloc(ctx, len ? len : 1);
     if (!clean) {
         JS_FreeCString(ctx, str);
         return JS_ThrowOutOfMemory(ctx);
@@ -223,7 +228,7 @@ static JSValue js_pal_native_atob(JSContext *ctx, JSValueConst this_val,
     for (size_t i = 0; i < out_len; i++) {
         if (out[i] >= 0x80) utf8_len++;
     }
-    uint8_t *utf8 = (uint8_t *)js_malloc(ctx, utf8_len);
+    uint8_t *utf8 = (uint8_t *)js_malloc(ctx, utf8_len ? utf8_len : 1);
     if (!utf8) {
         js_free(ctx, out);
         return JS_ThrowOutOfMemory(ctx);

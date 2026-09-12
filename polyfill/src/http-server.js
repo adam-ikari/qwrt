@@ -24,86 +24,22 @@ export function setupHttpServer(pal) {
   /* Single-server enforcement: only one serve() instance at a time */
   var activeInstance = null;
 
-  /* ── Base64 helpers (RFC 4648) ── */
-  var b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  function b64encode(buf) {
-    var s = '', i = 0;
-    while (i + 2 < buf.length) {
-      var b = (buf[i] << 16) | (buf[i + 1] << 8) | buf[i + 2];
-      s += b64chars[(b >> 18) & 63] + b64chars[(b >> 12) & 63] +
-           b64chars[(b >> 6) & 63] + b64chars[b & 63];
-      i += 3;
-    }
-    if (i < buf.length) {
-      var b2 = buf[i] << 16;
-      var rem = 1;
-      if (i + 1 < buf.length) { b2 |= buf[i + 1] << 8; rem = 2; }
-      s += b64chars[(b2 >> 18) & 63] + b64chars[(b2 >> 12) & 63];
-      if (rem === 2) s += b64chars[(b2 >> 6) & 63] + '=';
-      else s += '==';
-    }
-    return s;
-  }
-
-  /* ── SHA-1 (FIPS 180-4) ── */
-  function sha1Bytes(bytes) {
-    function rotl(n, b) { return ((n << b) | (n >>> (32 - b))) >>> 0; }
-    var H = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
-    var ml = bytes.length * 8;
-    var msg = new Uint8Array(((bytes.length + 8) >> 6 << 6) + 64);
-    msg.set(bytes, 0);
-    msg[bytes.length] = 0x80;
-    var mlb = ml;
-    for (var i = 0; i < 8; i++) {
-      msg[msg.length - 1 - i] = mlb & 0xFF;
-      mlb = Math.floor(mlb / 256);
-    }
-    for (var off = 0; off < msg.length; off += 64) {
-      var W = new Array(80);
-      for (var t = 0; t < 16; t++)
-        W[t] = (msg[off + 4 * t] << 24) | (msg[off + 4 * t + 1] << 16) |
-               (msg[off + 4 * t + 2] << 8) | msg[off + 4 * t + 3];
-      for (var t = 16; t < 80; t++)
-        W[t] = rotl(W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16], 1);
-      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4];
-      for (var t = 0; t < 80; t++) {
-        var f, k;
-        if (t < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
-        else if (t < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
-        else if (t < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
-        else { f = b ^ c ^ d; k = 0xCA62C1D6; }
-        var tmp = (rotl(a, 5) + f + e + k + W[t]) >>> 0;
-        e = d; d = c; c = rotl(b, 30); b = a; a = tmp;
-      }
-      H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0;
-      H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0; H[4] = (H[4] + e) >>> 0;
-    }
-    var out = new Uint8Array(20);
-    for (var i = 0; i < 5; i++) {
-      out[4 * i] = (H[i] >>> 24) & 0xFF;
-      out[4 * i + 1] = (H[i] >>> 16) & 0xFF;
-      out[4 * i + 2] = (H[i] >>> 8) & 0xFF;
-      out[4 * i + 3] = H[i] & 0xFF;
-    }
-    return out;
-  }
-
   /* ── WS accept computation ──
-   * 语义归 JS（RFC 6455 握手协议），算力下沉：SHA-1 优先走 mbedTLS 的
-   * pal.nativeDigest（crypto 扩展），digest 经 globalThis.btoa 编码——
-   * btoa 内部对纯 ASCII 委托 nativeBtoa（textcodec 扩展）、高位字节走
-   * JS 查表。两者均在 polyfill 注入后注册，必须每次调用探测。扩展被编译
-   * 开关（QWRT_WITH_CRYPTO_EXT / QWRT_WITH_TEXTCODEC）关掉时走 JS fallback。 */
+   * 语义归 JS（RFC 6455 握手协议），算力全下沉：SHA-1 走 mbedTLS 的
+   * pal.nativeDigest（crypto 扩展），digest 经 globalThis.btoa 编码
+   * （nativeBtoa，textcodec 扩展）。两者均在 polyfill 注入后注册，
+   * 必须每次调用探测。任一缺失（QWRT_WITH_CRYPTO_EXT / QWRT_WITH_TEXTCODEC
+   * =OFF）即抛 Error——无 JS fallback（原 b64encode/手写 SHA-1 已删）。 */
   function wsAccept(key) {
     var raw = new Uint8Array(key.length + WS_GUID.length);
     for (var i = 0; i < key.length; i++) raw[i] = key.charCodeAt(i);
     for (var i = 0; i < WS_GUID.length; i++) raw[key.length + i] = WS_GUID.charCodeAt(i);
-    if (typeof pal.nativeDigest === 'function' &&
-        typeof globalThis.btoa === 'function') {
-      var digest = pal.nativeDigest('SHA-1', raw);
-      return globalThis.btoa(String.fromCharCode.apply(null, digest));
+    if (typeof pal.nativeDigest !== 'function' ||
+        typeof globalThis.btoa !== 'function') {
+      throw new Error('WebSocket accept unavailable: rebuild with QWRT_WITH_CRYPTO_EXT=ON and QWRT_WITH_TEXTCODEC=ON');
     }
-    return b64encode(sha1Bytes(raw));
+    var digest = pal.nativeDigest('SHA-1', raw);
+    return globalThis.btoa(String.fromCharCode.apply(null, digest));
   }
 
   /* ── HTTP request parser (header-only; body delivered as a stream) ──

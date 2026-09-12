@@ -20,6 +20,9 @@ option(QWRT_WITH_WAMR "Link WAMR WASM engine (default; enables real WebAssembly 
 option(QWRT_WITH_WASM3 "Link wasm3 WASM engine (alternative, more portable)" OFF)
 option(QWRT_WITH_TLS "Build with mbedTLS for HTTPS support" ON)
 option(QWRT_WITH_COMPRESS "Enable native compression via miniz" ON)
+# 关闭 QWRT_WITH_CRYPTO_EXT / QWRT_WITH_TEXTCODEC 时，polyfill 无 JS 回退实现：
+# btoa/atob 抛 TypeError，HTTP serve 的 WebSocket 握手（Sec-WebSocket-Accept）抛
+# Error——CI 全 OFF 矩阵据此断言缺失路径，见 Test/test_polyfill_gtest.cpp。
 option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
 option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
 option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)

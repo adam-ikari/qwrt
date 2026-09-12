@@ -36,10 +36,20 @@ TEST_F(PolyfillTest, Timer) {
 
 TEST_F(PolyfillTest, Encoding) {
     std::string v;
+#if QWRT_WITH_TEXTCODEC
     ASSERT_TRUE(host_value(h, "btoa('hello')", &v));
     EXPECT_NE(std::string::npos, v.find("aGVsbG8="));
     ASSERT_TRUE(host_value(h, "atob('aGVsbG8=')", &v));
     EXPECT_NE(std::string::npos, v.find("hello"));
+#else
+    /* textcodec OFF：JS 平行实现已删，btoa/atob 必须抛 TypeError */
+    ASSERT_TRUE(host_value(h,
+        "var errs = [];\n"
+        "try { btoa('hello'); } catch(e) { errs.push(String(e)); }\n"
+        "try { atob('aGVsbG8='); } catch(e) { errs.push(String(e)); }\n"
+        "JSON.stringify(errs)", &v));
+    EXPECT_NE(std::string::npos, v.find("QWRT_WITH_TEXTCODEC")) << "got: " << v;
+#endif
 }
 
 TEST_F(PolyfillTest, Url) {
@@ -1406,6 +1416,7 @@ TEST_F(PolyfillTest, QueueMicrotask) {
 }
 
 TEST_F(PolyfillTest, BtoaAtobEdgeCases) {
+#if QWRT_WITH_TEXTCODEC
     std::string v;
     /* 1. btoa 非 Latin1 字符抛错（> 0xFF） */
     ASSERT_TRUE(host_value(h,
@@ -1431,6 +1442,16 @@ TEST_F(PolyfillTest, BtoaAtobEdgeCases) {
     ASSERT_TRUE(host_value(h,
         "JSON.stringify([btoa(''), atob('')])", &v));
     EXPECT_NE(std::string::npos, v.find("[\"\",\"\"]")) << "got: " << v;
+#else
+    /* textcodec OFF：API 必须抛 TypeError（含 build 错误提示），不再有 JS 查表 */
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var errs = [];\n"
+        "try { btoa('hi'); } catch(e) { errs.push(String(e)); }\n"
+        "try { atob('aGk='); } catch(e) { errs.push(String(e)); }\n"
+        "JSON.stringify(errs)", &v));
+    EXPECT_NE(std::string::npos, v.find("QWRT_WITH_TEXTCODEC")) << "got: " << v;
+#endif
 }
 
 TEST_F(PolyfillTest, StructuredCloneDeepTypes) {
