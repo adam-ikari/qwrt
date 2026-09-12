@@ -13,23 +13,62 @@ set(CMAKE_C_EXTENSIONS OFF)   # pure -std=c99, no GNU extensions (deps use their
 # ============================================================================
 # Options
 # ============================================================================
+# Build profile — preset bundles of the QWRT_WITH_* feature toggles.
+# "minimal" still satisfies the full ECMA-429 WinterTC mandatory set (only
+# TLS is cut); "bare" is a pure script executor and does NOT satisfy
+# ECMA-429 (WebAssembly/btoa/atob/crypto.subtle/CompressionStream absent).
+# Empty (default) = no preset: the options below behave exactly as before.
+# Explicit -DQWRT_WITH_X=... always wins over the profile preset.
+# ============================================================================
+set(QWRT_PROFILE "" CACHE STRING
+    "Build profile: minimal | standard | bare (empty = individual QWRT_WITH_* options)")
+string(TOLOWER "${QWRT_PROFILE}" _qwrt_profile)
+if(_qwrt_profile AND NOT _qwrt_profile MATCHES "^(minimal|standard|bare)$")
+    message(FATAL_ERROR "QWRT_PROFILE must be minimal|standard|bare or empty (got '${QWRT_PROFILE}')")
+endif()
+# Profile preset defaults, resolved BEFORE option() so an explicit
+# -DQWRT_WITH_X on the command line is already in the cache and wins.
+if(_qwrt_profile STREQUAL "minimal" OR _qwrt_profile STREQUAL "standard")
+    set(_prof_wamr ON)
+    set(_prof_compress ON)
+    set(_prof_crypto_ext ON)
+    set(_prof_textcodec ON)
+endif()
+if(_qwrt_profile STREQUAL "minimal")
+    set(_prof_tls OFF)   # only cut vs standard; ECMA-429 has no HTTPS requirement
+elseif(_qwrt_profile STREQUAL "bare")
+    set(_prof_wamr OFF)
+    set(_prof_tls OFF)
+    set(_prof_compress OFF)
+    set(_prof_crypto_ext OFF)
+    set(_prof_textcodec OFF)
+endif()
+if(NOT _qwrt_profile)
+    # Empty profile: preserve the historical per-option defaults bit-for-bit.
+    set(_prof_wamr ON)
+    set(_prof_tls ON)
+    set(_prof_compress ON)
+    set(_prof_crypto_ext ON)
+    set(_prof_textcodec ON)
+endif()
+option(QWRT_WITH_GRPC "Embed gRPC/HTTP2 stack in polyfill bundle (~3.5k lines JS; needs polyfill rebuild toolchain)" OFF)
 option(QWRT_BUILD_TESTS "Build tests" OFF)
 option(QWRT_BUILD_DEBUGGER "Build the DAP step-debugger (applies the QuickJS-ng debugger patch; adds src/debugger.c + src/debugger_dap.c to libqwrt)" OFF)
 
-option(QWRT_WITH_WAMR "Link WAMR WASM engine (default; enables real WebAssembly via WAMR with Fast Interp + AOT)" ON)
+option(QWRT_WITH_WAMR "Link WAMR WASM engine (default; enables real WebAssembly via WAMR with Fast Interp + AOT)" "${_prof_wamr}")
 option(QWRT_WITH_WASM3 "Link wasm3 WASM engine (alternative, more portable)" OFF)
-option(QWRT_WITH_TLS "Build with mbedTLS for HTTPS support" ON)
-option(QWRT_WITH_COMPRESS "Enable native compression via miniz" ON)
+option(QWRT_WITH_TLS "Build with mbedTLS for HTTPS support" "${_prof_tls}")
+option(QWRT_WITH_COMPRESS "Enable native compression via miniz" "${_prof_compress}")
 # 关闭 QWRT_WITH_CRYPTO_EXT / QWRT_WITH_TEXTCODEC 时，polyfill 无 JS 回退实现：
 # btoa/atob 抛 TypeError，HTTP serve 的 WebSocket 握手（Sec-WebSocket-Accept）抛
 # Error——CI 全 OFF 矩阵据此断言缺失路径，见 Test/test_polyfill_gtest.cpp。
-option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" ON)
-option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" ON)
+option(QWRT_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" "${_prof_crypto_ext}")
+option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" "${_prof_textcodec}")
 option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
 option(QWRT_BUILD_EXAMPLES "Build example programs" OFF)
 
 set(QWRT_POLYFILL_MODE "rodata" CACHE STRING
-    "Polyfill bytecode embedding: rodata=const .rodata array (default) | compressed=zlib-compressed .rodata, decompressed to heap at load | external=external .polyfill file (QWRT_POLYFILL_FILE) | host=host hook qwrt_polyfill_load_custom()")
+    "Polyfill bytecode embedding: rodata=const .rodata array (default) | compressed=lz4-compressed .rodata, decompressed to heap at load | external=external .polyfill file (QWRT_POLYFILL_FILE) | host=host hook qwrt_polyfill_load_custom()")
 
 # Normalise: accept legacy single letters (C/A/B/D) and any case.
 string(TOLOWER "${QWRT_POLYFILL_MODE}" _polyfill_mode)
@@ -420,8 +459,8 @@ find_program(NPM_EXECUTABLE npm)
 if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/esbuild" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng/qjsc.c")
     set(_polyfill_rebuild_enabled TRUE)
     add_custom_target(polyfill_rebuild
-        COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} QWRT_LZ4_COMPRESS=${CMAKE_BINARY_DIR}/qwrt_lz4_compress npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
-        COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
+        COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_WITH_GRPC=$<BOOL:${QWRT_WITH_GRPC}> QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} QWRT_LZ4_COMPRESS=${CMAKE_BINARY_DIR}/qwrt_lz4_compress npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
+        COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_WITH_GRPC=${QWRT_WITH_GRPC} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
         VERBATIM
     )
     # qjsc 是 build.js 生成字节码的编译器——必须先于 rebuild 就绪
