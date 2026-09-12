@@ -987,9 +987,9 @@ static void wasm3_memory_refresh_buffer(JSContext *ctx, JSValue mem_obj, wasm3_m
     /* Create new live buffer */
     JSValue new_ab;
     if (mem_data && mem_size > 0) {
-        new_ab = JS_NewArrayBuffer(ctx, mem_data, mem_size, NULL, NULL, 0);
+        new_ab = JS_NewArrayBuffer(ctx, mem_data, mem_size, 0, NULL, NULL, 0);
     } else {
-        new_ab = JS_NewArrayBuffer(ctx, NULL, 0, NULL, NULL, 0);
+        new_ab = JS_NewArrayBuffer(ctx, NULL, 0, 0, NULL, NULL, 0);
     }
     JS_SetPropertyStr(ctx, mem_obj, "buffer", new_ab);
 }
@@ -1369,7 +1369,7 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
             JSValue mem_obj = JS_NewObjectClass(ctx, rt->wasm3_memory_class_id);
             JS_SetOpaque(mem_obj, mwrap);
 
-            JSValue ab = JS_NewArrayBuffer(ctx, mem_data, mem_size, NULL, NULL, 0);
+            JSValue ab = JS_NewArrayBuffer(ctx, mem_data, mem_size, 0, NULL, NULL, 0);
             JS_SetPropertyStr(ctx, mem_obj, "buffer", ab);
             JS_SetPropertyStr(ctx, mem_obj, "grow",
                 JS_NewCFunction(ctx, wasm3_memory_grow, "grow", 1));
@@ -1557,7 +1557,7 @@ static JSValue wasm3_memory_constructor(JSContext *ctx, JSValueConst new_target,
     JSValue obj = JS_NewObjectClass(ctx, rt->wasm3_memory_class_id);
     JS_SetOpaque(obj, mwrap);
 
-    JSValue ab = JS_NewArrayBuffer(ctx, mem, byte_len, NULL, NULL, 0);
+    JSValue ab = JS_NewArrayBuffer(ctx, mem, byte_len, 0, NULL, NULL, 0);
     JS_SetPropertyStr(ctx, obj, "buffer", ab);
     JS_SetPropertyStr(ctx, obj, "grow",
         JS_NewCFunction(ctx, wasm3_memory_grow, "grow", 1));

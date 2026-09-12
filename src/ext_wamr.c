@@ -303,14 +303,20 @@ typedef struct wamr_mem_owner_t {
     JSValue instance_ref;
 } wamr_mem_owner_t;
 
-static void wamr_mem_owner_free(JSRuntime *jsrt, void *opaque, void *ptr)
+/* JSReallocArrayBufferDataFunc shim: holds a JS reference to the WAMR
+ * instance while the ArrayBuffer lives. size==0 releases the owner. */
+static void *wamr_mem_owner_realloc(JSRuntime *jsrt, void *opaque, void *ptr, size_t size)
 {
-    QWRT_UNUSED(ptr);
     wamr_mem_owner_t *owner = (wamr_mem_owner_t *)opaque;
-    if (owner) {
-        JS_FreeValueRT(jsrt, owner->instance_ref);
-        js_free_rt(jsrt, owner);
+    if (size == 0) {
+        if (owner) {
+            JS_FreeValueRT(jsrt, owner->instance_ref);
+            js_free_rt(jsrt, owner);
+        }
+        return NULL;
     }
+    (void)ptr;
+    return ptr; /* fixed-size: nothing to resize */
 }
 
 static void wamr_global_class_finalizer(JSRuntime *jsrt, JSValue val)
@@ -1484,11 +1490,10 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
              * exports.memory is still referenced — fixes a use-after-free. */
             wamr_mem_owner_t *owner = (wamr_mem_owner_t *)js_malloc(ctx, sizeof(*owner));
             if (!owner) continue;
-            owner->instance_ref = JS_DupValue(ctx, obj);
-            JSValue ab = JS_NewArrayBuffer(ctx, base, byte_len,
-                                           wamr_mem_owner_free, owner, 0);
+            JSValue ab = JS_NewArrayBuffer(ctx, base, byte_len, 0,
+                                           wamr_mem_owner_realloc, owner, 0);
             if (JS_IsException(ab)) {
-                wamr_mem_owner_free(JS_GetRuntime(ctx), owner, NULL);
+                wamr_mem_owner_realloc(JS_GetRuntime(ctx), owner, NULL, 0);
                 continue;
             }
             JS_SetPropertyStr(ctx, mem_obj, "buffer", ab);
@@ -1576,14 +1581,17 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
  * WebAssembly.Memory constructor
  * ================================================================ */
 
-/* Finalizer for the standalone WebAssembly.Memory ArrayBuffer (js_mallocz'd
- * buffer owned by the array buffer). Frees via the QuickJS allocator. */
-static void wamr_arraybuffer_free(JSRuntime *rt, void *opaque, void *ptr)
+/* Finalizer shim for the standalone WebAssembly.Memory ArrayBuffer
+ * (js_mallocz'd buffer owned by the array buffer). Frees via the QuickJS
+ * allocator when the engine invokes realloc with size==0. */
+static void *wamr_arraybuffer_realloc(JSRuntime *rt, void *opaque, void *ptr, size_t size)
 {
     (void)opaque;
-    if (ptr) {
+    if (size == 0) {
         js_free_rt(rt, ptr);
+        return NULL;
     }
+    return ptr; /* fixed-size: nothing to resize */
 }
 
 static JSValue wamr_memory_constructor(JSContext *ctx, JSValueConst new_target,
@@ -1617,13 +1625,11 @@ static JSValue wamr_memory_constructor(JSContext *ctx, JSValueConst new_target,
     if (!mem) {
         return JS_ThrowOutOfMemory(ctx);
     }
-
     JSValue obj = JS_NewObject(ctx);
-    /* JS_NewArrayBuffer takes ownership of `mem`; the finalizer frees it via
-     * the QuickJS allocator when the ArrayBuffer is GC'd (without it, mem
-     * leaks - JS_NewArrayBuffer with a NULL finalizer never frees external
-     * memory). */
-    JSValue ab = JS_NewArrayBuffer(ctx, mem, byte_len, wamr_arraybuffer_free,
+    /* JS_NewArrayBuffer takes ownership of `mem`; the engine releases it via
+     * wamr_arraybuffer_realloc(size=0) when the ArrayBuffer is GC'd (without
+     * a realloc_func the external buffer is never freed by the engine). */
+    JSValue ab = JS_NewArrayBuffer(ctx, mem, byte_len, 0, wamr_arraybuffer_realloc,
                                    NULL, 0);
     JS_SetPropertyStr(ctx, obj, "buffer", ab);
 

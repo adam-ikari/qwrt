@@ -527,23 +527,29 @@ typedef struct {
     int zc_valid;    /* cleared when uv_io releases the backing */
 } bridge_zc_t;
 
-/* JSFreeArrayBufferDataFunc shim: the engine finalizer frees the backing. */
-static void bridge_zc_ab_free(JSRuntime *rt, void *opaque, void *ptr)
+/* JSReallocArrayBufferDataFunc shim: size==0 frees the backing (engine
+ * finalizer / detach); otherwise resize via QuickJS allocator. */
+static void *bridge_zc_ab_realloc(JSRuntime *rt, void *opaque, void *ptr, size_t size)
 {
     (void)rt;
     (void)opaque;
-    free(ptr);
+    if (size == 0) {
+        free(ptr);
+        return NULL;
+    }
+    return realloc(ptr, size);
 }
 
 static void *bridge_zc_alloc(void *ud, size_t size, void **owner)
 {
     bridge_zc_t *zc = (bridge_zc_t *)ud;
-    /* Plain malloc + JS_NewArrayBuffer(free_func=free): the engine's
-     * finalizer releases the backing once the JSValue is collected. */
+    /* Plain malloc + JS_NewArrayBuffer(realloc_func=bridge_zc_ab_realloc):
+     * the engine's finalizer releases the backing once the JSValue is
+     * collected. Fixed-size: max_len=0. */
     uint8_t *buf = (uint8_t *)malloc(size);
     if (!buf)
         return NULL;
-    JSValue ab = JS_NewArrayBuffer(zc->ctx, buf, size, bridge_zc_ab_free, NULL, false);
+    JSValue ab = JS_NewArrayBuffer(zc->ctx, buf, size, 0, bridge_zc_ab_realloc, NULL, false);
     if (JS_IsException(ab)) {
         free(buf);
         return NULL;

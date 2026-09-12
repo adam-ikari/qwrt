@@ -1,6 +1,5 @@
-# qwrt patch: add a `debugger;` opcode + JSDebuggerHooks dispatch hook to
-# quickjs-ng for the DAP step-debugger (QWRT_DEBUG_SUPPORT).
-# Base submodule: deps/quickjs-ng @ fd0a0210b7be00957751871e7e01b8291268fc29 (v0.15.1)
+# qwrt patch: add a debugger opcode + JSDebuggerHooks dispatch hook for the DAP step-debugger
+# Base submodule: deps/quickjs-ng @ 1ab8676f4b6d6d669baeb5f21790fb9734636a20 (v0.16.2)
 # Working-tree-only (the submodule stays clean); CMake re-applies when needed.
 diff --git a/quickjs-opcode.h b/quickjs-opcode.h
 index ec2a5ad..402d288 100644
@@ -21,10 +20,10 @@ index ec2a5ad..402d288 100644
  #undef DEF
  #undef def
 diff --git a/quickjs.c b/quickjs.c
-index 11caae0..1e41ae2 100644
+index 174a134..9e061aa 100644
 --- a/quickjs.c
 +++ b/quickjs.c
-@@ -314,6 +314,16 @@ struct JSRuntime {
+@@ -372,6 +372,16 @@ struct JSRuntime {
      JSInterruptHandler *interrupt_handler;
      void *interrupt_opaque;
  
@@ -41,7 +40,7 @@ index 11caae0..1e41ae2 100644
      JSPromiseHook *promise_hook;
      void *promise_hook_opaque;
      // for smuggling the parent promise from js_promise_then
-@@ -2128,6 +2138,34 @@ void JS_SetCanBlock(JSRuntime *rt, bool can_block)
+@@ -2484,6 +2494,34 @@ void JS_SetCanBlock(JSRuntime *rt, bool can_block)
      rt->can_block = can_block;
  }
  
@@ -76,7 +75,7 @@ index 11caae0..1e41ae2 100644
  void JS_SetSharedArrayBufferFunctions(JSRuntime *rt,
                                        const JSSharedArrayBufferFunctions *sf)
  {
-@@ -7720,6 +7758,169 @@ fail:
+@@ -8142,6 +8180,169 @@ fail:
      return b->line_num;
  }
  
@@ -246,7 +245,7 @@ index 11caae0..1e41ae2 100644
  /* in order to avoid executing arbitrary code during the stack trace
     generation, we only look at simple 'name' properties containing a
     string. */
-@@ -17570,7 +17771,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+@@ -18074,7 +18275,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
  #endif
  
  #if !DIRECT_DISPATCH
@@ -255,7 +254,7 @@ index 11caae0..1e41ae2 100644
  #define CASE(op)        case op
  #define DEFAULT         default
  #define BREAK           break
-@@ -17581,7 +17782,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+@@ -18085,7 +18286,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
  #include "quickjs-opcode.h"
          [ OP_COUNT ... 255 ] = &&case_default
      };
@@ -264,7 +263,7 @@ index 11caae0..1e41ae2 100644
  #define CASE(op)        case_ ## op
  #define DEFAULT         case_default
  #define BREAK           SWITCH(pc)
-@@ -20269,6 +20470,11 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+@@ -20862,6 +21063,11 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
  
          CASE(OP_nop):
              BREAK;
@@ -276,7 +275,7 @@ index 11caae0..1e41ae2 100644
          CASE(OP_is_undefined_or_null):
              if (JS_VALUE_GET_TAG(sp[-1]) == JS_TAG_UNDEFINED ||
                  JS_VALUE_GET_TAG(sp[-1]) == JS_TAG_NULL) {
-@@ -29590,7 +29796,9 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
+@@ -30250,7 +30456,9 @@ static __exception int js_parse_statement_or_decl(JSParseState *s,
          break;
  
      case TOK_DEBUGGER:
@@ -288,10 +287,10 @@ index 11caae0..1e41ae2 100644
              goto fail;
          if (js_parse_expect_semi(s))
 diff --git a/quickjs.h b/quickjs.h
-index 68d6f38..1a9b857 100644
+index 7254f72..a97eab9 100644
 --- a/quickjs.h
 +++ b/quickjs.h
-@@ -1139,6 +1139,62 @@ JS_EXTERN void JS_SetHostPromiseRejectionTracker(JSRuntime *rt, JSHostPromiseRej
+@@ -1179,6 +1179,62 @@ JS_EXTERN void JS_SetHostPromiseRejectionTracker(JSRuntime *rt, JSHostPromiseRej
  /* return != 0 if the JS code needs to be interrupted */
  typedef int JSInterruptHandler(JSRuntime *rt, void *opaque);
  JS_EXTERN void JS_SetInterruptHandler(JSRuntime *rt, JSInterruptHandler *cb, void *opaque);
