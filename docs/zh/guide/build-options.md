@@ -32,7 +32,6 @@ qwrt 的 CMake 选项分为**两个独立的层级**：`QWRT_WITH_*` 控制**可
 |------|--------|---------------------------|-------------------|
 | `standard`（与空 profile 等效） | 与历史默认相同：WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC=ON | 同默认构建 | ✅ 全量必选满足 |
 | `minimal` | 同 standard 但 **TLS=OFF**（fetch 降级 http-only；ECMA-429 不含 HTTPS） | **2.45 MiB**（Release/-O3）；1.81 MiB（MinSizeRel/-Os） | ✅ 全量必选仍满足：atob/btoa、WebAssembly（WAMR）、crypto.subtle、CompressionStream 全部在 |
-| `bare` | WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC 全 OFF | 1.49 MiB（Release/-O3）；1.05 MiB（-Os） | ❌ **不满足**：`WebAssembly` undefined、`btoa`/`atob` 抛 TypeError、`crypto.subtle` undefined、CompressionStream 读取时抛错 |
 
 在**同一 build 目录**下换用不同 `QWRT_PROFILE` 重新 configure 时，五个
 `QWRT_WITH_*` cache 项会自动重算为新档默认值（状态消息

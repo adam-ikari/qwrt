@@ -40,7 +40,6 @@ Any other value fails configure.
 |---------|--------------|-------------------------------|-------------------|
 | `standard` (equivalent to empty) | Same as historical defaults: WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC=ON | Same as default build | ✅ full mandatory set met |
 | `minimal` | Same as standard but **TLS=OFF** (fetch degrades to http-only; ECMA-429 has no HTTPS requirement) | **2.45 MiB** (Release/-O3); 1.81 MiB (MinSizeRel/-Os) | ✅ still met: atob/btoa, WebAssembly (WAMR), crypto.subtle, CompressionStream all present |
-| `bare` | WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC all OFF | 1.49 MiB (Release/-O3); 1.05 MiB (-Os) | ❌ **not met**: `WebAssembly` undefined, `btoa`/`atob` throw TypeError, `crypto.subtle` undefined, CompressionStream throws on read |
 
 Re-running configure in the **same build directory** with a different
 `QWRT_PROFILE` recalculates the five `QWRT_WITH_*` cache entries to the new

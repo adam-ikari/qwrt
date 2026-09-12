@@ -109,7 +109,7 @@ The playground compiles qwrt to WebAssembly:
 cmake -B build-wasm -S . \
   -DCMAKE_TOOLCHAIN_FILE=/tmp/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
   -DCMAKE_BUILD_TYPE=Release -DQWRT_BUILD_TESTS=OFF \
-  -DQWRT_PROFILE=bare
+  -DQWRT_PROFILE=minimal
 cmake --build build-wasm
 
 # Compile playground:

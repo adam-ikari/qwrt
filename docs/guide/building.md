@@ -48,10 +48,9 @@ cmake --build build -j$(nproc)
 ```
 
 `minimal` keeps WebAssembly, `crypto.subtle`, `atob`/`btoa`, and compression
-(2.45 MiB stripped, Release). For a script-executor-only build use
-`-DQWRT_PROFILE=bare` (1.49 MiB) — it drops the full WinterTC mandatory set.
-See [Build Options](/guide/build-options) for the profile table and the
-`QWRT_WITH_GRPC` CMake option.
+(2.45 MiB stripped, Release) — the smallest profile that satisfies the full
+WinterTC mandatory set. See [Build Options](/guide/build-options) for the
+profile table and the `QWRT_WITH_GRPC` CMake option.
 
 ### Full Development Build
 

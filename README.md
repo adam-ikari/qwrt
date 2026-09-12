@@ -208,14 +208,13 @@ platform-backend option anymore.
 
 `QWRT_PROFILE` 是 `QWRT_WITH_*` 各项的预设包，**只改未显式指定的项**：
 `-DQWRT_PROFILE=minimal -DQWRT_WITH_TLS=ON` 中显式的 `TLS=ON` 赢。空值
-（默认）时各项行为与历史默认逐位一致。取值 `minimal | standard | bare`，
-其他值 configure 报错。
+（默认）时各项行为与历史默认逐位一致。取值 `minimal | standard`，其他值
+configure 报错。所有命名档位均满足 ECMA-429 WinterTC 全量必选集。
 
 | Profile | 宏效果 | qwrt 尺寸（strip 后，实测） | ECMA-429 WinterTC | 适用场景 |
 |---------|--------|---------------------------|-------------------|----------|
 | `standard`（与空 profile 等效） | 与历史默认相同：WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC=ON | 同默认构建 | ✅ 全量必选满足 | 通用运行时 |
 | `minimal` | 同 standard 但 **TLS=OFF**（fetch 降级 http-only；ECMA-429 不含 HTTPS） | **2.45 MiB**（Release/-O3）；1.81 MiB（MinSizeRel/-Os） | ✅ 全量必选仍满足：atob/btoa、WebAssembly（WAMR）、crypto.subtle、CompressionStream 全部在 | 嵌入式/尺寸敏感，仍需过 WinterTC 一致性 |
-| `bare` | WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC 全 OFF | 1.49 MiB（Release/-O3）；1.05 MiB（-Os） | ❌ **不满足**：`WebAssembly` undefined、`btoa`/`atob` 抛 TypeError、`crypto.subtle` undefined、CompressionStream 读取时抛 "Native compression extension not available" | 纯脚本执行器，无 Web API 需求 |
 
 实测命令与行为探测（2026-09-12，x86_64 Linux）：
 
@@ -224,15 +223,9 @@ cmake -S . -B build_profile_min -DQWRT_PROFILE=minimal -DCMAKE_BUILD_TYPE=Releas
 cmake --build build_profile_min -j
 strip build_profile_min/qwrt   # 2,573,536 B
 ./build_profile_min/qwrt -e 'console.log(typeof btoa, typeof WebAssembly, typeof crypto?.subtle, typeof CompressionStream)'
-# minimal: function object object function   bare: function undefined undefined function
+# minimal: function object object function
 ```
 
-```bash
-cmake -S . -B build_profile_bare -DQWRT_PROFILE=bare -DCMAKE_BUILD_TYPE=Release
-cmake --build build_profile_bare -j
-./build_profile_bare/qwrt -e 'console.log(typeof btoa, typeof WebAssembly, typeof crypto?.subtle, typeof CompressionStream)'
-# bare: function undefined undefined function
-```
 
 ### gRPC Stack (`QWRT_WITH_GRPC`)
 

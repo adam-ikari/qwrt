@@ -14,17 +14,16 @@ set(CMAKE_C_EXTENSIONS OFF)   # pure -std=c99, no GNU extensions (deps use their
 # Options
 # ============================================================================
 # Build profile — preset bundles of the QWRT_WITH_* feature toggles.
-# "minimal" still satisfies the full ECMA-429 WinterTC mandatory set (only
-# TLS is cut); "bare" is a pure script executor and does NOT satisfy
-# ECMA-429 (WebAssembly/btoa/atob/crypto.subtle/CompressionStream absent).
+# Every named profile satisfies the full ECMA-429 WinterTC mandatory set:
+# "standard" is all-ON; "minimal" still satisfies ECMA-429 (only TLS is cut).
 # Empty (default) = no preset: the options below behave exactly as before.
 # Explicit -DQWRT_WITH_X=... always wins over the profile preset.
 # ============================================================================
 set(QWRT_PROFILE "" CACHE STRING
-    "Build profile: minimal | standard | bare (empty = individual QWRT_WITH_* options)")
+    "Build profile: minimal | standard (empty = individual QWRT_WITH_* options)")
 string(TOLOWER "${QWRT_PROFILE}" _qwrt_profile)
-if(_qwrt_profile AND NOT _qwrt_profile MATCHES "^(minimal|standard|bare)$")
-    message(FATAL_ERROR "QWRT_PROFILE must be minimal|standard|bare or empty (got '${QWRT_PROFILE}')")
+if(_qwrt_profile AND NOT _qwrt_profile MATCHES "^(minimal|standard)$")
+    message(FATAL_ERROR "QWRT_PROFILE must be minimal|standard or empty (got '${QWRT_PROFILE}')")
 endif()
 # Profile preset defaults, resolved BEFORE option() so an explicit
 # -DQWRT_WITH_X on the command line is already in the cache and wins.
@@ -37,13 +36,6 @@ if(_qwrt_profile STREQUAL "minimal" OR _qwrt_profile STREQUAL "standard")
 endif()
 if(_qwrt_profile STREQUAL "minimal")
     set(_prof_tls OFF)   # only cut vs standard; ECMA-429 has no HTTPS requirement
-elseif(_qwrt_profile STREQUAL "bare")
-    set(_prof_wasm3 OFF)
-    set(_prof_wamr OFF)
-    set(_prof_tls OFF)
-    set(_prof_compress OFF)
-    set(_prof_crypto_ext OFF)
-    set(_prof_textcodec OFF)
 endif()
 if(NOT _qwrt_profile)
     # Empty profile: preserve the historical per-option defaults bit-for-bit.
@@ -156,12 +148,6 @@ if(NOT QWRT_PROFILE_LAST STREQUAL _qwrt_profile)
         set(QWRT_WITH_COMPRESS   ON  CACHE BOOL "" FORCE)
         set(QWRT_WITH_CRYPTO_EXT ON  CACHE BOOL "" FORCE)
         set(QWRT_WITH_TEXTCODEC  ON  CACHE BOOL "" FORCE)
-    elseif(_qwrt_profile STREQUAL "bare")
-        set(QWRT_WITH_WAMR       OFF CACHE BOOL "" FORCE)
-        set(QWRT_WITH_TLS        OFF CACHE BOOL "" FORCE)
-        set(QWRT_WITH_COMPRESS   OFF CACHE BOOL "" FORCE)
-        set(QWRT_WITH_CRYPTO_EXT OFF CACHE BOOL "" FORCE)
-        set(QWRT_WITH_TEXTCODEC  OFF CACHE BOOL "" FORCE)
     else() # standard and empty: historical all-ON defaults
         set(QWRT_WITH_WAMR       ON  CACHE BOOL "" FORCE)
         set(QWRT_WITH_TLS        ON  CACHE BOOL "" FORCE)

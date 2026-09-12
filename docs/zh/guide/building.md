@@ -48,8 +48,7 @@ cmake --build build -j$(nproc)
 ```
 
 `minimal` 保留 WebAssembly、`crypto.subtle`、`atob`/`btoa` 和压缩
-（2.45 MiB，strip 后 Release）。纯脚本执行器构建用
-`-DQWRT_PROFILE=bare`（1.49 MiB）— 不满足 WinterTC 必选集。
+（2.45 MiB，strip 后 Release）——满足 WinterTC 全量必选集的最小档位。
 档案表与 `QWRT_WITH_GRPC` CMake option 见
 [构建选项](/zh/guide/build-options)。
 

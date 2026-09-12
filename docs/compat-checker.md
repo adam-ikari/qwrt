@@ -309,9 +309,8 @@ This tool checks npm packages against qwrt's API surface:
 | **Pure JS** | ✅ Compatible | Most utility libraries (lodash, etc.) |
 
 These statuses assume the default build (`QWRT_PROFILE=standard` or empty).
-The `minimal` profile keeps the full WinterTC set; `bare` drops WebAssembly,
-`crypto.subtle`, `btoa`/`atob`, and compression (see
-[Build Options](/guide/build-options#build-profiles-qwrt-profile)).
+The `minimal` profile keeps the full WinterTC set — every named profile
+satisfies WinterTC (see [Build Options](/guide/build-options#build-profiles-qwrt-profile)).
 
 ## Common Patterns
 
