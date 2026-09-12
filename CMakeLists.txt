@@ -30,6 +30,7 @@ endif()
 # -DQWRT_WITH_X on the command line is already in the cache and wins.
 if(_qwrt_profile STREQUAL "minimal" OR _qwrt_profile STREQUAL "standard")
     set(_prof_wamr ON)
+    set(_prof_tls ON)
     set(_prof_compress ON)
     set(_prof_crypto_ext ON)
     set(_prof_textcodec ON)
@@ -37,6 +38,7 @@ endif()
 if(_qwrt_profile STREQUAL "minimal")
     set(_prof_tls OFF)   # only cut vs standard; ECMA-429 has no HTTPS requirement
 elseif(_qwrt_profile STREQUAL "bare")
+    set(_prof_wasm3 OFF)
     set(_prof_wamr OFF)
     set(_prof_tls OFF)
     set(_prof_compress OFF)
@@ -56,7 +58,7 @@ option(QWRT_BUILD_TESTS "Build tests" OFF)
 option(QWRT_BUILD_DEBUGGER "Build the DAP step-debugger (applies the QuickJS-ng debugger patch; adds src/debugger.c + src/debugger_dap.c to libqwrt)" OFF)
 
 option(QWRT_WITH_WAMR "Link WAMR WASM engine (default; enables real WebAssembly via WAMR with Fast Interp + AOT)" "${_prof_wamr}")
-option(QWRT_WITH_WASM3 "Link wasm3 WASM engine (alternative, more portable)" OFF)
+option(QWRT_WITH_WASM3 "Link wasm3 WASM engine (alternative, more portable)" "${_prof_wasm3}")
 option(QWRT_WITH_TLS "Build with mbedTLS for HTTPS support" "${_prof_tls}")
 option(QWRT_WITH_COMPRESS "Enable native compression via miniz" "${_prof_compress}")
 # 关闭 QWRT_WITH_CRYPTO_EXT / QWRT_WITH_TEXTCODEC 时，polyfill 无 JS 回退实现：
@@ -138,6 +140,44 @@ if(QWRT_WITH_TLS AND NOT QWRT_WITH_CRYPTO_EXT)
     message(STATUS "QWRT_WITH_TLS=ON forces QWRT_WITH_CRYPTO_EXT=ON (TLS requires crypto)")
     set(QWRT_WITH_CRYPTO_EXT ON CACHE BOOL "Enable native crypto.subtle via mbedTLS" FORCE)
 endif()
+# ----------------------------------------------------------------------------
+# Profile switch detection — re-running configure in the same build dir with a
+# different QWRT_PROFILE. option() only populates the cache on the FIRST
+# configure, so stale QWRT_WITH_* values would silently win. Recalculate the
+# per-profile defaults into the cache. QWRT_WITH_WASM3 is never a profile
+# default (OFF in every preset). NOTE: explicit -DQWRT_WITH_X values do NOT
+# survive a profile switch — use a fresh build dir when mixing.
+# ----------------------------------------------------------------------------
+if(NOT QWRT_PROFILE_LAST STREQUAL _qwrt_profile)
+    message(STATUS "QWRT_PROFILE changed: '${QWRT_PROFILE_LAST}' -> '${_qwrt_profile}' — recalculating QWRT_WITH_* cache defaults")
+    if(_qwrt_profile STREQUAL "minimal")
+        set(QWRT_WITH_WAMR       ON  CACHE BOOL "" FORCE)
+        set(QWRT_WITH_TLS        OFF CACHE BOOL "" FORCE)
+        set(QWRT_WITH_COMPRESS   ON  CACHE BOOL "" FORCE)
+        set(QWRT_WITH_CRYPTO_EXT ON  CACHE BOOL "" FORCE)
+        set(QWRT_WITH_TEXTCODEC  ON  CACHE BOOL "" FORCE)
+    elseif(_qwrt_profile STREQUAL "bare")
+        set(QWRT_WITH_WAMR       OFF CACHE BOOL "" FORCE)
+        set(QWRT_WITH_TLS        OFF CACHE BOOL "" FORCE)
+        set(QWRT_WITH_COMPRESS   OFF CACHE BOOL "" FORCE)
+        set(QWRT_WITH_CRYPTO_EXT OFF CACHE BOOL "" FORCE)
+        set(QWRT_WITH_TEXTCODEC  OFF CACHE BOOL "" FORCE)
+    else() # standard and empty: historical all-ON defaults
+        set(QWRT_WITH_WAMR       ON  CACHE BOOL "" FORCE)
+        set(QWRT_WITH_TLS        ON  CACHE BOOL "" FORCE)
+        set(QWRT_WITH_COMPRESS   ON  CACHE BOOL "" FORCE)
+        set(QWRT_WITH_CRYPTO_EXT ON  CACHE BOOL "" FORCE)
+        set(QWRT_WITH_TEXTCODEC  ON  CACHE BOOL "" FORCE)
+    endif()
+    set(QWRT_WITH_WASM3 OFF CACHE BOOL "" FORCE)
+    # Keep the TLS→crypto-ext invariant across a switch (the check above ran
+    # against the pre-switch cache).
+    if(QWRT_WITH_TLS AND NOT QWRT_WITH_CRYPTO_EXT)
+        set(QWRT_WITH_CRYPTO_EXT ON CACHE BOOL "" FORCE)
+    endif()
+    set(QWRT_PROFILE_LAST "${_qwrt_profile}" CACHE STRING "" FORCE)
+endif()
+
 
 if(QWRT_WITH_TLS)
     set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/mbedtls")
@@ -474,6 +514,9 @@ if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/
     endif()
 else()
     set(_polyfill_rebuild_enabled FALSE)
+    if(QWRT_WITH_GRPC)
+        message(WARNING "QWRT_WITH_GRPC=ON but polyfill toolchain missing; gRPC stack will NOT be embedded")
+    endif()
     add_custom_target(polyfill_rebuild
         COMMAND ${CMAKE_COMMAND} -E echo "polyfill_rebuild: skipped (esbuild/node_modules missing — using pre-generated src/polyfill_default.c)"
         VERBATIM

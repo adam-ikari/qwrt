@@ -286,6 +286,7 @@ polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild �
 | QWRT_WITH_CRYPTO_EXT | ON | crypto.subtle 扩展 |
 | QWRT_WITH_TEXTCODEC | ON | UTF-8/Base64 扩展 |
 | QWRT_WITH_WAMR | ON | WAMR WASM 引擎 |
+| QWRT_WITH_GRPC | OFF | polyfill 内嵌 gRPC/HTTP2 栈（h2 + HPACK + protobuf + grpc，需 polyfill rebuild 工具链） |
 | QWRT_BUILD_TESTS | OFF | 构建测试 |
 | QWRT_BUILD_EXAMPLES | OFF | 构建示例 |
 

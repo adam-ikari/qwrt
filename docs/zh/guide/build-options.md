@@ -22,6 +22,29 @@ qwrt 的 CMake 选项分为**两个独立的层级**：`QWRT_WITH_*` 控制**可
 
 **注意：** `QWRT_WITH_WAMR` 和 `QWRT_WITH_WASM3` 互斥——两者都注册 `WebAssembly` 全局对象。
 
+## 构建档位（`QWRT_PROFILE`）
+
+`QWRT_PROFILE` 是 `QWRT_WITH_*` 各项的预设包，**只改未显式指定的项**：
+`-DQWRT_PROFILE=minimal -DQWRT_WITH_TLS=ON` 中显式的 `TLS=ON` 赢。空值
+（默认）时各项行为与历史默认逐位一致。其他取值 configure 报错。
+
+| 档位 | 宏效果 | qwrt 尺寸（strip 后，实测） | ECMA-429 WinterTC |
+|------|--------|---------------------------|-------------------|
+| `standard`（与空 profile 等效） | 与历史默认相同：WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC=ON | 同默认构建 | ✅ 全量必选满足 |
+| `minimal` | 同 standard 但 **TLS=OFF**（fetch 降级 http-only；ECMA-429 不含 HTTPS） | **2.45 MiB**（Release/-O3）；1.81 MiB（MinSizeRel/-Os） | ✅ 全量必选仍满足：atob/btoa、WebAssembly（WAMR）、crypto.subtle、CompressionStream 全部在 |
+| `bare` | WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC 全 OFF | 1.49 MiB（Release/-O3）；1.05 MiB（-Os） | ❌ **不满足**：`WebAssembly` undefined、`btoa`/`atob` 抛 TypeError、`crypto.subtle` undefined、CompressionStream 读取时抛错 |
+
+在**同一 build 目录**下换用不同 `QWRT_PROFILE` 重新 configure 时，五个
+`QWRT_WITH_*` cache 项会自动重算为新档默认值（状态消息
+`QWRT_PROFILE changed: ...`）。显式 `-DQWRT_WITH_X` 的值在换档后**不会**
+保留——混用预设与显式覆盖时建议使用新的 build 目录。
+
+## gRPC 栈（`QWRT_WITH_GRPC`）
+
+| 选项 | 默认值 | 描述 |
+|------|--------|------|
+| `QWRT_WITH_GRPC` | OFF | 把 gRPC/HTTP2 栈（h2 + HPACK + protobuf + grpc，约 3.5k 行 JS）编进 polyfill bundle。依赖 npm + esbuild + qjsc（与 polyfill rebuild 相同前提）；工具链缺失时告警并跳过。手工路径：`QWRT_WITH_GRPC=1 node polyfill/build.js`。 |
+
 ## 构建目标（`QWRT_BUILD_*`）
 
 | 选项 | 默认值 | 描述 |

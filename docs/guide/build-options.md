@@ -28,13 +28,37 @@ runtime.
 
 **Note:** `QWRT_WITH_WAMR` and `QWRT_WITH_WASM3` are mutually exclusive — both register the `WebAssembly` global.
 
+## Build Profiles (`QWRT_PROFILE`)
+
+`QWRT_PROFILE` is a preset bundle of the `QWRT_WITH_*` feature toggles. It
+**only changes options not explicitly given** on the command line:
+`-DQWRT_PROFILE=minimal -DQWRT_WITH_TLS=ON` keeps the explicit `TLS=ON`.
+Empty (default) behaves bit-for-bit like the historical per-option defaults.
+Any other value fails configure.
+
+| Profile | Macro effect | qwrt size (stripped, measured) | ECMA-429 WinterTC |
+|---------|--------------|-------------------------------|-------------------|
+| `standard` (equivalent to empty) | Same as historical defaults: WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC=ON | Same as default build | ✅ full mandatory set met |
+| `minimal` | Same as standard but **TLS=OFF** (fetch degrades to http-only; ECMA-429 has no HTTPS requirement) | **2.45 MiB** (Release/-O3); 1.81 MiB (MinSizeRel/-Os) | ✅ still met: atob/btoa, WebAssembly (WAMR), crypto.subtle, CompressionStream all present |
+| `bare` | WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC all OFF | 1.49 MiB (Release/-O3); 1.05 MiB (-Os) | ❌ **not met**: `WebAssembly` undefined, `btoa`/`atob` throw TypeError, `crypto.subtle` undefined, CompressionStream throws on read |
+
+Re-running configure in the **same build directory** with a different
+`QWRT_PROFILE` recalculates the five `QWRT_WITH_*` cache entries to the new
+profile's defaults (status message `QWRT_PROFILE changed: ...`). Explicit
+`-DQWRT_WITH_X` values do **not** survive a profile switch — prefer a fresh
+build directory when mixing presets with explicit overrides.
+
+## gRPC Stack (`QWRT_WITH_GRPC`)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `QWRT_WITH_GRPC` | OFF | Embed the gRPC/HTTP2 stack (h2 + HPACK + protobuf + grpc, ~3.5k lines JS) in the polyfill bundle. Needs npm + esbuild + qjsc (same prerequisites as the polyfill rebuild); warns and skips when the toolchain is missing. Manual path: `QWRT_WITH_GRPC=1 node polyfill/build.js`. |
+
 ## Build Targets (`QWRT_BUILD_*`)
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `QWRT_BUILD_TESTS` | OFF | Build the test suite. Enables FetchContent for GoogleTest. |
-| `QWRT_BUILD_EXAMPLES` | OFF | Build example programs in `examples/`. |
-| `QWRT_BUILD_DEBUGGER` | OFF | DAP step-debugger. Patches QuickJS-ng to add breakpoint/step primitives and compiles `src/debugger.c` + `src/debugger_dap.c` into `libqwrt.a`. Zero overhead when OFF (patch not applied, sources not compiled). Enable with `QWRT_DEBUG=1` at runtime. See [Debugging](../dev/debugging.md). |
 
 ## Common Configurations
 

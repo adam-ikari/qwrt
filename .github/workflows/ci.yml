@@ -7,11 +7,14 @@ on:
 
 jobs:
   # ============================================================================
-  # Minimal build: all optional features OFF, mock_libuv tests only.
+  # All-optional-features-OFF build: mock_libuv tests only.
+  # (Named "all-features-off", NOT "minimal" — QWRT_PROFILE=minimal is a
+  # different thing: ECMA-429-compliant with only TLS cut. This job is the
+  # bare no-features matrix.)
   # ============================================================================
-  minimal:
+  all-features-off:
     runs-on: ubuntu-latest
-    name: minimal (all features OFF)
+    name: all-features-off
     steps:
       - uses: actions/checkout@v4
         with:
