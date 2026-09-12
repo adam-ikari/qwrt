@@ -226,7 +226,6 @@ export function setupEventTarget() {
       // the old code which fired bubble then capture.
       const captureKey = event.type + ':capture';
       const bubbleKey = event.type;
-      const toRemove = [];
 
       for (const key of [captureKey, bubbleKey]) {
         const listenerList = this._listeners.get(key);
@@ -237,6 +236,14 @@ export function setupEventTarget() {
           if (event._immediatePropagationStopped) break;
 
           try {
+            /* 规范（WHATWG DOM "invoke" 算法 step 2.2）：once 监听器须在
+             * invoke 之前从监听列表移除——否则回调内同类型再 dispatch 时
+             * 该 once 仍在列表中，被重复调用（嵌套 dispatch 回归）。 */
+            if (entry.once) {
+              const idx = listenerList.indexOf(entry);
+              if (idx >= 0) listenerList.splice(idx, 1);
+            }
+
             const callback = typeof entry.callback === 'function'
               ? entry.callback
               : entry.callback.handleEvent;
@@ -254,20 +261,8 @@ export function setupEventTarget() {
             }
           }
 
-          if (entry.once) {
-            toRemove.push({ entry, list: listenerList });
-          }
         }
       }
-
-      // Remove once listeners
-      for (const { entry, list } of toRemove) {
-        const idx = list.indexOf(entry);
-        if (idx >= 0) {
-          list.splice(idx, 1);
-        }
-      }
-
       // Reset transient event state after dispatch (not _target — that's
       // the event's original target, which should persist per spec).
       event._setEventPhase(0);

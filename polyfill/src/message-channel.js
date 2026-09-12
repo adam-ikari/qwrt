@@ -124,16 +124,12 @@ export function setupMessageChannel(pal) {
       }
       if (this._peerThread === 'local') {
         if (!this._entangledPort) return;
-        // Structured clone the message data
-        var data;
-        try {
-          data = globalThis.structuredClone(message, transfer ? { transfer: transfer } : undefined);
-        } catch (e) {
-          // If structured clone fails, send a messageerror
-          var errorEvent = new MessageEvent('messageerror', { data: e });
-          this._entangledPort.dispatchEvent(errorEvent);
-          return;
-        }
+        // Structured clone the message data. Clone failure must rethrow to
+        // the postMessage caller (WHATWG HTML §message-port-post-steps:
+        // "failed to serialize" → throw a "DataCloneError" DOMException).
+        // messageerror is only for receive-side deserialization failures.
+        var data = globalThis.structuredClone(
+          message, transfer ? { transfer: transfer } : undefined);
 
         var event = new MessageEvent('message', { data: data, ports: [] });
 

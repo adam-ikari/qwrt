@@ -36,13 +36,14 @@ export function setupBroadcastChannel() {
       if (this._closed) return;
       var peers = channels.get(this._name);
       if (!peers) return;
-      // Structured-clone the message so receivers get an independent copy
-      // (spec requirement). Serialization failure throws DataCloneError
-      // per HTML spec — never fall back to passing the live reference.
-      var data = structuredClone(message);
+      /* WHATWG HTML §dom-broadcastchannel-postmessage：对每个 target 各做
+       * 一次 structured clone——每 peer 必须拿到独立副本（peer 间共享可变
+       * 对象违反 spec）。序列化失败抛 DataCloneError（对 sender rethrow）。
+       * 性能：跳过已 close 的 peer，不为其克隆。 */
       peers.forEach(function(peer) {
         if (peer !== this && !peer._closed) {
-          peer.dispatchEvent(new MessageEvent('message', { data: data }));
+          peer.dispatchEvent(
+            new MessageEvent('message', { data: structuredClone(message) }));
         }
       }, this);
     }

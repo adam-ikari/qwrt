@@ -1588,9 +1588,10 @@ TEST_F(PolyfillTest, PerformanceObserver) {
 
 TEST_F(PolyfillTest, CacheStorageEdgeCases) {
     std::string v;
-    /* 1. caches 全局存在 */
+    /* 1. caches 全局存在。CacheStorage 是纯 JS lazy 模块（index.js lazyUnit
+     * 无条件注册），无 QWRT_WITH_* 编译开关、任何构建恒存在——无条件硬断言，
+     * 不做运行时探测 skip。 */
     ASSERT_TRUE(host_value(h, "JSON.stringify(typeof caches)", &v));
-    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "CacheStorage not implemented"; }
     EXPECT_NE(std::string::npos, v.find("\"object\"")) << "got: " << v;
 
     /* 2. open → put → match → text */
@@ -1639,7 +1640,9 @@ TEST_F(PolyfillTest, EventSourceParsing) {
         "  _rec += 'C[' + ev.data.replace(/\\n/g, '<LF>') + '|' + ev.lastEventId + '];';\n"
         "});\n"
         "JSON.stringify(typeof EventSource)", &v));
-    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
+    /* EventSource 是纯 JS lazy 模块（index.js lazyUnit 无条件注册），无
+     * QWRT_WITH_* 编译开关、任何构建恒存在——无条件硬断言，不做运行时探测。 */
+    EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
 
     /* 200 + 分块喂入：BOM / 注释 / CRLF / CR / LF / 多 data 行 / 空 data /
      * 自定义 event / id / 跨 chunk 字段拆分。 */
@@ -1675,7 +1678,6 @@ TEST_F(PolyfillTest, EventSourceEventTarget) {
         "JSON.stringify([es instanceof EventTarget,\n"
         "  typeof es.dispatchEvent, typeof es.removeEventListener,\n"
         "  es.readyState, es.CONNECTING, es.OPEN, es.CLOSED])", &v));
-    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
     /* EventTarget 继承 + 方法存在 + readyState 初始 CONNECTING(0) */
     EXPECT_NE(std::string::npos, v.find("[true,\"function\",\"function\",0,0,1,2]")) << "got: " << v;
     /* 200 → open 事件：addEventListener + onopen 都收到（1 + 10）；readyState OPEN(1) */
@@ -1703,7 +1705,6 @@ TEST_F(PolyfillTest, EventSourceReconnectLastEventId) {
         "es.onerror = function(){ _err++; };\n"
         "es.onmessage = function(ev){ _data += ev.data + '|' + ev.lastEventId + ';'; };\n"
         "0", &v));
-    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
     /* 首连 200：retry: 10 缩短重连延时；id: 42 + data */
     ASSERT_TRUE(host_value(h,
         "_esConns[0].onHeaders(200, '{}');\n"
@@ -1736,7 +1737,6 @@ TEST_F(PolyfillTest, EventSourceNon200NoReconnect) {
         "es.onerror = function(){ _err++; };\n"
         "es.onopen = function(){ _open++; };\n"
         "0", &v));
-    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "EventSource not available"; }
     /* 非 200：不 OPEN、触发 error、readyState CLOSED；onEnd 不再补发重连 */
     ASSERT_TRUE(host_value(h,
         "_esConns[0].onHeaders(404, '{}');\n"
@@ -1912,11 +1912,61 @@ TEST_F(PolyfillTest, BroadcastChannelCloneIsolation) {
     EXPECT_NE(std::string::npos, v.find("1")) << "got: " << v;
 }
 
+/* ---- 消息层三规范偏差回归（WHATWG DOM / HTML） ---- */
+
+/* Bug 1 回归：once 监听器须在 invoke 前移除（WHATWG DOM §observing event
+ * listeners, step 2.2：remove 先于 invoke）。同类型嵌套 dispatch 时 once 不再
+ * 被二次调用；恰好执行 1 次。 */
+TEST_F(PolyfillTest, EventTargetOnceRemovedBeforeInvoke) {
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var et = new EventTarget(); var hits = 0;\n"
+        "et.addEventListener('x', function once(e){\n"
+        "  hits++;\n"
+        "  if (hits < 20) et.dispatchEvent(new Event('x'));\n"
+        "}, {once: true});\n"
+        "et.dispatchEvent(new Event('x'));\n"
+        "JSON.stringify(hits)", &v));
+    EXPECT_NE(std::string::npos, v.find("1")) << "got: " << v;
+}
+
+/* Bug 2 回归：MessagePort 本地路径 clone 失败须向 postMessage 调用方抛
+ * DataCloneError（HTML §message-port-post-steps step 6：failed clone →
+ * throw a "DataCloneError" DOMException）；messageerror 只用于接收端
+ * 反序列化失败。断言 throw 且对端无 messageerror。 */
+TEST_F(PolyfillTest, MessagePortLocalCloneFailureThrows) {
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var ch = new MessageChannel(); var merr = false;\n"
+        "ch.port2.onmessageerror = function(){ merr = true; };\n"
+        "var threw = '';\n"
+        "try { ch.port1.postMessage(function(){}); }\n"
+        "catch (e) { threw = e.name; }\n"
+        "JSON.stringify([threw, merr])", &v));
+    EXPECT_NE(std::string::npos, v.find("[\"DataCloneError\",false]")) << "got: " << v;
+}
+
+/* Bug 3 回归：BroadcastChannel 每 peer 独立副本（HTML §dom-broadcastchannel-
+ * postmessage：serialise 每 target 各一次）。peer B 改收到的对象，peer C 不变。 */
+TEST_F(PolyfillTest, BroadcastChannelPerPeerIndependentClone) {
+    std::string v;
+    ASSERT_TRUE(host_value(h,
+        "var b = new BroadcastChannel('bc-peer'); var c = new BroadcastChannel('bc-peer');\n"
+        "var gotB = null, gotC = null;\n"
+        "b.onmessage = function(e){ gotB = e.data; };\n"
+        "c.onmessage = function(e){ gotC = e.data; };\n"
+        "new BroadcastChannel('bc-peer').postMessage({n: 1});\n"
+        "gotB.n = 42;\n"
+        "b.close(); c.close();\n"
+        "JSON.stringify([gotB.n, gotC.n])", &v));
+    EXPECT_NE(std::string::npos, v.find("[42,1]")) << "got: " << v;
+}
+
 TEST_F(PolyfillTest, CacheStorageExtended) {
     std::string v;
     /* 跳过条件同 CacheStorageEdgeCases */
     ASSERT_TRUE(host_value(h, "JSON.stringify(typeof caches)", &v));
-    if (v.find("\"undefined\"") != std::string::npos) { GTEST_SKIP() << "CacheStorage not implemented"; }
+    EXPECT_NE(std::string::npos, v.find("\"object\"")) << "got: " << v;  /* CacheStorage 恒存在（纯 JS lazy 模块），硬断言 */
 
     /* 1. caches.has / keys / delete 生命周期 */
     ASSERT_TRUE(host_eval(h,
