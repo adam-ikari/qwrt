@@ -25,6 +25,9 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
+尺寸敏感的构建：加 `-DQWRT_PROFILE=minimal`（仍满足 WinterTC 兼容，
+2.45 MiB strip 后）。见[构建选项](/zh/guide/build-options)。
+
 构建产物 `libqwrt.a`（静态核心）和 `libqwrt_full.a`（供 CMake 消费方使用的链接接口聚合库）位于 `build/` 目录，另有 `build/qwrt.pc` 供 pkg-config 使用。
 
 ## 你的第一个程序

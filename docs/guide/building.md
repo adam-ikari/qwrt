@@ -40,24 +40,30 @@ Build types: `Release` (optimized), `Debug` (with symbols and assertions), `RelW
 
 ## Example Configurations
 
-### Minimal (no TLS, no compression, stub WASM)
+### Minimal (WinterTC still met)
 
 ```bash
-cmake -B build -DQWRT_WITH_TLS=OFF -DQWRT_WITH_COMPRESS=OFF \
-      -DQWRT_WITH_CRYPTO_EXT=OFF -DQWRT_WITH_TEXTCODEC=OFF \
-      -DQWRT_WITH_WAMR=OFF
+cmake -B build -DQWRT_PROFILE=minimal
+cmake --build build -j$(nproc)
 ```
+
+`minimal` keeps WebAssembly, `crypto.subtle`, `atob`/`btoa`, and compression
+(2.45 MiB stripped, Release). For a script-executor-only build use
+`-DQWRT_PROFILE=bare` (1.49 MiB) — it drops the full WinterTC mandatory set.
+See [Build Options](/guide/build-options) for the profile table and the
+`QWRT_WITH_GRPC` CMake option.
 
 ### Full Development Build
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Debug \
-      -DQWRT_BUILD_TESTS=ON -DQWRT_WITH_TLS=ON \
-      -DQWRT_WITH_COMPRESS=ON -DQWRT_WITH_CRYPTO_EXT=ON \
-      -DQWRT_WITH_TEXTCODEC=ON -DQWRT_WITH_WAMR=ON
+      -DQWRT_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
+
+Full option reference including build profiles (`QWRT_PROFILE`) and the gRPC
+stack (`QWRT_WITH_GRPC`): [Build Options](/guide/build-options).
 
 ### wasm3 Alternative Engine
 

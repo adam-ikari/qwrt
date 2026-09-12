@@ -137,6 +137,10 @@ function checkCompatibility() {
 | **WebAssembly** | ✅ 可用 | WAMR Fast JIT 引擎 |
 | **纯 JS** | ✅ 兼容 | 大多数工具库（lodash 等） |
 
+以上状态基于默认构建（`QWRT_PROFILE=standard` 或空）。`minimal` 档保留
+完整 WinterTC 必选集；`bare` 档去掉 WebAssembly、`crypto.subtle`、
+`btoa`/`atob` 和压缩（见[构建选项](/zh/guide/build-options)）。
+
 ## 常见模式
 
 **兼容的包：**

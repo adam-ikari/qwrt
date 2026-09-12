@@ -25,6 +25,9 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
+Size-sensitive builds: add `-DQWRT_PROFILE=minimal` (keeps WinterTC
+compatibility, 2.45 MiB stripped). See [Build Options](/guide/build-options).
+
 The build produces `libqwrt.a` (static core) and `libqwrt_full.a` (link-interface aggregator for CMake consumers) in `build/`, plus `build/qwrt.pc` for pkg-config.
 
 ## Your First Program

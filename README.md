@@ -11,7 +11,7 @@ touches JS directly.
 
 ## Features
 
-- **QuickJS-ng engine** — full ES2023 support, fast startup, low memory
+- **QuickJS-ng engine** — full ES2023 support, fast startup (Release `qwrt -e 'console.log(1)'` median 4.82 ms after lazy WAMR init), low memory
 - **libuv-native execution** — qwrt owns an internal thread + libuv loop; no host-side event-loop pumping
 - **WinterTC-compatible runtime** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more (verified as an ECMA-429 interface matrix + project gtest harness — the WPT runner was removed; this is interface parity, not byte-for-byte browser parity)
 - **Streaming HTTP + TLS** — mbedTLS for HTTPS, chunked transfer decoding, certificate verification
@@ -39,6 +39,9 @@ storage, crypto.subtle, ...) initialize on first access. JS consumers observe
 no difference — every name is visible (`in`/`Object.keys`) before first use
 and resolves to the same descriptors as an eager install — so unused feature
 APIs cost no setup time, closures, or resident instances.
+The native WAMR runtime initializes lazily on first WebAssembly use as well —
+end-to-end CLI startup (Release) dropped from 10.33 ms to **4.82 ms** median
+for scripts that never touch `WebAssembly`.
 
 ### Minimal Example
 

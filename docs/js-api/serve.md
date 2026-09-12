@@ -133,6 +133,10 @@ Connection object:
 
 `permessage-deflate` (RFC 7692) compression is negotiated automatically when the client offers it and the native streaming deflate primitives are available (see [compress](/js-api/compress)).
 
+The WebSocket handshake requires `QWRT_WITH_TEXTCODEC=ON` and
+`QWRT_WITH_CRYPTO_EXT=ON` at build time (SHA-1 accept key via `crypto.subtle`);
+otherwise upgrades throw `WebSocket accept unavailable`.
+
 Requests without a matching `ws` route get a `404`; an upgrade missing `Sec-WebSocket-Key` gets a `400`.
 
 ## TLS

@@ -165,7 +165,7 @@ let derived = await crypto.subtle.deriveBits(
 
 ## 无 CRYPTO_EXT 时
 
-当 `QWRT_WITH_CRYPTO_EXT=OFF` 时，只有 `crypto.getRandomValues()` 可用。`crypto.subtle` 存在但所有方法抛出 `NotSupportedError`。
+当 `QWRT_WITH_CRYPTO_EXT=OFF` 时，只有 `crypto.getRandomValues()` 可用。`crypto.subtle` 为 `undefined` — 无 JS 回退。
 
 ## 注意事项
 

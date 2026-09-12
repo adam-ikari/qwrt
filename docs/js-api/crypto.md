@@ -211,7 +211,7 @@ let derived = await crypto.subtle.deriveKey(
 
 ## Without CRYPTO_EXT
 
-When `QWRT_WITH_CRYPTO_EXT=OFF`, only `crypto.getRandomValues()` is available. `crypto.subtle` exists but all methods throw `NotSupportedError`.
+When `QWRT_WITH_CRYPTO_EXT=OFF`, only `crypto.getRandomValues()` is available. `crypto.subtle` is `undefined` — there is no JS fallback.
 
 ## Notes
 

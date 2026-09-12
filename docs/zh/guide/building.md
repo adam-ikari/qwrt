@@ -40,24 +40,31 @@ cmake --build build -j$(nproc)
 
 ## 示例配置
 
-### 最小构建（无 TLS、无压缩、无 WASM）
+### 最小构建（仍满足 WinterTC）
 
 ```bash
-cmake -B build -DQWRT_WITH_TLS=OFF -DQWRT_WITH_COMPRESS=OFF \
-      -DQWRT_WITH_CRYPTO_EXT=OFF -DQWRT_WITH_TEXTCODEC=OFF \
-      -DQWRT_WITH_WAMR=OFF
+cmake -B build -DQWRT_PROFILE=minimal
+cmake --build build -j$(nproc)
 ```
+
+`minimal` 保留 WebAssembly、`crypto.subtle`、`atob`/`btoa` 和压缩
+（2.45 MiB，strip 后 Release）。纯脚本执行器构建用
+`-DQWRT_PROFILE=bare`（1.49 MiB）— 不满足 WinterTC 必选集。
+档案表与 `QWRT_WITH_GRPC` CMake option 见
+[构建选项](/zh/guide/build-options)。
 
 ### 完整开发构建
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Debug \
-      -DQWRT_BUILD_TESTS=ON -DQWRT_WITH_TLS=ON \
-      -DQWRT_WITH_COMPRESS=ON -DQWRT_WITH_CRYPTO_EXT=ON \
-      -DQWRT_WITH_TEXTCODEC=ON -DQWRT_WITH_WAMR=ON
+      -DQWRT_BUILD_TESTS=ON
+
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
+
+完整选项参考（含构建档位 `QWRT_PROFILE` 与 gRPC 栈 `QWRT_WITH_GRPC`）：
+[构建选项](/zh/guide/build-options)。
 
 ### wasm3 替代引擎
 
