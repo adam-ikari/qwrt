@@ -1,33 +1,38 @@
 /**
  * qwrt polyfill: structuredClone (enhanced)
  *
- * Replaces the basic JSON.parse(JSON.stringify()) implementation
- * with proper structured clone that handles:
- *   - TypedArrays (all types)
- *   - ArrayBuffer / DataView
- *   - Blob / File
- *   - Error (and subtypes)
- *   - Map / Set
- *   - Date
- *   - RegExp
- *   - Circular references
- *   - Infinity / NaN / -0
+ * 深拷贝委托 @ungap/structured-clone（StructuredSerialize/Deserialize 算法），
+ * qwrt 扩展语义保留自研分支：
+ *   - MessagePort：仅可 transfer（列表内 → __qwrt_port_from_ref__ 重建纠缠端口）
+ *   - ArrayBuffer：transfer → 立即 detach；非 transfer → 复制内容
+ *   - DataView：保留 byteOffset/byteLength（@ungap 委托会丢失两者）
+ *   - Blob / File：qwrt 自定义类型（@ungap 无感知）
+ *   - DOMException：qwrt 构造签名 (message, name)，与 @ungap ERROR 分支
+ *     (name, message) 参数序错位
+ *   - function / symbol → DataCloneError（@ungap 抛 TypeError）
+ *   - 自定义原型对象 → DataCloneError（@ungap 会降级为普通对象）
  *
- * TC55/ECMA-429 requires structuredClone to handle these types.
+ * 纯数据子树（Object/Array/Map/Set/Date/RegExp/Error/TypedArray/ArrayBuffer/
+ * 原语）整体委托 @ungap——其引用表保持循环引用与共享引用一致。
+ * 一致性契约：委托发生在整棵子树上，外部 seen 只记录子树根映射；子树内部的
+ * 共享/循环由 @ungap 引用表保持，跨委托子树的共享由外部 seen 保持。
  *
- * Pure JS - no PAL primitives needed.
+ * 字节序列化（__qwrt_serialize__ / __qwrt_deserialize__）为 worker 跨线程
+ * 传输与挂起恢复共用的自有 ABI，原样保留，不在替换范围。
  */
+
+import { serialize, deserialize } from '@ungap/structured-clone';
 
 export function setupStructuredClone() {
 
   /**
    * structuredClone(value, options)
    *
-   * Deep clones a value using the structured clone algorithm.
+   * Clones a value using the structured clone algorithm.
    * Handles circular references and special JS types.
    */
   globalThis.structuredClone = function structuredClone(value, options) {
-    /* transfer 列表校验（v1 只支持 ArrayBuffer） */
+    /* transfer 列表校验（v1 只支持 ArrayBuffer / MessagePort） */
     var transferSet = null;
     if (options && options.transfer !== undefined && options.transfer !== null) {
       if (!Array.isArray(options.transfer))
@@ -69,6 +74,52 @@ export function setupStructuredClone() {
     return result;
   };
 
+  /* ================================================================
+   * 深拷贝：委托 @ungap/structured-clone
+   *
+   * 委托判定：子树不含 qwrt 扩展（见文件头清单）→ 整树委托 @ungap。
+   * 含扩展 → 逐键递归（容器：Object/Array/Map/Set）。
+   * ================================================================ */
+
+  /* 子树是否含 qwrt 扩展（不可整体委托给 @ungap） */
+  function containsExtended(value, scan) {
+    if (value === null) return false;
+    var type = typeof value;
+    if (type === 'function' || type === 'symbol') return true;
+    if (type !== 'object') return false;
+    if (scan.has(value)) return false;
+    scan.add(value);
+    if (typeof globalThis.MessagePort === 'function' && value instanceof globalThis.MessagePort) return true;
+    if (typeof Blob !== 'undefined' && value instanceof Blob) return true;
+    if (typeof File !== 'undefined' && value instanceof File) return true;
+    if (typeof DOMException === 'function' && value instanceof DOMException) return true;
+    if (value instanceof DataView) return true;
+    if (value instanceof Date || value instanceof RegExp || value instanceof Error) return false;
+    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return false;
+    var proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null &&
+        !(value instanceof Map) && !(value instanceof Set) && !Array.isArray(value)) return true;
+    if (value instanceof Map) {
+      var ext = false;
+      value.forEach(function (v, k) {
+        if (!ext) ext = containsExtended(k, scan) || containsExtended(v, scan);
+      });
+      return ext;
+    }
+    if (value instanceof Set) {
+      var ext2 = false;
+      value.forEach(function (v) {
+        if (!ext2) ext2 = containsExtended(v, scan);
+      });
+      return ext2;
+    }
+    var keys = Object.keys(value);
+    for (var i = 0; i < keys.length; i++) {
+      if (containsExtended(value[keys[i]], scan)) return true;
+    }
+    return false;
+  }
+
   function clone(value, seen, options) {
     // Primitives: return as-is (handles null, undefined, boolean, number, string, bigint, symbol)
     if (value === null || value === undefined) return value;
@@ -90,59 +141,6 @@ export function setupStructuredClone() {
     // Handle functions — cannot be cloned
     if (typeof value === 'function') {
       throw new DOMException('Functions cannot be cloned', 'DataCloneError');
-    }
-
-    // Date
-    if (value instanceof Date) {
-      return new Date(value.getTime());
-    }
-
-    // RegExp
-    if (value instanceof RegExp) {
-      var regexp = new RegExp(value.source, value.flags);
-      regexp.lastIndex = value.lastIndex;
-      return regexp;
-    }
-
-    // Error types
-    if (value instanceof Error) {
-      var Ctor = value.constructor;
-      if (Ctor === Error || Ctor === TypeError || Ctor === RangeError ||
-          Ctor === SyntaxError || Ctor === URIError || Ctor === ReferenceError ||
-          Ctor === EvalError) {
-        var err = new Ctor(value.message);
-        err.stack = value.stack;
-        return err;
-      }
-      // DOMException
-      if (typeof DOMException === 'function' && value instanceof DOMException) {
-        return new DOMException(value.message, value.name);
-      }
-      // Generic Error
-      var err = new Error(value.message);
-      err.name = value.name;
-      err.stack = value.stack;
-      return err;
-    }
-
-    // Map
-    if (value instanceof Map) {
-      var result = new Map();
-      seen.set(value, result);
-      value.forEach(function(v, k) {
-        result.set(clone(k, seen, options), clone(v, seen, options));
-      });
-      return result;
-    }
-
-    // Set
-    if (value instanceof Set) {
-      var result = new Set();
-      seen.set(value, result);
-      value.forEach(function(v) {
-        result.add(clone(v, seen, options));
-      });
-      return result;
     }
 
     // MessagePort：只可转移（transfer 列表），不可克隆。
@@ -168,13 +166,13 @@ export function setupStructuredClone() {
       throw new DOMException('MessagePort cannot be cloned (use transfer)', 'DataCloneError');
     }
 
-    // ArrayBuffer
+    // ArrayBuffer：transfer → 内容转移到新 buffer，原 buffer detached；否则复制
     if (value instanceof ArrayBuffer) {
-      var ts = options && options._qwrtTransfer;
+      var ts2 = options && options._qwrtTransfer;
       var result;
-      if (ts && ts.has(value)) {
-        ts.delete(value);
-        result = value.transfer();   /* 内容转移到新 buffer，原 buffer detached */
+      if (ts2 && ts2.has(value)) {
+        ts2.delete(value);
+        result = value.transfer();
       } else {
         result = value.slice(0);
       }
@@ -182,69 +180,76 @@ export function setupStructuredClone() {
       return result;
     }
 
-    // DataView
+    // DataView：保留 byteOffset / byteLength（@ungap 委托会丢失）
     if (value instanceof DataView) {
       var buf = clone(value.buffer, seen, options);
       return new DataView(buf, value.byteOffset, value.byteLength);
     }
 
-    // TypedArrays
-    if (value instanceof Int8Array) return cloneTypedArray(value, Int8Array, seen);
-    if (value instanceof Uint8Array) return cloneTypedArray(value, Uint8Array, seen);
-    if (value instanceof Uint8ClampedArray) return cloneTypedArray(value, Uint8ClampedArray, seen);
-    if (value instanceof Int16Array) return cloneTypedArray(value, Int16Array, seen);
-    if (value instanceof Uint16Array) return cloneTypedArray(value, Uint16Array, seen);
-    if (value instanceof Int32Array) return cloneTypedArray(value, Int32Array, seen);
-    if (value instanceof Uint32Array) return cloneTypedArray(value, Uint32Array, seen);
-    if (value instanceof Float32Array) return cloneTypedArray(value, Float32Array, seen);
-    if (value instanceof Float64Array) return cloneTypedArray(value, Float64Array, seen);
-    if (typeof BigInt64Array !== 'undefined' && value instanceof BigInt64Array)
-      return cloneTypedArray(value, BigInt64Array, seen);
-    if (typeof BigUint64Array !== 'undefined' && value instanceof BigUint64Array)
-      return cloneTypedArray(value, BigUint64Array, seen);
-
-    // Blob
+    // Blob / File：qwrt 自定义类型，@ungap 无感知
     if (typeof Blob !== 'undefined' && value instanceof Blob) {
+      if (typeof File !== 'undefined' && value instanceof File) {
+        return new File([value], value.name, { type: value.type, lastModified: value.lastModified });
+      }
       return new Blob([value], { type: value.type });
     }
 
-    // File
-    if (typeof File !== 'undefined' && value instanceof File) {
-      return new File([value], value.name, { type: value.type, lastModified: value.lastModified });
-    }
-
-    // Array
-    if (Array.isArray(value)) {
-      var result = [];
-      seen.set(value, result);
-      for (var i = 0; i < value.length; i++) {
-        result[i] = clone(value[i], seen, options);
-      }
-      return result;
-    }
-
-    // Plain object: [[Prototype]] 为 Object.prototype 或 null
-    var proto = Object.getPrototypeOf(value);
-    if (proto === Object.prototype || proto === null) {
-      var result = {};
-      seen.set(value, result);
-      var keys = Object.keys(value);
-      for (var i = 0; i < keys.length; i++) {
-        /* F4 安全审计：'__proto__' 键必须落为 own 数据属性，不得触发原型 setter */
-        Object.defineProperty(result, keys[i], { value: clone(value[keys[i]], seen, options),
-          writable: true, enumerable: true, configurable: true });
-      }
-      return result;
+    // DOMException：(message, name) 构造序，与 @ungap ERROR 分支 (name, message) 错位
+    if (typeof DOMException === 'function' && value instanceof DOMException) {
+      return new DOMException(value.message, value.name);
     }
 
     // 自定义 class 实例 / 非普通原型对象：结构化克隆不支持 → DataCloneError
-    throw new DOMException('Object with custom prototype cannot be cloned', 'DataCloneError');
-  }
+    var proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null &&
+        !(value instanceof Date) && !(value instanceof RegExp) &&
+        !(value instanceof Map) && !(value instanceof Set) &&
+        !(value instanceof Error) &&
+        !(value instanceof ArrayBuffer) && !(ArrayBuffer.isView(value))) {
+      throw new DOMException('Object with custom prototype cannot be cloned', 'DataCloneError');
+    }
 
-  function cloneTypedArray(value, Ctor, seen) {
-    var result = new Ctor(value);
-    seen.set(value, result);
-    return result;
+    // 纯数据子树 → 整体委托 @ungap（循环/共享引用由库引用表保持）
+    if (!containsExtended(value, new Set())) {
+      var delegated = deserialize(serialize(value));
+      seen.set(value, delegated);
+      return delegated;
+    }
+
+    // 子树含扩展 → 逐键递归
+    if (Array.isArray(value)) {
+      var arr = [];
+      seen.set(value, arr);
+      for (var i = 0; i < value.length; i++) {
+        arr[i] = clone(value[i], seen, options);
+      }
+      return arr;
+    }
+    if (value instanceof Map) {
+      var map = new Map();
+      seen.set(value, map);
+      value.forEach(function (v, k) {
+        map.set(clone(k, seen, options), clone(v, seen, options));
+      });
+      return map;
+    }
+    if (value instanceof Set) {
+      var set = new Set();
+      seen.set(value, set);
+      value.forEach(function (v) {
+        set.add(clone(v, seen, options));
+      });
+      return set;
+    }
+    var obj = {};
+    seen.set(value, obj);
+    var keys = Object.keys(value);
+    for (var j = 0; j < keys.length; j++) {
+      /* F4 安全审计：'__proto__' 键必须落为 own 数据属性，不得触发原型 setter */
+      Object.defineProperty(obj, keys[j], { value: clone(value[keys[j]], seen, options),
+        writable: true, enumerable: true, configurable: true });
+    }
+    return obj;
   }
 
   /* ================================================================

@@ -7,6 +7,10 @@ All notable changes to Qwrt.js.
 ### Removed
 - `QWRT_PROFILE=bare` 档（五宏全 OFF，不满足 ECMA-429 WinterTC）。
 - JS flatbuffers 退役：flatbuffers 重新定位为纯 C 层内部格式（当前无 C 消费者，不实现 C 代码）。JS 层退役理由：① JS 急切 decode 无性能优势（encode 两趟 vtable 回填+对齐，decode 遍历整表物化对象），zero-copy 随机字段访问优势仅在 C 层成立；② Worker 间为同进程共享内存通信，非 IPC 场景，无需跨进程序列化协议，flatbuffers 的跨界序列化价值在 qwrt 中不存在。gRPC 序列化改为 protobuf-only（标准互操作：grpc-go/grpc-js/grpcurl/Envoy）。删除 flatbuffers.js（1219 行）、loadFlatbuffers API、flatbuffers harness、`application/grpc+flatbuffers` content-type。纯 C 层定位：未来出现真实 C 层序列化需求时按 `docs/archive/plans/2026-09-03-flatbuffers-runtime-builtin.md` 方案 B（惰性访问器）实施。
+
+### Replaced
+- polyfill OSS 化（批2，用户 2026-09-13 裁决「能用开源库的用开源库替代」）：`url-pattern.js` → `urlpattern-polyfill@10.1.0`（MIT 零依赖，自研 3.1KB → 库 21.2KB minified，官方 WHATWG 语义，含完整 `:x?`/`+`/`*` modifier；相对字符串 pattern 无 base 的 qwrt 语义经 wrapper 适配为对象形式）；`structured-clone.js` 深拷贝委托 `@ungap/structured-clone@1.4.0`（ISC 零依赖，11.4KB → 3.0KB minified），qwrt 扩展语义保留自研分支（MessagePort transfer、ArrayBuffer transfer、DataView offset/len、Blob/File、DOMException）。字节 ABI `__qwrt_serialize__/__qwrt_deserialize__` 原样保留。bytecode：139,105B → 192,328B（+53,223B）。gtest 89/89 PASS。
+
 ### Added
 - Build Profiles（`QWRT_PROFILE` 两档，feat(build) 59fb8f2e 收编）：`minimal`=保留全部 ECMA-429 必选集仅裁 TLS（fetch 降 http-only）；`standard`=全 ON（与空 profile 等效）。空值（默认）行为与历史逐位一致；显式 `-DQWRT_WITH_X` 覆盖预设；非法值 configure FATAL_ERROR。同 build 目录换档自动重算五项 cache（显式 `-D` 值换档后不保留，建议新 build 目录）。实测 strip 尺寸：minimal Release 2.45 MiB / MinSizeRel 1.81 MiB。
 - `QWRT_WITH_GRPC` 收编为 CMake option（原为裸 env）：ON 时 polyfill rebuild 传 `QWRT_WITH_GRPC=1`，把 gRPC/HTTP2 栈（h2 + HPACK + protobuf + grpc，约 3.5k 行 JS）编进当前 QWRT_POLYFILL_MODE 的生成文件（rodata 默认写 `src/polyfill_default.c`，其余模式写 `src/polyfill_<mode>.c`）；工具链缺失时告警跳过；手工路径 `QWRT_WITH_GRPC=1 node polyfill/build.js` 不变。
