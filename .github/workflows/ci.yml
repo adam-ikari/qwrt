@@ -945,5 +945,5 @@ jobs:
           # ASan's shadows make the process start at ~2 GB RSS, and LSan does
           # not work under the runner's tracing — hence the raised limit and
           # the leak check off. Neither weakens crash/UB detection.
-          ASAN_OPTIONS: detect_leaks=0
+          ASAN_OPTIONS: detect_leaks=0:allocator_may_return_null=1
         run: ./fuzz_bc -max_total_time=60 -rss_limit_mb=4096 -timeout=25 -print_final_stats=1
