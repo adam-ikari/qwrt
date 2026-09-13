@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [build, upstream]
 created: "2026-08-31T11:59:47"
-updated: "2026-09-07T11:16:08"
+updated: "2026-09-13T00:45:48"
 ---
 
 <!-- compiled_truth -->
@@ -13,7 +13,8 @@ updated: "2026-09-07T11:16:08"
 
 - deps/quickjs-ng 与 deps/libuv 均为「本地快照 + 补丁文件」双机制：源码作为 git submodule 快照锁定在仓库内，上游差异通过补丁文件维护。
 - gitlink 已修复：deps/libuv 回指上游存在的 commit 20b08342（v1.52.1 祖先，可被 CI fetch），不再指向悬空 commit。
-- 上游落后基线（2026-08）：quickjs-ng 落后上游 107 commits、libuv 落后 134 commits。
+- **quickjs-ng 已升级至 v0.16.2（commit 1009e662，2026-09-12）**：97 commits，三补丁 3way rebase 零冲突；BC_VERSION 26→27；唯一公开 API 破坏为 realloc_func 签名（7 callsite + 3 回调改造）。polyfill.bytecode 须用同版本 qjsc 重编，否则 host_create 全挂（findQjsc 扫描 build* 会静默选到旧 qjsc，已定案：CMake 传 $QJSC 指向当前 build 目录）。
+- libuv 落后基线（2026-08）：134 commits，未升级。
 
 ## 策略（最保守默认）
 
@@ -23,11 +24,12 @@ updated: "2026-09-07T11:16:08"
   - quickjs-ng-debugger（352 行）
   - libuv-c99-atomics（30 行）
 - 不引入 fork url、不依赖个人仓库。
+- **bytecode 工具链锁定**：polyfill.bytecode 重编必须用与引擎同版本的 qjsc（realloc_func/BC_VERSION 破坏会被静默的旧 qjsc 掩盖，产出的不匹配 bytecode 直接挂 host_create 测试）。
 
 ## 证据
 
 - `patch --dry-run` OK，补丁可干净回放。
-- libuv 补丁后 builds 全绿、offline ctest 13/13。
+- v0.16.2 升级：三补丁 3way rebase 零冲突；offline ctest 通过；polyfill.bytecode 重编 155873B。
 - 无补丁状态下 test_compress_gtest 30% flaky（-std=c99 原子行为不稳），补丁后降至 10%，非产品回归。
 
 
@@ -55,4 +57,22 @@ updated: "2026-09-07T11:16:08"
   kind: decision
   summary: "用户明确确认：C99 补丁提交形态维持现状——4 个 .patch 已 tracked 在本工程仓库（quickjs-ng-c99-atomics/libuv-c99-atomics/drain-jobs/debugger），CMake configure 阶段 patch -p1 应用；子模块 git status 的 m（deps/libuv、deps/quickjs-ng 工作树残留）为设计内残留，不还原、不加钩子、不 fork、不 vendor。此前的 'Do NOT stage submodule pointer changes' 约定与此一致——无指针变更被暂存过。"
   source: "2026-09-07 用户拍板会话"
+  affects: [quickjs-upstream-merge-strategy]
+
+- time: 2026-09-13T00:44:31
+  kind: decision
+  summary: "quickjs-ng v0.15.1→v0.16.2 升级定案（commit 1009e662，2026-09-12）：跟进上游 97 commits，三补丁（c99-atomics/debugger/drain-jobs）3way rebase 零冲突；唯一公开 API 破坏为 JS_NewArrayBuffer/JS_NewUint8Array 的 free_func→realloc_func 签名变更（7 callsite + 3 回调改造，realloc 回调 size==0 即释放语义）；BC_VERSION 26→27；polyfill.bytecode 用 v0.16.2 qjsc 重编（155873B）。"
+  source: "2026-09-13 修复所有定案会话"
+  affects: [quickjs-upstream-merge-strategy]
+
+- time: 2026-09-13T00:45:15
+  kind: decision
+  summary: "build.js 工具链坑（单独修复进行中）：findQjsc() 扫 build* 目录会静默选中旧版 qjsc（v0.15.1，BC=26），产出与引擎（v0.16.2，BC=27）不匹配的 bytecode，致所有 host_create 测试挂。定案：重编 polyfill.bytecode 必须用与引擎同版本 qjsc——CMake 传 $QJSC 指向当前 build 目录，不得依赖 findQjsc 扫描猜测（该坑正被单独修复）。"
+  source: "2026-09-13 修复所有定案会话"
+  affects: [quickjs-upstream-merge-strategy]
+
+- time: 2026-09-13T00:45:48
+  kind: decision
+  summary: "compiled_truth 更新：quickjs-ng 已升级 v0.16.2（BC 27），补 bytecode 工具链锁定规则"
+  source: "2026-09-13 修复所有定案会话"
   affects: [quickjs-upstream-merge-strategy]

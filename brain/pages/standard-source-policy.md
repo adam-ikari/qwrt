@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [standard, policy, wintertc, webrtc, w3c]
 created: "2026-09-09T03:37:10"
-updated: "2026-09-09T03:37:45"
+updated: "2026-09-13T00:44:30"
 ---
 
 <!-- compiled_truth -->
@@ -37,4 +37,10 @@ updated: "2026-09-09T03:37:45"
   kind: decision
   summary: "2026-09-09 用户拍板：qwrt 能力面标准来源 = WinterTC（ECMA-429 最小集，核心）∪ W3C Web API 标准（补充）；WinterTC 缺失能力按对应 W3C 规范补充、API 面对齐该规范；先例归位 SW/CacheStorage→service-worker 规范、WebRTC→webrtc-pc+datachannel"
   source: "2026-09-09 用户追加指令（WebRTC API 设计会话）"
+  affects: [standard-source-policy]
+
+- time: 2026-09-13T00:44:30
+  kind: decision
+  summary: "bare 档废除落地（commit 99df2c40，2026-09-12）：用户裁决 qwrt 最新版本必须始终支持 WinterTC/ECMA-429，bare 档（五宏全 OFF：WAMR/TLS/COMPRESS/CRYPTO_EXT/TEXTCODEC，缺 WebAssembly/btoa/atob/crypto.subtle/CompressionStream）不满足必选集，废除。QWRT_PROFILE 合法集合缩为 {standard, minimal}，CMakeLists.txt:22-27 对非法值 FATAL_ERROR；空值等效 standard（全 ON），minimal 仅 TLS=OFF 仍满足全量必选。README/docs(en+zh)/CHANGELOG 已同步。"
+  source: "2026-09-13 修复所有定案会话"
   affects: [standard-source-policy]

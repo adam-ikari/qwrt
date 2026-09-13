@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [worker, suspend, transferable, robustness, gtest]
 created: "2026-08-28T15:53:09"
-updated: "2026-09-08T15:27:55"
+updated: "2026-09-13T00:44:30"
 ---
 
 <!-- compiled_truth -->
@@ -69,4 +69,10 @@ updated: "2026-09-08T15:27:55"
 - time: 2026-09-08T15:27:55
   kind: note
   summary: "性能特征：R3 postMessage 往返 64KB payload 实测 ~140ms/op（序列化主导，双后端 ~1×）——大 payload 往返远慢于小 payload，基准采样需按 payload 分级。"
+  affects: [a2-worker-robustness]
+
+- time: 2026-09-13T00:44:30
+  kind: decision
+  summary: "消息层三规范修复落地（commit 10e582fd）：1) EventTarget once 监听器改为 invoke 前移除——原 invoke 后移除，once 回调内再 dispatch 同事件会重复触发；2) MessagePort 本地 structured clone 失败改为发送方抛 DataCloneError——原误派到对端 messageerror，违反 HTML 规范错误归属；3) BroadcastChannel 每 peer 独立 clone——原各 channel 共享同一副本，B 处修改在 C 处可见，违反规范隔离语义。三者均为规范语义偏差修复，gtest 覆盖。"
+  source: "2026-09-13 修复所有定案会话"
   affects: [a2-worker-robustness]
