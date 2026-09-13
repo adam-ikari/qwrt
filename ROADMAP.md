@@ -32,7 +32,7 @@ fetch 拦截 + Cache + update，2026-09 合入 master，见 D6）。
 - mbedTLS（TLS + crypto.subtle）、miniz（compress）、textcodec（UTF-8/Base64）
 
 ### 质量
-- gtest（mock_libuv 离线确定性）ctest offline 20/20 全绿；e2e 19 PASS
+- gtest（mock_libuv 离线确定性）ctest offline 21/21 全绿；e2e 34/34 PASS
 - CI 20 job：all-features-off / feature-matrix / wamr / wasm3 / polyfill-external /
   polyfill-compressed / nonutf-encodings / asan / ubsan / release /
   httpserver-perf / h2-client-perf / runtime-perf / cross-runtime / e2e /
