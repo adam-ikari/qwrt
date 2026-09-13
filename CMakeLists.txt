@@ -742,6 +742,13 @@ endif()
 
 target_include_directories(qwrt PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Vendored headers reach qwrt's TUs as -isystem: the -Wall -Wextra -Wpedantic
+# -Werror gate below judges qwrt's own sources only, and libuv's uv.h is not
+# C99-clean under -Wpedantic (unnamed structs/unions). This only changes the
+# header search path — every dep is a separate target that keeps its own flags.
+target_include_directories(qwrt SYSTEM PUBLIC
     ${QUICKJS_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/include
     ${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/src
@@ -767,13 +774,24 @@ set_source_files_properties(src/ext_compress.c PROPERTIES
 set_source_files_properties(src/polyfill_load.c PROPERTIES
     COMPILE_OPTIONS "-Wno-unused-function")
 
-# Warn-hardening + strict C99 for qwrt's own sources (PRIVATE so vendored deps
-# built via add_subdirectory — miniz, quickjs-ng — are unaffected; they use
-# their own C standard). _POSIX_C_SOURCE exposes strdup/putenv/etc. that qwrt
-# uses, since pure -std=c99 hides them. bridge.c marks QuickJS-callback
-# fixed-signature params with QWRT_UNUSED.
+# Warn-hardening + strict C99 for qwrt's own sources.
+#
+# Isolation (src vs deps): this function is the ONE place -Werror is set and
+# it is PRIVATE to the target, so no flag propagates into vendored code built
+# by add_subdirectory (miniz, quickjs-ng, mbedtls, wamr) or into libuv's own
+# targets - they keep their own warning flags and C standard. In the other
+# direction, vendored *headers* included by src/ are reached as -isystem (see
+# the qwrt include-directories block above), so the compiler treats them as
+# system headers and -Wpedantic judges src/ code only: uv.h's unnamed
+# structs/unions (not C99) stay silent, while a real src/ pedantic defect
+# still fails the build.
+#
+# -Wpedantic enforces the "no GNU extensions" promise in CMAKE_C_EXTENSIONS
+# rather than merely declaring it. _POSIX_C_SOURCE exposes strdup/putenv/etc.
+# that qwrt uses, since pure -std=c99 hides them. bridge.c marks QuickJS
+# callback fixed-signature params with QWRT_UNUSED.
 function(qwrt_enable_warnings target)
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_definitions(${target} PRIVATE _POSIX_C_SOURCE=200809L)
 endfunction()
 qwrt_enable_warnings(qwrt)
@@ -980,6 +998,7 @@ if(QWRT_BUILD_CLI)
     else()
         target_link_libraries(qwrt_cli PRIVATE qwrt_full)
     endif()
+qwrt_enable_warnings(qwrt_cli)
 endif()
 # ============================================================================
 # qwrt-rt — standalone worker process binary (M-P1 multi-process model)

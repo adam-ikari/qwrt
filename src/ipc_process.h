@@ -31,8 +31,13 @@ extern "C" {
 
 /* ── Opaque handle — declared up front so the framing/terminate prototypes
  * below can use qwrt_proc_t without pulling in uv types (review: the typedef
- * used to sit mid-declaration list). */
+ * used to sit mid-declaration list). Guarded: qwrt_internal.h forward-declares
+ * the same name (it must not include this header under mock libuv), and a
+ * repeated typedef is an error under -Wpedantic. */
+#ifndef QWRT_PROC_T_DEFINED
+#define QWRT_PROC_T_DEFINED
 typedef struct qwrt_proc_s qwrt_proc_t;
+#endif
 
 /* ── Constants ── */
 

@@ -4,8 +4,12 @@
 #include "qwrt/qwrt.h"
 /* qwrt_proc_t 前置声明（ipc_process.h 全量 include 仅 worker.c 进程后端代码
  * 需要；这里只用指针。直接 include 会把 uv_pipe_t 拉进 mock 测试构建——
- * mock_libuv.h 无该类型。 */
+ * mock_libuv.h 无该类型。与 ipc_process.h 共用 guard：重复 typedef 在
+ * -Wpedantic 下是错误。 */
+#ifndef QWRT_PROC_T_DEFINED
+#define QWRT_PROC_T_DEFINED
 typedef struct qwrt_proc_s qwrt_proc_t;
+#endif
 typedef struct qwrt_ctx_s qwrt_ctx_t;   /* 前置声明：qwrt_proc_handle_t 用指针 */
 #include <quickjs.h>
 
