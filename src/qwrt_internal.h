@@ -579,9 +579,6 @@ int qwrt_ctl_interrupt_handler(JSRuntime *jsrt, void *opaque);
 void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns);
 /* 回执表：命中 correl 则经 message_cb 下发回执 JSON（qwrt 线程独占，锁内移除）。 */
 void qwrt_ctl_resolve(qwrt_t *rt, const char *correl, const char *json, size_t len);
-uint64_t uv_io_hrtime(void);
-void uv_io_log(int level, const char *msg);
-void uv_io_random_bytes(uint8_t *buf, size_t len);
 
 /* Monotonic clock in milliseconds. Ignores clock_gettime failure (same
  * behavior the former per-file copies had): CLOCK_MONOTONIC cannot fail with

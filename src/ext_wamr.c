@@ -22,10 +22,15 @@
 #if defined(__GNUC__) || defined(__clang__)
 #define _QWRT_WAMR_DIAG_PUSH _Pragma("GCC diagnostic push")
 #define _QWRT_WAMR_DIAG_IGNORE_CAST _Pragma("GCC diagnostic ignored \"-Wcast-function-type\"")
+/* WAMR's NativeSymbol.func_ptr is `void *`, so registering a raw native means
+ * storing a function address in an object pointer. ISO C forbids that
+ * conversion; it is nevertheless the documented WAMR ABI. */
+#define _QWRT_WAMR_DIAG_IGNORE_PEDANTIC _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
 #define _QWRT_WAMR_DIAG_POP _Pragma("GCC diagnostic pop")
 #else
 #define _QWRT_WAMR_DIAG_PUSH
 #define _QWRT_WAMR_DIAG_IGNORE_CAST
+#define _QWRT_WAMR_DIAG_IGNORE_PEDANTIC
 #define _QWRT_WAMR_DIAG_POP
 #endif
 
@@ -1054,7 +1059,10 @@ static int wamr_register_module_imports(JSContext *ctx, wamr_module_wrap_t *wrap
         m->symbols = sym;
         NativeSymbol *entry = &m->symbols[m->count++];
         entry->symbol = slot->field_name;
+        _QWRT_WAMR_DIAG_PUSH
+        _QWRT_WAMR_DIAG_IGNORE_PEDANTIC
         entry->func_ptr = (void *)wamr_import_dispatch;
+        _QWRT_WAMR_DIAG_POP
         entry->signature = slot->signature;
         entry->attachment = slot;
     }

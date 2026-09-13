@@ -46,10 +46,9 @@ typedef struct qwrt_proc_s qwrt_proc_t;
  * 写 3；qwrt_proc_spawn 内部 socketpair 后，fork 出的 child 把子端
  * dup2 到这个固定 fd 再 execv。固定值让调用方在运行时 fd 未知时也能拼
  * argv（POSIX 约定 0/1/2 为 stdio，3 是第一个可自由使用的 fd；child 拥有
- * 自己的 fd 表，dup2 无条件覆盖 3）。注意 QWRT_IPC_CHANNEL_FD_STR 必须与
- * 此值同步——调用方 argv 里的 --parent-fd 字符串用它。 */
+ * 自己的 fd 表，dup2 无条件覆盖 3）。JS 侧（polyfill/src/worker.js）拼 argv
+ * 时硬编码 "--parent-fd" "3"，与本常量同步维护。 */
 #define QWRT_IPC_CHANNEL_FD    3
-#define QWRT_IPC_CHANNEL_FD_STR "3"
 
 
 /* ── Framing (length-prefixed, blocking I/O for handshake) ── */

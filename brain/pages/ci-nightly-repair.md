@@ -5,13 +5,15 @@ category: decision
 status: completed
 tags: [ci, nightly, scheduling]
 created: "2026-09-09T10:34:20"
-updated: "2026-09-09T19:36:48"
+updated: "2026-09-13T14:43:57"
 ---
 
 <!-- compiled_truth -->
 ## 完结状态（2026-09-09/10）
 
 所有 CI 失败项已修复并复验绿（19 job 零失败，run 34395551179 = ALL-GREEN）。nightly 例行转为备用模式（未来 CI 再红时复用），不再每晚自动跑空转。
+
+nightly cron 已于 2026-09-13 停用：归档后连续 4 夜空转（无产出，仅输出 CI-ALL-GREEN）。恢复方式 = crontab 加回 `0 2 * * * scripts/ci-nightly-once.sh`；与 docs/CI_FIX_BACKLOG.md「后续」口径一致。
 
 ## 修复清单（12 项）
 
@@ -44,4 +46,10 @@ clang -Werror typedef 重定义（75f3c47a）；SW e2e 硬编码路径参数化�
   kind: decision
   summary: "CI 全部修复完成（2026-09-09/10）：7+ 预存失败 + 新暴露面全绿，run 34395551179 ALL-GREEN；backlog 转归档"
   source: brain update-truth
+  affects: [ci-nightly-repair]
+
+- time: 2026-09-13T14:43:57
+  kind: decision
+  summary: "nightly cron 停用（2026-09-13）：归档后连续 4 夜空转无产出，与 docs/CI_FIX_BACKLOG.md 统一口径"
+  source: "主会话 2026-09-13 质量硬化，用户批准保留 t1 停用操作"
   affects: [ci-nightly-repair]

@@ -30,3 +30,4 @@ CI 已全绿（run 34395551179 = ALL-GREEN，19 个 job 零失败）。
 ## 后续（非阻塞，可留档）
 
 - CI 全绿后无例行任务；若未来 CI 再红，恢复本模式：gh run list → 定位 → 根因修复（禁放宽检查转绿）→ 提交 → 复验。
+- nightly cron 已于 2026-09-13 停用：归档后连续 4 夜空转（每晚 omp 无头会话仅输出 CI-ALL-GREEN 即退），与 brain「不再每晚自动跑空转」结论对齐。脚本 scripts/ci-nightly-once.sh 保留；未来 CI 再红时 `crontab -e` 恢复 `0 2 * * * /home/gem/project/qwrt/scripts/ci-nightly-once.sh` 即可。

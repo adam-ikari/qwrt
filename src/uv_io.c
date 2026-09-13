@@ -3904,36 +3904,3 @@ uint64_t uv_io_http_request_stream(qwrt_t *rt,
     rt->active_stream = op;
     return op->op_id;
 }
-
-/* ── 同步辅助：bridge.c 直接调用（非 static，避免 -Wunused-function） ── */
-
-uint64_t uv_io_time_now(qwrt_t *rt)
-{
-    return (uint64_t)uv_now(&rt->loop);
-}
-
-uint64_t uv_io_hrtime(void)
-{
-    return uv_hrtime();
-}
-
-void uv_io_log(int level, const char *msg)
-{
-    fprintf(stderr, "[qwrt:%d] %s\n", level, msg ? msg : "");
-}
-
-void uv_io_random_bytes(uint8_t *buf, size_t len)
-{
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd < 0) return;
-    size_t off = 0;
-    while (off < len) {
-        ssize_t n = read(fd, buf + off, len - off);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            break;
-        }
-        off += (size_t)n;
-    }
-    close(fd);
-}
