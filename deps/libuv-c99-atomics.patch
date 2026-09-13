@@ -1,9 +1,9 @@
 # qwrt patch: map C11 atomic_* ops + _Atomic to GCC/Clang __atomic_* builtins
 # in libuv's uv-common.h so libuv compiles under -std=c99.
-# Base submodule: deps/libuv @ 20b08342bcdcc27497aeb87d826b97475c12aca6 (v1.52.1-72-g20b08342)
+# Base submodule: deps/libuv @ 096a02d14cb9d3de6d55a29ec02c4dfcb7643c7f (v1.52.1-110-g096a02d1)
 # Working-tree-only (the submodule stays clean); CMake re-applies when needed.
 diff --git a/src/unix/async.c b/src/unix/async.c
-index bb954a12..3f54330d 100644
+index dab168da..0c2077e5 100644
 --- a/src/unix/async.c
 +++ b/src/unix/async.c
 @@ -26,7 +26,6 @@
@@ -27,7 +27,7 @@ index 06a6986e..0dd7dabd 100644
  #include <stdlib.h>
  #include <string.h>
 diff --git a/src/unix/linux.c b/src/unix/linux.c
-index b4612897..50d84699 100644
+index 19a63af0..060e8958 100644
 --- a/src/unix/linux.c
 +++ b/src/unix/linux.c
 @@ -28,7 +28,6 @@
@@ -51,7 +51,7 @@ index 21d37882..e39bb537 100644
  #include <assert.h>
  #include <unistd.h>
 diff --git a/src/uv-common.h b/src/uv-common.h
-index 15f1027c..f4b9559a 100644
+index 7e811371..e0922eb7 100644
 --- a/src/uv-common.h
 +++ b/src/uv-common.h
 @@ -39,7 +39,36 @@
