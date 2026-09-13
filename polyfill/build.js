@@ -60,6 +60,19 @@ const isWatch = process.argv.includes('--watch');
 // compiler lives at <build>/deps/quickjs-ng/qjsc — NOT at the legacy
 // standalone-checkout path ../deps/quickjs-ng/build/qjsc that older setups
 // used. Priority: $QJSC env override → build*/deps/quickjs-ng/qjsc → legacy.
+// The CMake polyfill_rebuild target always passes QJSC=<this build dir's
+// qjsc>; the filesystem scan below is only a manual-invocation fallback.
+// Its readdir order is not deterministic and stale build dirs may hold an
+// old qjsc whose bytecode version (first byte: 0x1b=BC27 / 0x1a=BC26) the
+// engine rejects, so probe the winner's version and warn on mismatch.
+function qjscVersion(qjsc) {
+  try {
+    const out = execSync('"' + qjsc + '" --version', { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    const m = out.match(/version\s+(\d+\.\d+\.\d+)/i);
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+
 function findQjsc() {
   if (process.env.QJSC) return process.env.QJSC;
   const candidates = [];
@@ -71,10 +84,20 @@ function findQjsc() {
     }
   }
   candidates.push(path.join(ROOT_DIR, '..', 'deps', 'quickjs-ng', 'build', 'qjsc'));
+  let found = null;
   for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
+    if (fs.existsSync(c)) { found = c; break; }
   }
-  return candidates[0]; // none found; execSync surfaces a clear failure
+  if (found) {
+    const v = qjscVersion(found);
+    console.error('[qwrt] qjsc (fallback scan): ' + found + (v ? ' (version ' + v + ')' : ''));
+    // Engine 0.16.x emits BC_VERSION 27 (bytecode byte 0x1b); 0.15.x emits
+    // 26 (0x1a) which JS_ReadObject rejects as "invalid version(26 expected=27)".
+    if (v && !v.startsWith('0.16.')) {
+      console.error('[qwrt] WARNING: qjsc ' + v + ' may emit bytecode the engine (0.16.x, BC_VERSION 27) cannot read. Set QJSC=<path to a 0.16.x qjsc> explicitly.');
+    }
+  }
+  return found || candidates[0]; // none found; execSync surfaces a clear failure
 }
 
 // Polyfill embedding mode (matches CMake QWRT_POLYFILL_MODE):
