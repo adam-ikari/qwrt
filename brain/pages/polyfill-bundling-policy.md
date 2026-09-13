@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [polyfill, bundling, memory]
 created: "2026-09-10T01:38:27"
-updated: "2026-09-13T09:35:18"
+updated: "2026-09-13T10:52:49"
 ---
 
 <!-- compiled_truth -->
@@ -52,3 +52,8 @@ updated: "2026-09-13T09:35:18"
   summary: "external 模式（QWRT_POLYFILL_MODE=external，仓库唯一非编译期锚定的 bytecode 入口）定位为「固定版防篡改」：polyfill/build.js 构建 external 产物时把官方 bytecode（dist/polyfill_default.polyfill）的 SHA-256 写进 src/polyfill_default.c（强符号 qwrt_polyfill_external_sha256[32]；strong 而非 weak，否则静态归档不抽取该 object）；src/polyfill_load.c external 分支读文件后自算 SHA-256 比对，不一致打印 expected/actual 并返回 QWRT_ERR_PERMISSION，拒绝交给 JS_ReadObject。SHA-256 为自包含 C99 实现（FIPS 180-4，无分配，仅 external 模式编译），不引新依赖（未用 mbedtls）。定性：纵深防御，非安全边界——能改数据文件者通常也能改二进制。不加「热替换/每部署不同文件」开关（用户取舍）；自定义 polyfill 需自行重跑 build.js 更新期望 hash（注释/CHANGELOG/CMake option 描述已写明）。CI leg polyfill-external 已覆盖（configure external → polyfill_rebuild 生成 hash 数组 → ctest）。commit 246cddc0。"
   source: "2026-09-13 external 完整性锚定实现会话"
   affects: [polyfill-bundling-policy, quickjs-upstream-merge-strategy]
+
+- time: 2026-09-13T10:52:49
+  kind: note
+  summary: "polyfill 模式产物分家（fix(build)）：build.js 与 CMakeLists 把生成 C 文件按 QWRT_POLYFILL_MODE 拆分——rodata 仍写 tracked 基线 src/polyfill_default.c，compressed/external/host 各写 untracked src/polyfill_<mode>.c（CMake _polyfill_gen_c 同映射）。修掉「三模式共写同一 tracked 文件、互覆产物」缺陷；external 的 SHA-256 锚定符号 qwrt_polyfill_external_sha256 随 polyfill_external.c 落盘；运行时行为与 SHA-256 校验语义不变。验证：rodata/compressed/external 三模式各自 configure+build 通过、ctest offline 21/21、external 篡改 .polyfill 被拒绝、tracked 基线 hash 不变"
+  affects: [polyfill-bundling-policy]
