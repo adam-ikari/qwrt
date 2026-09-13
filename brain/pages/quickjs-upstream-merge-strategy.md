@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [build, upstream]
 created: "2026-08-31T11:59:47"
-updated: "2026-09-13T00:45:48"
+updated: "2026-09-13T06:57:31"
 ---
 
 <!-- compiled_truth -->
@@ -75,4 +75,16 @@ updated: "2026-09-13T00:45:48"
   kind: decision
   summary: "compiled_truth 更新：quickjs-ng 已升级 v0.16.2（BC 27），补 bytecode 工具链锁定规则"
   source: "2026-09-13 修复所有定案会话"
+  affects: [quickjs-upstream-merge-strategy]
+
+- time: 2026-09-13T06:28:02
+  kind: decision
+  summary: "libuv 升级：20b08342 (v1.52.1-72) → 096a02d1 (v1.52.1-110, v1.x HEAD, +38 commits)。c99-atomics 补丁保留并重生成（上游 uv-common.h@42 仍 #include <stdatomic.h>，无原生 C99 原子）；新基线上 dry-run 零 fuzz。验证：offline 21/21、e2e HTTPServer 34/34、fetch proxy 9/9、SW e2e 3/3、JS harness 4/4。commit e6a8e18c"
+  source: "2026-09-13 libuv 升级会话"
+  affects: [quickjs-upstream-merge-strategy]
+
+- time: 2026-09-13T06:57:31
+  kind: decision
+  summary: "裁决：quickjs-ng bytecode local_count 一致性校验（deps/quickjs-ng-bc-localcount.patch，commit 7227ed81）为必要修改，永久保留（用户裁决 + 实证）。依据1-writer 恒等：quickjs.c:38809-38812 写 bc_put_leb128(s, b->arg_count + b->var_count)，上游自带注释 38810 \"this field is redundant\"；vardefs==NULL 时 else 分支 38828 写 0（js_create_function_bytecode 仅在 arg+var>0 时挂 vardefs）→ 合法值只有 0 或恰为 arg+var → 校验零误拒。依据2-双来源边界：reader 按流内 local_count 定 vardefs 尺寸（39765），free_function_bytecode（定义 37156，遍历循环 37163-37165：for i < b->arg_count + b->var_count）释放同一缓冲 → 畸形 bytecode OOB 读 rt->atom_array。实证：未修 base(1ab8676) ASan 报 SEGV /tmp/qjsrepro/base/quickjs.c:3699:9 in __JS_FreeAtom（栈 free_function_bytecode→JS_FreeAtomRT→__JS_FreeAtom，blob=33B Base64 G/////8ADP//Gw//////AQz//xsP/////wEAAAwNAAAA）；打补丁后干净 'SyntaxError: invalid local count'（18/20 次；残留 2/20 静默 139 属既有 Debug+ASan 下 JS_ReadObject 异常路径 teardown 问题，与 local_count 无关）。上游态度：origin/master(5301314) 无任何一致性校验；issue #1518（同 bug）closed not_planned，#1394 与 PR #1492 亦 wontfix/未合并，SECURITY.md 明示 bytecode hardening out of scope → 不建议上报上游，本补丁为唯一防护。受影响版本：v0.2.0 至 v0.16.2 全部 tag 及 master。行号更正：free_function_bytecode 真实定义在 37156（此前误报 37127，那是 js_create_function_bytecode 的赋值段）。"
+  source: "核实会话 upstream-verify 2026-09-13"
   affects: [quickjs-upstream-merge-strategy]
