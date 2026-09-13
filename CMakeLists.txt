@@ -368,6 +368,41 @@ if(EXISTS "${QWRT_QUICKJS_DRAIN_PATCH}")
     endif()
 endif()
 
+# ── QuickJS-ng bytecode reader local_count guard patch ─────────────────────
+# JS_ReadFunctionTag() allocates vardefs from the stream's local_count while
+# free_function_bytecode() walks arg_count+var_count of them; the writer
+# always emits the two as equal, so a corrupted stream made the free path
+# read heap garbage as atoms (__JS_FreeAtom SEGV, caught by fuzz-smoke).
+# Reject the mismatch early. Applied unconditionally (working-tree-only;
+# submodule stays clean).
+set(QWRT_QUICKJS_BC_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-bc-localcount.patch")
+if(EXISTS "${QWRT_QUICKJS_BC_PATCH}")
+    execute_process(
+        COMMAND patch -p1 --dry-run -f -i "${QWRT_QUICKJS_BC_PATCH}"
+        WORKING_DIRECTORY "${QUICKJS_DIR}"
+        RESULT_VARIABLE _bc_patch_dry
+        OUTPUT_QUIET ERROR_QUIET)
+    if(_bc_patch_dry EQUAL 0)
+        execute_process(
+            COMMAND patch -p1 -f -i "${QWRT_QUICKJS_BC_PATCH}"
+            WORKING_DIRECTORY "${QUICKJS_DIR}"
+            RESULT_VARIABLE _bc_patch_apply ERROR_QUIET)
+        if(NOT _bc_patch_apply EQUAL 0)
+            message(FATAL_ERROR "Failed to apply quickjs-ng bytecode local_count patch")
+        endif()
+        message(STATUS "Applied quickjs-ng bytecode local_count patch (deps/quickjs-ng-bc-localcount.patch)")
+    else()
+        # Already applied (e.g. reconfigure) — verify the guard is present.
+        execute_process(
+            COMMAND grep -c "invalid local count"
+                    "${QUICKJS_DIR}/quickjs.c"
+            OUTPUT_QUIET ERROR_QUIET RESULT_VARIABLE _bc_patch_check)
+        if(NOT _bc_patch_check EQUAL 0)
+            message(FATAL_ERROR
+                "quickjs-ng bytecode local_count patch does not apply cleanly and is not "
+                "already applied. Regenerate deps/quickjs-ng-bc-localcount.patch.")
+        endif()
+
 # ── QuickJS-ng debugger patch ──────────────────────────────────────────────
 # When QWRT_BUILD_DEBUGGER is ON, apply deps/quickjs-ng-debugger.patch to the
 # quickjs-ng submodule working tree BEFORE add_subdirectory so the patched
