@@ -402,6 +402,8 @@ if(EXISTS "${QWRT_QUICKJS_BC_PATCH}")
                 "quickjs-ng bytecode local_count patch does not apply cleanly and is not "
                 "already applied. Regenerate deps/quickjs-ng-bc-localcount.patch.")
         endif()
+    endif()
+endif()
 
 # ── QuickJS-ng debugger patch ──────────────────────────────────────────────
 # When QWRT_BUILD_DEBUGGER is ON, apply deps/quickjs-ng-debugger.patch to the
