@@ -81,6 +81,17 @@ if(NOT _polyfill_mode MATCHES "^(rodata|compressed|external|host)$")
 endif()
 set(QWRT_POLYFILL_MODE "${_polyfill_mode}")
 
+# Generated polyfill C file per mode (polyfill/build.js uses the same mapping).
+# rodata lands in the tracked baseline src/polyfill_default.c so a fresh clone
+# without the polyfill toolchain still compiles; every other mode lands in
+# untracked src/polyfill_<mode>.c, so switching modes can neither overwrite the
+# baseline nor leave a stale object file carrying the previous mode's symbols.
+if(_polyfill_mode STREQUAL "rodata")
+    set(_polyfill_gen_c "src/polyfill_default.c")
+else()
+    set(_polyfill_gen_c "src/polyfill_${_polyfill_mode}.c")
+endif()
+
 # sanitizer 构建检测（ASan/UBSan/TSan）：CMAKE_C_FLAGS 显式注入
 # -fsanitize=* 的配置视为 sanitizer 档。注入 QWRT_SANITIZE_BUILD，供
 # qwrt.c 等提升 JS 栈预算（sanitizer 帧放大易误报 QuickJS stack overflow）。
@@ -112,7 +123,7 @@ if(QWRT_POLYFILL_MODE STREQUAL "compressed" AND NOT EXISTS "${CMAKE_CURRENT_SOUR
 endif()
 
 if(QWRT_POLYFILL_MODE STREQUAL "external")
-    message(STATUS "Polyfill mode external: bytecode loaded from external .polyfill file (QWRT_POLYFILL_FILE); SHA-256 anchored at build time (see src/polyfill_default.c)")
+    message(STATUS "Polyfill mode external: bytecode loaded from external .polyfill file (QWRT_POLYFILL_FILE); SHA-256 anchored at build time (see the generated src/polyfill_external.c)")
 endif()
 
 # WAMR and wasm3 are mutually exclusive (both register the WebAssembly global)
@@ -523,37 +534,58 @@ if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/
     set(_polyfill_rebuild_enabled TRUE)
     # 源依赖：polyfill/src/** 变更必须触发 rebuild，否则旧字节码静默进产物
     file(GLOB_RECURSE QWRT_POLYFILL_SRC "${CMAKE_SOURCE_DIR}/polyfill/src/*.js")
-    add_custom_target(polyfill_rebuild
-        # qjsc 必须由 CMake 决定：当前 build 目录自编译的 qjsc 与引擎版本
-        # 必然一致（QJSC=$<TARGET_FILE:qjsc>）。否则 build.js 回落 fs 扫描，
-        # readdir 顺序不确定，撞上残留旧版 qjsc（如 0.15.1 → BC_VERSION 26）
-        # 会静默产出引擎拒读的字节码：JS_ReadObject: invalid version(26
-        # expected=27) → qwrt_create 返回 NULL → host_create 测试全挂。
+    # qjsc 必须由 CMake 决定：当前 build 目录自编译的 qjsc 与引擎版本
+    # 必然一致（QJSC=$<TARGET_FILE:qjsc>）。否则 build.js 回落 fs 扫描，
+    # readdir 顺序不确定，撞上残留旧版 qjsc（如 0.15.1 → BC_VERSION 26）
+    # 会静默产出引擎拒读的字节码：JS_ReadObject: invalid version(26
+    # expected=27) → qwrt_create 返回 NULL → host_create 测试全挂。
+    #
+    # 产物走 add_custom_command(OUTPUT)，不是 custom target 的隐式副作用：非
+    # rodata 模式产物 untracked，fresh clone/CI 在 configure 期根本没有该文件，
+    # 普通源文件列表会直接 "Cannot find source file"；OUTPUT 声明让构建系统既
+    # 知道从哪里生成、又只在真缺文件时才触发。qjsc / qwrt_lz4_compress 直接进
+    # DEPENDS（add_custom_command 里的跨目录目标依赖有效，见上面的
+    # qwrt_compile_js），比 add_dependencies 更早锁住顺序，避免并行构建 race。
+    set(_polyfill_rebuild_tools qjsc)
+    if(TARGET qwrt_lz4_compress)   # compressed 产物压缩器（EXCLUDE_FROM_ALL）
+        list(APPEND _polyfill_rebuild_tools qwrt_lz4_compress)
+    endif()
+    # 选项变化必须触发再生：custom target 永不过期，OUTPUT 规则只看依赖新旧。
+    # 三个 env 选项编进 stamp 文件名（file(GENERATE) 在构建期落一个空文件），
+    # 任一选项一变 stamp 名就变 → 依赖缺失 → 立即再生。
+    set(_polyfill_stamp "${CMAKE_CURRENT_BINARY_DIR}/polyfill_${_polyfill_mode}_nonutf${QWRT_WITH_NONUTF_ENCODINGS}_grpc${QWRT_WITH_GRPC}.stamp")
+    file(GENERATE OUTPUT "${_polyfill_stamp}" CONTENT "")
+    add_custom_command(
+        OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/${_polyfill_gen_c}"
+               "${CMAKE_CURRENT_SOURCE_DIR}/src/worker_boot_default.c"
         COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QWRT_WITH_GRPC=$<BOOL:${QWRT_WITH_GRPC}> QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE} QWRT_LZ4_COMPRESS=${CMAKE_BINARY_DIR}/qwrt_lz4_compress QJSC=$<TARGET_FILE:qjsc> npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
-
-        DEPENDS ${QWRT_POLYFILL_SRC}
+        DEPENDS ${QWRT_POLYFILL_SRC} ${_polyfill_rebuild_tools} "${_polyfill_stamp}"
         COMMENT "Rebuilding polyfill with QWRT_WITH_NONUTF_ENCODINGS=${QWRT_WITH_NONUTF_ENCODINGS} QWRT_WITH_GRPC=${QWRT_WITH_GRPC} QWRT_POLYFILL_MODE=${QWRT_POLYFILL_MODE}"
         VERBATIM
     )
-    # qjsc 是 build.js 生成字节码的编译器——必须先于 rebuild 就绪
-    # （并行构建 race：rebuild 跑在 quickjs-ng 子目录之前 → "qjsc not found"）。
-    if(TARGET qjsc)
-        add_dependencies(polyfill_rebuild qjsc)
-    endif()
-    # compressed 模式产物由该工具生成（EXCLUDE_FROM_ALL——显式拉进依赖）
-    if(TARGET qwrt_lz4_compress)
-        add_dependencies(polyfill_rebuild qwrt_lz4_compress)
-    endif()
+    # Phony handle: `--target polyfill_rebuild` 仍可用，其他 target 也能对它排序。
+    add_custom_target(polyfill_rebuild DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/${_polyfill_gen_c}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/worker_boot_default.c")
 else()
     set(_polyfill_rebuild_enabled FALSE)
+    # 非 rodata 模式没有 tracked 基线：工具链缺失且产物还没生成时直接配置失败，
+    # 否则只会在编译期冒出一句看不出原因的 "Cannot find source file"。
+    if(NOT _polyfill_mode STREQUAL "rodata"
+       AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_polyfill_gen_c}")
+        message(FATAL_ERROR
+            "QWRT_POLYFILL_MODE=${_polyfill_mode} needs the polyfill toolchain: "
+            "${_polyfill_gen_c} is generated, untracked, and absent. "
+            "Run `npm --prefix polyfill ci` (creates node_modules/esbuild), then re-configure.")
+    endif()
     if(QWRT_WITH_GRPC)
         message(WARNING "QWRT_WITH_GRPC=ON but polyfill toolchain missing; gRPC stack will NOT be embedded")
     endif()
     add_custom_target(polyfill_rebuild
-        COMMAND ${CMAKE_COMMAND} -E echo "polyfill_rebuild: skipped (esbuild/node_modules missing — using pre-generated src/polyfill_default.c)"
+        COMMAND ${CMAKE_COMMAND} -E echo "polyfill_rebuild: skipped (esbuild/node_modules missing — using pre-generated ${_polyfill_gen_c})"
         VERBATIM
     )
-    message(STATUS "Polyfill rebuild DISABLED — esbuild/node_modules not found; using pre-generated src/polyfill_default.c. Run `npm --prefix polyfill ci` then re-configure to enable.")
+    message(STATUS "Polyfill rebuild DISABLED — esbuild/node_modules not found; using pre-generated ${_polyfill_gen_c}. Run `npm --prefix polyfill ci` then re-configure to enable.")
 endif()
 
 # ============================================================================
@@ -629,7 +661,7 @@ endif()
 # Core library (qwrt.c + bridge.c)
 #
 # Source files that are always compiled (no feature toggle):
-#   qwrt.c, bridge.c, context.c, extension.c, polyfill_default.c,
+#   qwrt.c, bridge.c, context.c, extension.c, polyfill_*.c (mode-dependent),
 #   worker_boot_default.c, thread.c (执行模型 A 自持线程主循环), msgq.c
 #   (入站消息 FIFO), ipc_envelope.c (M-P0 进程信封 fb 编解码)
 # Extension sources are guarded by QWRT_WITH_* feature toggles so they are
@@ -641,7 +673,7 @@ set(_qwrt_core_sources
     src/bridge.c
     src/context.c
     src/extension.c
-    src/polyfill_default.c
+    ${_polyfill_gen_c}
     src/polyfill_load.c
     src/worker_boot_default.c
     src/thread.c
@@ -685,8 +717,10 @@ endif()
 
 add_library(qwrt STATIC ${_qwrt_core_sources})
 
-# polyfill_default.c 是生成产物（build.js 按 QWRT_POLYFILL_MODE /
-# QWRT_WITH_NONUTF_ENCODINGS 产出不同符号面），esbuild 可用时构建前先再生。
+# ${_polyfill_gen_c} 是生成产物（build.js 按 QWRT_POLYFILL_MODE /
+# QWRT_WITH_NONUTF_ENCODINGS 产出不同符号面）；polyfill_rebuild 这个 phony target
+# 让 qwrt 排在它之后，真正的生成规则是上面 add_custom_command(OUTPUT ...)（源文件
+# 本身也直接触发该规则，见 _qwrt_core_sources）。
 if(_polyfill_rebuild_enabled)
     add_dependencies(qwrt polyfill_rebuild)
 endif()

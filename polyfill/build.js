@@ -25,7 +25,8 @@
  *        now comes from the IIFE parameter
  *
  * Outputs:
- *   qwrt/src/polyfill_default.c  — compiled unit with default polyfill bytecode
+ *   qwrt/src/polyfill_default.c  — compiled polyfill bytecode (QWRT_POLYFILL_MODE=rodata)
+ *   qwrt/src/polyfill_<mode>.c   — same, for compressed|external|host (untracked, must match CMake)
  *   qwrt/dist/polyfill.bytecode  — raw bytecode file (for tests)
  *   qwrt/src/worker_boot_default.c — worker boot shim bytecode (qwrt_default_worker_boot)
  *   qwrt/dist/worker-boot.bytecode — raw worker boot bytecode file
@@ -111,6 +112,12 @@ if (!['rodata', 'compressed', 'external', 'host'].includes(QWRT_POLYFILL_MODE)) 
   console.error(`[qwrt] invalid QWRT_POLYFILL_MODE '${_modeRaw}' (expected rodata|compressed|external|host)`);
   process.exit(1);
 }
+// Generated C output — one file per mode, must match CMake's _polyfill_gen_c:
+//   rodata → src/polyfill_default.c (tracked baseline, shipped so a fresh clone
+//            compiles without the polyfill toolchain)
+//   others → src/polyfill_<mode>.c (untracked, regenerated per build)
+const OUT_C = path.join(ROOT_DIR, 'src',
+  QWRT_POLYFILL_MODE === 'rodata' ? 'polyfill_default.c' : 'polyfill_' + QWRT_POLYFILL_MODE + '.c');
 const QWRT_WITH_NONUTF_ENCODINGS = process.env.QWRT_WITH_NONUTF_ENCODINGS === '1';
 // gRPC/HTTP2 stack (http2.js + hpack.js + protobuf.js + grpc.js).
 // Off by default: it is ~3.5k lines of JS that only upstream-calling scripts use.
@@ -247,7 +254,7 @@ if (isWatch) {
 
     if (QWRT_POLYFILL_MODE === 'rodata') {
       // Mode C: const array baked into .rodata (default)
-      writeCArray(path.join(ROOT_DIR, 'src', 'polyfill_default.c'),
+      writeCArray(OUT_C,
         'qwrt_default_polyfill', polyfillBytes);
     } else if (QWRT_POLYFILL_MODE === 'compressed') {
       // compressed: lz4 raw-block via the vendored-lz4 build tool
@@ -277,8 +284,8 @@ if (isWatch) {
       cSrc += '\n};\n\n';
       cSrc += 'const size_t qwrt_default_polyfill_compressed_len = ' + compressed.length + ';\n';
       cSrc += 'const size_t qwrt_default_polyfill_orig_len = ' + origLen + ';\n';
-      fs.writeFileSync(path.join(ROOT_DIR, 'src', 'polyfill_default.c'), cSrc);
-      console.log('Written: src/polyfill_default.c (lz4 ' + compressed.length + ' -> ' + origLen + ' bytes)');
+      fs.writeFileSync(OUT_C, cSrc);
+      console.log('Written: ' + OUT_C + ' (lz4 ' + compressed.length + ' -> ' + origLen + ' bytes)');
     } else if (QWRT_POLYFILL_MODE === 'external') {
       // Mode B: external .polyfill file — no embedded bytecode, but the
       // SHA-256 of the official bytecode IS embedded as the compile-time
@@ -301,8 +308,8 @@ if (isWatch) {
         if ((i + 1) % 8 === 0) cSrc += '\n';
       }
       cSrc += '};\n';
-      fs.writeFileSync(path.join(ROOT_DIR, 'src', 'polyfill_default.c'), cSrc);
-      console.log('Written: src/polyfill_default.c (B mode + sha256 ' + digest.toString('hex') + ')');
+      fs.writeFileSync(OUT_C, cSrc);
+      console.log('Written: ' + OUT_C + ' (B mode + sha256 ' + digest.toString('hex') + ')');
       // Write the .polyfill file (raw bytecode) for distribution
       const polyfillPath = path.join(DIST_DIR, 'polyfill_default.polyfill');
       fs.writeFileSync(polyfillPath, polyfillBytes);
@@ -314,10 +321,10 @@ if (isWatch) {
       cSrc += '#include <stddef.h>\n';
       cSrc += '/* QWRT_POLYFILL_MODE=host: bytecode provided by host via\n';
       cSrc += ' * qwrt_polyfill_load_custom().  No embedded data. */\n';
-      fs.writeFileSync(path.join(ROOT_DIR, 'src', 'polyfill_default.c'), cSrc);
-      console.log('Written: src/polyfill_default.c (D mode placeholder)');
+      fs.writeFileSync(OUT_C, cSrc);
+      console.log('Written: ' + OUT_C + ' (D mode placeholder)');
     } else {
-      console.error('Unknown QWRT_POLYFILL_MODE: ' + QWRT_POLYFILL_MODE + ' (expected C/A/B/D)');
+      console.error('Unknown QWRT_POLYFILL_MODE: ' + QWRT_POLYFILL_MODE + ' (expected rodata|compressed|external|host)');
       process.exit(1);
     }
 
