@@ -835,36 +835,28 @@ endif()
 # under -std=c99. Working-tree-only; submodule stays clean.
 set(QWRT_LIBUV_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv-c99-atomics.patch")
 if(EXISTS "${QWRT_LIBUV_C99_PATCH}")
-    # 幂等判据一：补丁已完整应用？（反向 dry-run 成功 = 当前工作树恰为
-    # 补丁后状态，跳过；比 grep 单文件标记可靠——半补丁树会误放行）
     execute_process(
-        COMMAND patch -p1 -R --dry-run -f -i "${QWRT_LIBUV_C99_PATCH}"
+        COMMAND patch -p1 --dry-run -f -i "${QWRT_LIBUV_C99_PATCH}"
         WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
-        RESULT_VARIABLE _luv_revdry OUTPUT_QUIET ERROR_QUIET)
-    if(_luv_revdry EQUAL 0)
-        message(STATUS "libuv C99 atomics patch already applied (deps/libuv-c99-atomics.patch)")
-    else()
-        # 幂等判据二：补丁能干净套上？（未应用 → 应用；半补丁/版本错位 →
-        # 正向反向都失败 → 明确报错，而非静默产出混合态 libuv）
+        RESULT_VARIABLE _luv_dry OUTPUT_QUIET ERROR_QUIET)
+    if(_luv_dry EQUAL 0)
         execute_process(
-            COMMAND patch -p1 --dry-run -f -i "${QWRT_LIBUV_C99_PATCH}"
+            COMMAND patch -p1 -f -i "${QWRT_LIBUV_C99_PATCH}"
             WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
-            RESULT_VARIABLE _luv_dry OUTPUT_QUIET ERROR_QUIET)
-        if(_luv_dry EQUAL 0)
-            execute_process(
-                COMMAND patch -p1 -f -i "${QWRT_LIBUV_C99_PATCH}"
-                WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
-                RESULT_VARIABLE _luv_apply ERROR_QUIET)
-            if(NOT _luv_apply EQUAL 0)
-                message(FATAL_ERROR "Failed to apply libuv C99 atomics patch")
-            endif()
-            message(STATUS "Applied libuv C99 atomics patch (deps/libuv-c99-atomics.patch)")
-        else()
+            RESULT_VARIABLE _luv_apply ERROR_QUIET)
+        if(NOT _luv_apply EQUAL 0)
+            message(FATAL_ERROR "Failed to apply libuv C99 atomics patch")
+        endif()
+        message(STATUS "Applied libuv C99 atomics patch (deps/libuv-c99-atomics.patch)")
+    else()
+        execute_process(
+            COMMAND grep -c "qwrt: avoid C11 <stdatomic.h>"
+                    "${LIBUV_SRC_DIR}/src/uv-common.h"
+            OUTPUT_QUIET ERROR_QUIET RESULT_VARIABLE _luv_grep_rc)
+        if(NOT _luv_grep_rc EQUAL 0)
             message(FATAL_ERROR
-                "libuv C99 atomics patch neither applies cleanly nor reverses "
-                "cleanly (half-applied tree or submodule/version mismatch). "
-                "Restore deps/libuv to a clean checkout, then regenerate/verify "
-                "deps/libuv-c99-atomics.patch against the pinned revision.")
+                "libuv C99 atomics patch does not apply cleanly and is not "
+                "already applied. Regenerate deps/libuv-c99-atomics.patch.")
         endif()
     endif()
 endif()
