@@ -598,6 +598,30 @@ static inline int64_t qwrt_now_ms(void)
  * must stay buildable without libuv/quickjs), pulled in below. */
 #include "le_bytes.h"
 
+/* Borrow a byte view from a JS Uint8Array or ArrayBuffer (used by the
+ * compress and crypto extensions, which each had a private copy).
+ * `*out_bytes` points into the JS-owned buffer — no copy — so it stays
+ * valid only while `val` lives. Returns 0, or -1 if `val` is neither. */
+static inline int qwrt_js_extract_bytes(JSContext *ctx, JSValueConst val,
+                                        const uint8_t **out_bytes,
+                                        size_t *out_len)
+{
+    size_t byte_len = 0;
+    const uint8_t *bytes = JS_GetUint8Array(ctx, &byte_len, val);
+    if (bytes) {
+        *out_bytes = bytes;
+        *out_len = byte_len;
+        return 0;
+    }
+    bytes = JS_GetArrayBuffer(ctx, &byte_len, val);
+    if (bytes) {
+        *out_bytes = bytes;
+        *out_len = byte_len;
+        return 0;
+    }
+    return -1;
+}
+
 #ifdef __cplusplus
 }
 #endif

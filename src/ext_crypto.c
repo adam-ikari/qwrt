@@ -88,34 +88,6 @@ static int mpi_write_padded(const mbedtls_mpi *x, uint8_t *out, size_t len)
     return mbedtls_mpi_write_binary(x, out + (len - sz), sz);
 }
 
-
-/* ================================================================
- * Helper: extract byte buffer from JS ArrayBuffer/TypedArray
- * ================================================================ */
-
-static int crypto_extract_buffer(JSContext *ctx, JSValueConst val,
-                                const uint8_t **out_bytes, size_t *out_len)
-{
-    size_t byte_len = 0;
-    const uint8_t *bytes = NULL;
-
-    bytes = JS_GetUint8Array(ctx, &byte_len, val);
-    if (bytes) {
-        *out_bytes = bytes;
-        *out_len = byte_len;
-        return 0;
-    }
-
-    bytes = JS_GetArrayBuffer(ctx, &byte_len, val);
-    if (bytes) {
-        *out_bytes = bytes;
-        *out_len = byte_len;
-        return 0;
-    }
-
-    return -1;
-}
-
 /* Helper: create Uint8Array copy from raw bytes */
 static JSValue crypto_new_uint8array(JSContext *ctx, const uint8_t *data, size_t len)
 {
@@ -142,7 +114,7 @@ static JSValue js_pal_native_digest(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *data;
     size_t data_len;
-    if (crypto_extract_buffer(ctx, argv[1], &data, &data_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[1], &data, &data_len) < 0) {
         JS_FreeCString(ctx, algo);
         return JS_ThrowTypeError(ctx, "nativeDigest: data must be ArrayBuffer or Uint8Array");
     }
@@ -196,14 +168,14 @@ static JSValue js_pal_native_hmac(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *key;
     size_t key_len;
-    if (crypto_extract_buffer(ctx, argv[1], &key, &key_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[1], &key, &key_len) < 0) {
         JS_FreeCString(ctx, hash_algo);
         return JS_ThrowTypeError(ctx, "nativeHmac: key must be ArrayBuffer or Uint8Array");
     }
 
     const uint8_t *data;
     size_t data_len;
-    if (crypto_extract_buffer(ctx, argv[2], &data, &data_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[2], &data, &data_len) < 0) {
         JS_FreeCString(ctx, hash_algo);
         return JS_ThrowTypeError(ctx, "nativeHmac: data must be ArrayBuffer or Uint8Array");
     }
@@ -250,19 +222,19 @@ static JSValue js_pal_native_aes_crypt(JSContext *ctx, JSValueConst argv[],
 {
     const uint8_t *data;
     size_t data_len;
-    if (crypto_extract_buffer(ctx, argv[0], &data, &data_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &data, &data_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeAes: data must be ArrayBuffer or Uint8Array");
     }
 
     const uint8_t *key;
     size_t key_len;
-    if (crypto_extract_buffer(ctx, argv[1], &key, &key_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[1], &key, &key_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeAes: key must be ArrayBuffer or Uint8Array");
     }
 
     const uint8_t *iv;
     size_t iv_len;
-    if (crypto_extract_buffer(ctx, argv[2], &iv, &iv_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[2], &iv, &iv_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeAes: iv must be ArrayBuffer or Uint8Array");
     }
 
@@ -271,7 +243,7 @@ static JSValue js_pal_native_aes_crypt(JSContext *ctx, JSValueConst argv[],
     const uint8_t *aad = NULL;
     size_t aad_len = 0;
     if (!JS_IsUndefined(argv[4]) && !JS_IsNull(argv[4])) {
-        if (crypto_extract_buffer(ctx, argv[4], &aad, &aad_len) < 0) {
+        if (qwrt_js_extract_bytes(ctx, argv[4], &aad, &aad_len) < 0) {
             JS_FreeCString(ctx, algo);
             return JS_ThrowTypeError(ctx, "nativeAes: aad must be ArrayBuffer or Uint8Array");
         }
@@ -439,13 +411,13 @@ static JSValue js_pal_native_pbkdf2(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *password;
     size_t password_len;
-    if (crypto_extract_buffer(ctx, argv[0], &password, &password_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &password, &password_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativePbkdf2: password must be ArrayBuffer or Uint8Array");
     }
 
     const uint8_t *salt;
     size_t salt_len;
-    if (crypto_extract_buffer(ctx, argv[1], &salt, &salt_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[1], &salt, &salt_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativePbkdf2: salt must be ArrayBuffer or Uint8Array");
     }
 
@@ -511,9 +483,9 @@ static JSValue js_pal_native_hkdf(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *ikm, *salt = NULL, *info = NULL;
     size_t ikm_len, salt_len = 0, info_len = 0;
-    int bad = crypto_extract_buffer(ctx, argv[1], &ikm, &ikm_len) < 0 ||
-              crypto_extract_buffer(ctx, argv[2], &salt, &salt_len) < 0 ||
-              crypto_extract_buffer(ctx, argv[3], &info, &info_len) < 0;
+    int bad = qwrt_js_extract_bytes(ctx, argv[1], &ikm, &ikm_len) < 0 ||
+              qwrt_js_extract_bytes(ctx, argv[2], &salt, &salt_len) < 0 ||
+              qwrt_js_extract_bytes(ctx, argv[3], &info, &info_len) < 0;
     JS_FreeCString(ctx, hash_algo);
     if (bad) {
         return JS_ThrowTypeError(ctx, "nativeHkdf: ikm/salt/info must be ArrayBuffer or Uint8Array");
@@ -562,8 +534,8 @@ static JSValue js_pal_native_aes_kw(JSContext *ctx, JSValueConst argv[],
 {
     const uint8_t *key, *data;
     size_t key_len, data_len;
-    if (crypto_extract_buffer(ctx, argv[0], &key, &key_len) < 0 ||
-        crypto_extract_buffer(ctx, argv[1], &data, &data_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &key, &key_len) < 0 ||
+        qwrt_js_extract_bytes(ctx, argv[1], &data, &data_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeAesKw: key/data must be ArrayBuffer or Uint8Array");
     }
 
@@ -706,8 +678,8 @@ static JSValue js_pal_native_ecdh(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *d_bytes, *q_bytes;
     size_t d_len, q_len;
-    if (crypto_extract_buffer(ctx, argv[1], &d_bytes, &d_len) < 0 ||
-        crypto_extract_buffer(ctx, argv[2], &q_bytes, &q_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[1], &d_bytes, &d_len) < 0 ||
+        qwrt_js_extract_bytes(ctx, argv[2], &q_bytes, &q_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeEcdh: priv/peer must be ArrayBuffer or Uint8Array");
     }
 
@@ -795,9 +767,9 @@ static JSValue js_pal_native_ecdsa(JSContext *ctx, JSValueConst argv[],
 
     const uint8_t *key_bytes, *data_bytes, *sig_bytes = NULL;
     size_t key_len, data_len, sig_len = 0;
-    if (crypto_extract_buffer(ctx, argv[2], &key_bytes, &key_len) < 0 ||
-        crypto_extract_buffer(ctx, argv[sign ? 3 : 4], &data_bytes, &data_len) < 0 ||
-        (!sign && crypto_extract_buffer(ctx, argv[3], &sig_bytes, &sig_len) < 0)) {
+    if (qwrt_js_extract_bytes(ctx, argv[2], &key_bytes, &key_len) < 0 ||
+        qwrt_js_extract_bytes(ctx, argv[sign ? 3 : 4], &data_bytes, &data_len) < 0 ||
+        (!sign && qwrt_js_extract_bytes(ctx, argv[3], &sig_bytes, &sig_len) < 0)) {
         return JS_ThrowTypeError(ctx, "nativeEcdsa: buffers required");
     }
 
@@ -970,7 +942,7 @@ static JSValue js_pal_native_rsa_generate_key(JSContext *ctx, JSValueConst this_
     if (argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
         const uint8_t *e;
         size_t e_len;
-        if (crypto_extract_buffer(ctx, argv[1], &e, &e_len) < 0 || e_len == 0 || e_len > 4) {
+        if (qwrt_js_extract_bytes(ctx, argv[1], &e, &e_len) < 0 || e_len == 0 || e_len > 4) {
             return JS_ThrowTypeError(ctx, "nativeRsaGenerateKey: invalid publicExponent");
         }
         exponent = 0;
@@ -1057,15 +1029,15 @@ static JSValue js_pal_native_rsa_oaep(JSContext *ctx, JSValueConst argv[], int e
 {
     const uint8_t *der, *data;
     size_t der_len, data_len;
-    if (crypto_extract_buffer(ctx, argv[0], &der, &der_len) < 0 ||
-        crypto_extract_buffer(ctx, argv[1], &data, &data_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &der, &der_len) < 0 ||
+        qwrt_js_extract_bytes(ctx, argv[1], &data, &data_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeRsaOaep: key/data must be ArrayBuffer or Uint8Array");
     }
 
     const uint8_t *label = NULL;
     size_t label_len = 0;
     if (!JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) {
-        if (crypto_extract_buffer(ctx, argv[2], &label, &label_len) < 0) {
+        if (qwrt_js_extract_bytes(ctx, argv[2], &label, &label_len) < 0) {
             return JS_ThrowTypeError(ctx, "nativeRsaOaep: label must be ArrayBuffer or Uint8Array");
         }
     }
@@ -1151,8 +1123,8 @@ static JSValue js_pal_native_rsa_sign(JSContext *ctx, JSValueConst this_val,
     (void)this_val; (void)argc;
     const uint8_t *priv_der, *data;
     size_t priv_len, data_len;
-    if (crypto_extract_buffer(ctx, argv[0], &priv_der, &priv_len) < 0 ||
-        crypto_extract_buffer(ctx, argv[2], &data, &data_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &priv_der, &priv_len) < 0 ||
+        qwrt_js_extract_bytes(ctx, argv[2], &data, &data_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeRsaSign: key/data must be ArrayBuffer or Uint8Array");
     }
 
@@ -1208,9 +1180,9 @@ static JSValue js_pal_native_rsa_verify(JSContext *ctx, JSValueConst this_val,
     (void)this_val; (void)argc;
     const uint8_t *pub_der, *data, *sig;
     size_t pub_len, data_len, sig_len;
-    if (crypto_extract_buffer(ctx, argv[0], &pub_der, &pub_len) < 0 ||
-        crypto_extract_buffer(ctx, argv[2], &data, &data_len) < 0 ||
-        crypto_extract_buffer(ctx, argv[3], &sig, &sig_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &pub_der, &pub_len) < 0 ||
+        qwrt_js_extract_bytes(ctx, argv[2], &data, &data_len) < 0 ||
+        qwrt_js_extract_bytes(ctx, argv[3], &sig, &sig_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeRsaVerify: key/data/sig must be ArrayBuffer or Uint8Array");
     }
 

@@ -77,12 +77,8 @@ static int read_all_deadline(int fd, void *buf, size_t len, int64_t deadline_ms)
 int qwrt_ipc_write_frame(int fd, const uint8_t *data, size_t len)
 {
     if (len > 0xFFFFFFFFu) return -1;
-    uint8_t hdr[4] = {
-        (uint8_t)(len & 0xFF),
-        (uint8_t)((len >> 8) & 0xFF),
-        (uint8_t)((len >> 16) & 0xFF),
-        (uint8_t)((len >> 24) & 0xFF),
-    };
+    uint8_t hdr[4];
+    qwrt_wr32(hdr, (uint32_t)len);
     if (write_all(fd, hdr, 4) < 0) return -1;
     if (len > 0 && write_all(fd, data, len) < 0) return -1;
     return 0;
@@ -93,10 +89,7 @@ int qwrt_ipc_read_frame(int fd, uint8_t **out_frame, size_t *out_len,
 {
     uint8_t hdrbuf[4];
     if (read_all_deadline(fd, hdrbuf, 4, deadline_ms) < 0) return -1;
-    uint32_t flen = ((uint32_t)hdrbuf[0]) |
-                    ((uint32_t)hdrbuf[1] << 8) |
-                    ((uint32_t)hdrbuf[2] << 16) |
-                    ((uint32_t)hdrbuf[3] << 24);
+    uint32_t flen = qwrt_rd32(hdrbuf);
     if (flen > 16u * 1024 * 1024) return -1;
     uint8_t *frame = (uint8_t *)malloc(flen ? flen : 1);
     if (!frame) return -1;
@@ -550,10 +543,7 @@ static int proc_frame_send(qwrt_tx_t *tx,
     uint32_t flen = (uint32_t)env_len + 4u;
     uint8_t *frame = (uint8_t *)malloc(flen);
     if (!frame) { free(env_buf); return -1; }
-    frame[0] = (uint8_t)(env_len & 0xFFu);
-    frame[1] = (uint8_t)((env_len >> 8) & 0xFFu);
-    frame[2] = (uint8_t)((env_len >> 16) & 0xFFu);
-    frame[3] = (uint8_t)((env_len >> 24) & 0xFFu);
+    qwrt_wr32(frame, (uint32_t)env_len);
     memcpy(frame + 4, env_buf, env_len);
     free(env_buf);
     int rc = qwrt_tx_send(tx, frame, flen);
@@ -713,10 +703,7 @@ static void proc_process_rx(qwrt_proc_t *proc)
     for (;;) {
         if (proc->frame_len == 0) {
             if (proc->rbuf_len < 4) return;
-            proc->frame_len = ((uint32_t)proc->rbuf[0]) |
-                              ((uint32_t)proc->rbuf[1] << 8) |
-                              ((uint32_t)proc->rbuf[2] << 16) |
-                              ((uint32_t)proc->rbuf[3] << 24);
+            proc->frame_len = qwrt_rd32(proc->rbuf);
             proc->rbuf_len -= 4;
             if (proc->rbuf_len > 0)
                 memmove(proc->rbuf, proc->rbuf + 4, proc->rbuf_len);

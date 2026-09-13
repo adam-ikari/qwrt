@@ -49,33 +49,6 @@ static int parse_format(const char *format)
 }
 
 /* ================================================================
- * Helper: extract byte buffer from JS ArrayBuffer/TypedArray
- * ================================================================ */
-
-static int compress_extract_buffer(JSContext *ctx, JSValueConst val,
-                                   const uint8_t **out_bytes, size_t *out_len)
-{
-    size_t byte_len = 0;
-    const uint8_t *bytes = NULL;
-
-    bytes = JS_GetUint8Array(ctx, &byte_len, val);
-    if (bytes) {
-        *out_bytes = bytes;
-        *out_len = byte_len;
-        return 0;
-    }
-
-    bytes = JS_GetArrayBuffer(ctx, &byte_len, val);
-    if (bytes) {
-        *out_bytes = bytes;
-        *out_len = byte_len;
-        return 0;
-    }
-
-    return -1;
-}
-
-/* ================================================================
  * Raw DEFLATE inflate (miniz stream API)
  *
  * Returns 0 on success, -1 on init/stream error, -2 on corrupt data,
@@ -201,7 +174,7 @@ static JSValue js_pal_native_compress(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *in_bytes;
     size_t in_len;
-    if (compress_extract_buffer(ctx, argv[0], &in_bytes, &in_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &in_bytes, &in_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeCompress: data must be ArrayBuffer or Uint8Array");
     }
 
@@ -326,7 +299,7 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *in_bytes;
     size_t in_len;
-    if (compress_extract_buffer(ctx, argv[0], &in_bytes, &in_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &in_bytes, &in_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeDecompress: data must be ArrayBuffer or Uint8Array");
     }
 
@@ -464,8 +437,8 @@ static JSValue js_pal_native_bytes_equal(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *a_bytes, *b_bytes;
     size_t a_len, b_len;
-    if (compress_extract_buffer(ctx, argv[0], &a_bytes, &a_len) < 0 ||
-        compress_extract_buffer(ctx, argv[1], &b_bytes, &b_len) < 0) {
+    if (qwrt_js_extract_bytes(ctx, argv[0], &a_bytes, &a_len) < 0 ||
+        qwrt_js_extract_bytes(ctx, argv[1], &b_bytes, &b_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeBytesEqual: arguments must be ArrayBuffer or Uint8Array");
     }
 
@@ -581,7 +554,7 @@ static JSValue js_pal_deflate_push(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *in;
     size_t in_len;
-    if (compress_extract_buffer(ctx, argv[1], &in, &in_len) < 0)
+    if (qwrt_js_extract_bytes(ctx, argv[1], &in, &in_len) < 0)
         return JS_ThrowTypeError(ctx, "deflatePush: data must be ArrayBuffer or Uint8Array");
     if (in_len > UINT_MAX)
         return JS_ThrowRangeError(ctx, "deflatePush: input too large (max 4GB)");
@@ -692,7 +665,7 @@ static JSValue js_pal_inflate_push(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *in;
     size_t in_len;
-    if (compress_extract_buffer(ctx, argv[1], &in, &in_len) < 0)
+    if (qwrt_js_extract_bytes(ctx, argv[1], &in, &in_len) < 0)
         return JS_ThrowTypeError(ctx, "inflatePush: data must be ArrayBuffer or Uint8Array");
     if (in_len > UINT_MAX)
         return JS_ThrowRangeError(ctx, "inflatePush: input too large (max 4GB)");
