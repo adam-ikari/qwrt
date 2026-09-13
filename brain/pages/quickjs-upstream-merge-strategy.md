@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [build, upstream]
 created: "2026-08-31T11:59:47"
-updated: "2026-09-13T06:57:31"
+updated: "2026-09-13T07:11:14"
 ---
 
 <!-- compiled_truth -->
@@ -87,4 +87,10 @@ updated: "2026-09-13T06:57:31"
   kind: decision
   summary: "裁决：quickjs-ng bytecode local_count 一致性校验（deps/quickjs-ng-bc-localcount.patch，commit 7227ed81）为必要修改，永久保留（用户裁决 + 实证）。依据1-writer 恒等：quickjs.c:38809-38812 写 bc_put_leb128(s, b->arg_count + b->var_count)，上游自带注释 38810 \"this field is redundant\"；vardefs==NULL 时 else 分支 38828 写 0（js_create_function_bytecode 仅在 arg+var>0 时挂 vardefs）→ 合法值只有 0 或恰为 arg+var → 校验零误拒。依据2-双来源边界：reader 按流内 local_count 定 vardefs 尺寸（39765），free_function_bytecode（定义 37156，遍历循环 37163-37165：for i < b->arg_count + b->var_count）释放同一缓冲 → 畸形 bytecode OOB 读 rt->atom_array。实证：未修 base(1ab8676) ASan 报 SEGV /tmp/qjsrepro/base/quickjs.c:3699:9 in __JS_FreeAtom（栈 free_function_bytecode→JS_FreeAtomRT→__JS_FreeAtom，blob=33B Base64 G/////8ADP//Gw//////AQz//xsP/////wEAAAwNAAAA）；打补丁后干净 'SyntaxError: invalid local count'（18/20 次；残留 2/20 静默 139 属既有 Debug+ASan 下 JS_ReadObject 异常路径 teardown 问题，与 local_count 无关）。上游态度：origin/master(5301314) 无任何一致性校验；issue #1518（同 bug）closed not_planned，#1394 与 PR #1492 亦 wontfix/未合并，SECURITY.md 明示 bytecode hardening out of scope → 不建议上报上游，本补丁为唯一防护。受影响版本：v0.2.0 至 v0.16.2 全部 tag 及 master。行号更正：free_function_bytecode 真实定义在 37156（此前误报 37127，那是 js_create_function_bytecode 的赋值段）。"
   source: "核实会话 upstream-verify 2026-09-13"
+  affects: [quickjs-upstream-merge-strategy]
+
+- time: 2026-09-13T07:11:14
+  kind: decision
+  summary: "定性澄清（对 7227ed81 local_count 记录的补充，不改保留结论）：deps/quickjs-ng-bc-localcount.patch 的一致性校验属纵深防御 / CI 稳定性，非安全边界。依据（已核实输入面）：全仓 JS_READ_OBJ_BYTECODE 仅 3 处——src/context.c:178（polyfill 加载，默认 rodata 编译期 const 数组）、src/qwrt.c:222（worker boot，src/worker_boot_default.c git tracked）、.github/workflows/ci.yml:929（fuzz harness 随机 buffer）；跨信任边界传递为零：worker 复用同进程 rodata（worker.c:32-36,149）、process worker fork+exec 不传 bytecode（ipc_process.c:238-287）、挂起序列化（context.c:371）不经 JS_ReadObject → 默认构建无不可信 bytecode 入口；唯一非信入口为 external 模式 QWRT_POLYFILL_FILE 指向的磁盘文件（polyfill_load.c:84-170），是否用于生产未证。上游立场：deps/quickjs-ng/SECURITY.md 原文 \"Bytecode hardening is out of scope … Loading untrusted bytecode (JS_ReadObject with JS_READ_OBJ_BYTECODE) is equivalent to executing untrusted native code\"，即 bytecode=本机代码级信任、解析层校验非安全边界；配合 issue #1518 not_planned。设计原则推论：若将来 external/host 模式支持不可信 polyfill，应在加载层建立信任（哈希/签名 + 来源白名单），而非在 reader 逐字段校验——reader 有多个可放大字段（cpool_count/closure_var_count/byte_code_len/var_ref_count/stack_size），逐字段既不完整又拖热路径，且上游明确不接。保留结论不变：补丁保留（用户裁决 + fuzz 门禁稳定 + external 模式损坏文件优雅报错）。"
+  source: "2026-09-13 威胁模型核实会话"
   affects: [quickjs-upstream-merge-strategy]
