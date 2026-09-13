@@ -52,7 +52,7 @@ refactor: unify WASM engine initialization
 1. Create `polyfill/src/<module>.js`
 2. Export globals via `globalThis.<name> = ...`
 3. Add to `polyfill/src/index.js` imports
-4. Run `cd polyfill && npm run build` to bundle (esbuild) → compile to bytecode (qjsc) → regenerate `src/polyfill_default.c`
+4. Run `cd polyfill && npm run build` to bundle (esbuild) → compile to bytecode (qjsc) → regenerate the generated C file for the active `QWRT_POLYFILL_MODE`: `src/polyfill_default.c` in the default `rodata` mode, `src/polyfill_<mode>.c` in the other modes (those per-mode files are untracked)
 5. Test via the host harness: `host_value(h, "typeof <global> !== 'undefined'", &out)` (see `test/test_host.h`)
 
 ## Third-Party Library Policy

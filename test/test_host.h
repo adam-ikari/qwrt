@@ -377,3 +377,27 @@ static inline bool host_poll_until_value(HostCtx *h, const char *expr,
     *out = last;
     return false;
 }
+
+// 整文件读/写：测试读产物与状态快照、写篡改副本共用，避免各文件重复
+// fopen/fread/fclose 样板（单一事实来源）。写失败覆盖「打开失败 / 短写 /
+// close 未干净退出」三种；读失败覆盖「打开失败 / 读错误」。具体 errno 由
+// 调用点的断言消息带路径呈现（helper 不自己打印，免得与 gtest 断言重复）。
+static inline bool host_read_file(const std::string &path, std::string *out_bytes) {
+    FILE *f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    out_bytes->clear();
+    char chunk[4096];
+    size_t got;
+    while ((got = fread(chunk, 1, sizeof(chunk), f)) > 0) out_bytes->append(chunk, got);
+    const bool read_failed = ferror(f) != 0;
+    fclose(f);
+    return !read_failed;
+}
+
+static inline bool host_write_file(const std::string &path, const std::string &bytes) {
+    FILE *f = fopen(path.c_str(), "wb");
+    if (!f) return false;
+    const size_t written = fwrite(bytes.data(), 1, bytes.size(), f);
+    const bool closed_cleanly = fclose(f) == 0;
+    return written == bytes.size() && closed_cleanly;
+}

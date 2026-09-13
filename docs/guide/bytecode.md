@@ -66,7 +66,7 @@ void inject_polyfill(qwrt_t *rt) {
 }
 ```
 
-qwrt's own WinterTC modules use this pattern — they're precompiled to `src/polyfill_default.c` at build time.
+qwrt's own WinterTC modules use this pattern — they're precompiled at build time to `src/polyfill_<mode>.c` (`src/polyfill_default.c` in the default rodata mode).
 
 ## Rebuilding the WinterTC Modules
 
@@ -78,4 +78,4 @@ npm install          # first time only (pulls esbuild)
 npm run build        # bundles via esbuild, compiles with qjsc
 ```
 
-This regenerates `src/polyfill_default.c` — a C array of the bytecode that is compiled into `libqwrt.a`.
+This regenerates `src/polyfill_<mode>.c` (`src/polyfill_default.c` in the default `QWRT_POLYFILL_MODE=rodata`) — a C array of the bytecode that is compiled into `libqwrt.a`.

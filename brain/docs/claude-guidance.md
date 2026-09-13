@@ -87,19 +87,21 @@ against libuv headers only; uv symbols resolve at the final target
 ### Building the WinterTC modules
 
 The WinterTC-compatible runtime is **precompiled to QuickJS bytecode and inlined as
-`src/polyfill_default.c`** (an auto-generated C array — do not hand-edit). To
+`src/polyfill_<mode>.c`** (an auto-generated C array — do not hand-edit; rodata
+mode keeps the tracked baseline name `src/polyfill_default.c`, other modes write
+their own untracked file). To
 rebuild after editing anything under `polyfill/src/`:
 
 ```bash
 cd polyfill && npm install   # first time only, pulls esbuild
-npm run build                # bundles via esbuild, runs qjsc, regenerates polyfill_default.c
+npm run build                # bundles via esbuild, runs qjsc, regenerates the file for the active mode
 ```
 
 Flow: `polyfill/src/index.js` → esbuild bundles into an IIFE →
 `build.js` post-processes so `pal` arrives as an IIFE closure parameter from
 `globalThis.__pal_inject__` (see `polyfill/src/pal.js` and the header comment in
-`build.js`) → `qjsc -C -b` compiles to bytecode → written to
-`src/polyfill_default.c` and `dist/polyfill.bytecode`. `build.js` looks for
+`build.js`) → `qjsc -C -b` compiles to bytecode → written to the mode's
+generated file and `dist/polyfill.bytecode`. `build.js` looks for
 `qjsc` at `QJSC` env var or `../deps/quickjs-ng/build/qjsc`; the actual
 checkout lives at `deps/quickjs-ng/` (as a git submodule), so set `QJSC` if the default path is
 wrong. The WinterTC modules are injected into a context by `qwrt_inject_polyfill_ctx`

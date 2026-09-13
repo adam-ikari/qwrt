@@ -2551,8 +2551,98 @@ TEST_F(PolyfillTest, CloneTruncatedLengthGuard) {
     EXPECT_NE(std::string::npos, v.find("[\"hello\",\"1,2,3\"]")) << "got: " << v;
 }
 
+/* ================================================================
+ * External 模式（QWRT_POLYFILL_MODE=external）加载契约：磁盘 bytecode 必须与
+ * 编译期内嵌的 SHA-256 一致（「固定版防篡改」，见
+ * brain/pages/polyfill-bundling-policy.md）。篡改任意一比特必须被拒，且不得
+ * 把字节码交给 JS_ReadObject；未篡改的官方文件必须照常装载。
+ * 仅 external 构建编译——其余模式 bytecode 编进二进制，无此攻击面。
+ * ================================================================ */
+#if QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_EXTERNAL
 
+/* 篡改方式：翻转一个比特位。任何位变化都会改变 SHA-256，故加载器必拒。 */
+static const uint8_t kTamperFlipMask = 0x01;
 
+/* 合法 polyfill bytecode 的下界；短于此说明基线产物异常、测试无意义。 */
+static const size_t kMinPlausibleBytecodeBytes = 64;
 
+/* 把 QWRT_POLYFILL_FILE 指向 path 后再加载一次——加载器只从环境变量取路径，
+ * 用例三处（官方 / 篡改副本 / 恢复官方）共用此入口，免得重复 setenv 样板。
+ * 返回 qwrt_polyfill_load 的状态码；setenv 失败（仅 ENOMEM/EINVAL 可能）先记
+ * 一条断言失败，再由调用点按状态码判定。 */
+static int load_polyfill_at(const char *path, const uint8_t **out_bytes,
+                            size_t *out_len, void **out_owner)
+{
+    EXPECT_EQ(0, setenv("QWRT_POLYFILL_FILE", path, 1))
+        << "setenv(QWRT_POLYFILL_FILE) 失败，路径: " << path;
+    return qwrt_polyfill_load(out_bytes, out_len, out_owner);
+}
 
+TEST(PolyfillExternalTest, TamperRejectedAndIntactAccepted)
+{
+    const char *intact_path = getenv("QWRT_POLYFILL_FILE");
+    ASSERT_NE(nullptr, intact_path)
+        << "QWRT_POLYFILL_FILE 未设置：ctest 为其注入官方 bytecode 路径 "
+           "(test/CMakeLists.txt external 分支)";
 
+    /* 1) 未篡改：官方 bytecode 正常装载。 */
+    const uint8_t *intact_bytes = nullptr;
+    size_t intact_len = 0;
+    void *intact_owner = nullptr;
+    ASSERT_EQ(0, load_polyfill_at(intact_path, &intact_bytes, &intact_len,
+                                  &intact_owner))
+        << "官方 bytecode 装载失败，路径: " << intact_path;
+    ASSERT_NE(nullptr, intact_bytes)
+        << "装载成功必须交出字节码指针，路径: " << intact_path;
+    ASSERT_GE(intact_len, kMinPlausibleBytecodeBytes)
+        << "官方 bytecode 只有 " << intact_len << " 字节（下界 "
+        << kMinPlausibleBytecodeBytes << "），基线产物可疑，路径: " << intact_path;
+    qwrt_polyfill_unload(intact_owner);
+
+    /* 2) 篡改副本：翻转中间一比特后写入临时文件，仓库内的官方文件不被改动。
+     * 临时路径的命名与唯一性交给 mkstemp（本文件其余临时文件用例同款）。 */
+    std::string tampered_bytes;
+    ASSERT_TRUE(host_read_file(intact_path, &tampered_bytes))
+        << "读取官方 bytecode 失败，路径: " << intact_path;
+    ASSERT_GE(tampered_bytes.size(), kMinPlausibleBytecodeBytes)
+        << "官方 bytecode 只有 " << tampered_bytes.size() << " 字节（下界 "
+        << kMinPlausibleBytecodeBytes << "），篡改点无意义，路径: " << intact_path;
+    tampered_bytes[tampered_bytes.size() / 2] ^= kTamperFlipMask;
+
+    char tampered_path_template[] = "/tmp/qwrt_polyfill_tampered_XXXXXX";
+    const int tampered_fd = ::mkstemp(tampered_path_template);
+    ASSERT_GE(tampered_fd, 0) << "mkstemp 失败，模板: " << tampered_path_template;
+    ::close(tampered_fd);
+    const std::string tampered_path = tampered_path_template;
+    ASSERT_TRUE(host_write_file(tampered_path, tampered_bytes))
+        << "写入篡改副本失败，路径: " << tampered_path;
+
+    const uint8_t *rejected_bytes = nullptr;
+    size_t rejected_len = 0;
+    void *rejected_owner = nullptr;
+    const int tampered_status = load_polyfill_at(tampered_path.c_str(),
+                                                 &rejected_bytes, &rejected_len,
+                                                 &rejected_owner);
+    EXPECT_EQ(QWRT_ERR_PERMISSION, tampered_status)
+        << "哈希不匹配的 bytecode 必须拒绝（期望 QWRT_ERR_PERMISSION="
+        << (int)QWRT_ERR_PERMISSION << "），实际 " << tampered_status
+        << "，文件: " << tampered_path;
+    EXPECT_EQ(nullptr, rejected_bytes)
+        << "被拒时不得交出字节码指针，文件: " << tampered_path;
+    EXPECT_EQ(nullptr, rejected_owner)
+        << "被拒时不得交出 ownership 指针，文件: " << tampered_path;
+    EXPECT_EQ(0u, rejected_len)
+        << "被拒时不得报告字节数，文件: " << tampered_path;
+
+    /* 3) 恢复官方路径再装载一次：负例不得残留 env / 缓存状态。 */
+    const uint8_t *restored_bytes = nullptr;
+    size_t restored_len = 0;
+    void *restored_owner = nullptr;
+    EXPECT_EQ(0, load_polyfill_at(intact_path, &restored_bytes, &restored_len,
+                                  &restored_owner))
+        << "恢复官方 bytecode 后应重新可装载，路径: " << intact_path;
+    qwrt_polyfill_unload(restored_owner);
+
+    remove(tampered_path.c_str());
+}
+#endif

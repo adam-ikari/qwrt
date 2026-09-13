@@ -95,7 +95,7 @@ When editing `polyfill/src/*.js`:
 ```bash
 cd polyfill
 QJSC=../build/deps/quickjs-ng/qjsc npm run build
-# This regenerates src/polyfill_default.c
+# This regenerates src/polyfill_<mode>.c (rodata default: src/polyfill_default.c)
 # Then rebuild qwrt: cmake --build build
 ```
 

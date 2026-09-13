@@ -9,23 +9,6 @@
 #include "test_host.h"
 #include <string>
 #include <cstdio>
-
-static bool read_file_bytes(const char *path, std::string *out) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return false;
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return false; }
-    long sz = ftell(f);
-    rewind(f);
-    std::string b;
-    if (sz > 0) {
-        b.resize((size_t)sz);
-        if (fread(&b[0], 1, (size_t)sz, f) != (size_t)sz) { fclose(f); return false; }
-    }
-    fclose(f);
-    *out = b;
-    return true;
-}
-
 TEST(qwrt_suspend_, child_state_roundtrip) {
     HostCtx *h = host_create();
     ASSERT_NE(nullptr, h);
@@ -58,8 +41,8 @@ TEST(qwrt_suspend_, child_state_roundtrip) {
     ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
 
     std::string a, b;
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_a.bin", &a));
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_b.bin", &b));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_a.bin", &a));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_b.bin", &b));
     EXPECT_FALSE(a.empty());
     EXPECT_EQ(a, b) << "suspend→resume→suspend 状态不一致（restore 可能丢属性）";
 
@@ -126,8 +109,8 @@ TEST(qwrt_suspend_, resume_into_fresh_slot) {
         "qwrtContext.suspend(1, '" TEST_DIR "/state_fresh2.bin'); 'ok'", &out));
     ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
     std::string a, b;
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_fresh.bin", &a));
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_fresh2.bin", &b));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_fresh.bin", &a));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_fresh2.bin", &b));
     EXPECT_FALSE(a.empty());
     EXPECT_EQ(a, b) << "resume 后再 suspend 状态不一致";
 
@@ -197,8 +180,8 @@ TEST(qwrt_suspend_, skipped_uncloneable_stable) {
        往返。断言：两次快照都含 data；第二次 skipped ⊆ 第一次 skipped，且
        第一次确实记录了 fn。 */
     std::string a, b;
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_sk1.bin", &a));
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_sk2.bin", &b));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_sk1.bin", &a));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_sk2.bin", &b));
     EXPECT_NE(std::string::npos, a.find("data")) << "第一次快照缺 data";
     EXPECT_NE(std::string::npos, b.find("data")) << "第二次快照缺 data（往返丢数据）";
     EXPECT_NE(std::string::npos, a.find("fn")) << "第一次快照未把 fn 记入 skipped";
@@ -250,7 +233,7 @@ TEST(qwrt_suspend_, stress_cycle_10_rounds) {
     ASSERT_TRUE(host_eval(h,
         "qwrtContext.suspend(1, '" TEST_DIR "/state_cyc_end.bin'); 'ok'", &out));
     std::string bytes;
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_cyc_end.bin", &bytes));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_cyc_end.bin", &bytes));
     EXPECT_NE(std::string::npos, bytes.find("round")) << "init 键未被保留";
     EXPECT_NE(std::string::npos, bytes.find("ctr")) << "捕获状态丢失";
 
@@ -330,8 +313,8 @@ TEST(qwrt_suspend_, suspend_with_pending_job_no_uaf) {
         "qwrtContext.suspend(1, '" TEST_DIR "/state_pj2.bin'); 'ok'", &out));
     ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
     std::string a, b;
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_pj.bin", &a));
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_pj2.bin", &b));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_pj.bin", &a));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_pj2.bin", &b));
     EXPECT_FALSE(a.empty());
     EXPECT_NE(std::string::npos, b.find("pj")) << "用户状态未恢复";
     EXPECT_EQ(a, b) << "resume 后再 suspend 状态不一致";
@@ -365,8 +348,8 @@ TEST(qwrt_suspend_, suspend_releases_slot) {
         "qwrtContext.suspend(1, '" TEST_DIR "/state_slot3.bin'); 'ok'", &out));
     ASSERT_NE(std::string::npos, out.find("ok")) << "got: " << out;
     std::string a, b;
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_slot.bin", &a));
-    ASSERT_TRUE(read_file_bytes(TEST_DIR "/state_slot3.bin", &b));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_slot.bin", &a));
+    ASSERT_TRUE(host_read_file(TEST_DIR "/state_slot3.bin", &b));
     EXPECT_FALSE(a.empty());
     EXPECT_EQ(a, b) << "resume 后再 suspend 状态不一致";
 
@@ -402,7 +385,7 @@ TEST(qwrt_suspend_, suspend_then_double_suspend) {
         "catch (e) { thrown = e.name; }\n"
         "thrown", &out));
     EXPECT_NE(std::string::npos, out.find("Error")) << "got: " << out;
-    EXPECT_FALSE(read_file_bytes(TEST_DIR "/state_dbl2.bin", &out))
+    EXPECT_FALSE(host_read_file(TEST_DIR "/state_dbl2.bin", &out))
         << "第二次 suspend 失败却写了文件";
 
     ASSERT_TRUE(host_value(h, "2 + 2", &out));

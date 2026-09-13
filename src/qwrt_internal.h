@@ -135,6 +135,11 @@ typedef struct qwrt_proc_handle_s {
  * The matching definitions live in the mode's generated file
  * (src/polyfill_default.c for rodata, src/polyfill_<mode>.c otherwise). */
 
+/* C++ 测试（gtest）直接调用 qwrt_polyfill_load/_unload，须保持 C 链接，
+ * 否则被 name-mangling 而链接失败（下方 internal helper 段同款处理）。 */
+#ifdef __cplusplus
+extern "C" {
+#endif
 #if QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_RODATA
 /* rodata: const array baked into .rodata (default) */
 extern const uint8_t qwrt_default_polyfill[];
@@ -169,6 +174,9 @@ int qwrt_polyfill_load_custom(const uint8_t **out, size_t *out_len, void **owner
 void qwrt_polyfill_unload_custom(void *owner);
 
 /* (end polyfill decls) */
+#ifdef __cplusplus
+}
+#endif
 
 /* Worker boot shim bytecode (compiled in from worker_boot_default.c) */
 extern const uint8_t qwrt_default_worker_boot[];
