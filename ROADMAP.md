@@ -78,7 +78,7 @@ fetch 拦截 + Cache + update，2026-09 合入 master，见 D6）。
 |---|--------|------|------|
 | A1 | **异步文件 I/O 回归** ✅ | `fsRead/fsReadBinary` 已改回异步（`uv_io_fs_read`），修复根因（`uv_fs_read` 直接写入 iov 目标缓冲，删除多余 memcpy / UAF）。`fsExists/fsList/fsRemove/fsWrite` 走 `uv_io_*` 异步原语，补测试即可。 | 多连接并发读文件不阻塞事件循环；e2e fs 往返；ctest offline 20/20 |
 | A2 | **多上下文 / Worker 健壮性** ✅ | 软挂起边界 4 例（destroy 后 resume 同槽、坏 state 路径、skipped 语义、10 轮循环复用）、transferable 错误路径全覆盖（重复/不可转移/detached → DataCloneError 无副作用）、worker 错误事件流补齐（timer 回调异步抛错接入 reportError）。修 2 个实现缺口（timers 错误流、detached transfer 校验）。 | gtest + 压力：suspend 6/6、worker 23/23、offline ctest 20/20 |
-| A3 | 引擎升级跟进 | QuickJS-ng 上游合并策略（小补丁 diff 管理）。 | test262 通过率 |
+| A3 | 引擎升级跟进 ✅ | QuickJS-ng v0.15.1→v0.16.2 已完成（commit 1009e662，97 commits，三补丁 rebase 零冲突，BC_VERSION 26→27，realloc_func 签名适配，polyfill.bytecode 同版 qjsc 重编）。后续跟进继续走上游合并策略（小补丁 diff 管理，见 `brain/pages/quickjs-upstream-merge-strategy.md`）。 | test262 通过率 |
 | A4 | DAP 调试器完善 ✅ | 裁决：暂停=世界冻结 by design（与 debugger.c re-entrancy guard 一致）；过时 TODO 删除。多上下文断点在单活动 context 协作模型下由全局断点表正确覆盖（伪需求不实现）。 | test_dap_gtest 3/3（ctest -L dap） |
 
 ### B. WinterTC 标准合规
