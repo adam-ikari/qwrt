@@ -146,8 +146,14 @@ extern const uint8_t qwrt_default_polyfill_compressed[];
 extern const size_t qwrt_default_polyfill_compressed_len;
 extern const size_t qwrt_default_polyfill_orig_len;
 #elif QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_EXTERNAL
-/* Mode B: no embedded bytecode — loaded from external .polyfill file */
-/* (no data symbols in polyfill_default.c for B mode) */
+/* Mode B: no embedded bytecode — loaded from external .polyfill file. The
+ * expected SHA-256 of the official bytecode is generated into
+ * polyfill_default.c by polyfill/build.js (same file rodata/compressed use,
+ * so the build must regenerate it for this mode). Strong symbol on purpose:
+ * a weak reference would not pull polyfill_default.o out of the static
+ * archive and would bind to address 0 at load. Missing definition → link
+ * error that tells the builder to (re)run build.js with this mode. */
+extern const uint8_t qwrt_polyfill_external_sha256[32];
 #endif
 
 /* Unified polyfill bytecode loader. Returns 0 on success and sets *out

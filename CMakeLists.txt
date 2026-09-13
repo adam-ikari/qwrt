@@ -62,7 +62,7 @@ option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, repl
 option(QWRT_BUILD_EXAMPLES "Build example programs" OFF)
 
 set(QWRT_POLYFILL_MODE "rodata" CACHE STRING
-    "Polyfill bytecode embedding: rodata=const .rodata array (default) | compressed=lz4-compressed .rodata, decompressed to heap at load | external=external .polyfill file (QWRT_POLYFILL_FILE) | host=host hook qwrt_polyfill_load_custom()")
+    "Polyfill bytecode embedding: rodata=const .rodata array (default) | compressed=lz4-compressed .rodata, decompressed to heap at load | external=external .polyfill file (QWRT_POLYFILL_FILE), loader rejects any file whose SHA-256 != the hash embedded at build time | host=host hook qwrt_polyfill_load_custom()")
 
 # Normalise: accept legacy single letters (C/A/B/D) and any case.
 string(TOLOWER "${QWRT_POLYFILL_MODE}" _polyfill_mode)
@@ -112,7 +112,7 @@ if(QWRT_POLYFILL_MODE STREQUAL "compressed" AND NOT EXISTS "${CMAKE_CURRENT_SOUR
 endif()
 
 if(QWRT_POLYFILL_MODE STREQUAL "external")
-    message(STATUS "Polyfill mode external: bytecode loaded from external .polyfill file (QWRT_POLYFILL_FILE)")
+    message(STATUS "Polyfill mode external: bytecode loaded from external .polyfill file (QWRT_POLYFILL_FILE); SHA-256 anchored at build time (see src/polyfill_default.c)")
 endif()
 
 # WAMR and wasm3 are mutually exclusive (both register the WebAssembly global)
