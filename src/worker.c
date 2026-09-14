@@ -37,7 +37,9 @@
  * importScripts——之后 worker 脚本里的 postMessage()/onmessage/close() 即
  * 按 worker 语义工作。 */
 
-/* worker 入站派发：父发的字节 → __qwrt_dispatch__(bytes, 0)（垫片反序列化） */
+/* worker 入站派发：父发的字节 → __qwrt_dispatch__(bytes, 0, kind)（垫片反序列化）。
+ * kind 由 msgq flags 投影（0=MESSAGE / 1=PORT_TRANSFER）——port 帧据此走端点
+ * 路由而不必猜 payload 形状（M-P3）。 */
 void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m)
 {
     qwrt_ctx_t *cctx = rt->contexts[0];
@@ -49,11 +51,13 @@ void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m)
     if (JS_IsFunction(ctx, fn)) {
         JSValue data = JS_NewArrayBufferCopy(ctx, (const uint8_t *)m->data, m->len);
         JSValue src = JS_NewInt32(ctx, QWRT_MSG_SRC_HOST);
-        JSValue args[2] = { data, src };
-        JSValue r = JS_Call(ctx, fn, JS_UNDEFINED, 2, args);
+        JSValue kind = JS_NewInt32(ctx, qwrt_msg_kind(m->flags));
+        JSValue args[3] = { data, src, kind };
+        JSValue r = JS_Call(ctx, fn, JS_UNDEFINED, 3, args);
         JS_FreeValue(ctx, r);
         JS_FreeValue(ctx, data);
         JS_FreeValue(ctx, src);
+        JS_FreeValue(ctx, kind);
     }
     JS_FreeValue(ctx, fn);
 }
@@ -317,12 +321,13 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
     return w;
 }
 
-void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w, const uint8_t *bytes, size_t len)
+void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w, const uint8_t *bytes,
+                      size_t len, uint8_t flags)
 {
     QWRT_UNUSED(parent);
     if (!w || __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE)) return;
     if (w->self)
-        qwrt_msg_push(w->self, (const char *)bytes, len, QWRT_MSG_SRC_HOST, 0);
+        qwrt_msg_push(w->self, (const char *)bytes, len, QWRT_MSG_SRC_HOST, flags);
 }
 
 void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w)

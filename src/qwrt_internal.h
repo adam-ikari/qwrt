@@ -189,6 +189,22 @@ extern const size_t qwrt_default_worker_boot_len;
 /* Inbound message source: 0 = host; >0 = worker id (Task 4). */
 typedef enum { QWRT_MSG_SRC_HOST = 0 } qwrt_msg_src_t;
 
+/* Inbound message FIFO flags — the queue-side projection of the envelope
+ * `kind` (ipc_envelope.h §4.1). CONTROL is intercepted at the wake split point
+ * (control_dispatch); PORT_TRANSFER still takes the application path but JS
+ * receives kind as __qwrt_dispatch__'s third argument, so the port layer routes
+ * by the PORT_TRANSFER header instead of guessing the payload shape (M-P3). */
+#define QWRT_MSG_FLAG_CONTROL       1   /* kind=CONTROL(3) */
+#define QWRT_MSG_FLAG_PORT_TRANSFER 2   /* kind=PORT_TRANSFER(1) */
+
+/* flags -> envelope kind for the JS dispatch boundary (control never reaches
+ * __qwrt_dispatch__: the wake split point consumes it). */
+static inline int qwrt_msg_kind(uint8_t flags)
+{
+    return flags == QWRT_MSG_FLAG_PORT_TRANSFER ? 1 /* IPC_ENV_KIND_PORT_TRANSFER */
+                                                : 0 /* IPC_ENV_KIND_MESSAGE */;
+}
+
 /* Inbound message FIFO node. The queue is lock-free MPSC built on libuv's
  * uv__queue (single-linked via q.next; see msgq.c). data points into the
  * same allocation (char array after the struct header). */
@@ -197,7 +213,7 @@ typedef struct qwrt_msg_s {
     char *data;
     size_t len;
     int source;
-    uint8_t flags;        /* 0=普通消息, 1=CONTROL（控制命令，wake 分流点交 control_dispatch） */
+    uint8_t flags;        /* QWRT_MSG_FLAG_* */
 } qwrt_msg_t;
 
 /* Per-context state — holds JSContext*, handle tables, timer data,
@@ -471,8 +487,10 @@ void qwrt_dap_service(qwrt_t *rt);
 /* thread.c — flush pending JS microtasks (worker.c calls this on its loop) */
 int qwrt_flush_microtasks(qwrt_t *rt);
 /* worker.c — worker-runtime inbound dispatch: raw cloned bytes →
- * __qwrt_dispatch__(bytes, 0). Used by the worker thread loop AND by the
- * process-backend child (rt_main.c) — same shim semantics. */
+ * __qwrt_dispatch__(bytes, 0, kind). Used by the worker thread loop AND by the
+ * process-backend child (rt_main.c) — same shim semantics. kind is projected
+ * from the msgq flags (qwrt_msg_kind) so the port layer can tell a
+ * PORT_TRANSFER frame from a plain MESSAGE. */
 void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m);
 
 /* worker.c — real-thread Web Workers. Parent-thread-only API (the parent qwrt
@@ -481,7 +499,7 @@ void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m);
  * returns NULL. */
 qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_err);
 void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w,
-                      const uint8_t *bytes, size_t len);
+                      const uint8_t *bytes, size_t len, uint8_t flags);
 void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w);
 qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id);
 void qwrt_worker_free(qwrt_worker_t *w);

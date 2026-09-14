@@ -1600,6 +1600,21 @@ static JSValue js_pal_spawn_worker(JSContext *ctx, JSValueConst this_val,
     return JS_NewInt32(ctx, w->id);
 }
 
+/* pal 发送原语的可选 kind 参数（M-P3）：argv[idx] 缺失/undefined → MESSAGE。
+ * 只认 PORT_TRANSFER——CONTROL 是 C 侧协议面，不经 JS pal 发送路径。 */
+static int bridge_kind_arg(JSContext *ctx, int argc, JSValueConst *argv, int idx)
+{
+    if (argc <= idx || JS_IsUndefined(argv[idx]))
+        return IPC_ENV_KIND_MESSAGE;
+    int32_t k = IPC_ENV_KIND_MESSAGE;
+    if (JS_ToInt32(ctx, &k, argv[idx]) != 0) {
+        JS_GetException(ctx);   /* 非法实参：退回 MESSAGE，不炸发送路径 */
+        return IPC_ENV_KIND_MESSAGE;
+    }
+    return k == IPC_ENV_KIND_PORT_TRANSFER ? IPC_ENV_KIND_PORT_TRANSFER
+                                           : IPC_ENV_KIND_MESSAGE;
+}
+
 /* 父侧 pal.workerPost：结构化克隆字节 → worker 入站队列 */
 static JSValue js_pal_worker_post(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
@@ -1617,7 +1632,9 @@ static JSValue js_pal_worker_post(JSContext *ctx, JSValueConst this_val,
 
     qwrt_worker_t *w = qwrt_worker_get(rt, id);
     if (!w) return JS_ThrowTypeError(ctx, "workerPost: no worker %d", id);
-    qwrt_worker_post(rt, w, bytes, len);
+    qwrt_worker_post(rt, w, bytes, len,
+                     bridge_kind_arg(ctx, argc, argv, 2) == IPC_ENV_KIND_PORT_TRANSFER
+                         ? QWRT_MSG_FLAG_PORT_TRANSFER : 0);
     return JS_UNDEFINED;
 }
 
@@ -1701,17 +1718,15 @@ static qwrt_proc_handle_t *bridge_proc_handle_get(qwrt_t *rt, int id)
 }
 
 /* 读泵回调（父 loop 线程 = JS 线程，可直接 JS_Call）：信封 payload → JS
- * 回调(Uint8Array)；payload=NULL → peer-death/EOF，JS 回调(null)。h 指向
- * qwrt_t 内嵌数组元素，指针恒有效（terminate 只清字段不释放数组）。JS 回调
- * 内部可能 terminate 本 handle（proc 的释放是 uv_close 异步），回调返回后
- * 我们不再 touch h，故无 UAF。 */
-/* kind/source（M-P2 回调签名扩展）对本消费者无意义：pal.processOnMessage 只
- * 关心 payload 字节。 */
+ * 回调(Uint8Array, kind)；payload=NULL → peer-death/EOF，JS 回调(null, kind)。
+ * kind（M-P3）原样透传：PORT_TRANSFER 帧让 JS port 层走端点路由，普通帧交
+ * 各消费者的应用派发。h 指向 qwrt_t 内嵌数组元素，指针恒有效（terminate 只清
+ * 字段不释放数组）。JS 回调内部可能 terminate 本句柄（proc 的释放是 uv_close
+ * 异步），回调返回后我们不再 touch h，故无 UAF。source 对本消费者无意义。 */
 static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
                                const uint8_t *payload, uint32_t len)
 {
     qwrt_proc_handle_t *h = (qwrt_proc_handle_t *)user;
-    QWRT_UNUSED(kind);
     QWRT_UNUSED(source);
     if (!h->live || !h->ctx || !h->ctx->jsctx) return;
     JSContext *ctx = h->ctx->jsctx;
@@ -1722,19 +1737,23 @@ static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
     JSValue fn = JS_DupValue(ctx, h->onmsg);
     JSValue arg = payload ? JS_NewArrayBufferCopy(ctx, payload, len)
                           : JS_NULL;
-    if (JS_IsException(arg)) {
+    JSValue jkind = JS_NewInt32(ctx, kind);
+    if (JS_IsException(arg) || JS_IsException(jkind)) {
         /* OOM 建 ArrayBuffer：跳过本帧。必须 JS_GetException 清掉挂起异常，
          * 否则该异常会污染 context——后续每一帧的 JS_NewArrayBufferCopy /
          * JS_Call 都立即返回同一个异常，读泵在 C 层照常解码但 JS 侧从此
          * 收不到任何消息（洪水下 rcvd 卡死）。 */
         JS_GetException(ctx);
         JS_FreeValue(ctx, arg);
+        JS_FreeValue(ctx, jkind);
         JS_FreeValue(ctx, fn);
         return;
     }
-    qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &arg);
+    JSValue args[2] = { arg, jkind };
+    qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 2, args);
     JS_FreeValue(ctx, fn);
     JS_FreeValue(ctx, arg);
+    JS_FreeValue(ctx, jkind);
 }
 
 /* pal.processSpawn(exe, argv, opts) → int handle id（>0）。
@@ -1826,7 +1845,8 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
     return JS_NewInt32(ctx, h->id);
 }
 
-/* pal.processPost(handle, bytes) → bool（I6 语义：false = 写失败 / 已死） */
+/* pal.processPost(handle, bytes[, kind]) → bool（I6 语义：false = 写失败 /
+ * 已死）。kind 缺省 MESSAGE；PORT_TRANSFER 让信封带 kind=1（M-P3）。 */
 static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
@@ -1843,13 +1863,14 @@ static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val,
     if (!data) data = JS_GetArrayBuffer(ctx, &len, argv[1]);
     if (!data) return JS_ThrowTypeError(ctx, "processPost: expected bytes");
 
-    int rc = qwrt_proc_post(h->proc, 0, h->proc->id, IPC_ENV_KIND_MESSAGE,
+    int rc = qwrt_proc_post(h->proc, 0, h->proc->id,
+                            bridge_kind_arg(ctx, argc, argv, 2),
                             data, (uint32_t)len);
     return JS_NewBool(ctx, rc == 0);
 }
 
-/* pal.processOnMessage(handle, callback) → void（callback(Uint8Array) 收消息；
- * callback(null) 表示 peer-death/EOF）。重复注册替换旧回调。 */
+/* pal.processOnMessage(handle, callback) → void（callback(Uint8Array, kind)
+ * 收消息；callback(null, kind) 表示 peer-death/EOF）。重复注册替换旧回调。 */
 static JSValue js_pal_process_on_message(JSContext *ctx, JSValueConst this_val,
                                          int argc, JSValueConst *argv)
 {
@@ -1912,7 +1933,9 @@ static JSValue js_pal_worker_backend(JSContext *ctx, JSValueConst this_val,
 #endif
 }
 
-/* Worker 侧 pal.postMessage：克隆字节 → 父入站队列（source=worker id） */
+/* Worker 侧 pal.postMessage(bytes[, kind])：克隆字节 → 父入站队列
+ * （source=worker id）。kind 缺省 MESSAGE；PORT_TRANSFER（M-P3）在进程后端
+ * 让信封带 kind=1，线程后端落成 msgq flags（应用派发路径不变）。 */
 static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
 {
@@ -1926,6 +1949,7 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
     if (!bytes) return JS_ThrowTypeError(ctx, "worker postMessage: expected bytes");
 
     qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+    int kind = bridge_kind_arg(ctx, argc, argv, 1);
     /* I6: propagate the write result to JS instead of swallowing it. The
      * child's emit fd is non-blocking (uv_pipe_open set it), so under parent
      * backpressure the frame write can fail (EAGAIN) rather than block the
@@ -1936,11 +1960,13 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
     /* Thread backend: push to parent's msgq (source = worker id).
      * Process backend: parent is NULL, send via IPC child channel. */
     if (w->parent) {
-        rc = qwrt_msg_push(w->parent, (const char *)bytes, len, w->id, 0);
+        rc = qwrt_msg_push(w->parent, (const char *)bytes, len, w->id,
+                           kind == IPC_ENV_KIND_PORT_TRANSFER
+                               ? QWRT_MSG_FLAG_PORT_TRANSFER : 0);
     }
 #ifndef QWRT_USE_MOCK_LIBUV
     else if (qwrt_ipc_child_channel() >= 0) {
-        rc = qwrt_ipc_child_emit((int32_t)w->id, 0, IPC_ENV_KIND_MESSAGE,
+        rc = qwrt_ipc_child_emit((int32_t)w->id, 0, (int8_t)kind,
                                  bytes, (uint32_t)len);
     }
 #endif
@@ -2068,6 +2094,11 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
     if (JS_IsFunction(ctx, fn)) {
         JSValue src = JS_NewInt32(ctx, m->source);
         JSValue data;
+        /* 非宿主来源 = 进程/线程 worker 的克隆字节；kind 由 msgq flags 投影
+         * （PORT_TRANSFER 的 port 帧据此走端点路由）。宿主来源是 JSON 文本，
+         * 恒为 MESSAGE。 */
+        JSValue kind = JS_NewInt32(ctx, m->source == QWRT_MSG_SRC_HOST
+                                        ? 0 : qwrt_msg_kind(m->flags));
         if (m->source == QWRT_MSG_SRC_HOST) {
             /* msgq 保证 m->data 以 '\0' 结尾（data[len]=='\0'），可直接喂
              * JS_ParseJSON（quickjs-ng 无 JS_JSONParse）。 */
@@ -2075,6 +2106,7 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
             if (JS_IsException(data)) {
                 /* spec §5: bad JSON → error envelope */
                 JS_FreeValue(ctx, data);
+                JS_FreeValue(ctx, kind);
                 JS_FreeValue(ctx, fn);
                 if (rt->config.message_cb) {
                     static const char *bad = "{\"type\":\"error\",\"error\":\"bad-json\"}";
@@ -2085,10 +2117,11 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
         } else {
             data = JS_NewArrayBufferCopy(ctx, (const uint8_t *)m->data, m->len);
         }
-        JSValue args[2] = { data, src };
-        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 2, args);
+        JSValue args[3] = { data, src, kind };
+        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 3, args);
         JS_FreeValue(ctx, data);
         JS_FreeValue(ctx, src);
+        JS_FreeValue(ctx, kind);
     }
     JS_FreeValue(ctx, fn);
 }

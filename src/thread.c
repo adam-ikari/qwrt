@@ -85,9 +85,11 @@ static void qwrt_wake_cb(uv_async_t *a)
     if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return;
     qwrt_msg_t *m;
     while ((m = qwrt_msg_pop(rt)) != NULL) {
-        /* CTL-0 §1.2：flags=1 的控制命令交 control_dispatch（WAKE_SAFEPOINT
-         * 类就地执行）；普通消息走 __qwrt_dispatch__ → onmessage。 */
-        if (m->flags)
+        /* CTL-0 §1.2：CONTROL 命令交 control_dispatch（WAKE_SAFEPOINT 类就地
+         * 执行）；其余（含 M-P3 的 PORT_TRANSFER）走 __qwrt_dispatch__，kind
+         * 作为第三参传给 JS。注意判等而非真值判定：flags 现在有 CONTROL 之外
+         * 的非零取值。 */
+        if (m->flags == QWRT_MSG_FLAG_CONTROL)
             qwrt_control_dispatch(rt, m);
         else
             qwrt_dispatch_message(rt, m);

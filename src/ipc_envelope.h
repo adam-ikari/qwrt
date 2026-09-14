@@ -47,9 +47,38 @@
 extern "C" {
 #endif
 
-/* kind — matches design doc §4.1 */
+/* kind — matches design doc §4.1 (0=MESSAGE 1=PORT_TRANSFER 2=ERROR 3=CONTROL).
+ * M-P3 implements PORT_TRANSFER: frames that carry a MessagePort transfer or a
+ * message posted through a transferred port. Only the ends of the tree edge
+ * interpret it today — the flat topology (host→mainRT→worker, one level) has no
+ * intermediate relay, so the receiving C layer hands the frame to JS with `kind`
+ * intact (see bridge.c/rt_main.c dispatch pass-through) and the JS port layer
+ * routes by the payload header below.
+ *
+ * PORT_TRANSFER payload schema (§8.2 peerEndpoint routing — a fixed 16-byte
+ * little-endian header, then the opaque structured-clone bytes):
+ *
+ *   +0  u32 op           // 1 = PORT_MESSAGE (SC bytes of the posted value)
+ *                        // 2 = PORT_TRANSFER (SC bytes of {__qwrt_ports, ...})
+ *   +4  u32 dest_owner   // op=1: endpoint the target port currently lives on
+ *                        //       (0 = mainRT/root, >0 = worker node id)
+ *   +8  u32 key_owner    // op=1: target port's owner/home endpoint — the half
+ *                        //       of the (owner, id) identity that disambiguates
+ *                        //       ids allocated independently per process
+ *   +12 u32 key_port     // op=1: target port's id within key_owner
+ *
+ * The header exists so a routing node can decide deliver-locally vs forward
+ * WITHOUT decoding the structured-clone payload (§7.2: payload bytes never
+ * change, relay only rewrites the envelope head). Flat topology routes it at
+ * the JS port layer today; a future nested-spawn relay reuses the same header. */
 #define IPC_ENV_KIND_MESSAGE        0
+#define IPC_ENV_KIND_PORT_TRANSFER  1
 #define IPC_ENV_KIND_CONTROL        3
+
+/* Fixed PORT_TRANSFER routing header size (op + dest_owner + key_owner + port). */
+#define IPC_PORT_XFER_HEADER_SIZE   16u
+#define IPC_PORT_XFER_OP_MESSAGE    1u
+#define IPC_PORT_XFER_OP_TRANSFER   2u
 
 /* Canonical encoding is always fully populated: 40 bytes of header/table
  * plus the payload vector. IPC_ENVELOPE_ENCODED_SIZE gives the exact size

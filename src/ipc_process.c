@@ -779,7 +779,11 @@ static void proc_process_rx(qwrt_proc_t *proc)
                     proc->msg_cb(proc->msg_user, view.kind, view.source,
                                  view.payload, view.payload_len);
                 } else {
-                    int flags = (view.kind == IPC_ENV_KIND_CONTROL) ? 1 : 0;
+                    int flags =
+                        view.kind == IPC_ENV_KIND_CONTROL
+                            ? QWRT_MSG_FLAG_CONTROL
+                            : (view.kind == IPC_ENV_KIND_PORT_TRANSFER
+                                   ? QWRT_MSG_FLAG_PORT_TRANSFER : 0);
                     if (parent && parent->magic == QWRT_MAGIC) {
                         qwrt_msg_push(parent, (const char *)view.payload,
                                       view.payload_len, proc->id, flags);

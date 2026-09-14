@@ -68,8 +68,9 @@ static void child_wake_cb(uv_async_t *a)
     if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return;
     qwrt_msg_t *m;
     while ((m = qwrt_msg_pop(rt)) != NULL) {
-        /* flags=1 → control dispatch; flags=0 → 运行时的应用消息派发 */
-        if (m->flags) {
+        /* CONTROL（flags==1）→ control dispatch；其余（含 PORT_TRANSFER 的
+         * flags==2）走运行时的应用消息派发，kind 作为第三参交给 JS。 */
+        if (m->flags == QWRT_MSG_FLAG_CONTROL) {
             qwrt_control_dispatch(rt, m);
         } else if (g_server_mode) {
             qwrt_dispatch_message(rt, m);
@@ -161,7 +162,12 @@ static void process_rx(qwrt_t *rt)
                     __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
                     uv_async_send(&rt->wake);
                 } else {
-                    int flags = is_ctl ? 1 : 0;
+                    /* kind → msgq flags：CONTROL 交控制面；PORT_TRANSFER 走
+                     * 应用派发但 JS 拿到 kind=1，据此走 port 端点路由（M-P3）。 */
+                    int flags = view.kind == IPC_ENV_KIND_CONTROL
+                                    ? QWRT_MSG_FLAG_CONTROL
+                                    : (view.kind == IPC_ENV_KIND_PORT_TRANSFER
+                                           ? QWRT_MSG_FLAG_PORT_TRANSFER : 0);
                     qwrt_msg_push(rt, (const char *)view.payload,
                                   view.payload_len, view.source, flags);
                     uv_async_send(&rt->wake);
