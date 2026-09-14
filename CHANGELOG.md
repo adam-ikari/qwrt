@@ -5,6 +5,7 @@ All notable changes to Qwrt.js.
 ## [Unreleased]
 
 ### Added
+- 多进程模型 M-P3（MessagePort 跨进程路由 + transfer 语义）：信封 `kind=PORT_TRANSFER(1)` 落地（§4.1 冻结 schema），payload 加 16B LE 路由头 `op/dest_owner/key_owner/key_port` + 原样 structured-clone 字节——中继节点读固定头即可判「本地投递 vs 转发」，不必解码 payload（§8.2 的可实现化，§7.2 字节不动）。C 层把 kind 一路透传到 JS（`__qwrt_dispatch__(data, source, kind)`、`pal.processOnMessage` 回调第二参、发送侧 `pal.workerPost/processPost/postMessage` 可选 kind），port 帧与普通消息自此可区分。JS 侧 port 身份改为 `(owner, id)` 组合（§8.2 直接父本地分配）：进程隔离下各进程本地 id 都从 1 起，此前 worker 自建 `MessageChannel` 会覆盖父转移来的 port 表项、echo 丢失——`(owner,id)` 消歧修复。跨端点消息经主RT（LCA）按帧头 `dest_owner` 接力转发（sibling 两端分属两个 worker 进程亦可往返）。端点死亡（fd EOF / terminate）清路由表并给对端 port 派发一次 `error`，此后 `postMessage` 静默（规范语义）。
 - 多进程模型 M-P2（宿主↔主RT 进程分离 + C API 透明切换）：新增 `QWRT_PROCESS_MODEL` 编译开关（`ISOLATED` 缺省 / `THREAD` 回退）。ISOLATED 下 `qwrt_create` spawn `qwrt-rt --qwrt-rt-server --parent-fd N`（复用 M-P1 socketpair + 握手 + FlatBuffers 信封），`qwrt_post_message` / `message_cb` / `qwrt_wait_idle` / `qwrt_destroy` 签名与语义不变——`wait_idle` = CONTROL{idle} → 主RT 排空后回 ack 并自身退出；`destroy` = 三级终止（shutdown → 超时 → SIGKILL）+ waitpid 收尸。宿主进程死亡 → 主RT 经 parent-fd EOF 自杀（孤儿回收）。worker 后端缺省随编译模型（ISOLATED→PROCESS）；`qwrt_config_t.worker_backend` 枚举值随宏条件编译（只用符号常量）。THREAD 编译保持单进程基线，显式 PROCESS 在 `pal.processSpawn` 求值点报错。已知缺口：ISOLATED 下 DAP 与 CTL-0 IN_PROC 未接通；§2.1「THREAD 不编入 ipc_*.c」源级排除延后（语义门先达成）。SSOT：`docs/archive/plans/2026-09-04-multi-process-model.md` §1.4 / §6 / §9.2 / §11。
 ### Removed
 - `QWRT_PROFILE=bare` 档（五宏全 OFF，不满足 ECMA-429 WinterTC）。

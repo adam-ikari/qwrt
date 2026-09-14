@@ -113,7 +113,10 @@ setupStructuredClone();
 /* M — message-channel（MessageEvent 被 host-messaging dispatch 触发） */
 var ensureM = lazyUnit(
   ['MessageChannel', 'MessagePort', 'MessageEvent',
-   '__qwrt_lookup_port__', '__qwrt_deliver_port_msg__', '__qwrt_port_from_ref__'],
+   '__qwrt_lookup_port__', '__qwrt_port_from_ref__',
+   '__qwrt_port_frame_op__', '__qwrt_route_port_message__',
+   '__qwrt_port_xfer_frame__', '__qwrt_port_frame_body__',
+   '__qwrt_endpoint_dead__'],
   [],
   function () { setupMessageChannel(pal); });
 

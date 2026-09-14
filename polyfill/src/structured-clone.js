@@ -155,7 +155,8 @@ export function setupStructuredClone() {
           var peer = value._entangledPort;
           value._detached = true;
           var pr = globalThis.__qwrt_port_from_ref__(
-            { id: value._id, peerId: value._peerId, peerThread: 'local' });
+            { id: value._id, peerId: value._peerId, owner: value._owner,
+              peerThread: 'local' });
           if (peer && pr) pr._entangledPort = peer;
           seen.set(value, pr);
           return pr;
@@ -443,6 +444,7 @@ export function setupStructuredClone() {
         refs.set(v, next++); bytes.u8(0x20);
         bytes.u32(v._id || 0);
         bytes.u32(v._peerId || 0);
+        bytes.u32(v._owner || 0);            /* M-P3: (owner,id) 身份消歧 */
         encodeString(bytes, v._peerThread || 'local');
         return;
       }
@@ -634,11 +636,11 @@ export function setupStructuredClone() {
           }
           if (tag === 0x20) {
             /* MessagePort 引用：__qwrt_port_from_ref__ 创建/复用本地代理 */
-            var pid = r.u32(), ppeer = r.u32(), pth = r.str();
+            var pid = r.u32(), ppeer = r.u32(), powner = r.u32(), pth = r.str();
             var portRef;
             if (globalThis.__qwrt_port_from_ref__) {
               portRef = globalThis.__qwrt_port_from_ref__(
-                { id: pid, peerId: ppeer, peerThread: pth });
+                { id: pid, peerId: ppeer, owner: powner, peerThread: pth });
             } else {
               throw new DOMException('MessagePort reference requires message-channel', 'DataCloneError');
             }

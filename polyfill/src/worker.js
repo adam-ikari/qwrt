@@ -75,9 +75,9 @@ export function setupWorker(pal) {
     this._tmp = tmp;
     this._dead = false;
   }
-  ProcessWorker.prototype.post = function (bytes) {
+  ProcessWorker.prototype.post = function (bytes, kind) {
     if (this._dead) return false;
-    return pal.processPost(this._handle, bytes);
+    return pal.processPost(this._handle, bytes, kind);
   };
   ProcessWorker.prototype.terminate = function () {
     if (this._dead) return;
@@ -96,22 +96,25 @@ export function setupWorker(pal) {
     if (isProc) {
       this._proc = new ProcessWorker(code);
       this._id = this._proc._id;
-      this._send = function (bytes) { return w._proc.post(bytes); };
+      this._send = function (bytes, kind) { return w._proc.post(bytes, kind); };
       this._terminate = function () { w._proc.terminate(); };
-      /* 入站：processOnMessage 直收（信封 payload = 克隆字节）。EOF
-       * (bytes === null) → 标死，后续 post/terminate 幂等安全。 */
-      pal.processOnMessage(this._proc._handle, function (bytes) {
+      /* 入站：processOnMessage 直收（(bytes, kind)；kind=1 = PORT_TRANSFER 帧）。
+       * EOF (bytes === null) → 标死 + 清端点路由表（对端 port 收 error，后续
+       * post 静默丢弃），post/terminate 幂等安全。 */
+      pal.processOnMessage(this._proc._handle, function (bytes, kind) {
         if (bytes === null) {
           w._proc._dead = true;
+          if (globalThis.__qwrt_endpoint_dead__)
+            globalThis.__qwrt_endpoint_dead__(w._proc._id);
           return;
         }
         var ww = workers.get(w._proc._id);
-        if (ww) deliverToWorker(ww, bytes);
+        if (ww) deliverToWorker(ww, bytes, kind);
       });
     } else {
       var id = pal.spawnWorker(code);   /* 同步阻塞直到 worker ready；失败抛 Error */
       this._id = id;
-      this._send = function (bytes) { return pal.workerPost(w._id, bytes); };
+      this._send = function (bytes, kind) { return pal.workerPost(w._id, bytes, kind); };
       this._terminate = function () { pal.workerTerminate(w._id); };
     }
     workers.set(this._id, this);
@@ -201,8 +204,10 @@ export function setupWorker(pal) {
 
   Worker.prototype.postMessage = function (value, transfer) {
     /* 拆出 transfer 列表里的 MessagePort（其余 ArrayBuffer 照常序列化），
-     * 并把它们编码成 {__qwrt_ports:[{id,peerId,peerThread}], __qwrt_payload}。
-     * 转移语义：原 port 标记 detached；父侧对端 port 的 _peerThread 指向 worker。 */
+     * 编码成 PORT_TRANSFER 帧（op=2）：16B 头 + SC({__qwrt_ports, __qwrt_payload})。
+     * 转移语义：原 port 标记 detached；留在父侧的对端 port 的 _peerThread 指向
+     * worker（消息将来按该端点投递）。ref 带 owner——跨进程下各进程本地 id 会
+     * 重合，接收方按 (owner,id) 登记代理（§8.2）。 */
     var ports = [];
     var abTransfer;
     if (transfer && transfer.length) {
@@ -210,13 +215,14 @@ export function setupWorker(pal) {
       for (var i = 0; i < transfer.length; i++) {
         var t = transfer[i];
         if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) {
-          /* ref.peerThread = 被转移 port 的对端所在线程（从接收方视角）。父侧对端
-           * 只可能在本线程（'local'→对端留在父，ref 用 'parent'）或某 worker
-           * （workerId→保持不变）。写死 'parent' 会在父把从 worker 收到的代理 port
-           * 再转移时路由错线程。 */
-          ports.push({ id: t._id, peerId: t._peerId, peerThread: (t._peerThread === 'local' ? 'parent' : t._peerThread) });
+          /* ref.peerThread = 被转移 port 的对端当前所在端点（从接收方视角）。
+           * 父侧对端只可能在本 runtime（'local'→对端留在父，ref 用 'parent'）或
+           * 某 worker（workerId→保持不变）。写死 'parent' 会在父把从 worker 收到
+           * 的代理 port 再转移时路由错端点。 */
+          ports.push({ id: t._id, peerId: t._peerId, owner: t._owner,
+                       peerThread: (t._peerThread === 'local' ? 'parent' : t._peerThread) });
           t._detached = true;   /* 原 port 已转移，不再可用 */
-          var peer = globalThis.__qwrt_lookup_port__(t._peerId);
+          var peer = globalThis.__qwrt_lookup_port__(t._peerId, t._owner);
           if (peer) peer._peerThread = this._id;  /* 对端现在在 worker */
         } else {
           abTransfer.push(t);
@@ -228,7 +234,7 @@ export function setupWorker(pal) {
     if (ports.length) {
       var wrapped = __qwrt_serialize__(
         { __qwrt_ports: ports, __qwrt_payload: dataBytes });
-      this._send(wrapped);
+      this._send(globalThis.__qwrt_port_xfer_frame__(wrapped), 1);
     } else {
       this._send(dataBytes);
     }
@@ -237,6 +243,10 @@ export function setupWorker(pal) {
   Worker.prototype.terminate = function () {
     this._terminate();
     workers.delete(this._id);
+    /* 显式终止也要清端点路由表（进程后端另有 EOF 路径；此处覆盖 THREAD 与
+     * 进程后端正常终止，两次调用幂等）。 */
+    if (globalThis.__qwrt_endpoint_dead__)
+      globalThis.__qwrt_endpoint_dead__(this._id);
   };
 
   /* 判断是否为 C 侧 worker 错误通知：{type:'error', error:<string>}。
@@ -248,9 +258,20 @@ export function setupWorker(pal) {
   }
 
   /* 公共入站派发：克隆字节 → 反序列化 → MessageEvent/port 路由/error 通知。
-   * THREAD 的 __qwrt_dispatch__ 与 PROCESS 的 processOnMessage 回调共用。 */
-  function deliverToWorker(w, dataBytes) {
+   * THREAD 的 __qwrt_dispatch__ 与 PROCESS 的 processOnMessage 回调共用。
+   * kind=1（PORT_TRANSFER）先按帧头分流：op=1 是 port 消息（投递或按 dest
+   * 端点接力），op=2 是 port 转移列表（解包重建代理后派发 MessageEvent）。 */
+  function deliverToWorker(w, dataBytes, kind) {
     var d;
+    if (kind === 1 && globalThis.__qwrt_port_frame_op__) {
+      var op = globalThis.__qwrt_port_frame_op__(dataBytes);
+      if (op === 1) {
+        globalThis.__qwrt_route_port_message__(dataBytes);
+        return;   /* port 消息属于某个 port，不派发到 Worker.onmessage */
+      }
+      if (op !== 2) return;   /* 未知 op：协议不认识，丢弃 */
+      dataBytes = globalThis.__qwrt_port_frame_body__(dataBytes);  /* 剥路由头 */
+    }
     try { d = __qwrt_deserialize__(dataBytes); }
     catch (err) {
       /* 反序列化失败：按规范触发 worker 的 messageerror 事件 */
@@ -260,9 +281,6 @@ export function setupWorker(pal) {
       w.dispatchEvent(errEv);
       return;
     }
-    /* 跨线程 port 消息：路由到本地 port 对象，不是 Worker 实例的 onmessage */
-    if (globalThis.__qwrt_deliver_port_msg__ &&
-        globalThis.__qwrt_deliver_port_msg__(d)) return;
     /* 带 MessagePort 转移的 worker 消息：解包 ports + payload */
     if (d && typeof d === 'object' && d.__qwrt_ports) {
       var ports = [];
@@ -298,23 +316,23 @@ export function setupWorker(pal) {
    * message-channel.js 用它路由 MessagePort 跨线程消息。worker 存在即视为
    * 投递成功（THREAD 的 workerPost 返回 undefined；PROCESS 的 processPost
    * 对已死句柄返回 false 也在此静默，与 THREAD 语义对齐）。 */
-  globalThis.__qwrt_worker_post__ = function (workerId, bytes) {
+  globalThis.__qwrt_worker_post__ = function (workerId, bytes, kind) {
     var w = workers.get(workerId);
     if (!w) return false;
-    w._send(bytes);
+    w._send(bytes, kind);
     return true;
   };
 
   // Route inbound messages: source 0 = host JSON, > 0 = THREAD worker bytes.
   // (PROCESS worker inbound bypasses this — processOnMessage callback.)
   var hostDispatch = self.__qwrt_dispatch__;
-  globalThis.__qwrt_dispatch__ = function (data, source) {
+  globalThis.__qwrt_dispatch__ = function (data, source, kind) {
     if (source === 0) {
       hostDispatch(data, source);
       return;
     }
     var w = workers.get(source);
     if (!w) return;
-    deliverToWorker(w, data);
+    deliverToWorker(w, data, kind);
   };
 }

@@ -175,13 +175,15 @@
       for (var i = 0; i < transfer.length; i++) {
         var t = transfer[i];
         if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) {
-          /* ref.peerThread = 被转移 port 的对端所在线程(从接收方视角)。多跳
-           * (worker 转发从父收到的 port)时对端在父(t._peerThread='parent'),
-           * 必须保留而不是写死本 workerId;对端在本 worker('local')才用本
-           * workerId(worker 侧对端只可能在本 worker 或父线程)。 */
-          ports.push({ id: t._id, peerId: t._peerId, peerThread: (t._peerThread === 'local' ? pal.workerId() : t._peerThread) });
+          /* ref.peerThread = 被转移 port 的对端当前所在端点（从接收方视角）。
+           * 多跳（worker 转发从父收到的 port）时对端在父（'parent'），必须
+           * 保留而不是写死本 workerId；对端在本 worker（'local'）才用本
+           * workerId。ref 带 owner：跨进程下各进程本地 id 会重合，接收方按
+           * (owner,id) 登记代理（§8.2）。 */
+          ports.push({ id: t._id, peerId: t._peerId, owner: t._owner,
+                       peerThread: (t._peerThread === 'local' ? pal.workerId() : t._peerThread) });
           t._detached = true;
-          var peer = globalThis.__qwrt_lookup_port__(t._peerId);
+          var peer = globalThis.__qwrt_lookup_port__(t._peerId, t._owner);
           if (peer) peer._peerThread = 'parent';
         } else { abT.push(t); }
       }
@@ -189,12 +191,25 @@
     }
     var db = __qwrt_serialize__(v, abT);
     if (ports.length) {
-      pal.postMessage(__qwrt_serialize__({ __qwrt_ports: ports, __qwrt_payload: db }));
+      /* PORT_TRANSFER 帧 op=2：16B 头 + SC({__qwrt_ports, __qwrt_payload}) */
+      pal.postMessage(
+        globalThis.__qwrt_port_xfer_frame__(
+          __qwrt_serialize__({ __qwrt_ports: ports, __qwrt_payload: db })), 1);
     } else {
       pal.postMessage(db);
     }
   };
-  globalThis.__qwrt_dispatch__ = function(data, source){
+  globalThis.__qwrt_dispatch__ = function(data, source, kind){
+    /* kind=1（PORT_TRANSFER）：先按帧头分流，不走 SW/普通消息路径 */
+    if (kind === 1 && globalThis.__qwrt_port_frame_op__) {
+      var op = globalThis.__qwrt_port_frame_op__(data);
+      if (op === 1) {                       /* port 消息：投本 runtime port 或接力 */
+        globalThis.__qwrt_route_port_message__(data);
+        return;
+      }
+      if (op !== 2) return;                  /* 未知 op：丢弃 */
+      data = globalThis.__qwrt_port_frame_body__(data);   /* 剥路由头 */
+    }
     var o = __qwrt_deserialize__(data);
     /* SW 控制消息（父线程 → SW 线程），不进用户消息流 */
     if (o && typeof o === 'object' && o.__qwrt_sw__ === 'enter') {
@@ -209,8 +224,6 @@
       swDispatchFetch(o.__qwrt_sw_fetch__);
       return;
     }
-    if (globalThis.__qwrt_deliver_port_msg__ &&
-        globalThis.__qwrt_deliver_port_msg__(o)) return;
     if (o && typeof o === 'object' && o.__qwrt_ports) {
       var ports = [];
       for (var i = 0; i < o.__qwrt_ports.length; i++) {

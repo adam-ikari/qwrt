@@ -529,9 +529,12 @@ qwrt-rt  --qwrt-worker --parent-fd N --worker-id K [--script PATH]
 
 ## M-P3：MessagePort 跨进程路由 + transfer 语义
 
-- 产出：port id 主RT 统一分配 + peerEndpoint 路由表 + `kind=PORT_TRANSFER` 消息 + 归属进程死亡清表。
-- 能力：跨进程 port transfer 语义保持（port.postMessage 跨进程可用）。
-- **验证门**：worker↔宿主 port 消息往返 + 死亡清理触发对端 error。
+- 产出：**port id 直接父本地分配 + `(owner, id)` 组合身份**（§8.2 规范章；v1 草案的「主RT 统一分配」已被 §8.2 评审否决，本行旧措辞据此更正）+ peerEndpoint 路由 + `kind=PORT_TRANSFER` 消息 + 归属进程死亡清表。
+- 能力：跨进程 port transfer 语义保持（port.postMessage 跨进程可用；sibling 两端分属两进程时经 LCA 接力）。
+- **验证门**：主RT↔worker 进程 port 消息往返（PID 证据）+ 死亡清理触发对端 error。
+- **落地状态（2026-09-14）**：已实施。`ipc_envelope.h` 新增 `IPC_ENV_KIND_PORT_TRANSFER(1)` 与 16B 路由头（op/dest_owner/key_owner/key_port + SC 字节，§8.2「payload 不解码」的可实现化，SC 本体保持 opaque）；C 层 kind 透传到 JS（`__qwrt_dispatch__` 第三参 / `pal.processOnMessage` 回调第二参 / 发送侧可选 kind）；JS 端口身份 `(owner,id)`＋端点接力＋死亡清表（`__qwrt_endpoint_dead__`）。
+  验证：`test/test_mp3_port_e2e.sh`（主RT↔worker 往返 + 三进程 PID 证据 / sibling 经主RT 接力 / SIGKILL worker → 对端 error + 死后静默 + 新 worker 新 port 仍通）+ `test_worker_gtest.cpp` 三个新用例（sibling 接力 / id 撞车回归 / 端点死亡 error；THREAD parity）+ ctest offline 21/21。
+  偏差与缺口：① 单层拓扑下 LCA 即端点，路由表退化为「帧头 dest 端点 → 通道」的直投，无需中继表；嵌套 spawn（worker 再 spawn worker）落地后，同一 16B 头即可支撑真正的中继表，届时再补。② 端口误差：`owner` 取直接父分配的 worker id，嵌套场景需换成路径前缀（§8.2 的 `path` 链），随嵌套 spawn 一并处理。
 
 ## M-P4：优雅关闭 / 崩溃恢复 / 孤儿回收 + 压力测试
 

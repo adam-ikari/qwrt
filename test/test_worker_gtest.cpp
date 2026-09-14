@@ -654,3 +654,77 @@ TEST(worker_, localStorage_not_mounted) {
     EXPECT_NE(std::string::npos, out.find("\"ls\":\"undefined\"")) << "got: " << out;
     host_destroy(h);
 }
+
+// ── M-P3：MessagePort 跨端点路由 ───────────────────────────────────────────
+// sibling 接力：ch.port1 → w1、ch.port2 → w2（两 worker 各持一端）。w1 经 port
+// 发的消息目标是 w2 里的 port2 —— 主RT 是两者的 LCA，须按帧头 dest 端点把消息
+// 从 w1 转发到 w2（§8.2 路由表语义；THREAD 后端同一套 JS 路由逻辑）。
+TEST(worker_, port_sibling_relay) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var ch = new MessageChannel();\n"
+        "globalThis.w1 = new Worker('file://" TEST_DIR "/worker_port_sibling_send.js');\n"
+        "globalThis.w2 = new Worker('file://" TEST_DIR "/worker_port_sibling_recv.js');\n"
+        "w2.onmessage = function(e){ postMessage({relay: e.data}); };\n"
+        "w2.postMessage('init', [ch.port2]);\n"
+        "w1.postMessage('init', [ch.port1]);\n"
+        "'started'", &out));
+
+    ASSERT_TRUE(host_wait_msg(h, &out));
+    EXPECT_NE(std::string::npos, out.find("recv:sib-hello")) << "got: " << out;
+    host_destroy(h);
+}
+
+// id 撞车回归（§8.2）：worker 自建 MessageChannel 与父转移来的 port 共存时，
+// 只按本地 id 建表会互相覆盖（进程隔离下各进程 id 都从 1 起）。断言两侧都能
+// 收发：转移来的 port echo 正常，且 worker 自建 channel 也收到自己的消息。
+TEST(worker_, port_endpoint_identity_no_collision) {
+    HostCtx *h = host_create();
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var ch = new MessageChannel();\n"
+        "globalThis.log = [];\n"
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_port_own_channel.js');\n"
+        "ch.port2.onmessage = function(e){\n"
+        "  log.push(String(e.data));\n"
+        "  if (String(e.data).indexOf('echo:') !== 0) ch.port2.postMessage('ping');\n"
+        "};\n"
+        "w.postMessage('init', [ch.port1]);\n"
+        "'started'", &out));
+
+    /* 期望序列：转移来的 port 上先收 'ready'，再完成一次往返（自建 channel 若
+     * 覆盖了表项，第二轮收不到回包，poll 超时失败）。 */
+    ASSERT_TRUE(host_poll_until_value(h, "log.join('|')",
+        "ready|echo:ping|own=self", &out)) << "got: " << out;
+    host_destroy(h);
+}
+// 端点死亡清表（§8.2 失败语义）：worker 终止后，父侧对端 port 收到一次 error
+// 事件；此后 postMessage 静默丢弃（terminate 后的规范语义），不抛错。
+TEST(worker_, port_endpoint_dead_notifies_peer) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var ch = new MessageChannel();\n"
+        "globalThis.errs = 0; globalThis.ready = 0;\n"
+        "ch.port2.addEventListener('error', function(){ errs++; });\n"
+        "ch.port2.onmessage = function(){ ready = 1; };\n"
+        "globalThis.w = new Worker('file://" TEST_DIR "/worker_port.js');\n"
+        "w.postMessage('init', [ch.port1]);\n"
+        "'started'", &out));
+
+    /* worker 收到 port 后经 port 回 'ready' → 确认端点已建立再终止 */
+    ASSERT_TRUE(host_poll_until_value(h, "String(ready)", "1", &out));
+    ASSERT_TRUE(host_value(h, "w.terminate(); 'errs=' + errs", &out));
+    EXPECT_NE(std::string::npos, out.find("errs=1")) << "got: " << out;
+
+    ASSERT_TRUE(host_value(h,
+        "try { ch.port2.postMessage('after-death'); 'no-throw'; }\n"
+        "catch (e) { 'throw:' + e.message; }", &out));
+    EXPECT_NE(std::string::npos, out.find("no-throw")) << "got: " << out;
+    host_destroy(h);
+}
