@@ -74,6 +74,7 @@ export function setupWorker(pal) {
     this._handle = handle;
     this._tmp = tmp;
     this._dead = false;
+    this._closing = false;   /* M-P4 §9.3：worker 自 close 的 closing 通知 */
   }
   ProcessWorker.prototype.post = function (bytes, kind) {
     if (this._dead) return false;
@@ -100,12 +101,37 @@ export function setupWorker(pal) {
       this._terminate = function () { w._proc.terminate(); };
       /* 入站：processOnMessage 直收（(bytes, kind)；kind=1 = PORT_TRANSFER 帧）。
        * EOF (bytes === null) → 标死 + 清端点路由表（对端 port 收 error，后续
-       * post 静默丢弃），post/terminate 幂等安全。 */
+       * post 静默丢弃），post/terminate 幂等安全。
+       * kind=4（STORAGE，M-P4 §10.2）→ 本 worker 的 localStorage 请求（同步
+       * RPC 的 request 半边）→ 交所有者处理器（local-storage.js 注册的
+       * __qwrt_storage_dispatch__），不进应用消息流。
+       * kind=3（CONTROL）→ 协议面，不进应用消息流；worker 自 close 的
+       * closing 通知在这里消费（随后 EOF 不再当作崩溃，§9.3）。 */
       pal.processOnMessage(this._proc._handle, function (bytes, kind) {
         if (bytes === null) {
+          /* §9.3 崩溃检测：peer EOF。正常终止不触发 onerror——
+           *   · 显式 terminate：ProcessWorker.terminate() 先置 _dead 再杀进程；
+           *   · worker 自 close()：进程后端先发 CONTROL closing 再退出（_closing）；
+           * 其余 EOF（kill -9 / 段错误）= 崩溃 → 主RT 侧 dispatch error 事件。 */
+          var crashed = !w._proc._dead && !w._proc._closing;
           w._proc._dead = true;
           if (globalThis.__qwrt_endpoint_dead__)
             globalThis.__qwrt_endpoint_dead__(w._proc._id);
+          if (crashed) w._deliverError('Worker process exited unexpectedly');
+          return;
+        }
+        if (kind === 3) {
+          /* payload 是 ArrayBuffer（C 侧 JS_NewArrayBufferCopy）——按字节扫
+           * "closing" 判定自关（避免 Uint8Array 假设）。 */
+          var u8 = (bytes instanceof Uint8Array) ? bytes : new Uint8Array(bytes);
+          var txt = '';
+          for (var i = 0; i < u8.length; i++) txt += String.fromCharCode(u8[i]);
+          if (txt.indexOf('closing') >= 0) w._proc._closing = true;
+          return;
+        }
+        if (kind === 4) {
+          if (typeof globalThis.__qwrt_storage_dispatch__ === 'function')
+            globalThis.__qwrt_storage_dispatch__(bytes, w._proc._id);
           return;
         }
         var ww = workers.get(w._proc._id);

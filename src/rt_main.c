@@ -30,6 +30,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <poll.h>
+#include <errno.h>
+#include <sys/socket.h>   /* recv：M-P4 同步 storage RPC 的 poll/recv 等待 */
 
 /* ── Pipe read state (one pipe per child process — static is fine) ── */
 
@@ -61,6 +63,8 @@ static int has_substring(const uint8_t *hay, size_t hlen, const char *needle)
  * 同构（宿主消息即主 runtime 的 onmessage）。 */
 
 static int g_server_mode;   /* 1 = --qwrt-rt-server（主RT 进程，M-P2） */
+
+static void process_rx(qwrt_t *rt);   /* 帧累加器解码；child_storage_sync 在其前定义 */
 
 static void child_wake_cb(uv_async_t *a)
 {
@@ -110,6 +114,100 @@ static void server_handle_control(qwrt_t *rt, const ipc_envelope_view_t *view)
      * 在下方 substring 判定里处理。 */
 }
 
+/* ── M-P4 同步 storage RPC（§10.2 单所有者代理的传输半边）──
+ * worker 进程的 localStorage 代理调用 pal.storageSync → 本函数：发一条
+ * kind=STORAGE 信封上行（target=父，主RT 所有者），然后在**不跑 uv_run**
+ * 的前提下 poll/recv 驱动管道读。帧照常进 g_rx 累加器（process_rx 统一
+ * 处理：STORAGE 回复捕获；其它帧 push msgq——wake 的 uv_async 挂起标志
+ * 仍在，主循环下一个 uv_run 会派发它们，不丢帧）。等待期间无 uv_run →
+ * 无 timer/async 回调 → 无 JS 重入，同步 API 语义不被破坏。
+ * 父进程死亡（fd EOF/POLLHUP）→ 置 shutting_down 走 §9.4 孤儿自杀路径，
+ * 返回 -1（JS 抛错；worker 随之退出，连锁死亡是预期行为）。
+ * 无 request id：单飞行（JS 同步调用期间无并发），等待中收到的第一个
+ * STORAGE 帧必是本次回复。 */
+static int g_sync_waiting = 0;
+static int g_sync_done = 0;
+static int g_sync_err = 0;
+static uint8_t *g_sync_reply = NULL;
+static uint32_t g_sync_reply_len = 0;
+
+static int child_storage_sync(qwrt_t *rt, const uint8_t *payload,
+                              uint32_t payload_len,
+                              uint8_t **out_reply, uint32_t *out_reply_len)
+{
+    qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+    int fd = qwrt_ipc_child_channel();
+    *out_reply = NULL;
+    *out_reply_len = 0;
+    if (!w || fd < 0) return -1;
+
+    /* 阻塞发送整帧（含 FIFO 排空 spill buffer）：大 payload（quota 内可达
+     * ~5MB）远超 socket 缓冲，poll(POLLOUT) 等待父侧排空；父死 → -1。 */
+    if (qwrt_ipc_child_emit_sync((int32_t)w->id, 0, IPC_ENV_KIND_STORAGE,
+                                 payload, payload_len) != 0)
+        return -1;
+
+    g_sync_waiting = 1;
+    g_sync_done = 0;
+    g_sync_err = 0;
+    g_sync_reply = NULL;
+    g_sync_reply_len = 0;
+
+    for (;;) {
+        if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) break;
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        int pr = poll(&pfd, 1, 200);   /* 200ms 节拍复查 shutting_down */
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (pr == 0) continue;
+        if (pfd.revents & (POLLIN | POLLHUP | POLLERR)) {
+            uint8_t tmp[QWRT_IPC_READ_BUF_SIZE];
+            ssize_t n = recv(fd, tmp, sizeof tmp, 0);
+            if (n == 0) {
+                /* EOF：父进程死亡 → §9.4 孤儿自杀 */
+                __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
+                uv_async_send(&rt->wake);
+                break;
+            }
+            if (n < 0) {
+                if (errno == EINTR || errno == EAGAIN) continue;
+                if (errno == ECONNRESET) {
+                    __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
+                    uv_async_send(&rt->wake);
+                }
+                break;
+            }
+            /* 喂累加器 → process_rx 统一帧处理（回复捕获 / msgq push） */
+            size_t need = g_rx.len + (size_t)n;
+            if (need > g_rx.cap) {
+                size_t ncap = g_rx.cap ? g_rx.cap : 4096;
+                while (ncap < need) ncap *= 2;
+                uint8_t *nb = (uint8_t *)realloc(g_rx.buf, ncap);
+                if (!nb) break;   /* OOM：按失败返回 */
+                g_rx.buf = nb;
+                g_rx.cap = ncap;
+            }
+            memcpy(g_rx.buf + g_rx.len, tmp, (size_t)n);
+            g_rx.len += (size_t)n;
+            process_rx(rt);
+            if (g_sync_done) break;
+        }
+    }
+
+    g_sync_waiting = 0;
+    if (g_sync_done && !g_sync_err && g_sync_reply) {
+        *out_reply = g_sync_reply;
+        *out_reply_len = g_sync_reply_len;
+        g_sync_reply = NULL;
+        return 0;
+    }
+    free(g_sync_reply);
+    g_sync_reply = NULL;
+    return -1;
+}
+
 /* ── Pipe read: frame accumulator → envelope decode → msgq push ── */
 
 static void pipe_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *buf)
@@ -145,8 +243,6 @@ static void process_rx(qwrt_t *rt)
 
         }
         /* Need frame body */
-        if (g_rx.len < g_rx.frame_len) return;
-
         /* Complete frame available */
         if (g_rx.frame_len > 0) {
             ipc_envelope_view_t view;
@@ -161,6 +257,24 @@ static void process_rx(qwrt_t *rt)
                     has_substring(view.payload, view.payload_len, "shutdown")) {
                     __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
                     uv_async_send(&rt->wake);
+                } else if (view.kind == IPC_ENV_KIND_STORAGE) {
+                    /* M-P4 §10.2：worker 进程侧 = 同步 RPC 的回复（单飞行，
+                     * 无 request id）→ 捕获给等待方；非等待状态收到 STORAGE =
+                     * 协议外（所有者从不主动发起），丢弃。所有者（主RT）侧的
+                     * 请求帧不经过本管道——worker 通道是 proc 句柄读泵，JS 层
+                     * processOnMessage 按 kind=4 分流（worker.js）。 */
+                    if (g_sync_waiting) {
+                        g_sync_reply = (uint8_t *)malloc(view.payload_len);
+                        if (g_sync_reply || view.payload_len == 0) {
+                            if (view.payload_len > 0)
+                                memcpy(g_sync_reply, view.payload,
+                                       view.payload_len);
+                            g_sync_reply_len = view.payload_len;
+                        } else {
+                            g_sync_err = 1;   /* OOM：等待方按失败返回 */
+                        }
+                        g_sync_done = 1;
+                    }
                 } else {
                     /* kind → msgq flags：CONTROL 交控制面；PORT_TRANSFER 走
                      * 应用派发但 JS 拿到 kind=1，据此走 port 端点路由（M-P3）。 */
@@ -372,14 +486,20 @@ int main(int argc, char **argv)
     rt->msg_head = &rt->msg_stub;
     rt->msg_tail = &rt->msg_stub;
 
+    qwrt_worker_t *w = NULL;
+
     /* 运行时角色：worker 形态标记 worker_self（bridge.c 的 pal 按 worker 绑定）；
      * 主RT 形态保持 worker_self == NULL = 父运行时语义（可自行 spawn worker
      * 进程 = §1.1 树形拓扑的主RT 层），并把宿主边界出站接到信封上行。 */
-    qwrt_worker_t *w = NULL;
     if (is_server) {
         if (worker_backend >= 0) rt->config.worker_backend = worker_backend;
         rt->config.message_cb = server_emit_cb;
     } else {
+        /* qwrt-rt --qwrt-worker 进程按构造即 PROCESS 后端 worker（THREAD
+         * worker 是同进程线程，不 exec 本二进制）。强制置位让 worker 侧
+         * pal.workerBackend() 返回 'process'——local-storage.js 据此挂
+         * §10.2 单所有者代理（M-P4）。 */
+        rt->config.worker_backend = QWRT_WORKER_BACKEND_PROCESS;
         w = (qwrt_worker_t *)calloc(1, sizeof(qwrt_worker_t));
         if (!w) { free(rt); free(script); return 1; }
         w->self = rt;
@@ -424,6 +544,9 @@ int main(int argc, char **argv)
     }
     /* emit 写路径走 spill buffer（非阻塞 send + 1ms flush timer，背压不丢帧） */
     qwrt_ipc_child_tx_init(&rt->loop, parent_fd);
+    /* M-P4：worker 进程注册同步 storage RPC 实现（pal.storageSync 的传输
+     * 半边；主RT/宿主进程不注册，调用即 -1 = 不可达）。 */
+    qwrt_ipc_child_set_storage_sync(child_storage_sync);
 
     /* 主RT 形态：登记宿主通道管道 —— 读管道恒活动（duplex 读泵），wait_idle 的
      * idle 判定须豁免它，否则主RT 永不判 idle（qwrt_proc_handle_is_pipe）。 */

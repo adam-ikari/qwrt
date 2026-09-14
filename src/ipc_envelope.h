@@ -74,6 +74,11 @@ extern "C" {
 #define IPC_ENV_KIND_MESSAGE        0
 #define IPC_ENV_KIND_PORT_TRANSFER  1
 #define IPC_ENV_KIND_CONTROL        3
+#define IPC_ENV_KIND_STORAGE        4   /* M-P4: §10.2 单所有者 storage 代理 ——
+                                         * payload = structured clone{op,key,
+                                         * value?,storageDomain}（§4.1 kind=4）。
+                                         * worker→主RT 方向 = 请求；主RT→worker
+                                         * 方向 = 执行结果。 */
 
 /* Fixed PORT_TRANSFER routing header size (op + dest_owner + key_owner + port). */
 #define IPC_PORT_XFER_HEADER_SIZE   16u

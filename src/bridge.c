@@ -1603,8 +1603,9 @@ static JSValue js_pal_spawn_worker(JSContext *ctx, JSValueConst this_val,
     return JS_NewInt32(ctx, w->id);
 }
 
-/* pal 发送原语的可选 kind 参数（M-P3）：argv[idx] 缺失/undefined → MESSAGE。
- * 只认 PORT_TRANSFER——CONTROL 是 C 侧协议面，不经 JS pal 发送路径。 */
+/* pal 发送原语的可选 kind 参数（M-P3/M-P4）：argv[idx] 缺失/undefined →
+ * MESSAGE。放行 PORT_TRANSFER（port 帧）与 STORAGE（M-P4 单所有者 storage
+ * 代理回复）——CONTROL 是 C 侧协议面，不经 JS pal 发送路径。 */
 static int bridge_kind_arg(JSContext *ctx, int argc, JSValueConst *argv, int idx)
 {
     if (argc <= idx || JS_IsUndefined(argv[idx]))
@@ -1615,7 +1616,8 @@ static int bridge_kind_arg(JSContext *ctx, int argc, JSValueConst *argv, int idx
         return IPC_ENV_KIND_MESSAGE;
     }
     return k == IPC_ENV_KIND_PORT_TRANSFER ? IPC_ENV_KIND_PORT_TRANSFER
-                                           : IPC_ENV_KIND_MESSAGE;
+         : k == IPC_ENV_KIND_STORAGE      ? IPC_ENV_KIND_STORAGE
+                                          : IPC_ENV_KIND_MESSAGE;
 }
 
 /* 父侧 pal.workerPost：结构化克隆字节 → worker 入站队列 */
@@ -1986,13 +1988,57 @@ static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val,
     qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
     /* Thread backend: terminate via parent. Process backend: parent is NULL,
      * set shutting_down + wake the loop to exit (rt_main.c checks it). */
-    if (w && w->parent) qwrt_worker_terminate(w->parent, w);
-    else if (rt) {
+    if (w && w->parent) {
+        qwrt_worker_terminate(w->parent, w);
+    } else if (rt) {
+#ifndef QWRT_USE_MOCK_LIBUV
+        /* M-P4 §9.3：进程后端先发 CONTROL{closing} 通知父「自愿退出」——父侧
+         * 收到后随后的 fd EOF 不再当作崩溃触发 Worker.onerror。 */
+        if (qwrt_ipc_child_channel() >= 0)
+            qwrt_ipc_child_emit((int32_t)(w ? w->id : 0), 0,
+                                IPC_ENV_KIND_CONTROL,
+                                (const uint8_t *)QWRT_IPC_CTL_CLOSING,
+                                (uint32_t)strlen(QWRT_IPC_CTL_CLOSING));
+#endif
         __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
         uv_async_send(&rt->wake);
     }
     return JS_UNDEFINED;
 }
+
+#ifndef QWRT_USE_MOCK_LIBUV
+/* pal.storageSync(bytes) → Uint8Array（M-P4 §10.2 单所有者代理的 worker 半边）。
+ * bytes = structured clone{op,key,value?,storageDomain} 请求；同步阻塞等待
+ * 主RT 所有者执行后回的结果字节（C 层 child_storage_sync：poll/recv 等待，
+ * 期间不派发任何 JS——同步 API 语义保持；父进程死亡 → EOF → 抛错，worker
+ * 走 §9.4 孤儿自杀链）。仅 worker 进程可达；所有者/宿主调用报错（storage
+ * 归主RT 独占执行，无代理场景）。 */
+static JSValue js_pal_storage_sync(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    if (!rt->worker_self)
+        return JS_ThrowInternalError(ctx,
+            "storageSync: owner runtime executes storage directly");
+    if (argc < 1) return JS_EXCEPTION;
+    size_t len = 0;
+    const uint8_t *bytes = JS_GetUint8Array(ctx, &len, argv[0]);
+    if (!bytes) bytes = JS_GetArrayBuffer(ctx, &len, argv[0]);
+    if (!bytes) return JS_ThrowTypeError(ctx, "storageSync: expected bytes");
+
+    uint8_t *reply = NULL;
+    uint32_t reply_len = 0;
+    if (qwrt_ipc_child_storage_sync(rt, bytes, (uint32_t)len,
+                                    &reply, &reply_len) != 0)
+        return JS_ThrowInternalError(ctx,
+            "storageSync: owner unreachable (runtime terminated)");
+    JSValue ret = JS_NewArrayBufferCopy(ctx, reply, reply_len);
+    free(reply);
+    return ret;
+}
+#endif /* !QWRT_USE_MOCK_LIBUV */
 
 /* Worker 侧 pal.workerId：返回自身 worker id（>0）。worker 把 MessagePort
  * transfer 给父线程时，父侧需要真实 workerId 才能经 pal.workerPost 把消息
@@ -2133,6 +2179,8 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
  * Create the internal pal JS object (per-context version)
  * ================================================================ */
 
+
+
 JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
 {
     JSContext *jsctx = ctx->jsctx;
@@ -2184,6 +2232,13 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_worker_emit, "postMessage", 1));
         JS_SetPropertyStr(jsctx, pal, "workerClose", JS_NewCFunction(jsctx, js_pal_worker_close, "workerClose", 0));
         JS_SetPropertyStr(jsctx, pal, "workerId", JS_NewCFunction(jsctx, js_pal_worker_id, "workerId", 0));
+#ifndef QWRT_USE_MOCK_LIBUV
+        /* M-P4 §10.2：同步 storage RPC（worker 进程 localStorage 代理 →
+         * 主RT 所有者）。mock 构建（无 ipc_process.c）不注册——THREAD worker
+         * 不挂 localStorage（基线不回归），workerBackend()==='thread' 时
+         * setupLocalStorage 直接 return，storageSync 不可达。 */
+        JS_SetPropertyStr(jsctx, pal, "storageSync", JS_NewCFunction(jsctx, js_pal_storage_sync, "storageSync", 1));
+#endif
     } else {
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_post_message, "postMessage", 1));
         JS_SetPropertyStr(jsctx, pal, "spawnWorker", JS_NewCFunction(jsctx, js_pal_spawn_worker, "spawnWorker", 1));

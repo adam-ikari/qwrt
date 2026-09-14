@@ -436,7 +436,14 @@ kill_fail:
  *     the synchronous terminate contract that qwrt_worker_terminate and the
  *     teardown loop both rely on, with real lifecycle risk (teardown ordering,
  *     handle close, pid ownership).
- * Revisit in M-P4 if a 2s worst-case freeze is unacceptable for a host. */
+ * Revisit in M-P4 if a 2s worst-case freeze is unacceptable for a host.
+ * M-P4 (2026-09-14): revisited → DEFERRED. The graceful path completes in
+ * ~1ms; only already-broken workers freeze, and the tree-close bound is
+ * 2s × hung-workers. Making tier-2 async (uv_timer WNOHANG + escalation)
+ * would move pid ownership and proc lifetime across loop ticks while
+ * qwrt_worker_terminate, the teardown chain and qwrt_proc_free (proc memory
+ * freed in the last uv_close callback) all assume "pid reaped when terminate
+ * returns" — re-entrancy/double-free risk outweighs the saving. See plan §9.2. */
 
 int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
 {
@@ -704,6 +711,24 @@ int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
                            payload, payload_len);
 }
 
+/* ── M-P4 同步 storage RPC（§10.2）：实现驻留 rt_main.c（独占子进程管道
+ * 读状态），libqwrt 侧经函数指针调度——CLI/宿主进程不注册，调用即 -1
+ * （worker 进程之外不可达，与 set_channel 同构）。 */
+static qwrt_ipc_storage_sync_fn g_storage_sync = NULL;
+
+void qwrt_ipc_child_set_storage_sync(qwrt_ipc_storage_sync_fn fn)
+{
+    g_storage_sync = fn;
+}
+
+int qwrt_ipc_child_storage_sync(qwrt_t *rt, const uint8_t *payload,
+                                uint32_t payload_len,
+                                uint8_t **out_reply, uint32_t *out_reply_len)
+{
+    if (!g_storage_sync) return -1;
+    return g_storage_sync(rt, payload, payload_len, out_reply, out_reply_len);
+}
+
 /* 主RT 进程侧：M-P2 CONTROL 协议消息（source=主RT 1, target=宿主 0）。 */
 int qwrt_ipc_child_emit_ctl(const char *json)
 {
@@ -713,7 +738,87 @@ int qwrt_ipc_child_emit_ctl(const char *json)
                                (const uint8_t *)json, (uint32_t)strlen(json));
 }
 
-/* ── Opaque lifecycle ── */
+/* ── M-P4 同步 storage RPC 用：出站缓冲的同步排空/查询 ──
+ * child_storage_sync 在等待期间不跑 uv_run（flush timer 回调只在 loop 里
+ * 触发），请求帧若落进 spill buffer 就必须当场排空；仍背压则快速失败
+ * （等 timer 会死锁）。 */
+void qwrt_ipc_child_tx_flush(void)
+{
+    qwrt_tx_flush(&g_child_tx);
+}
+
+int qwrt_ipc_child_tx_pending(void)
+{
+    return g_child_tx.len > 0;
+}
+/* ── M-P4 同步 storage RPC 用：阻塞整帧发送 ──
+ * 异步 emit（qwrt_tx_send）把 EAGAIN 帧塞进 spill buffer，由 1ms timer 在
+ * uv_run 里排空——但同步 RPC 的等待循环不跑 uv_run（否则 JS timer 重入），
+ * 大 payload（quota 内可达 ~5MB，远超 socket 缓冲）会永久滞留在 buffer 里。
+ * 本函数：先 poll(POLLOUT) 排空 spill buffer（保持 FIFO 顺序），再直接
+ * poll+send 循环发完整帧，父进程死亡（POLLHUP/EOF）→ 返回 -1（§9.4 孤儿
+ * 自杀路径由调用方触发）。 */
+int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
+                             const uint8_t *payload, uint32_t payload_len)
+{
+    if (g_child_tx.fd < 0) return -1;
+    int fd = g_child_tx.fd;
+
+    /* 排空既有 spill buffer（先发先序） */
+    for (;;) {
+        struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+        int pr = poll(&pfd, 1, 200);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (pr == 0) continue;
+        if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) return -1;
+        qwrt_tx_flush(&g_child_tx);
+        if (g_child_tx.len == 0) break;
+    }
+
+    size_t env_cap = IPC_ENVELOPE_ENCODED_SIZE(payload_len);
+    uint8_t *env_buf = (uint8_t *)malloc(env_cap);
+    if (!env_buf) return -1;
+    size_t env_len = ipc_envelope_encode(env_buf, env_cap,
+                                         source, target, kind,
+                                         payload, payload_len);
+    if (env_len == 0 || env_len > 0xFFFFFFFFu - 4u) {
+        free(env_buf);
+        return -1;
+    }
+    uint32_t flen = (uint32_t)env_len + 4u;
+    uint8_t *frame = (uint8_t *)malloc(flen);
+    if (!frame) { free(env_buf); return -1; }
+    qwrt_wr32(frame, (uint32_t)env_len);
+    memcpy(frame + 4, env_buf, env_len);
+    free(env_buf);
+
+    size_t off = 0;
+    int rc = 0;
+    while (off < flen) {
+        struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+        int pr = poll(&pfd, 1, 200);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            rc = -1;
+            break;
+        }
+        if (pr == 0) continue;
+        if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) { rc = -1; break; }
+        ssize_t n = send(fd, frame + off, flen - off, MSG_NOSIGNAL);
+        if (n < 0) {
+            if (errno == EINTR || errno == EAGAIN || errno == ENOBUFS)
+                continue;
+            rc = -1;
+            break;
+        }
+        off += (size_t)n;
+    }
+    free(frame);
+    return rc;
+}
 
 qwrt_proc_t *qwrt_proc_new(void)
 {

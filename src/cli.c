@@ -36,6 +36,7 @@ static void usage(FILE *out) {
 typedef struct {
     int done;           /* atomic: eval finished (incl. error) — qwrt thread writes, main spins */
     int exit_code;      /* script error → 1 (qwrt thread writes, main reads after done) */
+    int reported;       /* main thread: exit_code/result 已打印过（防 wait_idle 崩溃上报重复） */
     char result[8192];  /* eval result: the "v" value (ok) or "e" message (error), decoded */
 } cli_host_t;
 
@@ -114,7 +115,24 @@ static void cli_message_cb(qwrt_t *rt, const char *json, size_t len, void *data)
     if (!h) return;
     /* 精确判断：信封由 JSON.stringify 生成，无空格，恒以 {"ok":true 或
      * {"ok":false 开头。不能用 strstr 子串匹配 —— 错误消息/成功值的正文里
-     * 可能含 "ok":false 字样导致误判。 */
+     * 可能含 "ok":false 字样导致误判。
+     * M-P4 §9.3：主RT 意外退出时 message_cb 收 {"type":"error","error":<msg>}
+     * （rt_host.c 崩溃检测）——同样精确前缀判定，如实上抛（打印 + 退出码 1），
+     * 与 bad-json 路径（qwrt_dispatch_message）同形。 */
+    if (strncmp(json, "{\"type\":\"error\"", 14) == 0) {
+        const char *ef = strstr(json, "\"error\":");
+        if (ef && json_unescape(ef + 8, h->result, sizeof(h->result)) >= 0) {
+            h->exit_code = 1;
+        } else {
+            size_t cap = sizeof(h->result) - 1;
+            if (len > cap) len = cap;
+            memcpy(h->result, json, len);
+            h->result[len] = '\0';
+            h->exit_code = 1;
+        }
+        __atomic_store_n(&h->done, 1, __ATOMIC_RELEASE);
+        return;
+    }
     int is_error = (strncmp(json, "{\"ok\":false", 11) == 0);
     /* The envelope is {"ok":true,"v":"..."} or {"ok":false,"e":"..."}.
      * v/e hold JSON strings (the bootstrap wraps eval's value in
@@ -321,12 +339,21 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     if (exit_code) {
         /* script error — cli_message_cb decoded the "e" payload into result */
         fprintf(stderr, "%s\n", host.result);
+        host.reported = 1;
     }
 
     /* wait for pending async work (fetch/timer) to complete; the runtime
      * auto-exits when the loop is empty and the thread is joined here. Do not
-     * call qwrt_destroy after this (would double-join); free the struct only. */
+     * call qwrt_destroy after this (would double-join); free the struct only.
+     * M-P4 §9.3：主RT 在此期间崩溃（kill -9 / 段错误）→ 宿主 message_cb 收
+     * {type:'error'}（rt_host.c）——此刻补报（脚本自身错误已在上面打过，
+     * reported 去重），退出码取最终值（非零，宿主感知崩溃）。 */
     qwrt_wait_idle(rt);
+    if (host.exit_code && !host.reported) {
+        fprintf(stderr, "%s\n", host.result);
+        host.reported = 1;
+    }
+    exit_code = host.exit_code;
     qwrt_free(rt);
     return exit_code;
 }

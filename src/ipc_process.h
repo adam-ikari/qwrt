@@ -94,7 +94,9 @@ size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok);
 #define QWRT_IPC_CTL_IDLE_REQ   "{\"qwrt\":1,\"idle\":0}"
 #define QWRT_IPC_CTL_IDLE_ACK   "{\"qwrt\":1,\"idle\":1}"
 #define QWRT_IPC_CTL_SHUTDOWN_MSG "{\"qwrt\":1,\"shutdown\":1}"
-
+#define QWRT_IPC_CTL_CLOSING      "{\"qwrt\":1,\"closing\":1}"   /* M-P4 §9.3：
+                                         * worker 自 close 前通知父（EOF 不再
+                                         * 当作崩溃触发 onerror） */
 typedef enum {
     QWRT_IPC_CTL_NONE = 0,   /* 非 M-P2 协议 CONTROL payload */
     QWRT_IPC_CTL_READY,
@@ -237,6 +239,34 @@ int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
                         const uint8_t *payload, uint32_t payload_len);
 /* Child channel fd, -1 if unset. */
 int qwrt_ipc_child_channel(void);
+/* M-P4 同步 storage RPC 用：同步排空出站 spill buffer；查询是否仍有未发帧。 */
+void qwrt_ipc_child_tx_flush(void);
+int qwrt_ipc_child_tx_pending(void);
+/* M-P4 同步 storage RPC 用：阻塞发送整帧（先 FIFO 排空 spill buffer，再
+ * poll(POLLOUT)+send 循环直到发完；父死 → -1）。异步 emit 依赖 uv_run 的
+ * flush timer，而同步等待期间 loop 不转——大 payload（quota 内可达 ~5MB）
+ * 必须走本函数。 */
+int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
+                             const uint8_t *payload, uint32_t payload_len);
+
+/* ── M-P4 同步 storage RPC（§10.2 单所有者代理的传输半边）──
+ * worker 进程的 localStorage 代理需要「发请求 → 阻塞等回复」的同步原语。
+ * 实现（帧累加 + poll/recv 等待 + STORAGE 回复捕获）在 rt_main.c（它独占
+ * 子进程管道读状态 g_rx / g_server_mode），libqwrt 侧经函数指针注册访问——
+ * 与 qwrt_ipc_child_set_channel 同构：CLI/宿主进程不注册，pal.storageSync
+ * 求值报错（worker 进程之外不可达）。
+ *
+ * 语义：发一条 kind=STORAGE 信封上行（target=父），阻塞等待匹配回复
+ * （单飞行：JS 同步调用期间无并发，无需 request id）。期间到达的其它帧
+ * 照常进 msgq（wake 未消费，主循环 uv_run 时统一派发，不丢帧）；父进程
+ * 死亡（fd EOF）→ 置 shutting_down 走孤儿自杀路径并返回 -1。 */
+typedef int (*qwrt_ipc_storage_sync_fn)(
+    qwrt_t *rt, const uint8_t *payload, uint32_t payload_len,
+    uint8_t **out_reply, uint32_t *out_reply_len);
+void qwrt_ipc_child_set_storage_sync(qwrt_ipc_storage_sync_fn fn);
+int qwrt_ipc_child_storage_sync(qwrt_t *rt, const uint8_t *payload,
+                                uint32_t payload_len,
+                                uint8_t **out_reply, uint32_t *out_reply_len);
 
 /* Post an envelope to child (async; 0 = queued/sent, -1 = failed). */
 int qwrt_proc_post(qwrt_proc_t *proc,

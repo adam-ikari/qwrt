@@ -68,12 +68,23 @@ static void host_proc_msg_cb(void *user, int8_t kind, int32_t source,
 
     if (!payload) {
         /* 主RT 退出：宿主 loop 收束，wait_idle/destroy 的 join 随之返回。
-         * 未 ready 即死 → ready_err（qwrt_create 显式失败，不静默降级 §5.3）。 */
-        if (!__atomic_load_n(&rt->thread_ready, __ATOMIC_ACQUIRE)) {
+         * 未 ready 即死 → ready_err（qwrt_create 显式失败，不静默降级 §5.3）。
+         * M-P4 §9.3 崩溃检测：已 ready 且属非预期退出（既非 idle 自退 ack、
+         * 又非宿主主动 shutdown）→ message_cb 收 {"type":"error",...}，宿主
+         * 据此决定重启还是报错退出；qwrt_wait_idle 随之立即返回。 */
+        int was_ready = __atomic_load_n(&rt->thread_ready, __ATOMIC_ACQUIRE);
+        int expected = __atomic_load_n(&rt->idle_ack, __ATOMIC_ACQUIRE) ||
+                       __atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE);
+        if (!was_ready) {
             rt->ready_err = -1;
             __atomic_store_n(&rt->thread_ready, 1, __ATOMIC_RELEASE);
         }
         __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
+        if (was_ready && !expected && rt->config.message_cb) {
+            static const char *kExitErr =
+                "{\"type\":\"error\",\"error\":\"main-runtime-process-exited-unexpectedly\"}";
+            rt->config.message_cb(rt, kExitErr, strlen(kExitErr), rt->host_data);
+        }
         return;
     }
 
