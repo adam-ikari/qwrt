@@ -11,6 +11,16 @@ QWRT="${1:-./build_e2e/qwrt}"
 DIR="$(cd "$(dirname "$0")/mp1-e2e" && pwd)"
 export QWRT_WORKER_BACKEND=process
 
+# main-mp1*.js 内的 worker URL 是同仓绝对路径（历史遗留）——CI checkout 不在该
+# 路径下，故按本仓根替换到临时副本再跑（fixture 本身不动）。
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+FIX="$(mktemp -d)"
+trap 'rm -rf "$FIX"' EXIT
+for f in main-mp1.js main-mp1-kill.js; do
+  sed "s#file:///home/gem/project/qwrt#file://$ROOT#g" "$DIR/$f" > "$FIX/$f"
+  grep -q "file://$ROOT/test/mp1-e2e/" "$FIX/$f" || { echo "FAIL: fixture path rewrite"; exit 1; }
+done
+
 if [ ! -x "$QWRT" ]; then
   echo "FAIL: qwrt binary not found at '$QWRT'"
   exit 1
@@ -20,7 +30,7 @@ fi
 rm -f /tmp/qwrt-worker-*
 
 # ── Phase 1: graceful round-trip + terminate ──
-OUT1="$(timeout 20 "$QWRT" "$DIR/main-mp1.js" 2>&1)"
+OUT1="$(timeout 20 "$QWRT" "$FIX/main-mp1.js" 2>&1)"
 EXP1=$'echo:ping\nDONE'
 if [ "$OUT1" != "$EXP1" ]; then
   echo "FAIL: phase 1 (graceful round-trip) output mismatch"
@@ -30,7 +40,7 @@ fi
 
 # ── Phase 2: hard kill + respawn + no zombie / no temp leak ──
 TMP="$(mktemp)"
-"$QWRT" "$DIR/main-mp1-kill.js" > "$TMP" 2>&1 &
+"$QWRT" "$FIX/main-mp1-kill.js" > "$TMP" 2>&1 &
 PARENT=$!
 # Wait for the worker to come up (READY) so the child exists to kill.
 for i in $(seq 1 50); do

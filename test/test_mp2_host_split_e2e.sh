@@ -12,7 +12,18 @@
 # Usage: bash test/test_mp2_host_split_e2e.sh <path-to-qwrt>
 set -u
 QWRT="${1:-./build/qwrt}"
+
 DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# main-mp1.js 内的 worker URL 是同仓绝对路径（历史遗留）——CI checkout 不在该
+# 路径下，故按本仓根替换到临时副本再跑（fixture 本身不动）。
+ROOT="$(cd "$DIR/.." && pwd)"
+FIX="$(mktemp -d)"
+trap 'rm -rf "$FIX"' EXIT
+sed "s#file:///home/gem/project/qwrt#file://$ROOT#g" "$DIR/mp1-e2e/main-mp1.js" \
+  > "$FIX/main-mp1.js"
+grep -q "file://$ROOT/test/mp1-e2e/" "$FIX/main-mp1.js" \
+  || { echo "FAIL: fixture path rewrite"; exit 1; }
 
 if [ ! -x "$QWRT" ]; then
   echo "FAIL: qwrt binary not found at '$QWRT'"
@@ -56,8 +67,8 @@ rm -f "$TMP"
 [ "$ALIVE" = 0 ] || { kill -9 "$CHILD" 2>/dev/null; fail "4 mainRT $CHILD survived host SIGKILL (orphan leak)"; }
 
 # ── 5: dual-backend JS parity (§1.5) — same script, both worker backends ──
-A="$(QWRT_WORKER_BACKEND=thread  timeout 30 "$QWRT" "$DIR/mp1-e2e/main-mp1.js" 2>&1)"
-B="$(QWRT_WORKER_BACKEND=process timeout 30 "$QWRT" "$DIR/mp1-e2e/main-mp1.js" 2>&1)"
+A="$(QWRT_WORKER_BACKEND=thread  timeout 30 "$QWRT" "$FIX/main-mp1.js" 2>&1)"
+B="$(QWRT_WORKER_BACKEND=process timeout 30 "$QWRT" "$FIX/main-mp1.js" 2>&1)"
 [ -n "$A" ] || fail "5 thread-backend run produced no output"
 [ "$A" = "$B" ] || fail "5 dual-backend parity mismatch" "$(printf 'thread:\n%s\nprocess:\n%s' "$A" "$B")"
 
