@@ -434,7 +434,7 @@ jobs:
 
       - name: Rebuild polyfill (ensure dist in sync)
         run: |
-          npm --prefix polyfill run build
+          QJSC=$PWD/build/deps/quickjs-ng/qjsc npm --prefix polyfill run build
 
       - name: Build
         run: cmake --build build --parallel
@@ -560,7 +560,7 @@ jobs:
 
       - name: Rebuild polyfill (ensure dist in sync)
         run: |
-          npm --prefix polyfill run build
+          QJSC=$PWD/build/deps/quickjs-ng/qjsc npm --prefix polyfill run build
 
       - name: Build
         run: cmake --build build --parallel

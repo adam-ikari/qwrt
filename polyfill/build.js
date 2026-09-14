@@ -56,17 +56,11 @@ if (!fs.existsSync(DIST_DIR)) {
 
 const isWatch = process.argv.includes('--watch');
 
-// Locate qjsc (QuickJS-ng bytecode compiler). qwrt's CMake builds the
-// quickjs-ng submodule into each build dir (<build>/deps/quickjs-ng), so the
-// compiler lives at <build>/deps/quickjs-ng/qjsc — NOT at the legacy
-// standalone-checkout path ../deps/quickjs-ng/build/qjsc that older setups
-// used. Priority: $QJSC env override → build*/deps/quickjs-ng/qjsc → legacy.
-// The CMake polyfill_rebuild target always passes QJSC=<this build dir's
-// qjsc>; the filesystem scan below is only a manual-invocation fallback.
-// Its readdir order is not deterministic and stale build dirs may hold an
-// old qjsc whose bytecode version (first byte: 0x1b=BC27 / 0x1a=BC26) the
-// engine rejects, so only a 0.16.x compiler is accepted; without one the
-// build fails with a QJSC hint instead of silently emitting BC26 bytecode.
+// Locate qjsc (QuickJS-ng bytecode compiler). The caller MUST pass the path
+// via $QJSC — build.js does not guess or scan directories. The CMake
+// polyfill_rebuild target passes QJSC=<this build dir's qjsc> automatically;
+// manual invocations must set it explicitly:
+//   QJSC=<build-dir>/deps/quickjs-ng/qjsc node polyfill/build.js
 function qjscVersion(qjsc) {
   // `qjsc --version` prints the version line and then exits 1 (it dumps
   // usage instead of handling the flag), so a non-zero status is expected:
@@ -81,39 +75,6 @@ function qjscVersion(qjsc) {
   return m ? m[1] : null;
 }
 
-function findQjsc() {
-  if (process.env.QJSC) return process.env.QJSC;
-  const candidates = [];
-  let entries = [];
-  try { entries = fs.readdirSync(ROOT_DIR, { withFileTypes: true }); } catch (e) {}
-  for (const ent of entries) {
-    if (ent.isDirectory() && ent.name.startsWith('build')) {
-      candidates.push(path.join(ROOT_DIR, ent.name, 'deps', 'quickjs-ng', 'qjsc'));
-    }
-  }
-  candidates.push(path.join(ROOT_DIR, '..', 'deps', 'quickjs-ng', 'build', 'qjsc'));
-  // Engine 0.16.x emits/requires BC_VERSION 27 (bytecode byte 0x1b); 0.15.x
-  // emits 26 (0x1a), which JS_ReadObject rejects as "invalid version(26
-  // expected=27)". Silently picking an old compiler produced a broken
-  // bytecode pair in 24d34452 (fixed by d56bb2cc) — only a 0.16.x qjsc is
-  // accepted now; without one we fail loudly instead of guessing.
-  for (const c of candidates) {
-    if (!fs.existsSync(c)) continue;
-    const v = qjscVersion(c);
-    if (v && v.startsWith('0.16.')) {
-      console.error('[qwrt] qjsc (fallback scan): ' + c + ' (version ' + v + ')');
-      return c;
-    }
-    if (v) {
-      console.error('[qwrt] qjsc (fallback scan): skipped ' + c + ' (version ' + v + ', need 0.16.x)');
-    }
-  }
-  console.error('[qwrt] ERROR: no 0.16.x qjsc found under build*/deps/quickjs-ng/ ' +
-    '(0.16.x emits the BC_VERSION 27 bytecode the engine reads). ' +
-    'Set QJSC=<path to a 0.16.x qjsc> explicitly, e.g. ' +
-    'QJSC=$PWD/build_citest/deps/quickjs-ng/qjsc node build.js.');
-  process.exit(1);
-}
 
 // Polyfill embedding mode (matches CMake QWRT_POLYFILL_MODE):
 //   rodata (default) | compressed | external | host
@@ -233,8 +194,17 @@ if (isWatch) {
   fs.writeFileSync(polyfillJsPath, js);
 
   // Generate bytecode using qjsc, then inline as C header
-  const { execSync } = require('child_process');
-  const QJSC = findQjsc();
+  const QJSC = process.env.QJSC;
+  if (!QJSC) {
+    console.error('[qwrt] ERROR: $QJSC not set. CMake passes it automatically; ' +
+      'for manual builds: QJSC=<path-to-qjsc> node build.js');
+    process.exit(1);
+  }
+  const _qjscVer = qjscVersion(QJSC);
+  if (_qjscVer && !_qjscVer.startsWith('0.16.')) {
+    console.error('[qwrt] WARNING: ' + QJSC + ' is version ' + _qjscVer +
+      ', expected 0.16.x (BC_VERSION 27). Bytecode may be rejected by the engine.');
+  }
 
   // Compile <src> with qjsc → <bcPath> bytecode file; return the bytes.
   function compileToBytecode(srcPath, bcPath) {
