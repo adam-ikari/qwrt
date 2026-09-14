@@ -61,10 +61,11 @@ option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" "${_prof_textco
 option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
 option(QWRT_BUILD_EXAMPLES "Build example programs" OFF)
 
-# 应用模型（多进程模型 §2.1，M-P2）：ISOLATED = 宿主与主RT 各跑独立进程（目标形态）；
-# THREAD = 单进程多线程（现状基线）。宏 QWRT_PROCESS_MODEL_ISOLATED 是源码 #if 选择
-# 的唯一依据；缺省值随 M-P2 收尾从 THREAD 翻为 ISOLATED（翻转是独立 commit）。
-set(QWRT_PROCESS_MODEL "THREAD" CACHE STRING
+# 应用模型（多进程模型 §2.1，M-P2）：ISOLATED = 宿主与主RT 各跑独立进程（缺省，
+# 目标形态）；THREAD = 单进程多线程（回退档）。宏 QWRT_PROCESS_MODEL_ISOLATED 是
+# 源码 #if 选择的唯一依据。翻转历史：P1-P3 期间缺省 THREAD（增量提交期基线不被
+# 未就绪路径污染），P4 端到端两进程 e2e + 双后端 parity 全绿后翻为 ISOLATED。
+set(QWRT_PROCESS_MODEL "ISOLATED" CACHE STRING
     "Application model: ISOLATED (host and main RT in separate processes) | THREAD (single process, one thread per runtime)")
 set_property(CACHE QWRT_PROCESS_MODEL PROPERTY STRINGS ISOLATED THREAD)
 if(NOT QWRT_PROCESS_MODEL STREQUAL "ISOLATED" AND NOT QWRT_PROCESS_MODEL STREQUAL "THREAD")

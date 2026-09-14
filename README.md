@@ -16,7 +16,7 @@ touches JS directly.
 - **WinterTC-compatible runtime** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more (verified as an ECMA-429 interface matrix + project gtest harness — the WPT runner was removed; this is interface parity, not byte-for-byte browser parity)
 - **Streaming HTTP + TLS** — mbedTLS for HTTPS, chunked transfer decoding, certificate verification
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec (UTF-8/Base64), WebAssembly (WAMR default, wasm3 alternative)
-- **Multi-context + Web Workers** — spawn isolated contexts (soft suspend/resume to disk); `new Worker(url)` runs real parallel threads
+- **Multi-context + Web Workers** — spawn isolated contexts (soft suspend/resume to disk); `new Worker(url)` runs real parallel threads, or dedicated processes when built with `-DQWRT_PROCESS_MODEL=ISOLATED` (the default since the multi-process M-P2 milestone)
 - **Host ↔ runtime messaging** — JSON messages via `qwrt_post_message` / `message_cb`; `postMessage` / `onmessage` on the JS side
 
 ## Quick Start
@@ -147,9 +147,14 @@ flowchart TB
     Ctx -. "new Worker(url) → new qwrt_t (own thread + loop)" .-> QWRT
 ```
 
-All JS runs on qwrt's single internal thread (Worker contexts on additional
-threads). The host drives work by posting JSON messages and receiving replies
-through `message_cb`.
+By default (`QWRT_PROCESS_MODEL=ISOLATED`, multi-process M-P2) the host and the
+main runtime are **separate processes**: `qwrt_create` spawns
+`qwrt-rt --qwrt-rt-server`, then the two sides exchange FlatBuffers-framed
+envelopes over a socketpair — a runtime crash (or a hard-killed runtime) cannot
+take the host down. The C API is unchanged and the switch is transparent; build
+with `-DQWRT_PROCESS_MODEL=THREAD` for the single-process baseline (one thread
+per runtime). In both models JS runs on qwrt's own thread(s): the host drives
+work by posting JSON messages and receiving replies through `message_cb`.
 
 ## API Reference
 

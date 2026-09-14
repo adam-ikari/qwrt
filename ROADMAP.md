@@ -81,6 +81,7 @@ fetch 拦截 + Cache + update，2026-09 合入 master，见 D6）。
 | A2 | **多上下文 / Worker 健壮性** ✅ | 软挂起边界 4 例（destroy 后 resume 同槽、坏 state 路径、skipped 语义、10 轮循环复用）、transferable 错误路径全覆盖（重复/不可转移/detached → DataCloneError 无副作用）、worker 错误事件流补齐（timer 回调异步抛错接入 reportError）。修 2 个实现缺口（timers 错误流、detached transfer 校验）。 | gtest + 压力：suspend 6/6、worker 23/23、offline ctest 20/20 |
 | A3 | 引擎升级跟进 ✅ | QuickJS-ng v0.15.1→v0.16.2 已完成（commit 1009e662，97 commits，三补丁 rebase 零冲突，BC_VERSION 26→27，realloc_func 签名适配，polyfill.bytecode 同版 qjsc 重编）。后续跟进继续走上游合并策略（小补丁 diff 管理，见 `brain/pages/quickjs-upstream-merge-strategy.md`）。 | test262 通过率 |
 | A4 | DAP 调试器完善 ✅ | 裁决：暂停=世界冻结 by design（与 debugger.c re-entrancy guard 一致）；过时 TODO 删除。多上下文断点在单活动 context 协作模型下由全局断点表正确覆盖（伪需求不实现）。 | test_dap_gtest 3/3（ctest -L dap） |
+| A5 | **多进程模型 M-P2（宿主↔主RT 进程分离）** ✅ | `QWRT_PROCESS_MODEL` 编译开关（缺省 ISOLATED）：宿主 spawn `qwrt-rt --qwrt-rt-server`（socketpair + FlatBuffers 信封 + 三级终止），C API 签名/语义不变（透明切换）；worker 后端缺省随编译模型（ISOLATED→PROCESS），`worker_backend` 枚举随宏条件编译。THREAD 编译保持单进程基线，显式 PROCESS 求值报错（不静默降级）。M-P3（跨进程 MessagePort 路由）/M-P4（优雅关闭+压力）待续。 | THREAD 缺省 gtest 22/22；ISOLATED：eval 往返 / 真两进程 PID 证据 / 无残留 / kill -9 宿主→主RT 自杀 / 双后端 worker parity 全绿（`test/test_mp2_host_split_e2e.sh`）；`test_mp1_process_e2e.sh` PASS |
 
 ### B. WinterTC 标准合规
 

@@ -4,6 +4,8 @@ All notable changes to Qwrt.js.
 
 ## [Unreleased]
 
+### Added
+- 多进程模型 M-P2（宿主↔主RT 进程分离 + C API 透明切换）：新增 `QWRT_PROCESS_MODEL` 编译开关（`ISOLATED` 缺省 / `THREAD` 回退）。ISOLATED 下 `qwrt_create` spawn `qwrt-rt --qwrt-rt-server --parent-fd N`（复用 M-P1 socketpair + 握手 + FlatBuffers 信封），`qwrt_post_message` / `message_cb` / `qwrt_wait_idle` / `qwrt_destroy` 签名与语义不变——`wait_idle` = CONTROL{idle} → 主RT 排空后回 ack 并自身退出；`destroy` = 三级终止（shutdown → 超时 → SIGKILL）+ waitpid 收尸。宿主进程死亡 → 主RT 经 parent-fd EOF 自杀（孤儿回收）。worker 后端缺省随编译模型（ISOLATED→PROCESS）；`qwrt_config_t.worker_backend` 枚举值随宏条件编译（只用符号常量）。THREAD 编译保持单进程基线，显式 PROCESS 在 `pal.processSpawn` 求值点报错。已知缺口：ISOLATED 下 DAP 与 CTL-0 IN_PROC 未接通；§2.1「THREAD 不编入 ipc_*.c」源级排除延后（语义门先达成）。SSOT：`docs/archive/plans/2026-09-04-multi-process-model.md` §1.4 / §6 / §9.2 / §11。
 ### Removed
 - `QWRT_PROFILE=bare` 档（五宏全 OFF，不满足 ECMA-429 WinterTC）。
 - JS flatbuffers 退役：flatbuffers 重新定位为纯 C 层内部格式（当前无 C 消费者，不实现 C 代码）。JS 层退役理由：① JS 急切 decode 无性能优势（encode 两趟 vtable 回填+对齐，decode 遍历整表物化对象），zero-copy 随机字段访问优势仅在 C 层成立；② Worker 间为同进程共享内存通信，非 IPC 场景，无需跨进程序列化协议，flatbuffers 的跨界序列化价值在 qwrt 中不存在。gRPC 序列化改为 protobuf-only（标准互操作：grpc-go/grpc-js/grpcurl/Envoy）。删除 flatbuffers.js（1219 行）、loadFlatbuffers API、flatbuffers harness、`application/grpc+flatbuffers` content-type。纯 C 层定位：未来出现真实 C 层序列化需求时按 `docs/archive/plans/2026-09-03-flatbuffers-runtime-builtin.md` 方案 B（惰性访问器）实施。

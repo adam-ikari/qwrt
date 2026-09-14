@@ -9,6 +9,7 @@
 > 修订：2026-09-04 v6 —— localStorage 并发无锁化：单所有者代理（storage 归主RT，操作经消息管道 `kind=STORAGE`，flock 否决；新增 §10.2；M-R1/M-P4 挂接；开放点 #7 裁决）
 > 修订：2026-09-04 v7 —— 强制终止权强化：§9.2 终止协议三级化（CONTROL{shutdown} → 超时 → SIGKILL+收尸；优雅可失败、强杀不可拒绝，terminate 权=spawn 权）；线程后端诚实边界（同进程无法安全强杀单线程，强制上限=进程级）；§1.4 判据表新增终止语义轴；M-P1 验证门增强杀用例
 > 修订：2026-09-08 v8 —— 性能判据以实测修订（基准 commit f4ab5776，Ryzen 5800H / build/qwrt Release）：§1.4 判据表性能轴「依据」从量级档位改为实测数值（spawn ready 1.51×、往返 0B/1KB/64KB 1.19×/1.00×/0.97×、terminate 1353×、吞吐 0.3×、worker VmHWM 13.1 vs 22.4MB）；§12.2 与开放决策点 #1 的 10~50× 预测按实测更新（预测被证伪、实测为真）；标注 PROCESS worker 洪水卡死已知限制（>~500-1000 条间歇，commit 9b7c0781）
+> 修订：2026-09-14 v9 —— M-P2 落地（编译开关缺省 ISOLATED + 主RT serve 形态 + 宿主透明切换）。落地状态、偏差与已知缺口记于 §11 M-P2 节末。
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式）的应用模型，从「单进程多线程」演进为「多进程隔离」。默认独立进程（`ISOLATED`），线程模型（`THREAD`）保留为编译选项回退。
 > 背景（用户决策原文）：**"修改应用模型，支持宿主 主RT 和 WorkerRT 独立进程，通过编译选项设置，默认是独立进程。进程间通讯使用Flatbuffer序列化"**
 
@@ -520,6 +521,11 @@ qwrt-rt  --qwrt-worker --parent-fd N --worker-id K [--script PATH]
 - 能力：宿主 C API **签名不变**、ISOLATED 下透明切换。
 - **v5 注**：ISOLATED 编译下 `worker_backend` 缺省 PROCESS；宿主可显式 `THREAD`（§1.4）；THREAD 编译行为不变。
 - **验证门**：宿主程序（现有 cli 或测试宿主）在 ISOLATED 下跑通；同一测试宿主切 `worker_backend` 行为一致（双后端 parity 自动化，§1.5）；宿主进程被杀 → 主RT 自杀（孤儿回收）。
+- **落地状态（v9，2026-09-14）**：已实施。`QWRT_PROCESS_MODEL`（缺省 ISOLATED）+ `qwrt-rt --qwrt-rt-server --parent-fd N` + 宿主侧 `src/rt_host.c`（透明切换）。
+  验证：`test/test_mp2_host_split_e2e.sh`（eval 往返 / 真两进程 PID 证据 / 正常退出无残留 / kill -9 宿主→主RT 自杀 / 双后端 worker parity）+ `test/test_mp1_process_e2e.sh` + gtest 22/22。
+  偏差与缺口：① §2.1「THREAD 编译不编入 ipc_*.c」的**源级排除延后**——语义门先达成（THREAD 编译下显式 `worker_backend=PROCESS` 在 `pal.processSpawn` 求值点报错，不静默降级）；
+  ② §6.1 的 idle「未决写计数 W / epoch」未实现——宿主消息与 CONTROL{idle} 同走一条 FIFO 单通道，有序性已保证「idle 请求排在所有宿主消息之后」，显式计数冗余；
+  ③ ISOLATED 下 DAP 调试附着与 CTL-0（IN_PROC 语义）未接通，`qwrt_control` 显式返回 -1（留待后续里程碑）。
 
 ## M-P3：MessagePort 跨进程路由 + transfer 语义
 
