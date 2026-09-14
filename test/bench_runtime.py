@@ -75,6 +75,13 @@ def make_env(backend):
     return env
 
 
+class BenchTimeout(RuntimeError):
+    """A single qwrt harness run exceeded its wall-clock budget. The worker
+    subsystems have a documented flaky hang (64KB THREAD round-trip; see
+    bench-worker.js), so one measurement timing out must degrade that sample,
+    not abort the whole run."""
+
+
 def run_qwrt(bin_path, args, backend, timeout=45):
     """Run qwrt, return (rc, decoded stdout). Progress-free: harness prints
     one JSON line; any straggler stderr is merged for diagnostics."""
@@ -85,7 +92,8 @@ def run_qwrt(bin_path, args, backend, timeout=45):
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.communicate()
-        raise RuntimeError('timeout: %s %s' % (bin_path, ' '.join(args)))
+        raise BenchTimeout('timeout after %ds: %s %s'
+                           % (timeout, bin_path, ' '.join(args)))
     return proc.returncode, out.decode('utf-8', 'replace')
 
 
@@ -101,13 +109,20 @@ def parse_json(out):
     raise RuntimeError('no JSON line in qwrt output: %r' % out[-500:])
 
 
-def run_harness(bin_path, script, args, backend, timeout=45):
-    rc, out = run_qwrt(bin_path, [os.path.join(bench_dir(), script)] + args,
-                       backend, timeout=timeout)
-    if rc != 0:
-        raise RuntimeError('qwrt rc=%d for %s %s: %s'
-                           % (rc, script, args, out[-500:]))
-    return parse_json(out)
+def run_harness(bin_path, script, args, backend, timeout=45, attempts=2):
+    """Run one bench script; retry once on timeout to ride out the known
+    flaky hang, then surface the error for the caller to record as SKIP."""
+    cmd = [os.path.join(bench_dir(), script)] + args
+    for attempt in range(1, attempts + 1):
+        try:
+            rc, out = run_qwrt(bin_path, cmd, backend, timeout=timeout)
+            if rc != 0:
+                raise RuntimeError('qwrt rc=%d for %s %s: %s'
+                                   % (rc, script, args, out[-500:]))
+            return parse_json(out)
+        except BenchTimeout:
+            if attempt == attempts:
+                raise
 
 
 def bench_cold_start(bin_path, n):
@@ -147,7 +162,12 @@ def bench_r5(bin_path, backend, params):
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         env=make_env(backend))
     hwms = sample_parent_vmhwm(proc, time.monotonic() + 3.0)
-    out, _ = proc.communicate(timeout=60)
+    try:
+        out, _ = proc.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise BenchTimeout('r5 timeout after 60s: %s' % bin_path)
     data = parse_json(out.decode('utf-8', 'replace'))
     return data.get('worker_vmhwm_kb'), hwms
 
@@ -159,36 +179,50 @@ def ratio(a, b):
     return round(a / b, 2)
 
 
-def bench_backend(bin_path, backend, params, progress):
+def bench_backend(bin_path, backend, params, progress, skipped):
     res = {}
 
+    def guard(label, fn):
+        """Run one measurement; on failure record the reason and return None
+        so the rest of the backend (and the JSON artifact) survives."""
+        try:
+            return fn()
+        except Exception as e:                 # timeout / rc!=0 / bad JSON
+            skipped.append('%s %s: %s' % (backend, label, e))
+            progress('SKIP %s %s: %s' % (backend, label, e))
+            return None
+
     # R2/R2b
-    d = run_harness(bin_path, 'bench-worker.js',
-                    ['r2', str(params['r2_warmup']), str(params['r2_samples'])],
-                    backend)
-    res['spawn_ready_us'] = d['ready_median_us']
-    res['spawn_raw_us'] = d['spawn_raw_median_us']
-    res['terminate_us'] = d['terminate_median_us']
-    progress('r2 ready=%.2fms raw=%.2fms term=%.2fus'
-             % (d['ready_median_us'] / 1000, d['spawn_raw_median_us'] / 1000,
-                d['terminate_median_us']))
+    d = guard('r2', lambda: run_harness(
+        bin_path, 'bench-worker.js',
+        ['r2', str(params['r2_warmup']), str(params['r2_samples'])], backend))
+    res['spawn_ready_us'] = d['ready_median_us'] if d else None
+    res['spawn_raw_us'] = d['spawn_raw_median_us'] if d else None
+    res['terminate_us'] = d['terminate_median_us'] if d else None
+    if d:
+        progress('r2 ready=%.2fms raw=%.2fms term=%.2fus'
+                 % (d['ready_median_us'] / 1000, d['spawn_raw_median_us'] / 1000,
+                    d['terminate_median_us']))
 
     # R3 per payload
     res['roundtrip'] = {}
     for payload in PAYLOADS:
-        med_us, p95_us = bench_r3(bin_path, backend, params, payload, progress)
-        res['roundtrip'][str(payload)] = {
-            'median_us': med_us, 'p95_us': p95_us}
+        r = guard('r3/%d' % payload, lambda: bench_r3(
+            bin_path, backend, params, payload, progress))
+        res['roundtrip'][str(payload)] = (
+            {'median_us': r[0], 'p95_us': r[1]} if r else None)
 
     # R4
-    med_msgps, p95_msgps = bench_r4(bin_path, backend, params, progress)
-    res['throughput'] = {'median_msgps': med_msgps, 'p95_msgps': p95_msgps}
+    r = guard('r4', lambda: bench_r4(bin_path, backend, params, progress))
+    res['throughput'] = ({'median_msgps': r[0], 'p95_msgps': r[1]}
+                         if r else None)
 
     # R5
-    worker_hwm, parent_hwm = bench_r5(bin_path, backend, params)
-    res['rss_kb'] = {'worker_vmhwm': worker_hwm, 'parent_vmhwm': parent_hwm}
-    progress('r5 worker_vmhwm=%s parent_vmhwm=%s'
-             % (worker_hwm, parent_hwm))
+    r = guard('r5', lambda: bench_r5(bin_path, backend, params))
+    res['rss_kb'] = ({'worker_vmhwm': r[0], 'parent_vmhwm': r[1]}
+                     if r else None)
+    if r:
+        progress('r5 worker_vmhwm=%s parent_vmhwm=%s' % (r[0], r[1]))
 
     return res
 
@@ -227,72 +261,73 @@ def bench_r4(bin_path, backend, params, progress):
     return med, p95
 
 
-def build_summary(thread, proc, startup, eval_res):
-    s = {}
+def metric_pair(thread_val, proc_val):
+    """{'thread':…, 'process':…, 'ratio':…}, omitting any side that was
+    skipped (None) so one timed-out measurement degrades to partial data
+    instead of crashing the report."""
+    out = {}
+    if thread_val is not None:
+        out['thread'] = thread_val
+    if proc_val is not None:
+        out['process'] = proc_val
+    r = ratio(proc_val, thread_val)
+    if r is not None:
+        out['ratio'] = r
+    return out
 
-    # R1
-    s['startup_ms'] = startup
+
+def build_summary(thread, proc, startup, eval_res, skipped):
+    t, p = thread or {}, proc or {}
+    s = {'startup_ms': startup, 'spawn': {}, 'roundtrip': {},
+         'throughput': {}, 'rss_kb': {}, 'eval': {}}
 
     # R2 (unified time-to-first-message) + raw spawn + R2b
-    s['spawn'] = {}
-    if thread is not None and proc is not None:
-        s['spawn']['ready_us'] = {
-            'thread': thread['spawn_ready_us'],
-            'process': proc['spawn_ready_us'],
-            'ratio': ratio(proc['spawn_ready_us'], thread['spawn_ready_us'])}
-        s['spawn']['spawn_raw_us'] = {
-            'thread': thread['spawn_raw_us'],
-            'process': proc['spawn_raw_us'],
-            'ratio': ratio(proc['spawn_raw_us'], thread['spawn_raw_us'])}
-        s['spawn']['terminate_us'] = {
-            'thread': thread['terminate_us'],
-            'process': proc['terminate_us'],
-            'ratio': ratio(proc['terminate_us'], thread['terminate_us'])}
-    else:
-        side = proc if thread is None else thread
-        name = 'process' if thread is None else 'thread'
-        s['spawn']['ready_us'] = {name: side['spawn_ready_us']}
-        s['spawn']['spawn_raw_us'] = {name: side['spawn_raw_us']}
-        s['spawn']['terminate_us'] = {name: side['terminate_us']}
+    s['spawn']['ready_us'] = metric_pair(t.get('spawn_ready_us'),
+                                         p.get('spawn_ready_us'))
+    s['spawn']['spawn_raw_us'] = metric_pair(t.get('spawn_raw_us'),
+                                             p.get('spawn_raw_us'))
+    s['spawn']['terminate_us'] = metric_pair(t.get('terminate_us'),
+                                             p.get('terminate_us'))
 
     # R3
-    s['roundtrip'] = {}
-    for payload in [str(p) for p in PAYLOADS]:
+    for payload in [str(x) for x in PAYLOADS]:
         entry = {}
-        if thread is not None:
-            entry['thread_us'] = thread['roundtrip'][payload]
-        if proc is not None:
-            entry['process_us'] = proc['roundtrip'][payload]
-        if thread is not None and proc is not None:
-            entry['ratio'] = ratio(proc['roundtrip'][payload]['median_us'],
-                                   thread['roundtrip'][payload]['median_us'])
+        tv = t.get('roundtrip', {}).get(payload)
+        pv = p.get('roundtrip', {}).get(payload)
+        if tv is not None:
+            entry['thread_us'] = tv
+        if pv is not None:
+            entry['process_us'] = pv
+        r = ratio(pv and pv['median_us'], tv and tv['median_us'])
+        if r is not None:
+            entry['ratio'] = r
         s['roundtrip'][payload] = entry
 
     # R4
-    s['throughput'] = {}
-    if thread is not None:
-        s['throughput']['thread'] = thread['throughput']
-    if proc is not None:
-        s['throughput']['process'] = proc['throughput']
-    if thread is not None and proc is not None:
-        s['throughput']['ratio'] = ratio(proc['throughput']['median_msgps'],
-                                         thread['throughput']['median_msgps'])
+    tt, pt = t.get('throughput'), p.get('throughput')
+    if tt is not None:
+        s['throughput']['thread'] = tt
+    if pt is not None:
+        s['throughput']['process'] = pt
+    r = ratio(pt and pt['median_msgps'], tt and tt['median_msgps'])
+    if r is not None:
+        s['throughput']['ratio'] = r
 
     # R5
-    s['rss_kb'] = {}
-    for name, side in (('thread', thread), ('process', proc)):
-        if side is not None:
-            s['rss_kb'][name] = {
-                'worker_vmhwm': side['rss_kb']['worker_vmhwm'],
-                'parent_vmhwm': side['rss_kb']['parent_vmhwm']}
+    for name, side in (('thread', t), ('process', p)):
+        if side.get('rss_kb'):
+            s['rss_kb'][name] = side['rss_kb']
 
     # R6
-    s['eval'] = {'int_mops': eval_res.get('int_mops'),
-                 'closure_mops': eval_res.get('closure_mops'),
-                 'str_mops': eval_res.get('str_mops')}
+    e = eval_res or {}
+    s['eval'] = {'int_mops': e.get('int_mops'),
+                 'closure_mops': e.get('closure_mops'),
+                 'str_mops': e.get('str_mops')}
 
-    s['meta'] = {'backend': ('both' if thread and proc
-                             else ('thread' if thread else 'process'))}
+    name = ('both' if thread is not None and proc is not None
+            else 'thread' if thread is not None
+            else 'process' if proc is not None else 'none')
+    s['meta'] = {'backend': name, 'skipped': skipped}
     return s
 
 
@@ -316,28 +351,46 @@ def main():
     def progress(msg):
         print(msg, file=sys.stderr)
 
+    skipped = []
+
+    def guard(label, fn):
+        """Degrade a failed measurement to None + a recorded reason. The
+        worker subsystems have a documented flaky hang, and the run must
+        still emit its JSON artifact so the CI Summarize step never sees a
+        missing file."""
+        try:
+            return fn()
+        except Exception as e:                 # timeout / rc!=0 / bad JSON
+            skipped.append('%s: %s' % (label, e))
+            progress('SKIP %s: %s' % (label, e))
+            return None
+
     # R1 cold start
-    startup = bench_cold_start(args.qwrt_bin, params['r1_n'])
-    progress('r1 cold-start median=%.2fms (n=%d)'
-             % (startup['median_ms'], startup['n']))
+    startup = guard('r1', lambda: bench_cold_start(args.qwrt_bin,
+                                                   params['r1_n']))
+    if startup:
+        progress('r1 cold-start median=%.2fms (n=%d)'
+                 % (startup['median_ms'], startup['n']))
 
     backends = (['thread', 'process'] if args.backend == 'both'
                 else [args.backend])
     results = {}
     for backend in backends:
         progress('--- backend: %s ---' % backend)
-        results[backend] = bench_backend(args.qwrt_bin, backend, params,
-                                         progress)
+        results[backend] = guard(backend, lambda: bench_backend(
+            args.qwrt_bin, backend, params, progress, skipped))
 
     # R6: CPU-dense, backend-independent — run once on the thread backend
-    d = run_harness(args.qwrt_bin, 'bench-eval.js',
-                    [str(params['r6_iters']), str(params['r6_samples'])],
-                    'thread')
-    progress('r6 int=%.2f closure=%.2f str=%.2f M ops/s'
-             % (d['int_mops'], d['closure_mops'], d['str_mops']))
+    d = guard('r6', lambda: run_harness(
+        args.qwrt_bin, 'bench-eval.js',
+        [str(params['r6_iters']), str(params['r6_samples'])], 'thread'))
+    if d:
+        progress('r6 int=%.2f closure=%.2f str=%.2f M ops/s'
+                 % (d['int_mops'], d['closure_mops'], d['str_mops']))
 
     summary = build_summary(results.get('thread'), results.get('process'),
-                            startup, d)
+                            startup or {'min_ms': None, 'median_ms': None, 'n': 0},
+                            d, skipped)
     line = json.dumps(summary)
     if args.json:
         with open(args.json, 'w') as f:

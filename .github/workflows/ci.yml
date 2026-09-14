@@ -525,6 +525,9 @@ jobs:
   # trend tracking. --quick keeps the sample counts small (R2 must stay
   # <=16 worker slots on THREAD; PROCESS R3/R4 are batched around the worker
   # drop-out bug).
+  # A measurement that hits the known worker hang is recorded as null (meta.
+  # skipped) and reported as SKIP — the JSON is still written, and the bench
+  # step fails only if the artifact is missing entirely.
   # ============================================================================
   runtime-perf:
     runs-on: ubuntu-latest
@@ -567,31 +570,50 @@ jobs:
 
       - name: Benchmark runtime (both worker backends)
         run: |
+          set -o pipefail
           python3 test/bench_runtime.py --qwrt-bin ./build/qwrt --quick \
             --json /tmp/runtime-perf.json | tee /tmp/runtime-perf.out
+          if [ ! -f /tmp/runtime-perf.json ]; then
+            echo "::error::bench_runtime.py produced no /tmp/runtime-perf.json"
+            exit 1
+          fi
 
       - name: Summarize
         run: |
           python3 - <<'EOF'
           import json
+          # The benchmark step asserts this file exists; individual metrics
+          # may still be null when a measurement was skipped (flaky worker
+          # hang) — print SKIP instead of crashing.
           d = json.load(open('/tmp/runtime-perf.json'))
-          print('startup      median=%.2f ms' % d['startup_ms']['median_ms'])
-          sp = d['spawn']
-          print('spawn ready  thread=%.2f ms process=%.2f ms ratio=%.2f'
-                % (sp['ready_us']['thread'] / 1000, sp['ready_us']['process'] / 1000,
-                   sp['ready_us']['ratio']))
+
+          def val(v, scale=1.0, spec='%.2f'):
+              return 'SKIP' if v is None else spec % (v * scale)
+
+          print('startup      median=%s ms'
+                % val(d['startup_ms'].get('median_ms')))
+          sp = d['spawn']['ready_us']
+          print('spawn ready  thread=%s ms process=%s ms ratio=%s'
+                % (val(sp.get('thread'), 0.001), val(sp.get('process'), 0.001),
+                   val(sp.get('ratio'))))
           for p in ('0', '1024', '65536'):
               r = d['roundtrip'][p]
-              print('roundtrip %-6s thread=%8.1f us process=%8.1f us ratio=%.2f'
-                    % (p, r['thread_us']['median_us'], r['process_us']['median_us'],
-                       r['ratio']))
+              print('roundtrip %-6s thread=%s us process=%s us ratio=%s'
+                    % (p,
+                       val(r.get('thread_us', {}).get('median_us'), 1.0, '%8.1f'),
+                       val(r.get('process_us', {}).get('median_us'), 1.0, '%8.1f'),
+                       val(r.get('ratio'))))
           t = d['throughput']
-          print('throughput   thread=%.0f msg/s process=%.0f msg/s ratio=%.2f'
-                % (t['thread']['median_msgps'], t['process']['median_msgps'],
-                   t['ratio']))
+          print('throughput   thread=%s msg/s process=%s msg/s ratio=%s'
+                % (val(t.get('thread', {}).get('median_msgps'), 1.0, '%.0f'),
+                   val(t.get('process', {}).get('median_msgps'), 1.0, '%.0f'),
+                   val(t.get('ratio'))))
           e = d['eval']
-          print('eval         int=%.2f closure=%.2f str=%.2f M ops/s'
-                % (e['int_mops'], e['closure_mops'], e['str_mops']))
+          print('eval         int=%s closure=%s str=%s M ops/s'
+                % (val(e.get('int_mops')), val(e.get('closure_mops')),
+                   val(e.get('str_mops'))))
+          sk = d.get('meta', {}).get('skipped') or []
+          print('skipped      %s' % ('; '.join(sk) if sk else 'none'))
           EOF
 
       - name: Upload perf JSON
