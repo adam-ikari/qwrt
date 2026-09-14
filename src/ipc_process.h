@@ -43,6 +43,11 @@ typedef struct qwrt_proc_s qwrt_proc_t;
 
 #define QWRT_IPC_PROTO_VERSION    1
 #define QWRT_IPC_ROLE_WORKER      0
+#define QWRT_IPC_ROLE_MAIN        1   /* M-P2：主RT 进程（宿主↔主RT 通道） */
+
+/* 主RT 通道的本地标签（§4.3 逐跳相对寻址）：宿主=0，主RT=1。 */
+#define QWRT_IPC_HOST_ID          0
+#define QWRT_IPC_MAIN_ID          1
 #define QWRT_IPC_HANDSHAKE_TIMEOUT_MS  5000
 #define QWRT_IPC_TERMINATE_TIMEOUT_MS  2000
 #define QWRT_IPC_READ_BUF_SIZE    65536
@@ -77,6 +82,37 @@ size_t qwrt_ipc_build_handshake(char *out, size_t cap, int role, int id);
 /* Build ack payload: {"ok":O,"v":V}
  * Returns string length (excl NUL). cap must be >= 24. */
 size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok);
+
+/* ── M-P2 主RT 通道 CONTROL 协议（§6.1）──
+ * payload = 带 "qwrt" 标记的 JSON（cJSON 解析，与握手同裁决：不手写）：
+ *   {"qwrt":1,"ready":V}      V=1 初始化就绪 / 0 失败（宿主据此决定 qwrt_create）
+ *   {"qwrt":1,"idle":V}       V=0 宿主请求 idle / 1 主RT 已排空并判 idle（ack）
+ *   {"qwrt":1,"shutdown":1}   优雅关停（与 M-P1 的 {"cmd":"shutdown"} 并存）
+ * 无 "qwrt" 标记的 CONTROL payload 归上层（控制面消息/应用），classify 返回 NONE。 */
+#define QWRT_IPC_CTL_READY_OK   "{\"qwrt\":1,\"ready\":1}"
+#define QWRT_IPC_CTL_READY_ERR  "{\"qwrt\":1,\"ready\":0}"
+#define QWRT_IPC_CTL_IDLE_REQ   "{\"qwrt\":1,\"idle\":0}"
+#define QWRT_IPC_CTL_IDLE_ACK   "{\"qwrt\":1,\"idle\":1}"
+#define QWRT_IPC_CTL_SHUTDOWN_MSG "{\"qwrt\":1,\"shutdown\":1}"
+
+typedef enum {
+    QWRT_IPC_CTL_NONE = 0,   /* 非 M-P2 协议 CONTROL payload */
+    QWRT_IPC_CTL_READY,
+    QWRT_IPC_CTL_IDLE,
+    QWRT_IPC_CTL_SHUTDOWN,
+} qwrt_ipc_ctl_kind_t;
+
+/* 判定 CONTROL payload 是否为 M-P2 协议消息；命中时 *out_val = 对应键的数值
+ * （ready: 1=ok/0=fail；idle: 0=请求/1=ack；shutdown: 1）。非协议返回 NONE
+ * （*out_val 不写）。 */
+qwrt_ipc_ctl_kind_t qwrt_ipc_ctl_classify(const uint8_t *payload,
+                                          uint32_t len, int *out_val);
+
+/* 主RT 进程侧：发一条 M-P2 CONTROL 协议消息（source=1, target=0, kind=CONTROL）。 */
+int qwrt_ipc_child_emit_ctl(const char *json);
+
+/* 宿主侧：经主RT 通道发一条 M-P2 CONTROL 协议消息（source=0, target=1）。 */
+int qwrt_proc_post_ctl(qwrt_proc_t *proc, const char *json);
 /* Channel handle — see typedef above (qwrt_proc_t), defined at the top of
  * this header so declarations can reference it. */
 

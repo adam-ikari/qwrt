@@ -335,6 +335,16 @@ struct qwrt_t {
      * 仅父 runtime（worker_self == NULL）使用；teardown 统一清理残留句柄。 */
     qwrt_proc_handle_t proc_handles[QWRT_MAX_PROC_HANDLES];
     uint32_t proc_handle_seq;   /* handle id 单调分配器（0 = 无效） */
+
+    /* ── M-P2 宿主↔主RT 通道（QWRT_PROCESS_MODEL=ISOLATED）──
+     * 宿主进程：proc = 主RT 子进程通道（由宿主 loop 线程独占读写）；主RT 进程：
+     * ipc_channel_pipe = parent-fd 读管道。后者恒活动（duplex 读泵），必须被
+     * wait_idle 的 idle 判定豁免，否则主RT 永不判 idle（与 JS-managed worker
+     * pipe 同因，见 qwrt_proc_handle_is_pipe）。进程自身只有一个对端通道，指针
+     * 级判定即足够。THREAD 编译下恒为 NULL（宿主走线程后端）。 */
+    qwrt_proc_t *proc;              /* ISOLATED 宿主：主RT 通道句柄 */
+    uv_pipe_t   *ipc_channel_pipe;  /* 主RT 进程：宿主通道读管道（idle 豁免） */
+    int          idle_ack;          /* atomic: 主RT 已回 CONTROL{idle} ack */
 #endif
 
 
@@ -428,6 +438,9 @@ void qwrt_msg_free(qwrt_msg_t *m);
 
 /* thread.c — the qwrt thread: uv loop + wake dispatch + microtask flush */
 void qwrt_thread_main(void *arg);
+/* idle 判定（thread.c）：除内部 wake async / 恒活动 IPC pipe 外无活动 handle
+ * 且入站队列空 → 1。thread 后端主循环与 M-P2 主RT 进程共用。 */
+int qwrt_loop_idle(qwrt_t *rt);
 
 /* qwrt.c — runtime init / eval / teardown (called from thread.c) */
 int  qwrt_runtime_init(qwrt_t *rt);

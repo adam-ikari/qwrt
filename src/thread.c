@@ -53,8 +53,9 @@ static void qwrt_idle_walk_cb(uv_handle_t *h, void *arg)
     if (!uv_is_closing(h) && uv_is_active(h)) st->busy = 1;
 }
 
-/* no active handle besides wake async and an empty message queue → idle */
-static int qwrt_loop_idle(qwrt_t *rt)
+/* no active handle besides wake async and an empty message queue → idle。
+ * 非 static：M-P2 主RT 进程（rt_main.c 的 serve 形态）复用同一 idle 判定。 */
+int qwrt_loop_idle(qwrt_t *rt)
 {
     if (qwrt_msg_has_pending(rt)) return 0;   /* inbound queue non-empty */
     /* 先排空 JS 微任务/待执行 job：promise 回调可能在上一轮事件里排了 job，

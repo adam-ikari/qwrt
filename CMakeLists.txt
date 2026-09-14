@@ -61,6 +61,16 @@ option(QWRT_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" "${_prof_textco
 option(QWRT_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
 option(QWRT_BUILD_EXAMPLES "Build example programs" OFF)
 
+# 应用模型（多进程模型 §2.1，M-P2）：ISOLATED = 宿主与主RT 各跑独立进程（目标形态）；
+# THREAD = 单进程多线程（现状基线）。宏 QWRT_PROCESS_MODEL_ISOLATED 是源码 #if 选择
+# 的唯一依据；缺省值随 M-P2 收尾从 THREAD 翻为 ISOLATED（翻转是独立 commit）。
+set(QWRT_PROCESS_MODEL "THREAD" CACHE STRING
+    "Application model: ISOLATED (host and main RT in separate processes) | THREAD (single process, one thread per runtime)")
+set_property(CACHE QWRT_PROCESS_MODEL PROPERTY STRINGS ISOLATED THREAD)
+if(NOT QWRT_PROCESS_MODEL STREQUAL "ISOLATED" AND NOT QWRT_PROCESS_MODEL STREQUAL "THREAD")
+    message(FATAL_ERROR "QWRT_PROCESS_MODEL must be ISOLATED or THREAD (got '${QWRT_PROCESS_MODEL}')")
+endif()
+
 set(QWRT_POLYFILL_MODE "rodata" CACHE STRING
     "Polyfill bytecode embedding: rodata=const .rodata array (default) | compressed=lz4-compressed .rodata, decompressed to heap at load | external=external .polyfill file (QWRT_POLYFILL_FILE), loader rejects any file whose SHA-256 != the hash embedded at build time | host=host hook qwrt_polyfill_load_custom()")
 
@@ -698,6 +708,13 @@ if(NOT QWRT_BUILD_TESTS)
     # path is only exercisable by real-process e2e (design §10.1). Test builds
     # (QWRT_BUILD_TESTS) compile the core against mock_libuv.h and exclude it.
     list(APPEND _qwrt_core_sources src/ipc_process.c)
+
+endif()
+if(QWRT_PROCESS_MODEL STREQUAL "ISOLATED" AND NOT QWRT_BUILD_TESTS)
+    # M-P2：宿主↔主RT 进程分离（src/rt_host.c）。THREAD 编译不编该路径——语义门见
+    # §1.4：THREAD 编译下显式 worker_backend=PROCESS 求值报错。（§2.1「THREAD 不
+    # 编入 ipc_*.c」的源级排除延后：先达成语义门，偏差记于 plan 状态。）
+    list(APPEND _qwrt_core_sources src/rt_host.c)
 endif()
 if(QWRT_WITH_CRYPTO_EXT)
     list(APPEND _qwrt_core_sources src/ext_crypto.c)
@@ -715,7 +732,15 @@ if(QWRT_BUILD_DEBUGGER)
     list(APPEND _qwrt_core_sources src/debugger.c src/debugger_dap.c)
 endif()
 
+
 add_library(qwrt STATIC ${_qwrt_core_sources})
+
+# ISOLATED 编译的定义（源码 #if 选择的唯一依据）。PUBLIC：消费者（含 qwrt-rt 与
+# 宿主二进制）必须与库看到同一宏——include/qwrt/qwrt.h 的 worker_backend 枚举值
+# 随该宏条件编译（§2.1「C 枚举字段可以条件编译」）。
+if(QWRT_PROCESS_MODEL STREQUAL "ISOLATED")
+    target_compile_definitions(qwrt PUBLIC QWRT_PROCESS_MODEL_ISOLATED=1)
+endif()
 
 # ${_polyfill_gen_c} 是生成产物（build.js 按 QWRT_POLYFILL_MODE /
 # QWRT_WITH_NONUTF_ENCODINGS 产出不同符号面）；polyfill_rebuild 这个 phony target

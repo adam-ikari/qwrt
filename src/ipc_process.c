@@ -162,6 +162,42 @@ int qwrt_ipc_parse_ack(const char *json, int *out_ok, int *out_v)
     return rc;
 }
 
+/* ── M-P2 主RT 通道 CONTROL 协议分类（§6.1，两侧共用） ── */
+
+qwrt_ipc_ctl_kind_t qwrt_ipc_ctl_classify(const uint8_t *payload,
+                                          uint32_t len, int *out_val)
+{
+    if (!payload || len == 0) return QWRT_IPC_CTL_NONE;
+
+    /* cJSON 按 NUL 结尾扫描，payload 是零拷贝片（rbuf 内），补一份带 NUL 的
+     * 副本再解析。CONTROL 消息都很小（<64B），一次性栈缓冲足够。 */
+    char buf[256];
+    if (len >= sizeof(buf)) return QWRT_IPC_CTL_NONE;
+    memcpy(buf, payload, len);
+    buf[len] = '\0';
+
+    cJSON *j = cJSON_Parse(buf);
+    if (!j) return QWRT_IPC_CTL_NONE;
+    qwrt_ipc_ctl_kind_t kind = QWRT_IPC_CTL_NONE;
+    if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(j, "qwrt"))) {
+        const cJSON *ready = cJSON_GetObjectItemCaseSensitive(j, "ready");
+        const cJSON *idle  = cJSON_GetObjectItemCaseSensitive(j, "idle");
+        const cJSON *sd    = cJSON_GetObjectItemCaseSensitive(j, "shutdown");
+        if (cJSON_IsNumber(ready)) {
+            kind = QWRT_IPC_CTL_READY;
+            *out_val = ready->valueint;
+        } else if (cJSON_IsNumber(idle)) {
+            kind = QWRT_IPC_CTL_IDLE;
+            *out_val = idle->valueint;
+        } else if (cJSON_IsNumber(sd)) {
+            kind = QWRT_IPC_CTL_SHUTDOWN;
+            *out_val = sd->valueint;
+        }
+    }
+    cJSON_Delete(j);
+    return kind;
+}
+
 /* ── Binary path detection ── */
 
 /* Resolve the qwrt-rt binary path. On success returns a malloc'd string;
@@ -565,6 +601,15 @@ int qwrt_proc_post(qwrt_proc_t *proc,
                            payload, payload_len);
 }
 
+/* 宿主侧：M-P2 CONTROL 协议消息（source=宿主 0, target=主RT 1）。 */
+int qwrt_proc_post_ctl(qwrt_proc_t *proc, const char *json)
+{
+    if (!json) return -1;
+    return qwrt_proc_post(proc, QWRT_IPC_HOST_ID, QWRT_IPC_MAIN_ID,
+                          IPC_ENV_KIND_CONTROL,
+                          (const uint8_t *)json, (uint32_t)strlen(json));
+}
+
 /* ── Destroy & Free (libuv-idiomatic self-reclaim) ── */
 
 /* proc 内嵌两个 handle（pipe + tx flush timer），qwrt_proc_free 对两者都
@@ -657,6 +702,15 @@ int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
     if (g_child_tx.fd < 0) return -1;
     return proc_frame_send(&g_child_tx, source, target, kind,
                            payload, payload_len);
+}
+
+/* 主RT 进程侧：M-P2 CONTROL 协议消息（source=主RT 1, target=宿主 0）。 */
+int qwrt_ipc_child_emit_ctl(const char *json)
+{
+    if (!json) return -1;
+    return qwrt_ipc_child_emit(QWRT_IPC_MAIN_ID, QWRT_IPC_HOST_ID,
+                               IPC_ENV_KIND_CONTROL,
+                               (const uint8_t *)json, (uint32_t)strlen(json));
 }
 
 /* ── Opaque lifecycle ── */
@@ -792,14 +846,17 @@ void qwrt_proc_start_read_cb(qwrt_proc_t *proc,
     uv_read_start((uv_stream_t *)&proc->pipe, proc_alloc_cb, proc_read_cb);
 }
 
-/* JS-managed 进程句柄的 IPC pipe 豁免检查（spawn 分层化, Phase C）：
- * pal.processSpawn 句柄的 pipe 恒活动（duplex 通道随 child 生命周期保持
- * 打开），qwrt_loop_idle 须豁免，否则宿主脚本在进程 worker 存活时永不 idle
- * 退出。替代已随 C 层进程 worker 分流移除的 qwrt_worker_is_proc_handle
- * （C 层 qwrt_worker_t 不再持有 proc；进程句柄统一在 rt->proc_handles[]）。 */
+/* 恒活动 IPC pipe 的 idle 豁免检查（spawn 分层化 Phase C + M-P2）：
+ *   - JS-managed 进程 worker 句柄（pal.processSpawn）的 pipe 随 child 生命周期
+ *     保持打开 —— 宿主脚本在进程 worker 存活时仍须能判 idle 退出；
+ *   - M-P2 主RT 进程的宿主通道读管道（parent-fd）同样恒活动 —— 不豁免则主RT
+ *     在自己事件循环里永不判 idle，CONTROL{idle} 永远不会到达。
+ * 替代已随 C 层进程 worker 分流移除的 qwrt_worker_is_proc_handle。 */
 int qwrt_proc_handle_is_pipe(qwrt_t *rt, uv_handle_t *h)
 {
     if (!rt || !h) return 0;
+    if (rt->ipc_channel_pipe && (uv_handle_t *)rt->ipc_channel_pipe == h)
+        return 1;
     for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
         qwrt_proc_handle_t *ph = &rt->proc_handles[i];
         if (ph->live && ph->proc && (uv_handle_t *)&ph->proc->pipe == h)

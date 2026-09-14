@@ -25,9 +25,10 @@ typedef struct qwrt_config_s {
      * IN_PROC（进程内宿主线程命令）/ LOCAL（预留，CTL-2 端点，行为同 IN_PROC）。
      * 见 docs/plans/2026-09-04-control-plane-design.md §4.1。 */
     int control_plane;               /* qwrt_control_plane_t 值 */
-    /* Worker 执行后端（M-P1 多进程模型 §1.4）。0 = THREAD（默认，真线程）；
-     * 1 = PROCESS（独立进程 worker，非测试构建可用；测试构建显式求值报错）。
-     * 粒度 per-rt：同一 qwrt_t 的全部 worker 同后端。缺省 0 = THREAD。 */
+    /* Worker 执行后端（M-P1/M-P2 多进程模型 §1.4）。取值语义随编译模型
+     * （QWRT_PROCESS_MODEL）条件编译——见下方 qwrt_worker_backend_t 注释。
+     * 粒度 per-rt：同一 qwrt_t 的全部 worker 同后端。M-P1 缺省 THREAD；
+     * M-P2 起 ISOLATED 编译缺省 PROCESS（编译模型驱动缺省，§1.4）。 */
     int worker_backend;              /* qwrt_worker_backend_t 值 */
 } qwrt_config_t;
 typedef enum {
@@ -36,11 +37,26 @@ typedef enum {
     QWRT_CONTROL_LOCAL = 2,   /* 预留（CTL-2 本地端点）；CTL-0 行为同 IN_PROC */
 } qwrt_control_plane_t;
 
-/* Worker 执行后端（qwrt_config_t.worker_backend 取值）。 */
+/* Worker 执行后端（qwrt_config_t.worker_backend 取值）。
+ *
+ * 数值随编译模型条件编译（§2.1「C 枚举字段可以条件编译」），即 memset 清零的
+ * 配置在两种编译下各自落到该模型的缺省后端：
+ *   ISOLATED 编译：0 = PROCESS（缺省＝独立进程）、1 = THREAD（显式回退）
+ *   THREAD  编译：0 = THREAD（现状基线）、1 = PROCESS（未启用 → 求值报错，§1.4）
+ *   mock 测试构建（QWRT_USE_MOCK_LIBUV，无 ipc 后端）：恒按 THREAD 排列
+ * 铁律：只用符号常量，勿硬编码 0/1。消费方必须与库看到同一 QWRT_PROCESS_MODEL_*
+ * 宏——CMake 构建经 target_compile_definitions(qwrt PUBLIC …) 自动传递。 */
+#if defined(QWRT_PROCESS_MODEL_ISOLATED) && !defined(QWRT_USE_MOCK_LIBUV)
 typedef enum {
-    QWRT_WORKER_BACKEND_THREAD  = 0, /* 默认：真线程（现状） */
-    QWRT_WORKER_BACKEND_PROCESS = 1, /* 独立进程 worker（M-P1） */
+    QWRT_WORKER_BACKEND_PROCESS = 0, /* 编译缺省：独立进程 worker（M-P1 机制） */
+    QWRT_WORKER_BACKEND_THREAD  = 1, /* 显式回退：真线程 */
 } qwrt_worker_backend_t;
+#else
+typedef enum {
+    QWRT_WORKER_BACKEND_THREAD  = 0, /* 缺省：真线程（THREAD 编译 / mock 测试构建） */
+    QWRT_WORKER_BACKEND_PROCESS = 1, /* 独立进程 worker（THREAD 编译未启用 → 报错） */
+} qwrt_worker_backend_t;
+#endif
 
 /* ================================================================
  * Core API
