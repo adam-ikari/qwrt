@@ -49,6 +49,7 @@ All notable changes to Qwrt.js.
 - examples 全量收编：`httpserver` / `stream-pipeline` / `fetch-proxy` / `worker-orchestrate` 纳入 `QWRT_BUILD_EXAMPLES` 统一构建。
 ### Changed
 - QuickJS-ng v0.15.1 → v0.16.2（`deps/quickjs-ng`）：三个本地补丁 3-way rebase（c99-atomics / drain-jobs / debugger）。上游 ABI 变更——`JS_NewArrayBuffer` / `JS_NewUint8Array` 的 `free_func` 参数被 `(max_len, realloc_func)` 取代，`realloc_func == NULL` 表示引擎不接管内存（适配 `src/bridge.c`、`src/ext_wamr.c`、`src/ext_wasm3.c`）；polyfill/worker boot bytecode `BC_VERSION` 26→27 重编（`dist/*.bytecode`、`src/polyfill_default.c`、`src/worker_boot_default.c`）。
+- `polyfill/build.js` findQjsc 版本过滤：扫描 `build*/deps/quickjs-ng/qjsc` 时只接受 0.16.x（BC27）编译器，跳过旧版 BC26 避免静默生成不可运行字节码；`$QJSC` 环境变量优先。
 - ROADMAP 基线刷新至 2026-09：CI 16 → 20 job（补 all-features-off / polyfill-external / polyfill-compressed / nonutf-encodings / fuzz-smoke 等），WinterTC 标准面补 Service Worker 子集（21 模块 + SW）。
 ### Fixed
 - Polyfill 模式产物分家（fix(build)）：`polyfill/build.js` 原先四种 `QWRT_POLYFILL_MODE` 都覆写同一个 tracked 文件 `src/polyfill_default.c`，切模式构建会污染 rodata 基线、并把上一模式的符号/哈希残留在产物里——现按模式落盘：rodata 仍写 tracked 基线 `src/polyfill_default.c`，compressed / external / host 各写 untracked `src/polyfill_<mode>.c`（`CMakeLists.txt` 的 `_polyfill_gen_c` 用同一映射，生成规则改由 `add_custom_command(OUTPUT)` 声明，非 rodata 缺产物时 configure 报错并提示跑 build.js）；external 的 SHA-256 锚定符号 `qwrt_polyfill_external_sha256` 随 `src/polyfill_external.c` 落盘。三模式运行时行为不变。

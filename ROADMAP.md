@@ -37,6 +37,7 @@ fetch 拦截 + Cache + update，2026-09 合入 master，见 D6）。
   polyfill-compressed / nonutf-encodings / asan / ubsan / release /
   httpserver-perf / h2-client-perf / runtime-perf / cross-runtime / e2e /
   coverage（行覆盖 ≥50% 断言）/ debugger / test262 / clang-tidy / fuzz-smoke（libFuzzer 字节码读取 60s 冒烟）
+- polyfill 三模块委托 OSS 库（url-pattern / structured-clone / streams），开源依赖数 3；whatwg-url 保留自研（tr46 IDNA 体积 + esbuild IIFE 时序双阻断）
 - 服务端性能基线（wrk，阈值=基线 50%）：tiny 12.6k / small 3.1k / medium(16K) 256 / post 10.5k
 
 ## 二、架构原则
