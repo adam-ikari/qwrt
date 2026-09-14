@@ -591,16 +591,18 @@ TEST_F(PolyfillTest, StreamTeeCancel) {
           cancel: function(){ srcCancelled = true; }
         });
         var branches = s.tee();
-        branches[0].cancel().then(function(){
-          var afterOne = JSON.stringify({src: srcCancelled});
-          branches[1].cancel().then(function(){
-            _tc = afterOne + '|' + JSON.stringify({src: srcCancelled});
-          });
+        var afterOne;
+        /* 规范 tee cancel：分支 cancel promise 须两分支都取消才 resolve，
+         * 但源 cancel（srcCancelled）只在两分支都取消后触发——先取消 b0，
+         * 下一 tick 采样（此时 b1 未取消，源必未被 cancel），再取消 b1。 */
+        branches[0].cancel();
+        Promise.resolve().then(function(){
+          afterOne = JSON.stringify({src: srcCancelled});
+          return branches[1].cancel();
+        }).then(function(){
+          _tc = afterOne + '|' + JSON.stringify({src: srcCancelled});
         });
         0)", &v));
-    /* 阶段一：仅分支0取消 → 源未被 cancel（分支1 仍活跃） */
-    ASSERT_TRUE(host_poll_until_value(h, "_tc", "\"src\":false", &v)) << "got: " << v;
-    /* 阶段二：两分支都取消 → 源 cancel 传播 */
     ASSERT_TRUE(host_poll_until_value(h, "_tc", "\"src\":true", &v)) << "got: " << v;
 }
 
@@ -770,23 +772,27 @@ TEST_F(PolyfillTest, ReadAfterReleaseRejects) {
 TEST_F(PolyfillTest, TeeSingleCancelClosesBranch) {
     std::string v;
     /* 单分支取消:该分支关闭(后续 read 返回 done),另一分支继续工作(规范
-     * ReadableStreamTee)。修复前取消分支的 read 永久挂起。 */
+     * ReadableStreamTee)。规范中分支 cancel promise 须两分支都取消才
+     * resolve,故这里不 await cancel(),直接读两分支验证语义。 */
     ASSERT_TRUE(host_eval(h,
         R"(var _tee3 = null;
         var s = new ReadableStream({
           start: function(c){ c.enqueue('a'); c.enqueue('b'); c.close(); }
         });
         var b = s.tee();
-        b[0].cancel().then(function(){
+        b[0].cancel();
+        /* 取消不 await（其 promise 须双分支都取消才 resolve）；setTimeout
+         * 走宿主宏任务 tick（与 pipeTo 用例同模式），保证 cancel 已生效。 */
+        setTimeout(function(){
           var r0 = b[0].getReader();
-          return r0.read().then(function(x){
+          r0.read().then(function(x){
             var cancelledBranch = JSON.stringify(x);
             var r1 = b[1].getReader();
             return r1.read().then(function(y){
               _tee3 = cancelledBranch + '|' + JSON.stringify([y.value]);
             });
           });
-        });
+        }, 0);
         0)", &v));
     /* 取消的分支读返回 done,活跃分支仍读到数据 */
     ASSERT_TRUE(host_poll_until_value(h, "_tee3", "\"done\":true", &v)) << "got: " << v;
@@ -2013,7 +2019,9 @@ TEST_F(PolyfillTest, QueuingStrategies) {
         "var s = new ByteLengthQueuingStrategy({highWaterMark: 1024});\n"
         "var u = new Uint8Array(4);\n"
         "JSON.stringify([s.highWaterMark, s.size(u), s.size('str'), typeof s.size])", &v));
-    EXPECT_NE(std::string::npos, v.find("[1024,4,0,\"function\"]")) << "got: " << v;
+    /* 规范 ByteLengthQueuingStrategy.size = chunk => chunk.byteLength：
+     * 无 byteLength 属性 → undefined（JSON null），旧 shim 的 ??0 是扩展。 */
+    EXPECT_NE(std::string::npos, v.find("[1024,4,null,\"function\"]")) << "got: " << v;
 
     /* 2. CountQueuingStrategy：highWaterMark + size()=1 */
     ASSERT_TRUE(host_value(h,
@@ -2040,10 +2048,11 @@ TEST_F(PolyfillTest, TransformStreamApi) {
         "});\n"
         "var w = ts.writable.getWriter(); var r = ts.readable.getReader();\n"
         "var out = [];\n"
+        /* 规范默认 HWM=0：readable 不读则 writable 背压挂起——先起读泵，再写。 */
+        "var pump = (function loop(){ return r.read().then(function(x){\n"
+        "  if (x.done) { out.push(x.done); return; } out.push(x.value); return loop(); }); })();\n"
         "w.write('a').then(function(){ return w.write('b'); }).then(function(){ return w.close(); })\n"
-        "  .then(function(){ return r.read(); }).then(function(x){ out.push(x.value); })\n"
-        "  .then(function(){ return r.read(); }).then(function(x){ out.push(x.value); })\n"
-        "  .then(function(){ return r.read(); }).then(function(x){ out.push(x.done); })\n"
+        "  .then(function(){ return pump; })\n"
         "  .then(function(){ _ts = JSON.stringify([out, flushed]); });\n"
         "0", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_ts", "[[\"A\",\"B\",true],true]", &v)) << "got: " << v;

@@ -154,6 +154,11 @@ export function setupAbort() {
 
       return result;
     }
+
+    /* spec: AbortSignal.prototype[Symbol.toStringTag] = 'AbortSignal'。
+     * wsp/webidl 依此做 brand-check（缺则 signal 被当非 AbortSignal 忽略，
+     * pipeTo({signal}) 不注册 abort listener）。 */
+    get [Symbol.toStringTag]() { return 'AbortSignal'; }
   }
 
   /**
