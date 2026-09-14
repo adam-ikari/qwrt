@@ -243,6 +243,8 @@ static void process_rx(qwrt_t *rt)
 
         }
         /* Need frame body */
+        if (g_rx.len < g_rx.frame_len) return;
+
         /* Complete frame available */
         if (g_rx.frame_len > 0) {
             ipc_envelope_view_t view;

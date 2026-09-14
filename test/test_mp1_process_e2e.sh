@@ -1,10 +1,13 @@
 #!/bin/bash
 # M-P1 process-backend e2e (review I7) — exercises the real two-process path
-# against the qwrt CLI (QWRT_WORKER_BACKEND=process). Two phases:
-#   1. spawn → handshake → postMessage round-trip → graceful terminate (tier-1)
-#   2. hard SIGKILL the child mid-flight → parent survives (C2 MSG_NOSIGNAL)
-#      → zombie reaped + slot released (I1) so a fresh Worker spawns → no
-#      leftover temp script file (C1)
+# against the qwrt CLI (QWRT_WORKER_BACKEND=process). Three phases:
+#   1.  spawn → handshake → postMessage round-trip → graceful terminate (tier-1)
+#   1b. >64KB payload round-trip — frame spans multiple pipe reads, so the
+#       receiver must accumulate a partial frame (2018 regression guard: the
+#       M-P4 frame-accumulator change dropped that check → heap corruption)
+#   2.  hard SIGKILL the child mid-flight → parent survives (C2 MSG_NOSIGNAL)
+#       → zombie reaped + slot released (I1) so a fresh Worker spawns → no
+#       leftover temp script file (C1)
 # Usage: bash test/test_mp1_process_e2e.sh <path-to-qwrt>
 set -u
 QWRT="${1:-./build_e2e/qwrt}"
@@ -16,7 +19,7 @@ export QWRT_WORKER_BACKEND=process
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIX="$(mktemp -d)"
 trap 'rm -rf "$FIX"' EXIT
-for f in main-mp1.js main-mp1-kill.js; do
+for f in main-mp1.js main-mp1-big.js main-mp1-kill.js; do
   sed "s#file:///home/gem/project/qwrt#file://$ROOT#g" "$DIR/$f" > "$FIX/$f"
   grep -q "file://$ROOT/test/mp1-e2e/" "$FIX/$f" || { echo "FAIL: fixture path rewrite"; exit 1; }
 done
@@ -35,6 +38,15 @@ EXP1=$'echo:ping\nDONE'
 if [ "$OUT1" != "$EXP1" ]; then
   echo "FAIL: phase 1 (graceful round-trip) output mismatch"
   diff <(printf '%s\n' "$EXP1") <(printf '%s\n' "$OUT1")
+  exit 1
+fi
+
+# ── Phase 1b: >64KB payload round-trip (multi-read frame accumulation) ──
+OUT1B="$(timeout 20 "$QWRT" "$FIX/main-mp1-big.js" 2>&1)"
+EXP1B=$'big:131072:7:9\nDONE'
+if [ "$OUT1B" != "$EXP1B" ]; then
+  echo "FAIL: phase 1b (>64KB round-trip) output mismatch"
+  diff <(printf '%s\n' "$EXP1B") <(printf '%s\n' "$OUT1B")
   exit 1
 fi
 
@@ -83,5 +95,5 @@ if ls /tmp/qwrt-worker-* >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "PASS: M-P1 process-backend e2e — round-trip / graceful-terminate / hard-kill-reap / no-temp-leak"
+echo "PASS: M-P1 process-backend e2e — round-trip / >64KB round-trip / graceful-terminate / hard-kill-reap / no-temp-leak"
 exit 0
