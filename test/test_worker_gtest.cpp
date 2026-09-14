@@ -38,6 +38,29 @@ TEST(worker_, terminate) {
     host_destroy(h);
 }
 
+// 回归：terminate 后槽位必须在 worker 线程真正结束后回收。槽位 id = 槽位索引
+// +1，不回收则宿主反复 spawn/terminate 会累积到 QWRT_MAX_WORKERS(16)，第 17 次
+// spawn 抛 "spawnWorker failed (err -8)"(BUSY)。20 轮全在一个 eval 里完成：
+// 轮次之间父 loop 没有派发机会，槽位只能靠下一次 spawn 时回收复用。
+TEST(worker_, terminate_recycles_slot) {
+    HostCtx *h = host_create();
+    ASSERT_NE(nullptr, h);
+
+    std::string out;
+    ASSERT_TRUE(host_eval(h,
+        "var n = 0;\n"
+        "for (var i = 0; i < 20; i++) {\n"
+        "  var w = new Worker('file://" TEST_DIR "/worker_idle.js');\n"
+        "  w.terminate();\n"
+        "  n++;\n"
+        "}\n"
+        "n", &out, 30000));
+    /* 第 17 次 spawn 失败 → new Worker 抛错 → 回执是 {"ok":false,...}(无 v) */
+    EXPECT_NE(std::string::npos, out.find("\"v\":\"20\""))
+        << "20 轮 spawn/terminate 未全部成功（槽位未回收）: " << out;
+    host_destroy(h);
+}
+
 // Task 1: 脚本顶层异常 → 父侧 w.onerror 收到 {type:'error', error:<msg>}
 // （事件 data），且 worker 继续存活（之后父→worker 往返仍通）。
 TEST(worker_, error_notifies_parent) {

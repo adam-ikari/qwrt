@@ -112,7 +112,8 @@ typedef struct qwrt_worker_s {
     uv_thread_t thread;        /* worker 线程句柄（父 teardown 时 join） */
     qwrt_t *self;              /* worker 自己的 runtime（线程后端） */
     char *script;              /* worker 脚本源码 */
-    int shutting_down;
+    int shutting_down;         /* 非 0 = 已请求退出：父线程回收槽位（worker.c
+                               * qwrt_worker_reap：join→释放 runtime→清槽）的判据 */
     /* 注：进程后端（M-P1 的 qwrt_proc_t proc / script_path 字段）已随 spawn
      * 分层化移除（Phase C）——PROCESS worker 由 JS 层经 pal.processSpawn 封装，
      * C 层 qwrt_worker_t 仅服务线程后端。 */

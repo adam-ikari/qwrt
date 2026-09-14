@@ -16,8 +16,10 @@
  * 生命周期：qwrt_worker_create 阻塞到 worker ready 握手才返回 id；脚本顶层
  * 异常 → 先在本 runtime 内 dispatch ErrorEvent（触发 self.onerror），再经
  * postMessage 发 {type:'error'} 给父（触发 w.onerror），worker 继续存活。
- * terminate 异步（置 shutting_down + wake，不 join——不能 join 自己）；join
- * 在父 teardown（qwrt_thread_teardown 第一步）完成，随后 free 结构。
+ * terminate 异步（置 shutting_down + wake，不 join——不能 join 自己）。join +
+ * 释放 worker runtime 有两条路径，都在父线程：父 teardown
+ * （qwrt_thread_teardown 第一步）与下一次 spawn 时的 qwrt_worker_reap——后者
+ * 回收槽位（id = 索引+1），否则反复 spawn/terminate 会耗尽 QWRT_MAX_WORKERS。
  */
 
 #include "qwrt_internal.h"
@@ -180,6 +182,59 @@ static void qwrt_worker_thread_main(void *arg)
  * 父线程 API
  * ================================================================ */
 
+/* 释放 worker 自己的 runtime（线程已结束、即 join 已返回时才可调用；worker
+ * 侧再无人引用它）。self 置 NULL 即"已 join + runtime 已释放"标记。 */
+static void qwrt_worker_release_runtime(qwrt_worker_t *w)
+{
+    if (w->self) {
+        free(w->self);
+        w->self = NULL;
+    }
+}
+
+/* 父入站队列里是否还有 source == id 的未派发消息。消费端只读遍历（与
+ * qwrt_msg_pop 同样的 acquire 链式读，不改队列）：生产者尚未落链的消息读不到，
+ * 但那不可能是本 worker 的——调用前已 join，它的线程不可能再 push。 */
+static int qwrt_worker_msg_queued(qwrt_t *parent, int id)
+{
+    struct uv__queue *nq =
+        __atomic_load_n(&parent->msg_head->q.next, __ATOMIC_ACQUIRE);
+    while (nq) {
+        qwrt_msg_t *m = uv__queue_data(nq, qwrt_msg_t, q);
+        if (m->source == id) return 1;
+        nq = __atomic_load_n(&nq->next, __ATOMIC_ACQUIRE);
+    }
+    return 0;
+}
+
+/* 回收已请求退出的 worker 槽位。terminate 只置标志 + 唤醒（协作式，且可能由
+ * worker 自己的线程调用——不能 join 自己），所以清槽发生在这里：join 返回即
+ * 线程完全结束，此后 self（worker 自己的 loop/JSRuntime）不再被任何线程引用，
+ * 可安全释放，槽位（id = 索引+1）也随之可被下一个 worker 复用。否则宿主反复
+ * spawn/terminate 会耗尽 QWRT_MAX_WORKERS，spawn 恒返回 BUSY。
+ *
+ * 仅父 runtime 线程调用（parent->workers[] 与父队列消费端的唯一所有者）。
+ * 幂等：self == NULL 表示已 join + runtime 已释放，跳过 join。
+ * 残留消息：若父队列里还有该 worker 未派发的入站消息（source == id），本次
+ * 不复用该槽——复用后 id 会指向新 worker，残留消息会被派发到它身上；留待下一
+ * 次 spawn（或父 teardown）回收。 */
+static void qwrt_worker_reap(qwrt_t *parent)
+{
+    for (int i = 0; i < QWRT_MAX_WORKERS; i++) {
+        qwrt_worker_t *w = parent->workers[i];
+        /* 空槽，或未请求退出（线程仍在跑）：不动 */
+        if (!w || !__atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE))
+            continue;
+        if (w->self) {
+            uv_thread_join(&w->thread);
+            qwrt_worker_release_runtime(w);
+        }
+        if (qwrt_worker_msg_queued(parent, w->id)) continue;
+        parent->workers[i] = NULL;
+        qwrt_worker_free(w);
+    }
+}
+
 qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_err)
 {
     if (!parent || parent->magic != QWRT_MAGIC || !script) {
@@ -196,6 +251,10 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
         return NULL;
     }
 #endif
+
+    /* 先回收已退出的 worker 槽位（terminate 只置标志，回收点在此，见
+     * qwrt_worker_reap）：否则反复 spawn/terminate 会耗尽槽位，spawn 恒 BUSY。 */
+    qwrt_worker_reap(parent);
 
     int slot = -1;
     for (int i = 0; i < QWRT_MAX_WORKERS; i++) {
@@ -290,10 +349,7 @@ qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id)
 void qwrt_worker_free(qwrt_worker_t *w)
 {
     if (!w) return;
-    if (w->self) {
-        free(w->self);
-        w->self = NULL;
-    }
+    qwrt_worker_release_runtime(w);
     free(w->script);
     free(w);
 }
