@@ -1705,10 +1705,14 @@ static qwrt_proc_handle_t *bridge_proc_handle_get(qwrt_t *rt, int id)
  * qwrt_t 内嵌数组元素，指针恒有效（terminate 只清字段不释放数组）。JS 回调
  * 内部可能 terminate 本 handle（proc 的释放是 uv_close 异步），回调返回后
  * 我们不再 touch h，故无 UAF。 */
-static void bridge_proc_msg_cb(void *user, const uint8_t *payload,
-                               uint32_t len)
+/* kind/source（M-P2 回调签名扩展）对本消费者无意义：pal.processOnMessage 只
+ * 关心 payload 字节。 */
+static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
+                               const uint8_t *payload, uint32_t len)
 {
     qwrt_proc_handle_t *h = (qwrt_proc_handle_t *)user;
+    QWRT_UNUSED(kind);
+    QWRT_UNUSED(source);
     if (!h->live || !h->ctx || !h->ctx->jsctx) return;
     JSContext *ctx = h->ctx->jsctx;
     if (!JS_IsFunction(ctx, h->onmsg)) return;
@@ -1747,6 +1751,13 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
     if (!rt) return JS_ThrowInternalError(ctx, "processSpawn: no runtime");
     if (rt->worker_self)
         return JS_ThrowInternalError(ctx, "processSpawn: parent runtime only");
+
+#ifndef QWRT_PROCESS_MODEL_ISOLATED
+    /* THREAD 编译未启用进程后端（§1.4：不静默降级——显式选 PROCESS 在求值点
+     * 报错，而不是悄悄退回线程后端）。mock 测试构建走不到此处（无 ipc 后端）。 */
+    return JS_ThrowInternalError(ctx,
+        "processSpawn: QWRT_PROCESS_MODEL=THREAD build has no process backend");
+#endif
 
     const char *exe = NULL;
     if (argc >= 1 && !JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0]))

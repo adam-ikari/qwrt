@@ -253,12 +253,16 @@ static char *build_bootstrap(const char *const *args, int nargs) {
  * wait_idle → destroy. host is bound to rt via qwrt_set_runtime_data;
  * cli_message_cb fetches it with qwrt_get_runtime_data(rt) (callable
  * repeatedly; host is not shared). */
-/* e2e/test hook: QWRT_WORKER_BACKEND=process selects the M-P1 process worker
- * backend (default is thread). Lets the real CLI drive the process backend. */
+/* e2e/test hook: QWRT_WORKER_BACKEND=process|thread 覆盖 worker 后端（缺省随编译
+ * 模型：ISOLATED 编译 = PROCESS，THREAD 编译 = THREAD）。THREAD 覆盖用于 §1.5
+ * 双后端 parity：同一脚本两后端跑一遍，stdout 逐行比对。 */
 static void apply_worker_backend(qwrt_config_t *cfg) {
     const char *wb = getenv("QWRT_WORKER_BACKEND");
-    if (wb && strcmp(wb, "process") == 0)
+    if (!wb) return;
+    if (strcmp(wb, "process") == 0)
         cfg->worker_backend = QWRT_WORKER_BACKEND_PROCESS;
+    else if (strcmp(wb, "thread") == 0)
+        cfg->worker_backend = QWRT_WORKER_BACKEND_THREAD;
 }
 
 static int run_code(const char *code, const char *const *args, int nargs) {

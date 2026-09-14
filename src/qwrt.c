@@ -47,6 +47,17 @@ qwrt_t *qwrt_create(const qwrt_config_t *config)
     /* CTL-0：控制面回执表锁（生产者登记，qwrt 线程消费）。 */
     uv_mutex_init(&rt->ctl_lock);
 
+#ifdef QWRT_HOST_SPLIT
+    /* ── ISOLATED（M-P2）：宿主↔主RT 进程分离 ──
+     * spawn 主RT 进程 + 握手 + 阻塞到就绪（CONTROL{ready}）；失败显式返回 NULL，
+     * 不降级到线程后端（§5.3）。C API 契约不变：宿主见到的仍是一个 qwrt_t。 */
+    if (qwrt_host_start(rt) != 0) {
+        free((void *)rt->config.initial_script);
+        free(rt);
+        return NULL;
+    }
+    return rt;
+#else
     if (uv_thread_create(&rt->thread, qwrt_thread_main, rt) != 0) {
         free((void *)rt->config.initial_script);
         free(rt);
@@ -63,17 +74,27 @@ qwrt_t *qwrt_create(const qwrt_config_t *config)
         return NULL;
     }
     return rt;
+#endif
 }
 
 int qwrt_post_message(qwrt_t *rt, const char *json, size_t len)
 {
+#ifdef QWRT_HOST_SPLIT
+    /* 入队即返回（与线程后端同语义）；loop 线程装信封写通道。 */
+    return qwrt_host_post(rt, json, len);
+#else
     if (!rt || rt->magic != QWRT_MAGIC || !json) return -1;
     return qwrt_msg_push(rt, json, len, QWRT_MSG_SRC_HOST, 0);
+#endif
 }
 
 
 void qwrt_wait_idle(qwrt_t *rt)
 {
+#ifdef QWRT_HOST_SPLIT
+    qwrt_host_wait_idle(rt);
+    return;
+#else
     if (!rt || rt->magic != QWRT_MAGIC) return;
     __atomic_store_n(&rt->wait_idle, 1, __ATOMIC_RELEASE);
     uv_async_send(&rt->wake);          /* wake a blocked uv_run for idle detection */
@@ -84,10 +105,15 @@ void qwrt_wait_idle(qwrt_t *rt)
     /* M-R1: record the join so a following qwrt_destroy skips it — bare
      * pthread_join on an already-joined handle is UB. */
     __atomic_store_n(&rt->thread_joined, 1, __ATOMIC_RELEASE);
+#endif
 }
 
 void qwrt_destroy(qwrt_t *rt)
 {
+#ifdef QWRT_HOST_SPLIT
+    qwrt_host_destroy(rt);
+    return;
+#else
     if (!rt) return;
     if (rt->magic != QWRT_MAGIC) return;
     __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
@@ -98,6 +124,7 @@ void qwrt_destroy(qwrt_t *rt)
         uv_thread_join(&rt->thread);   /* 等线程 teardown 完成 */
     free((void *)rt->config.initial_script);
     free(rt);
+#endif
 }
 
 void *qwrt_get_runtime_data(qwrt_t *rt) { return rt ? rt->host_data : NULL; }

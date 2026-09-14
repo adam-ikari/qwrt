@@ -37,7 +37,10 @@ for i in $(seq 1 50); do
   grep -q '^READY$' "$TMP" 2>/dev/null && break
   sleep 0.1
 done
-CHILD="$(pgrep -P "$PARENT" -f qwrt-rt | head -1)"
+# 按 argv 定位 worker 进程（`--qwrt-worker`）而非「父进程下第一个 qwrt-rt」：
+# ISOLATED 编译（M-P2 缺省）下宿主与主RT 是两个进程，worker 是主RT 的子进程
+# （宿主的孙进程）——按父进程号找会误取主RT（进程模型的主体，非被测对象）。
+CHILD="$(pgrep -f -- '--qwrt-worker' | head -1)"
 if [ -z "$CHILD" ]; then
   echo "FAIL: phase 2 — no qwrt-rt child found under parent $PARENT"
   kill "$PARENT" 2>/dev/null

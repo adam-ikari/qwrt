@@ -187,6 +187,13 @@ int qwrt_control(qwrt_t *rt, const char *bytes, size_t len)
     if (rt->config.control_plane == QWRT_CONTROL_OFF)
         return -1;
 
+#ifdef QWRT_HOST_SPLIT
+    /* M-P2 已知缺口：CTL-0 是「进程内宿主线程命令」（control-plane-design §4.1
+     * 的 IN_PROC = msgq 路径），ISOLATED 下 runtime 在另一进程，本进程没有可命令
+     * 的 runtime。显式失败（-1）而非静默失效或伪造回执（§5.3）。 */
+    return -1;
+#endif
+
     /* 提取器按 NUL 结尾扫描，而 API 契约只保证 (bytes, len)——先拷贝补
      * NUL（msgq 内部同样要拷，此处多一份短暂副本）。 */
     char *buf = (char *)malloc(len + 1);

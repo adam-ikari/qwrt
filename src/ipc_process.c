@@ -748,7 +748,7 @@ static void proc_peer_dead(qwrt_proc_t *proc)
         }
     }
     if (proc->msg_cb)
-        proc->msg_cb(proc->msg_user, NULL, 0);   /* EOF 通知（JS-managed） */
+        proc->msg_cb(proc->msg_user, 0, 0, NULL, 0);   /* EOF 通知（JS-managed） */
 }
 
 static void proc_process_rx(qwrt_proc_t *proc)
@@ -776,8 +776,8 @@ static void proc_process_rx(qwrt_proc_t *proc)
                     /* JS-managed 模式：信封解码 → 直接回调（bridge.c 的
                      * pal.processOnMessage 消费者）。payload 指向 rbuf 内
                      * 部，回调返回后即失效，JS_Call 需同步复制成 ArrayBuffer。 */
-                    proc->msg_cb(proc->msg_user, view.payload,
-                                 view.payload_len);
+                    proc->msg_cb(proc->msg_user, view.kind, view.source,
+                                 view.payload, view.payload_len);
                 } else {
                     int flags = (view.kind == IPC_ENV_KIND_CONTROL) ? 1 : 0;
                     if (parent && parent->magic == QWRT_MAGIC) {
@@ -835,8 +835,7 @@ void qwrt_proc_start_read(qwrt_proc_t *proc)
     uv_read_start((uv_stream_t *)&proc->pipe, proc_alloc_cb, proc_read_cb);
 }
 
-void qwrt_proc_start_read_cb(qwrt_proc_t *proc,
-                             void (*cb)(void *, const uint8_t *, uint32_t),
+void qwrt_proc_start_read_cb(qwrt_proc_t *proc, qwrt_proc_msg_cb_t cb,
                              void *user_data)
 {
     if (!proc || proc->state != QWRT_PROC_RUN) return;

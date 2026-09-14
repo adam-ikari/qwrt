@@ -442,6 +442,18 @@ void qwrt_thread_main(void *arg);
  * 且入站队列空 → 1。thread 后端主循环与 M-P2 主RT 进程共用。 */
 int qwrt_loop_idle(qwrt_t *rt);
 
+/* M-P2：宿主↔主RT 进程分离路径已编入（ISOLATED 非 mock 构建）。 */
+#if defined(QWRT_PROCESS_MODEL_ISOLATED) && !defined(QWRT_USE_MOCK_LIBUV)
+#define QWRT_HOST_SPLIT 1
+/* rt_host.c — 宿主侧主RT 通道后端：spawn 主RT 进程 + 通道 I/O loop 线程。
+ * qwrt_host_start 返回 0 = 主RT 已就绪（CONTROL{ready} 到）；非 0 = 显式失败
+ * （不降级到线程后端，§5.3）。qwrt_host_destroy 释放 rt 本身。 */
+int  qwrt_host_start(qwrt_t *rt);
+int  qwrt_host_post(qwrt_t *rt, const char *json, size_t len);
+void qwrt_host_wait_idle(qwrt_t *rt);
+void qwrt_host_destroy(qwrt_t *rt);
+#endif
+
 /* qwrt.c — runtime init / eval / teardown (called from thread.c) */
 int  qwrt_runtime_init(qwrt_t *rt);
 int  qwrt_eval_internal(qwrt_t *rt, const char *script, char **err);

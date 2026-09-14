@@ -130,6 +130,13 @@ typedef struct qwrt_tx_s {
     int         timer_active;
 } qwrt_tx_t;
 
+/* 读泵回调（qwrt_proc_start_read_cb）：cb(user, kind, source, payload, len)。
+ * payload == NULL 表示 peer-death/EOF（回调后不再调用，kind/source 无意义）；
+ * kind = IPC_ENV_KIND_*、source = 信封源标签，接收方据此分流（如 M-P2 宿主侧
+ * 区分 CONTROL 协议消息与 MESSAGE 数据）。 */
+typedef void (*qwrt_proc_msg_cb_t)(void *user, int8_t kind, int32_t source,
+                                   const uint8_t *payload, uint32_t len);
+
 struct qwrt_proc_s {
     uv_pipe_t pipe;           /* duplex pipe to child (parent end) */
     pid_t     pid;            /* child PID */
@@ -149,9 +156,8 @@ struct qwrt_proc_s {
      * 直接交给 msg_cb（bridge.c 的 pal.processOnMessage），不 push 父 msgq、
      * 也不做 worker-slot reap。EOF/peer-death 时以 payload=NULL 回调一次并
      * 标记 DEAD。 */
-    void     *msg_user;
-    void     (*msg_cb)(void *user_data, const uint8_t *payload,
-                       uint32_t payload_len);
+    void              *msg_user;
+    qwrt_proc_msg_cb_t msg_cb;
     /* libuv-idiomatic multi-handle reclaim: proc 内嵌两个 handle（pipe +
      * tx flush timer），qwrt_proc_free 对两者都 uv_close，proc 内存在
      * 最后一个 close 回调里释放（close_pending 统计未完成的 close 数）。
@@ -208,9 +214,8 @@ void qwrt_proc_start_read(qwrt_proc_t *proc);
  * 解码后不 push 父 msgq，而是调用 cb(user, payload, len)；payload=NULL 表示
  * peer-death/EOF（回调后不再调用）。proc 须已 RUN。cb 运行在读泵所在线程
  * （父 loop 线程 = JS 线程，可直接 JS_Call）。cb 传 NULL 恢复 msgq 模式。 */
-void qwrt_proc_start_read_cb(qwrt_proc_t *proc,
-                             void (*cb)(void *, const uint8_t *, uint32_t),
-                             void *user_data);
+void qwrt_proc_start_read_cb(qwrt_proc_t *proc, qwrt_proc_msg_cb_t cb,
+                             void *user);
 
 /* Opaque handle lifecycle — worker.c (compiled in mock test builds too)
  * only sees the pointer; the uv_pipe_t body stays private to ipc_process.c

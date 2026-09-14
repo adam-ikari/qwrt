@@ -728,6 +728,12 @@ jobs:
           bash test/service_worker_sw1_e2e.sh ./build/qwrt
           bash test/service_worker_sw2_e2e.sh ./build/qwrt
 
+      # 多进程模型（缺省 ISOLATED）：宿主↔主RT 进程分离 + 双后端 worker parity。
+      - name: e2e — multi-process (M-P1 worker / M-P2 host↔mainRT split)
+        run: |
+          bash test/test_mp1_process_e2e.sh ./build/qwrt
+          bash test/test_mp2_host_split_e2e.sh ./build/qwrt
+
   # ============================================================================
   # Coverage: gcov with WAMR default engine.
   # ============================================================================
