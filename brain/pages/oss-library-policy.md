@@ -5,17 +5,17 @@ category: decision
 status: active
 tags: [deps, policy, oss]
 created: "2026-09-04T13:27:08"
-updated: "2026-09-11T13:59:39"
+updated: "2026-09-14T05:34:30"
 ---
 
 <!-- compiled_truth -->
 # 开源库引入与替换原则
 
-**默认自制。** 引入或替换开源库是例外动作，须同时满足三条件，缺一不动：
+**polyfill 层允许引入 npm polyfill 库（例外通道）。** 标准三条件仍适用于 C 层和非 polyfill JS 层；polyfill 层的 npm 引入额外要求：零依赖 + esbuild IIFE 无缝 bundle。若库只提供 ESM/CJS 且与 esbuild IIFE 冲突（如 whatwg-url 的 `__esModule` 导出模式时序阻断），或其依赖链过大（>100KB 传递依赖），则保留自研。
 
 1. **正收益实证**：自制代码本身是风险源（已识别的正确性缺口、重复实现、维护负债），而非仅仅行数超阈值或"不够标准"。收益必须落到可删除的负债与可修复的缺口上，不接受"换上更规范"的抽象收益。
 2. **原位可换**：能在不违反架构铁律（C 只给 pal 原语、协议策略在 JS）与不破坏跨层接口（PAL 原语面、bridge 字节协议、polyfill 内部耦合）的前提下原位替换。需要重写消费者或跨层接口的候选直接否决。
-3. **vendor 成本可控**：C 库须 C99 兼容、零或近零传递依赖，按 deps/ 现行机制 vendor（本地快照 submodule + 随 repo 提交的补丁，见 [[quickjs-upstream-merge-strategy]]）；JS 库经 esbuild bundle 进 polyfill，首次引入 npm 供应链（license 审计、版本锁定、传递依赖）门槛高于 C 库。许可须与 MIT 兼容。
+3. **vendor 成本可控**：C 库须 C99 兼容、零或近零传递依赖，按 deps/ 现行机制 vendor（本地快照 submodule + 随 repo 提交的补丁，见 [[quickjs-upstream-merge-strategy]]）；polyfill npm 库须零传递依赖 + esbuild IIFE 无缝 bundle（已验证：urlpattern-polyfill@10.1.0、@ungap/structured-clone@1.4.0、web-streams-polyfill@4.3.0）；若库只提供 ESM/CJS 且与 esbuild IIFE 冲突，或依赖链过大（>100KB 传递依赖），则保留自研。许可须与 MIT 兼容。
 
 ## 复核机制（"保留"不是终审）
 
@@ -28,11 +28,11 @@ updated: "2026-09-11T13:59:39"
 ## 2026-09 全量审计基线（27 个自制模块）
 
 - **唯一建议替换（带硬触发）**：`src/uv_io.c` 手写 HTTP 客户端解析 → **llhttp**。约 700 行可删（parse_http_response ×2、双份 chunked 状态机、CONNECT 解析、URL 解析），消 ~290 行重复，修复 obs-fold / 多值 Transfer-Encoding / 双 Content-Length 冲突等 5 类健壮性缺口。它是全项目唯一"自制代码本身是风险源"的形状：既不在 JS 层（拿不到规范测试），也不是薄绑定（自造状态机）。**硬触发（满足其一即执行替换，不再 case-by-case）**：① 上述 5 类缺口任一在实际流量中确认触发缺陷；② 任何触及 parse_http_response / chunked 状态机的缺陷修复动工前，先做 llhttp 替换评估并留痕。
-- **保留 + 观察**（触发条件写死，不许"以后再说"）：
-  - `polyfill/src/url.js`（499 行，缺 IDNA）：实测解析 bug 出现 → 换 whatwg-url。
-  - `polyfill/src/url-pattern.js`（247 行，子集实现）：需要 Service Worker scope 级匹配语义 → 换 GoogleChromeLabs/urlpattern-polyfill。
+- **保留 + 触察**（触发条件写死，不许"以后再说"）：
+  - `polyfill/src/url.js`（499 行，缺 IDNA）：whatwg-url 不可引入（tr46 IDNA 485KB 依赖链过大 + `__esModule` 与 esbuild IIFE 冲突，git show f350fbff）；实测解析 bug 出现 → 复核。
+  - ~~`polyfill/src/url-pattern.js`~~ → 已替换为 urlpattern-polyfill@10.1.0（npm polyfill，零依赖，esbuild IIFE 无缝 bundle）。
   - `polyfill/src/hpack.js`（566 行，自维护 257 项 Huffman 表）：解码错误致实际 interop 故障，或 HPACK 规范表修订 → 复核 nghttp2 vendor 成本（当前"成本远超 660 行现实现"的否决理由随 http2.js 演进重估）。
-- **保留（替换负收益）**，共同形态是"正确的薄层"：C 层 tcp_io.c / ext_crypto.c / ext_compress.c / debugger_dap.c / wasm 引擎绑定 / msgq.c（绑定与胶水，算法全在 mbedTLS/miniz/wasm 引擎）；JS 层 streams.js / structured-clone.js / fetch.js / protobuf.js / http2.js / websocket.js（协议逻辑有 WHATWG/RFC 可对照且有 harness 测试，开源候选均需垫 Node API 或破坏内部耦合）与其余 ~20 个杂项胶水。这些裁决均受上方复核机制约束，不是终审。
+- **保留（替换负收益）**，共同形态是"正确的薄层"：C 层 tcp_io.c / ext_crypto.c / ext_compress.c / debugger_dap.c / wasm 引擎绑定 / msgq.c（绑定与胶水，算法全在 mbedTLS/miniz/wasm 引擎）；JS 层 streams.js（→ web-streams-polyfill@4.3.0 已替换）/ ~~structured-clone.js~~（→ @ungap/structured-clone@1.4.0 已替换）/ fetch.js / protobuf.js / http2.js / websocket.js（协议逻辑有 WHATWG/RFC 可对照且有 harness 测试，开源候选均需垫 Node API 或破坏内部耦合）与其余 ~20 个杂项胶水。这些裁决均受上方复核机制约束，不是终审。
 - 候选库已否决：libwebsockets（自带事件循环，架空 pal.tcp*，违架构铁律）、picohttpparser（只吃头解析，收益不足）、nghttp2（vendor + C 绑定层成本远超 660 行现实现）、protobufjs（~200KB 且假设 Node 生态）、whatwg-fetch/undici/ws polyfill（需 XHR/Node API）。
 - 顺手清理项：`polyfill/src/index.js` 的 queueMicrotask 守卫 polyfill 是死代码（quickjs-ng 内置），可删。
 
@@ -91,4 +91,9 @@ updated: "2026-09-11T13:59:39"
   kind: decision
   summary: "重写 compiled_truth：删除误嵌入的第二层 frontmatter 与旧 Timeline 副本，正文恢复为\"# 开源库引入与替换原则\"起（默认自制三条件 + 复核机制 + 2026-09 审计基线 + 2026-09-11 C 层 JSON vendored cJSON 裁决反转段）；仅修结构，不改动裁决内容"
   source: brain update-truth
+  affects: [oss-library-policy]
+
+- time: 2026-09-14T05:34:30
+  kind: decision
+  summary: "政策翻转：从「禁止引入外部 npm/JS 依赖」改为「polyfill 的 npm 包必须能用 esbuild 无缝 IIFE bundle；若库只提供 ESM/CJS 且与 esbuild IIFE 冲突（如 whatwg-url 的 __esModule 导出模式时序阻断），或其依赖链过大（tr46 IDNA 485KB），则保留自研」。已引入三库：urlpattern-polyfill@10.1.0（MIT）、@ungap/structured-clone@1.4.0（ISC）、web-streams-polyfill@4.3.0（MIT）——均为零依赖 + esbuild IIFE 无缝 bundle。保留自研项：url.js（whatwg-url 不可引入：tr46 IDNA 485KB 依赖链过大 + __esModule 与 IIFE 冲突，git show f350fbff）。体积变化：polyfill bytecode 139KB → 264.5KB（+125KB，qjsc 常量表膨胀，用户已接受）。完整提交链：24d34452/71c3a6ea/86258431/eb1f251e/d56bb2cc/f350fbff。"
   affects: [oss-library-policy]
