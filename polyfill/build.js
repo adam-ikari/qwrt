@@ -65,13 +65,20 @@ const isWatch = process.argv.includes('--watch');
 // qjsc>; the filesystem scan below is only a manual-invocation fallback.
 // Its readdir order is not deterministic and stale build dirs may hold an
 // old qjsc whose bytecode version (first byte: 0x1b=BC27 / 0x1a=BC26) the
-// engine rejects, so probe the winner's version and warn on mismatch.
+// engine rejects, so only a 0.16.x compiler is accepted; without one the
+// build fails with a QJSC hint instead of silently emitting BC26 bytecode.
 function qjscVersion(qjsc) {
+  // `qjsc --version` prints the version line and then exits 1 (it dumps
+  // usage instead of handling the flag), so a non-zero status is expected:
+  // read the captured output rather than treating the failure as "unknown".
+  let out = '';
   try {
-    const out = execSync('"' + qjsc + '" --version', { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-    const m = out.match(/version\s+(\d+\.\d+\.\d+)/i);
-    return m ? m[1] : null;
-  } catch (e) { return null; }
+    out = execSync('"' + qjsc + '" --version', { stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  } catch (e) {
+    out = String(e.stdout || '') + String(e.stderr || '');
+  }
+  const m = out.match(/version\s+(\d+\.\d+\.\d+)/i);
+  return m ? m[1] : null;
 }
 
 function findQjsc() {
@@ -85,20 +92,27 @@ function findQjsc() {
     }
   }
   candidates.push(path.join(ROOT_DIR, '..', 'deps', 'quickjs-ng', 'build', 'qjsc'));
-  let found = null;
+  // Engine 0.16.x emits/requires BC_VERSION 27 (bytecode byte 0x1b); 0.15.x
+  // emits 26 (0x1a), which JS_ReadObject rejects as "invalid version(26
+  // expected=27)". Silently picking an old compiler produced a broken
+  // bytecode pair in 24d34452 (fixed by d56bb2cc) — only a 0.16.x qjsc is
+  // accepted now; without one we fail loudly instead of guessing.
   for (const c of candidates) {
-    if (fs.existsSync(c)) { found = c; break; }
-  }
-  if (found) {
-    const v = qjscVersion(found);
-    console.error('[qwrt] qjsc (fallback scan): ' + found + (v ? ' (version ' + v + ')' : ''));
-    // Engine 0.16.x emits BC_VERSION 27 (bytecode byte 0x1b); 0.15.x emits
-    // 26 (0x1a) which JS_ReadObject rejects as "invalid version(26 expected=27)".
-    if (v && !v.startsWith('0.16.')) {
-      console.error('[qwrt] WARNING: qjsc ' + v + ' may emit bytecode the engine (0.16.x, BC_VERSION 27) cannot read. Set QJSC=<path to a 0.16.x qjsc> explicitly.');
+    if (!fs.existsSync(c)) continue;
+    const v = qjscVersion(c);
+    if (v && v.startsWith('0.16.')) {
+      console.error('[qwrt] qjsc (fallback scan): ' + c + ' (version ' + v + ')');
+      return c;
+    }
+    if (v) {
+      console.error('[qwrt] qjsc (fallback scan): skipped ' + c + ' (version ' + v + ', need 0.16.x)');
     }
   }
-  return found || candidates[0]; // none found; execSync surfaces a clear failure
+  console.error('[qwrt] ERROR: no 0.16.x qjsc found under build*/deps/quickjs-ng/ ' +
+    '(0.16.x emits the BC_VERSION 27 bytecode the engine reads). ' +
+    'Set QJSC=<path to a 0.16.x qjsc> explicitly, e.g. ' +
+    'QJSC=$PWD/build_citest/deps/quickjs-ng/qjsc node build.js.');
+  process.exit(1);
 }
 
 // Polyfill embedding mode (matches CMake QWRT_POLYFILL_MODE):
