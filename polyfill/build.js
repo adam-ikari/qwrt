@@ -191,7 +191,8 @@ function postProcess(js) {
   js = js.replace(/^\(\(\)\s*=>\s*\{/, '(function(pal) {');
 
   // 3. Replace the IIFE invocation: })();   =>   })(__native_inject__);
-  js = js.replace(/\}\)\(\)\s*;\s*$/, '})(__native_inject__);\n');
+  //    No $ anchor: esbuild may append license comments after the IIFE close.
+  js = js.replace(/\}\)\(\)\s*;\s*/, '})(__native_inject__);');
 
   // 4. Remove the "var pal = globalThis.__native_inject__;" line since
   //    pal is now provided by the IIFE parameter

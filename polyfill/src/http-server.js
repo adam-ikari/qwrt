@@ -390,10 +390,11 @@ export function setupHttpServer(pal) {
        * (memory-DoS guard). Returns 1 on success, 0 when the connection was
        * torn down (caller must stop processing). */
       function feedBody(conn, chunk) {
-        var q = bodyState.controller._stream._queue;
-        var pending = 0;
-        for (var i = 0; i < q.length; i++) pending += q[i].length;
-        if (pending + chunk.length > MAX_BODY_BUFFER) {
+        /* 高水位检查：用公开 API desiredSize 替代内部 _stream._queue。
+         * wsp 无 _stream 内部字段，改用 desiredSize（negative = 过量）。
+         * 若 desiredSize 为负或 chunk 会将其推过上限，拒绝。 */
+        var desired = bodyState.controller.desiredSize;
+        if (desired !== null && desired + chunk.length > MAX_BODY_BUFFER) {
           try {
             bodyState.controller.error(new Error('request body too large: stream not consumed'));
           } catch (e) {}
@@ -578,8 +579,15 @@ export function setupHttpServer(pal) {
               raw = raw.subarray(btake);
               bodyState.received += btake;
             }
+            console.log('[DBG-CHECK] received=' + (bodyState?bodyState.received:'null') + ' remaining=' + (bodyState?bodyState.remaining:'null'));
             if (bodyState.received >= bodyState.remaining) {
-              bodyState.controller.close();
+              console.log('[DBG] about to close controller');
+              try {
+                bodyState.controller.close();
+                console.log('[DBG] controller.close() OK');
+              } catch(e) {
+                console.log('[DBG] controller.close() ERR:', e.name, e.message);
+              }
               bodyState = null;
             }
           }
