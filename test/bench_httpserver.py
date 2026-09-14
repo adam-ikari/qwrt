@@ -107,8 +107,10 @@ def main():
         "  return 'notfound';\n"
         "});" % port
     )
+    # stdout=DEVNULL: 服务端任何输出都不能回压到管道（PIPE 从不读会在 64 KiB
+    # 写满后阻塞 qwrt 的 write()，把「服务端偶发日志」变成测量死锁）。
     proc = subprocess.Popen([args.qwrt_bin, "-e", js],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     try:
         if not wait_port(port):
             print("FAIL: qwrt did not listen on %d" % port, file=sys.stderr)

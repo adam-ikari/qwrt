@@ -579,15 +579,8 @@ export function setupHttpServer(pal) {
               raw = raw.subarray(btake);
               bodyState.received += btake;
             }
-            console.log('[DBG-CHECK] received=' + (bodyState?bodyState.received:'null') + ' remaining=' + (bodyState?bodyState.remaining:'null'));
             if (bodyState.received >= bodyState.remaining) {
-              console.log('[DBG] about to close controller');
-              try {
-                bodyState.controller.close();
-                console.log('[DBG] controller.close() OK');
-              } catch(e) {
-                console.log('[DBG] controller.close() ERR:', e.name, e.message);
-              }
+              try { bodyState.controller.close(); } catch (e) {}
               bodyState = null;
             }
           }
