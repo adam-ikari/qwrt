@@ -440,6 +440,17 @@ qwrt-rt  --qwrt-worker --parent-fd N --worker-id K [--script PATH]
 > 异步化 tier-2（uv_timer 驱动 WNOHANG 轮询 + 升级）会改动
 > `qwrt_proc_terminate` 的同步契约，teardown 时序与 pid 归属存在生命周期
 > 风险。M-P4 若宿主不可接受 2s 最坏冻结再重访。
+>
+> **M-P4 重访结论（2026-09-14）：延后，不改。** 理由：① 优雅路径（worker 正常
+> 响应 shutdown）约 1ms 完成，冻结只在已坏 worker 上发生，且整树关闭的累计
+> 延迟上限 = 2s × 挂死 worker 数（正常 worker 不等）；② 异步化要重写
+> `qwrt_proc_terminate` 的同步契约——`qwrt_worker_terminate`、teardown 链、
+> `qwrt_proc_free` 的 uv_close 异步回收（proc 内存在最后一个 close 回调里释放）
+> 三处都假定「terminate 返回时进程已死、pid 已收」；改成 uv_timer 驱动
+> WNOHANG 轮询 + 升级＝把 pid 归属与 proc 生命周期拉长到多个 loop tick，
+> 回调重入与双重释放风险实存，收益（省一次已坏 worker 的 2s 冻结）小于风险；
+> ③ 无宿主反馈表明 2s 不可接受。触发再访条件：宿主侧出现 2s 阻塞敏感场景
+> （如高频 terminate 的短命 worker 编排）。
 
 ## 9.3 崩溃检测
 
@@ -542,6 +553,9 @@ qwrt-rt  --qwrt-worker --parent-fd N --worker-id K [--script PATH]
 - 产出（v6 追加）：storage 消息路由落地——`kind=STORAGE` 信封经树路由到主RT 所有者 + 所有者死亡降级（本地快照只读/原子 rename 兜底，§10.2）。
 - 能力：崩溃注入（kill 一个 worker/主RT）+ 消息洪泛下的稳定性。
 - **验证门**：`kill -KILL`/`-SEGV` 单个 worker → 其余进程继续；洪泛 10^5 消息无泄漏/无丢失；孤儿回收确认无僵尸进程。
+- **落地状态（2026-09-14）**：已实施。① storage 单所有者代理：`IPC_ENV_KIND_STORAGE(4)` 落地（§4.1 冻结 schema，只加枚举值）；worker 进程内 localStorage 为同步代理（`polyfill/src/local-storage.js`：PROCESS worker 挂代理、THREAD worker 维持不挂，基线零改动），op 编排经 `{op,key,value?,storageDomain}` SC 字节走信封，主RT 所有者（`__qwrt_storage_dispatch__`，C 层 `worker.js` 的 proc 读泵按 kind=4 分流——**owner 侧请求不经 g_parent_pipe**，worker 通道是 proc 句柄读泵）执行后回发结果；同步语义由 C 侧 `qwrt_ipc_child_storage_sync`（rt_main.c `child_storage_sync`：poll/recv 等待、期间不跑 uv_run → 无 JS 重入；大 payload 走 `qwrt_ipc_child_emit_sync` 阻塞整帧发送）保证；配额异常跨进程保持 `DOMException('QuotaExceededError')`。② §9.3：worker fd EOF → 主RT `Worker.onerror`（自 close 发 CONTROL{closing} 区分、terminate 不误报）；主RT EOF → 宿主 `message_cb` `{"type":"error","error":"main-runtime-process-exited-unexpectedly"}` + `wait_idle` 立即返回（CLI 补报、退出码 1）。③ §6.4/§9.4 复核：孤儿自杀与连锁死亡已由 M-P1/M-P2 实现，本里程碑以 e2e 证实（宿主被杀 → 主RT+worker 皆退；主RT 被杀 → worker 连锁退；SIGKILL 后无 zombie）。
+  验证：`test/test_mp4_storage_crash_e2e.sh`（跨进程 storage 一致性/配额 → worker kill -9 onerror + 新 worker 正常 + 无 zombie → 自关静默 → 主RT kill 宿主 error + worker 连锁死 → 宿主 kill 孤儿回收 → 2000 条洪泛零丢失）；`PolyfillTest.StorageOwnerDispatch`（所有者编排 + 回包线格式 kind=4/source 回显）；envelope kind 全枚举往返 gtest；M-P1/M-P2/M-P3 e2e 不回归；ctest offline 21/21（ISOLATED mock 与 THREAD 两配置）。
+  偏差与缺口：① §10.2 的所有者死亡降级（本地快照只读 + 原子 rename 兜底）**未实现且当前不可达**——§9.4 连锁自杀使孤儿 worker 在主RT 死亡后立即自杀，降级路径无存活主体；若将来允许孤儿存活再补（文档记录，非静默缺口）。② 洪泛验证取 2000 条（计数 + 校验和精确）而非 10^5——全量 10^5 在 ~1769 msg/s（§12.2 R4）下需 ~1 分钟，压力结论已由 R4 基准覆盖；e2e 保持快速回归定位。③ nested spawn（worker 再 spawn）的 STORAGE 逐跳路由未做——扁平拓扑下 owner 即直接父，与 M-P3 的 LCA 退化同理。④ tier-2 终止超时轮询延后（见 §9.2）。
 
 ---
 

@@ -286,6 +286,61 @@ TEST_F(PolyfillTest, LocalStorageBasic) {
     ::remove(tmpl);
 }
 
+/* M-P4 §10.2：所有者侧 storage 请求处理（__qwrt_storage_dispatch__）——
+ * worker 经 kind=STORAGE 信封发来的 op 编排在这里执行。进程往返本身由
+ * test/test_mp4_storage_crash_e2e.sh 覆盖（真两进程）；本用例单测所有者
+ * 编排的语义与回包线格式（op 执行、异常封装、kind=4/source 回显），不需要
+ * 进程后端——THREAD 基线上直接驱动。 */
+TEST_F(PolyfillTest, StorageOwnerDispatch) {
+    char tmpl[] = "/tmp/qwrt_ls_dispatch_XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    ASSERT_GE(fd, 0);
+    ::close(fd);
+    ::remove(tmpl);
+    setenv("QWRT_LOCALSTORAGE_FILE", tmpl, 1);
+    host_destroy(h);
+    h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string v;
+
+    ASSERT_TRUE(host_value(h,
+        /* 截获回包（进程路径里 __qwrt_worker_post__ 由 worker.js 注册；这里
+         * 直接替换为记录器，观察所有者发出的帧） */
+        "globalThis.__replies = [];\n"
+        "globalThis.__qwrt_worker_post__ = function (src, bytes, kind) {\n"
+        "  __replies.push({s: src, k: kind, r: __qwrt_deserialize__(bytes)});\n"
+        "};\n"
+        "function req(op, key, value) {\n"
+        "  __qwrt_storage_dispatch__(\n"
+        "    __qwrt_serialize__({ op: op, key: key, value: value,\n"
+        "                         storageDomain: 'localStorage' }), 1001);\n"
+        "  return __replies[__replies.length - 1];\n"
+        "}\n"
+        "localStorage.clear();\n"
+        "var out = [];\n"
+        "out.push(req('get', 'miss'));\n"
+        "out.push(req('set', 'a', 'A'));\n"
+        "out.push(req('length'));\n"
+        "out.push(req('key', 0));\n"
+        "out.push(req('get', 'a'));\n"
+        "out.push(req('bogus-op'));\n"     /* 未知 op → {e:{name:'Error'}} 形状 */
+        "out.push(req('remove', 'a'));\n"
+        "out.push(req('length'));\n"
+        "JSON.stringify(out.map(function (x) {\n"
+        "  return [x.s, x.k, x.r.v !== undefined ? x.r.v\n"
+        "          : (x.r.e ? x.r.e.name : null)];\n"
+        "}))", &v));
+    /* source 回显 1001、kind 恒 4（STORAGE）；op 语义与同进程一致；错误封装为
+     * {e:{name}}（代理侧据此重建异常）。配额异常的跨进程传播由 e2e 与
+     * LocalStorageQuotaExceeded 覆盖，这里不重复。 */
+    EXPECT_EQ("[[1001,4,null],[1001,4,null],[1001,4,1],[1001,4,\"a\"],"
+              "[1001,4,\"A\"],[1001,4,\"Error\"],"
+              "[1001,4,null],[1001,4,0]]", v) << "got: " << v;
+
+    unsetenv("QWRT_LOCALSTORAGE_FILE");
+    ::remove(tmpl);
+}
+
 /* 持久化：setItem 后销毁 runtime，用同一文件重建 → 数据仍在（跨重启）。 */
 TEST_F(PolyfillTest, LocalStoragePersistsAcrossRestart) {
     char tmpl[] = "/tmp/qwrt_ls_persist_XXXXXX";

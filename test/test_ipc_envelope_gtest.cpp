@@ -53,29 +53,34 @@ TEST(IpcEnvelope, CanonicalLayoutFrozen)
 // ---------------------------------------------------------------------------
 TEST(IpcEnvelope, RoundtripAllFields)
 {
-    for (uint32_t plen : {0u, 1u, 3u, 40u, 1024u, 70000u}) {
-        std::vector<uint8_t> payload(plen);
-        for (uint32_t i = 0; i < plen; i++)
-            payload[i] = (uint8_t)(i * 31 + 7);
+    /* kind 是路由判别位（§4.1/§4.3）：MESSAGE/PORT_TRANSFER/CONTROL/STORAGE
+     * 全枚举都要字节级往返（M-P4 新增 STORAGE=4）。 */
+    for (int8_t kind : {IPC_ENV_KIND_MESSAGE, IPC_ENV_KIND_PORT_TRANSFER,
+                        IPC_ENV_KIND_CONTROL, IPC_ENV_KIND_STORAGE}) {
+        for (uint32_t plen : {0u, 1u, 3u, 40u, 1024u, 70000u}) {
+            std::vector<uint8_t> payload(plen);
+            for (uint32_t i = 0; i < plen; i++)
+                payload[i] = (uint8_t)(i * 31 + 7);
 
-        std::vector<uint8_t> buf(IPC_ENVELOPE_ENCODED_SIZE(plen));
-        size_t n = ipc_envelope_encode(buf.data(), buf.size(),
-                                       -5, 77, IPC_ENV_KIND_CONTROL,
-                                       plen ? payload.data() : nullptr, plen);
-        ASSERT_EQ(n, buf.size()) << "plen=" << plen;
+            std::vector<uint8_t> buf(IPC_ENVELOPE_ENCODED_SIZE(plen));
+            size_t n = ipc_envelope_encode(buf.data(), buf.size(),
+                                           -5, 77, kind,
+                                           plen ? payload.data() : nullptr, plen);
+            ASSERT_EQ(n, buf.size()) << "plen=" << plen;
 
-        ipc_envelope_view_t v;
-        ASSERT_EQ(ipc_envelope_decode(buf.data(), n, &v), 0) << "plen=" << plen;
-        EXPECT_EQ(v.source, -5);
-        EXPECT_EQ(v.target, 77);
-        EXPECT_EQ(v.kind, IPC_ENV_KIND_CONTROL);
-        ASSERT_EQ(v.payload_len, plen);
-        if (plen) {
-            EXPECT_EQ(std::memcmp(v.payload, payload.data(), plen), 0);
-            // Zero-copy: view points into the encoded buffer, not a copy.
-            EXPECT_EQ(v.payload, buf.data() + 40);
-        } else {
-            EXPECT_NE(v.payload, nullptr);  // empty vector header still present
+            ipc_envelope_view_t v;
+            ASSERT_EQ(ipc_envelope_decode(buf.data(), n, &v), 0) << "plen=" << plen;
+            EXPECT_EQ(v.source, -5);
+            EXPECT_EQ(v.target, 77);
+            EXPECT_EQ(v.kind, kind) << "kind=" << (int)kind;
+            ASSERT_EQ(v.payload_len, plen);
+            if (plen) {
+                EXPECT_EQ(std::memcmp(v.payload, payload.data(), plen), 0);
+                // Zero-copy: view points into the encoded buffer, not a copy.
+                EXPECT_EQ(v.payload, buf.data() + 40);
+            } else {
+                EXPECT_NE(v.payload, nullptr);  // empty vector header still present
+            }
         }
     }
 }
