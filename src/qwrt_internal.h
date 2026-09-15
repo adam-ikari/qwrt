@@ -134,6 +134,8 @@ typedef struct qwrt_proc_handle_s {
 } qwrt_proc_handle_t;
 #define QWRT_MAX_PROC_HANDLES 64
 #endif
+/* §8.2 path 链最大深度（rt 树层级上限；u16 元素，超出 65535 升 u32）。 */
+#define QWRT_SELF_PATH_MAX 8
 
 /* ── Polyfill bytecode source (mode-dependent) ──
  * The symbols a polyfill_load.c expects are decided by QWRT_POLYFILL_MODE.
@@ -345,6 +347,13 @@ struct qwrt_t {
      * are only touched by the owning qwrt thread. */
     void *worker_self;
     qwrt_worker_t *workers[QWRT_MAX_WORKERS];
+
+    /* §8.2 端点身份 = path 链（自 rt 树根起逐级的父槽位 id）。根（主RT/宿主
+     * runtime）= 空 path；子 = 父 path ++ [父分配的槽位 id]。IPC 路由按 path
+     * 前缀比较决定「上转 / 本地投递 / 下投」，LCA 中继由此自然涌现。元素 u16
+     * （PROCESS worker id 现为 1000+；超出 65535 时升 u32，见 ipc_envelope.h）。 */
+    uint16_t self_path[QWRT_SELF_PATH_MAX];
+    uint8_t  self_path_len;
 
 #ifndef QWRT_USE_MOCK_LIBUV
     /* pal.processSpawn 句柄注册表（spawn 分层化, Phase B）+ id 分配器。

@@ -40,55 +40,128 @@ export function setupMessageChannel(pal) {
   var portRegistry = new Map();
   /* True inside a worker runtime: its pal has workerClose but not workerPost. */
   var inWorker = typeof pal.workerClose === 'function';
-  /* This runtime's own endpoint id. */
-  var ownerSelf = inWorker ? pal.workerId() : 0;
 
-  function portKey(owner, id) { return owner + ':' + id; }
+  /* ── §8.2 端点身份 = path 链（u16 数组，rt 树根起逐级父分配槽位 id）──
+   * 根（主RT/宿主 runtime）= []；子 = 父 path ++ [父分配的槽位 id]。C 侧
+   * pal.selfPath() 给出本 runtime 的完整链（THREAD worker 退化为 [workerId]，
+   * 扁平 PROCESS worker 为 [slot]，嵌套为 [slot, slot, ...]）。 */
+  function toPath(v) {
+    if (v === undefined || v === null) return [];
+    if (Array.isArray(v)) return v.slice();
+    return [v | 0];
+  }
+  var ownerSelf = toPath(typeof pal.selfPath === 'function'
+                           ? pal.selfPath()
+                           : (inWorker ? pal.workerId() : []));
+  /* 本 runtime 的直接父端点 path（根无父 → 自身，作不可达占位）。 */
+  function parentPath() {
+    return ownerSelf.length ? ownerSelf.slice(0, ownerSelf.length - 1)
+                            : ownerSelf.slice();
+  }
+
+  function pathEq(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+  /* 严格前缀（pref 比 p 短或等长时非真后代） */
+  function pathIsPrefix(pref, p) {
+    if (!pref || !p || pref.length >= p.length) return false;
+    for (var i = 0; i < pref.length; i++) if (pref[i] !== p[i]) return false;
+    return true;
+  }
+
+  /* §8.2 路由表（LCA 中继的「改指转发」半边）：port 身份 → 该 port 当前所在地
+   * 的新端点 path。一个 port 被本 runtime 再转移走（worker 把从父收到的 port
+   * 转给子 / 把自有 port 转给父）后，对端仍按旧端点发来 —— 本 runtime 命中
+   * 本地却找不到可投递的 port 时，按本表把 dest 改指到新端点再逐跳转发。
+   * payload 不解码、字节原样（§7.2）。 */
+  var redirects = new Map();
+  /* 转移钩子：某 port 从本 runtime 移到 destPath（worker.js / boot shim 调用） */
+  globalThis.__qwrt_port_moved__ = function (owner, id, destPath) {
+    redirects.set(portKey(toPath(owner), id), toPath(destPath));
+  };
+  function pathKey(p) { return p.join(','); }
+  function portKey(ownerPath, id) { return pathKey(ownerPath) + ':' + id; }
   function registerPort(p) {
     if (p._id) portRegistry.set(portKey(p._owner, p._id), p);
   }
   function lookupPort(id, owner) {
-    return portRegistry.get(portKey(owner === undefined ? ownerSelf : owner, id));
+    return portRegistry.get(portKey(owner === undefined ? ownerSelf : toPath(owner), id));
   }
 
-  /* ── M-P3 port frames ──
-   * A PORT_TRANSFER envelope payload is a 16-byte LE routing header followed by
-   * opaque structured-clone bytes (ipc_envelope.h): op, dest_owner, key_owner,
-   * key_port. The header lets a node decide deliver-locally vs forward without
-   * decoding the payload (§7.2); the flat topology routes it here in JS, a
-   * future nested-spawn relay reuses the same header unchanged. */
-  var OP_PORT_MSG = 1, OP_PORT_XFER = 2, PORT_HDR = 16;
+  /* ── §8.2 port frames ──
+   * A PORT_TRANSFER envelope payload is a variable-length LE routing header
+   * followed by opaque structured-clone bytes (ipc_envelope.h): op, then the
+   * dest path (where the target port currently lives), the key path (the
+   * target port's home endpoint) and key_port. Routing compares the dest path
+   * with this runtime's own path: equal → deliver locally; dest is a strict
+   * descendant → forward down its next element; otherwise → forward up (the
+   * LCA relay). The payload stays opaque (§7.2). */
+  var OP_PORT_MSG = 1, OP_PORT_XFER = 2, PORT_HDR_MIN = 8;
 
   function toU8(b) { return b instanceof Uint8Array ? b : new Uint8Array(b); }
+  function rdU16(u8, off) { return u8[off] | (u8[off + 1] << 8); }
   function rdU32(u8, off) {
     return (u8[off] | (u8[off + 1] << 8) | (u8[off + 2] << 16) |
             (u8[off + 3] << 24)) >>> 0;
   }
+  function wrU16(u8, off, v) { u8[off] = v & 0xff; u8[off + 1] = (v >>> 8) & 0xff; }
   function wrU32(u8, off, v) {
     u8[off] = v & 0xff; u8[off + 1] = (v >>> 8) & 0xff;
     u8[off + 2] = (v >>> 16) & 0xff; u8[off + 3] = (v >>> 24) & 0xff;
   }
-  function portFrame(op, dest, keyOwner, keyPort, body) {
+  /* 编码：4 字节序言 + u16 path 链 + u32 key_port，后接不透明 SC 字节。 */
+  function portFrame(op, destPath, keyPath, keyPort, body) {
     var b = toU8(body);
-    var u8 = new Uint8Array(PORT_HDR + b.length);
-    wrU32(u8, 0, op); wrU32(u8, 4, dest);
-    wrU32(u8, 8, keyOwner); wrU32(u8, 12, keyPort);
-    u8.set(b, PORT_HDR);
+    var dp = toPath(destPath), kp = toPath(keyPath);
+    var hdr = PORT_HDR_MIN + 2 * (dp.length + kp.length);
+    var u8 = new Uint8Array(hdr + b.length);
+    u8[0] = op & 0xff; u8[1] = dp.length; u8[2] = kp.length; u8[3] = 0;
+    var off = 4, i;
+    for (i = 0; i < dp.length; i++) { wrU16(u8, off, dp[i]); off += 2; }
+    for (i = 0; i < kp.length; i++) { wrU16(u8, off, kp[i]); off += 2; }
+    wrU32(u8, off, keyPort >>> 0); off += 4;
+    u8.set(b, off);
     return u8;
   }
-  /* op=2（port 转移列表）帧：投给直连对端通道，头里的 dest/key 不参与路由
-   * （接收方按到达的通道确定发送者），全 0。worker.js / boot shim 构造转移帧
-   * 时用它，避免在别处重复头布局。 */
-  function portXferFrame(body) { return portFrame(OP_PORT_XFER, 0, 0, 0, body); }
-  /* 取 PORT_TRANSFER 帧的路由头之后的不透明 SC 字节（op=2 解包用）。 */
-  function portFrameBody(bytes) { return toU8(bytes).subarray(PORT_HDR); }
-
-  /* 目标端点是否由本 runtime 投递：本端点自身，或本进程持有的根端点代理
-   * （worker 侧持有主RT 转移来的 port，其归属仍是根）。 */
-  function localEndpoint(owner) {
-    return owner === ownerSelf || (inWorker && owner === 0);
+  /* 解析帧头 → {op, dest, key, keyPort, hdr}；非法/过短返回 null。 */
+  function portFrameHeader(bytes) {
+    var u8;
+    try { u8 = toU8(bytes); } catch (e) { return null; }
+    if (u8.length < PORT_HDR_MIN) return null;
+    var dl = u8[1], kl = u8[2];
+    var hdr = PORT_HDR_MIN + 2 * (dl + kl);
+    if (u8.length < hdr) return null;
+    var off = 4, dest = [], key = [], i;
+    for (i = 0; i < dl; i++) { dest.push(rdU16(u8, off)); off += 2; }
+    for (i = 0; i < kl; i++) { key.push(rdU16(u8, off)); off += 2; }
+    var keyPort = rdU32(u8, off); off += 4;
+    return { op: u8[0], dest: dest, key: key, keyPort: keyPort, hdr: hdr };
+  }
+  /* 逐跳转发：dest 是本 runtime 的严格后代 → 下投下一元素；否则上转父。
+   * 根 runtime 无父，非后代的 dest 丢弃（不可达）。 */
+  function forwardFrame(bytes, destPath) {
+    if (pathIsPrefix(ownerSelf, destPath)) {
+      var next = destPath[ownerSelf.length];
+      if (globalThis.__qwrt_worker_post__)
+        globalThis.__qwrt_worker_post__(next, bytes, 1);
+      return true;
+    }
+    if (inWorker) { pal.postMessage(bytes, 1); return true; }
+    return false;
   }
 
+
+  /* op=2（port 转移列表）帧：投给直连对端通道，头里的 dest/key 不参与路由
+   * （接收方按到达的通道确定发送者），全空。worker.js / boot shim 构造转移帧
+   * 时用它，避免在别处重复头布局。 */
+  function portXferFrame(body) { return portFrame(OP_PORT_XFER, [], [], 0, body); }
+  /* 取 PORT_TRANSFER 帧的路由头之后的不透明 SC 字节（op=2 解包用）。 */
+  function portFrameBody(bytes) {
+    var h = portFrameHeader(bytes);
+    return toU8(bytes).subarray(h ? h.hdr : PORT_HDR_MIN);
+  }
   /* ================================================================
    * MessageEvent
    * ================================================================ */
@@ -152,22 +225,22 @@ export function setupMessageChannel(pal) {
     }
 
     /* 跨 runtime 发送：SC 消息字节 → PORT_TRANSFER 帧（kind=1）→ 对端端点通道。
-     * dest = 对端当前所在端点；key = (owner, peerId) 目标 port 身份。对端端点
+     * dest = 对端当前所在端点（§8.2 path 链）；key = (owner path, peerId) 目标
+     * port 身份。逐跳转发由 forwardFrame 决定上转/下投（LCA 中继）。对端端点
      * 已死 → 静默丢弃（与 terminate 后 postMessage 静默的规范语义一致）。 */
     _sendRemote(payloadBytes) {
       if (this._peerGone) return;
-      var dest = this._peerThread === 'parent' ? 0 : this._peerThread;
+      var dest = toPath(this._peerThread);
+      if (pathEq(dest, ownerSelf)) {
+        /* 对端就在本 runtime：直接投递本表内 port（不绕一圈通道）。 */
+        var lp = portRegistry.get(portKey(this._owner, this._peerId));
+        if (lp) lp._deliverRemote(toU8(payloadBytes));
+        return;
+      }
       var frame = portFrame(OP_PORT_MSG, dest, this._owner, this._peerId,
                             payloadBytes);
-      if (inWorker) {
-        /* worker → 父：单通道上行，父按帧头 dest 接力 */
-        pal.postMessage(frame, 1);
-      } else if (globalThis.__qwrt_worker_post__) {
-        /* 主RT → 目标 worker（THREAD: pal.workerPost；PROCESS: processPost）。
-         * worker 已 terminate/不存在时静默丢弃（不抛）——与 C 侧
-         * qwrt_worker_post 对 shutting_down worker 的优雅失败语义一致。 */
-        globalThis.__qwrt_worker_post__(dest, frame, 1);
-      }
+      /* 目标在本 runtime 下游则下投，否则上行（forwardFrame 判方向）。 */
+      forwardFrame(frame, dest);
     }
 
     postMessage(message, transfer) {
@@ -272,43 +345,60 @@ export function setupMessageChannel(pal) {
   globalThis.__qwrt_port_frame_op__ = function (bytes) {
     var u8;
     try { u8 = toU8(bytes); } catch (e) { return 0; }
-    if (u8.length < PORT_HDR) return 0;
-    return rdU32(u8, 0);
+    if (u8.length < PORT_HDR_MIN) return 0;
+    if (u8[0] === OP_PORT_XFER) return OP_PORT_XFER;   /* op 是字节 0，非 u32 */
+    var h = portFrameHeader(u8);
+    return h ? h.op : 0;
   };
 
-  /* op=1：按帧头把 port 消息投到本 runtime 的 port，或按 dest 端点接力转发
-   * （主RT → 目标 worker 句柄；worker → 父，由父继续按 dest 转发）。返回 true
-   * 表示已消费。目标端点已死/无此 port → 静默丢弃（不抛）。 */
+  /* op=1：按帧头 dest path 投递或逐跳转发（§8.2）——
+   *   dest == 本 runtime path → 本地投递给 (key path, key_port) 的 port；该
+   *     port 已被再转移走 → 按路由表改指转发（LCA 中继）；
+   *   dest 是本 path 的严格后代 → 下投下一元素；
+   *   否则 → 上转父（父继续按同一规则判；LCA 处方向翻转）。
+   * 返回 true 表示已消费。目标端点已死/无此 port → 静默丢弃（不抛）。 */
   globalThis.__qwrt_route_port_message__ = function (bytes) {
+    var h = portFrameHeader(bytes);
+    if (!h) return false;
     var u8 = toU8(bytes);
-    if (u8.length < PORT_HDR) return false;
-    var dest = rdU32(u8, 4);
-    var keyOwner = rdU32(u8, 8);
-    var keyPort = rdU32(u8, 12);
-    var body = u8.subarray(PORT_HDR);
-    if (localEndpoint(dest)) {
-      var port = portRegistry.get(portKey(keyOwner, keyPort));
-      if (port) port._deliverRemote(body);
-      return true;
+    if (pathEq(h.dest, ownerSelf)) {
+      var key = portKey(h.key, h.keyPort);
+      var port = portRegistry.get(key);
+      if (port && !port._detached) {
+        port._deliverRemote(u8.subarray(h.hdr));
+        return true;
+      }
+      /* §8.2 改指转发：本 runtime 曾有该 port（现已被再转移走 / 已摘表），按
+       * 路由表把 dest 改指到新端点，重封头（payload 字节原样）后继续逐跳。 */
+      var redir = redirects.get(key);
+      if (redir) {
+        var rf = portFrame(h.op, redir, h.key, h.keyPort, u8.subarray(h.hdr));
+        forwardFrame(rf, redir);
+      }
+      return true;   /* 目标端点已死/无此 port → 静默丢弃（不抛） */
     }
-    if (inWorker) {
-      /* 本进程只有一条上行通道：交父（主RT）按 dest 接力 */
-      pal.postMessage(bytes, 1);
-    } else if (globalThis.__qwrt_worker_post__) {
-      globalThis.__qwrt_worker_post__(dest, bytes, 1);
-    }
-    return true;
+    return forwardFrame(u8, h.dest);
   };
 
   /* 端点死亡（fd EOF / terminate）→ 清路由表（§8.2 失败语义）：
    *   - 归属该端点的代理 port：本体已随进程消失 → 摘表并置 peerGone；
    *   - 对端在该端点的本地 port：派发 'error' 事件（对端不可达），后续
-   *     postMessage 静默丢弃。幂等（重复死亡通知无副作用）。 */
+   *     postMessage 静默丢弃。幂等（重复死亡通知无副作用）。
+   * owner 为 §8.2 path 链（数组；数字按单元素 path 归一）。 */
   globalThis.__qwrt_endpoint_dead__ = function (owner) {
+    var op = toPath(owner);
+    /* 该端点死亡 → 以它为落点的路由表项失效（改指目标不可达）。 */
+    var stale = [];
+    redirects.forEach(function (d, k) {
+      if (d.length >= op.length && pathEq(d.slice(0, op.length), op))
+        stale.push(k);
+    });
+    for (var si = 0; si < stale.length; si++) redirects.delete(stale[si]);
     var dead = [];
     portRegistry.forEach(function (p, k) {
-      if (p._owner === owner) dead.push([k, p, 'own']);
-      else if (p._peerThread === owner) dead.push([k, p, 'peer']);
+      if (pathEq(p._owner, op)) dead.push([k, p, 'own']);
+      else if (Array.isArray(p._peerThread) && pathEq(p._peerThread, op))
+        dead.push([k, p, 'peer']);
     });
     for (var i = 0; i < dead.length; i++) {
       var k = dead[i][0], p = dead[i][1], why = dead[i][2];
@@ -342,7 +432,7 @@ export function setupMessageChannel(pal) {
     if (!info || info.id === undefined || info.id === null) {
       throw new DOMException('invalid MessagePort reference', 'DataCloneError');
     }
-    var owner = info.owner === undefined ? ownerSelf : info.owner;
+    var owner = info.owner === undefined ? ownerSelf : toPath(info.owner);
     var p = new MessagePort(info.id, info.peerId, owner);
     p._detached = false;
     var peer = lookupPort(info.peerId, owner);
@@ -352,7 +442,15 @@ export function setupMessageChannel(pal) {
       peer._peerThread = 'local';
       peer._entangledPort = p;
     } else {
-      p._peerThread = info.peerThread || 'parent';
+      /* 对端在别的端点：§8.2 path 链。'local'（对端本应在本 runtime，但表里
+       * 没找到）退化为自身 path；兼容旧 wire 的 'parent'/数字标签。 */
+      var pt = info.peerThread;
+      if (pt === undefined || pt === null || pt === 'local')
+        p._peerThread = ownerSelf.slice();
+      else if (pt === 'parent')
+        p._peerThread = parentPath();
+      else
+        p._peerThread = toPath(pt);
     }
     registerPort(p);
     return p;

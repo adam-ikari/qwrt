@@ -176,15 +176,19 @@
         var t = transfer[i];
         if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) {
           /* ref.peerThread = 被转移 port 的对端当前所在端点（从接收方视角）。
-           * 多跳（worker 转发从父收到的 port）时对端在父（'parent'），必须
-           * 保留而不是写死本 workerId；对端在本 worker（'local'）才用本
-           * workerId。ref 带 owner：跨进程下各进程本地 id 会重合，接收方按
-           * (owner,id) 登记代理（§8.2）。 */
+           * 对端在本 worker（'local'）→ 接收方（父）看即本 worker 端点 =
+           * 本 worker 的 §8.2 path；已在别处（path）→ 原样保持。ref 带 owner：
+           * 跨进程下各进程本地 id 会重合，接收方按 (owner path,id) 登记（§8.2）。 */
+          var sp = (typeof pal.selfPath === 'function') ? pal.selfPath() : [pal.workerId()];
           ports.push({ id: t._id, peerId: t._peerId, owner: t._owner,
-                       peerThread: (t._peerThread === 'local' ? pal.workerId() : t._peerThread) });
+                       peerThread: (t._peerThread === 'local' ? sp : t._peerThread) });
           t._detached = true;
+          /* §8.2 路由表：该 port 已从本 worker 移到父端点。 */
+          if (globalThis.__qwrt_port_moved__)
+            globalThis.__qwrt_port_moved__(t._owner, t._id, sp.slice(0, sp.length - 1));
           var peer = globalThis.__qwrt_lookup_port__(t._peerId, t._owner);
-          if (peer) peer._peerThread = 'parent';
+          /* 对端现在在父端点 = 本 worker path 去掉末元素。 */
+          if (peer) peer._peerThread = sp.slice(0, sp.length - 1);
         } else { abT.push(t); }
       }
       if (!abT.length) abT = undefined;

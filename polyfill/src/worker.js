@@ -41,6 +41,15 @@ export function setupWorker(pal) {
   var workers = new Map();   /* worker id -> Worker 实例（THREAD id 1-16，
                                 PROCESS id >= 1000，两后端不冲突） */
 
+
+  /* §8.2 本 runtime 的 path 链（C 侧 pal.selfPath；根 runtime = []）。用于
+   * 端点身份（port 代理的 owner/peerThread）与 worker 死亡清表。 */
+  var selfPath = (typeof pal.selfPath === 'function') ? pal.selfPath() : [];
+  function childPath(id) {
+    var p = selfPath.slice();
+    if (typeof id === 'number') p.push(id);
+    return p;
+  }
   // Synchronous script load. v1: file:// only.
   function loadScript(url) {
     if (typeof url !== 'string' || url.indexOf('file://') !== 0) {
@@ -59,10 +68,11 @@ export function setupWorker(pal) {
     var id = ++procWorkerSeq;
     var tmp = '/tmp/qwrt-worker-' + id + '.js';
     pal.fsWriteSync(tmp, code);
-    /* --parent-fd 3 是固定子端通道 fd（QWRT_IPC_CHANNEL_FD），spawn 内部
-     * 把 socketpair 子端 dup2 到 3；argv 其余参数是 qwrt-rt 既有约定。 */
+    /* §8.2：本节点的完整 path = 父 path ++ [本地槽位 id]，经 --path 传给子
+     * （进程号按直接父本地分配，跨层会撞号——只有 path 链能消歧路由）。 */
+    var pathArg = selfPath.concat([id]).join(',');
     var argv = ['qwrt-rt', '--qwrt-worker', '--parent-fd', '3',
-                '--worker-id', String(id), '--script', tmp];
+                '--worker-id', String(id), '--path', pathArg, '--script', tmp];
     var handle;
     try {
       handle = pal.processSpawn(null, argv, { role: 0, id: id, handshake: true });
@@ -115,8 +125,9 @@ export function setupWorker(pal) {
            * 其余 EOF（kill -9 / 段错误）= 崩溃 → 主RT 侧 dispatch error 事件。 */
           var crashed = !w._proc._dead && !w._proc._closing;
           w._proc._dead = true;
+          /* §8.2 端点死亡清表（path 链身份：本 worker 的子端点）。 */
           if (globalThis.__qwrt_endpoint_dead__)
-            globalThis.__qwrt_endpoint_dead__(w._proc._id);
+            globalThis.__qwrt_endpoint_dead__(childPath(w._proc._id));
           if (crashed) w._deliverError('Worker process exited unexpectedly');
           return;
         }
@@ -242,14 +253,18 @@ export function setupWorker(pal) {
         var t = transfer[i];
         if (typeof MessagePort !== 'undefined' && t instanceof MessagePort) {
           /* ref.peerThread = 被转移 port 的对端当前所在端点（从接收方视角）。
-           * 父侧对端只可能在本 runtime（'local'→对端留在父，ref 用 'parent'）或
-           * 某 worker（workerId→保持不变）。写死 'parent' 会在父把从 worker 收到
-           * 的代理 port 再转移时路由错端点。 */
+           * 对端留在本 runtime（'local'）→ 从接收方看即本发送方端点 = selfPath；
+           * 已在别处（path）→ 原样保持。 */
           ports.push({ id: t._id, peerId: t._peerId, owner: t._owner,
-                       peerThread: (t._peerThread === 'local' ? 'parent' : t._peerThread) });
+                       peerThread: (t._peerThread === 'local'
+                                      ? selfPath.slice() : t._peerThread) });
           t._detached = true;   /* 原 port 已转移，不再可用 */
+          /* §8.2 路由表：该 port 已从本 runtime 移到子 worker（对端可能仍按
+           * 旧端点发来 → 本 runtime 命中本地但 port 已 detached 时按表改指）。 */
+          if (globalThis.__qwrt_port_moved__)
+            globalThis.__qwrt_port_moved__(t._owner, t._id, childPath(this._id));
           var peer = globalThis.__qwrt_lookup_port__(t._peerId, t._owner);
-          if (peer) peer._peerThread = this._id;  /* 对端现在在 worker */
+          if (peer) peer._peerThread = childPath(this._id);  /* 对端现在在子 worker */
         } else {
           abTransfer.push(t);
         }
@@ -272,7 +287,7 @@ export function setupWorker(pal) {
     /* 显式终止也要清端点路由表（进程后端另有 EOF 路径；此处覆盖 THREAD 与
      * 进程后端正常终止，两次调用幂等）。 */
     if (globalThis.__qwrt_endpoint_dead__)
-      globalThis.__qwrt_endpoint_dead__(this._id);
+      globalThis.__qwrt_endpoint_dead__(childPath(this._id));
   };
 
   /* 判断是否为 C 侧 worker 错误通知：{type:'error', error:<string>}。
@@ -354,7 +369,10 @@ export function setupWorker(pal) {
   var hostDispatch = self.__qwrt_dispatch__;
   globalThis.__qwrt_dispatch__ = function (data, source, kind) {
     if (source === 0) {
-      hostDispatch(data, source);
+      /* 嵌套 spawn：本 worker 也加载了 Worker polyfill → 用重载 dispatch；父
+       * 消息（含 PORT_TRANSFER 帧）必须把 kind 原样递给 boot shim 分流，否则
+       * port 帧被当普通消息反序列化（整帧带路由头 → null/garbage）。 */
+      hostDispatch(data, source, kind);
       return;
     }
     var w = workers.get(source);

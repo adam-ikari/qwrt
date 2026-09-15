@@ -343,6 +343,34 @@ export function setupStructuredClone() {
     };
   }
 
+
+  /* §8.2 path 链与端点标签的字节编码（MessagePort ref 用）。owner 旧格式是
+   * u32，新格式是 u8 长度 + u16 元素链；peerThread 旧格式是字符串，新格式是
+   * u8 标签（0='local' 1=path 2='parent'）。编解码两侧同仓同步演进（跨进程
+   * 两端同一 polyfill 版本）。 */
+  function writePath(bytes, p) {
+    p = (p === undefined || p === null) ? [] : (Array.isArray(p) ? p : [p | 0]);
+    bytes.u8(p.length & 0xff);
+    for (var i = 0; i < p.length; i++) {
+      bytes.u8(p[i] & 0xff); bytes.u8((p[i] >> 8) & 0xff);
+    }
+  }
+  function readPath(r) {
+    var n = r.u8(), a = [];
+    for (var i = 0; i < n; i++) a.push(r.u8() | (r.u8() << 8));
+    return a;
+  }
+  function writePeerThread(bytes, pt) {
+    if (pt === 'local' || pt === undefined || pt === null) { bytes.u8(0); return; }
+    if (pt === 'parent') { bytes.u8(2); return; }
+    bytes.u8(1); writePath(bytes, pt);
+  }
+  function readPeerThread(r) {
+    var tag = r.u8();
+    if (tag === 0) return 'local';
+    if (tag === 2) return 'parent';
+    return readPath(r);
+  }
   function encodeString(bytes, s) {
     var u = utf8Encode(String(s));
     bytes.u32(u.length);
@@ -444,8 +472,8 @@ export function setupStructuredClone() {
         refs.set(v, next++); bytes.u8(0x20);
         bytes.u32(v._id || 0);
         bytes.u32(v._peerId || 0);
-        bytes.u32(v._owner || 0);            /* M-P3: (owner,id) 身份消歧 */
-        encodeString(bytes, v._peerThread || 'local');
+        writePath(bytes, v._owner);          /* §8.2: (owner path,id) 身份消歧 */
+        writePeerThread(bytes, v._peerThread);
         return;
       }
       if (v instanceof ArrayBuffer) {
@@ -636,7 +664,7 @@ export function setupStructuredClone() {
           }
           if (tag === 0x20) {
             /* MessagePort 引用：__qwrt_port_from_ref__ 创建/复用本地代理 */
-            var pid = r.u32(), ppeer = r.u32(), powner = r.u32(), pth = r.str();
+            var pid = r.u32(), ppeer = r.u32(), powner = readPath(r), pth = readPeerThread(r);
             var portRef;
             if (globalThis.__qwrt_port_from_ref__) {
               portRef = globalThis.__qwrt_port_from_ref__(

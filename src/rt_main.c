@@ -360,6 +360,7 @@ int main(int argc, char **argv)
     int worker_backend = -1;    /* --worker-backend；-1 = 编译缺省 */
     int control_plane = -1;     /* --control-plane；-1 = 缺省（OFF） */
     const char *control_pipe = NULL;   /* --control-pipe 路径（NULL = 缺省） */
+    const char *path_arg = NULL;       /* §8.2 path 链 "k1,k2,..."（父经 argv 传） */
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--qwrt-worker") == 0) {
@@ -384,6 +385,10 @@ int main(int argc, char **argv)
             }
         } else if (strcmp(argv[i], "--script") == 0 && i + 1 < argc) {
             script_path = argv[++i];
+        } else if (strcmp(argv[i], "--path") == 0 && i + 1 < argc) {
+            /* §8.2：完整 path 链（逗号分隔），由直接父在 spawn 时拼好传入——
+             * 父知自身 path 与本节点本地槽位 id。 */
+            path_arg = argv[++i];
         } else if (strcmp(argv[i], "--control-plane") == 0 && i + 1 < argc) {
             const char *cp = argv[++i];
             if (strcmp(cp, "off") == 0) control_plane = QWRT_CONTROL_OFF;
@@ -551,6 +556,21 @@ int main(int argc, char **argv)
         rt->config.control_plane = QWRT_CONTROL_IN_PROC;
     }
     rt->config.control_pipe_path = control_pipe;
+
+    /* §8.2：本节点 path 链。父经 --path 传完整链；缺省（无 --path 的 worker）
+     * 退化为单元素 [worker_id]（深度 1 的旧扁平语义）。主RT/宿主形态为空 path。 */
+    if (path_arg) {
+        const char *p = path_arg;
+        while (*p && rt->self_path_len < QWRT_SELF_PATH_MAX) {
+            char *end = NULL;
+            long v = strtol(p, &end, 10);
+            if (end == p) break;
+            if (v > 0 && v <= 0xFFFF) rt->self_path[rt->self_path_len++] = (uint16_t)v;
+            p = (*end == ',') ? end + 1 : end;
+        }
+    } else if (is_worker && worker_id > 0 && worker_id <= 0xFFFF) {
+        rt->self_path[rt->self_path_len++] = (uint16_t)worker_id;
+    }
 
     int loop_inited = 0;
     if (uv_loop_init(&rt->loop) != 0) {

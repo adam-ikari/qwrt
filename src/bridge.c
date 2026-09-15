@@ -2065,6 +2065,28 @@ static JSValue js_pal_worker_id(JSContext *ctx, JSValueConst this_val,
  * C 只做边界转换 + 调用 context.c 的辅助函数，序列化逻辑在 JS 侧。
  * ================================================================ */
 
+/* pal.selfPath() → int[]（本 runtime 的 §8.2 path 链）。
+ * 根 runtime（主RT/宿主）= []；子 = 父 path ++ [本节点槽位 id]。
+ * ISOLATED 下 worker 的完整 path 由 spawn argv --path 传入（rt_main.c 写入
+ * rt->self_path）；THREAD worker 无 argv 路径 → 退化为单元素 [workerId]
+ * （THREAD 树恒为深度 1，语义与扁平一致）。 */
+static JSValue js_pal_self_path(JSContext *ctx, JSValueConst this_val,
+                                int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    JSValue arr = JS_NewArray(ctx);
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < rt->self_path_len; i++)
+        JS_SetPropertyUint32(ctx, arr, n++, JS_NewInt32(ctx, rt->self_path[i]));
+    if (n == 0 && rt->worker_self) {
+        qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+        JS_SetPropertyUint32(ctx, arr, n++, JS_NewInt32(ctx, w->id));
+    }
+    return arr;
+}
+
 /* pal.contextSpawn(initScript)：新子 context，返回 ctx id */
 static JSValue js_pal_context_spawn(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
@@ -2234,6 +2256,8 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
      * 字节），另有 workerClose；无宿主 message_cb，但持有进程原语以支持
      * §1.1 嵌套 spawn（worker 内 new Worker 起子进程）。父 runtime：
      * postMessage → 宿主 JSON，另有 spawnWorker / workerPost / workerTerminate。 */
+    /* §8.2 path 链（父/worker runtime 都可查；JS port 层的端点身份来源） */
+    JS_SetPropertyStr(jsctx, pal, "selfPath", JS_NewCFunction(jsctx, js_pal_self_path, "selfPath", 0));
     if (rt->worker_self) {
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_worker_emit, "postMessage", 1));
         JS_SetPropertyStr(jsctx, pal, "workerClose", JS_NewCFunction(jsctx, js_pal_worker_close, "workerClose", 0));

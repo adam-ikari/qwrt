@@ -55,22 +55,32 @@ extern "C" {
  * intact (see bridge.c/rt_main.c dispatch pass-through) and the JS port layer
  * routes by the payload header below.
  *
- * PORT_TRANSFER payload schema (§8.2 peerEndpoint routing — a fixed 16-byte
- * little-endian header, then the opaque structured-clone bytes):
+ * PORT_TRANSFER payload schema (§8.2 peerEndpoint routing — a variable-length
+ * little-endian header carrying *path chains*, then the opaque structured-clone
+ * bytes). Endpoint identity is a §8.2 path = chain of parent-assigned slot ids
+ * from the rt-tree root (root = empty path); routing compares the destination
+ * path against the local path by prefix (up / local / down), so an LCA relay
+ * emerges without any routing table:
  *
- *   +0  u32 op           // 1 = PORT_MESSAGE (SC bytes of the posted value)
- *                        // 2 = PORT_TRANSFER (SC bytes of {__qwrt_ports, ...})
- *   +4  u32 dest_owner   // op=1: endpoint the target port currently lives on
- *                        //       (0 = mainRT/root, >0 = worker node id)
- *   +8  u32 key_owner    // op=1: target port's owner/home endpoint — the half
- *                        //       of the (owner, id) identity that disambiguates
- *                        //       ids allocated independently per process
- *   +12 u32 key_port     // op=1: target port's id within key_owner
+ *   +0  u8  op            // 1 = PORT_MESSAGE (SC bytes of the posted value)
+ *                         // 2 = PORT_TRANSFER (SC bytes of {__qwrt_ports, ...})
+ *   +1  u8  dest_len      // op=1: element count of dest_path
+ *   +2  u8  key_len       // op=1: element count of key_path
+ *   +3  u8  reserved = 0
+ *   +4  u16 dest_path[dest_len]  // endpoint the target port currently lives on
+ *   ... u16 key_path[key_len]    // target port's owner/home endpoint — the half
+ *                                // of the (owner, id) identity that disambiguates
+ *                                // ids allocated independently per process
+ *   ... u32 key_port             // op=1: target port's id within key_path
+ *   ... SC bytes
+ *
+ * Elements are u16 (PROCESS worker ids are 1000+; >65535 → widen to u32).
+ * Total header = 8 + 2*(dest_len + key_len), max 8 + 2*2*QWRT_SELF_PATH_MAX.
  *
  * The header exists so a routing node can decide deliver-locally vs forward
  * WITHOUT decoding the structured-clone payload (§7.2: payload bytes never
- * change, relay only rewrites the envelope head). Flat topology routes it at
- * the JS port layer today; a future nested-spawn relay reuses the same header. */
+ * change, relay only rewrites the envelope head). The JS port layer encodes and
+ * decodes it (message-channel.js); C passes `kind` through untouched. */
 #define IPC_ENV_KIND_MESSAGE        0
 #define IPC_ENV_KIND_PORT_TRANSFER  1
 #define IPC_ENV_KIND_CONTROL        3
@@ -80,8 +90,11 @@ extern "C" {
                                          * worker→主RT 方向 = 请求；主RT→worker
                                          * 方向 = 执行结果。 */
 
-/* Fixed PORT_TRANSFER routing header size (op + dest_owner + key_owner + port). */
-#define IPC_PORT_XFER_HEADER_SIZE   16u
+/* PORT_TRANSFER routing header: fixed 4-byte prologue (op/dest_len/key_len/pad)
+ * + u16 path chains + u32 key_port. JS encodes/decodes (message-channel.js);
+ * these macros are the shared C-side contract (unchanged by flat topology). */
+#define IPC_PORT_XFER_HDR_PROLOGUE  4u
+#define IPC_PORT_XFER_HDR_TAIL      4u   /* key_port u32 */
 #define IPC_PORT_XFER_OP_MESSAGE    1u
 #define IPC_PORT_XFER_OP_TRANSFER   2u
 
