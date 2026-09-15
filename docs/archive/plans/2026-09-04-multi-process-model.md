@@ -594,8 +594,9 @@ qwrt-rt  --qwrt-worker --parent-fd N --worker-id K [--script PATH]
   偏差与缺口：① 深度上限 = `QWRT_SELF_PATH_MAX`(8)（超深 spawn 未覆盖）；path 元素 u16
   （>65535 需升 u32，注释已记升级路径）。② STORAGE 中继沿用 §10.2 的单飞行语义
   （已有在途中继时新请求不排队）——同节点自身与子请求并发 storage 的交叉未做独立关联 id。
-  ③ `test/nested-e2e/worker_*` fixture 内 URL 仍为仓内绝对路径（与既有 mp1/mp4 fixture 同风格，
-  e2e 脚本按本仓根重写）。
+  ③ `test/nested-e2e/*.js` fixture 内 URL 仍为仓内绝对路径（与既有 mp1/mp4 fixture 同风格）；
+  e2e 脚本把全部副本（含 fixture 之间的相互引用）统一重写到临时目录并自检无残留，
+  CI checkout 下不会误读开发机路径。
 
 
 ---

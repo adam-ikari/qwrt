@@ -33,16 +33,21 @@ cleanup() {
 trap cleanup EXIT
 fail() { echo "FAIL: $1"; [ -n "${2:-}" ] && { echo "--- got:"; printf '%s\n' "$2"; }; exit 1; }
 
-# fixture 里的 worker URL 是仓内绝对路径（历史写法）——按本仓根重写副本再跑。
-for f in main-nested.js main-nested-port.js main-nested-storage.js; do
-  sed "s#file:///home/gem/project/qwrt#file://$ROOT#g" "$FIXI/$f" > "$FIX/$f"
+# fixture 里的 worker URL 是仓内绝对路径（历史写法，与 mp1/mp4 fixture 同风格）
+# —— 全部副本统一重写到 $FIX（fixture 之间的相互引用也须落在同一目录，否则
+# CI checkout 下 worker 会去读本地开发路径）。
+NESTED_FIXTURES="main-nested.js main-nested-port.js main-nested-storage.js \
+main-nested-cascade.js worker_spawn_child.js worker_grand_echo.js \
+worker_port_relay.js worker_grand_port_echo.js worker_spawn_child_storage.js \
+worker_grand_storage.js worker_spawn_child_hold.js"
+for f in $NESTED_FIXTURES; do
+  sed "s#file:///home/gem/project/qwrt/test/nested-e2e#file://$FIX#g" "$FIXI/$f" > "$FIX/$f"
 done
-for f in worker_spawn_child.js worker_grand_echo.js worker_port_relay.js \
-         worker_grand_port_echo.js worker_spawn_child_storage.js \
-         worker_grand_storage.js worker_spawn_child_hold.js; do
-  cp "$FIXI/$f" "$FIX/$f"
-done
-sed -i "s#file:///home/gem/project/qwrt/test/nested-e2e#file://$FIX#g" "$FIX"/*.js
+# 自检：副本里不得再残留开发机绝对路径（CI checkout 下会变成致命误路由）。
+if grep -l "file:///home/gem/project/qwrt" "$FIX"/*.js > /dev/null 2>&1; then
+  fail "fixture 重写不完整（仍有开发机绝对路径）" \
+       "$(grep -l 'file:///home/gem/project/qwrt' "$FIX"/*.js)"
+fi
 
 export QWRT_WORKER_BACKEND=process
 rm -f /tmp/qwrt-worker-*
@@ -53,9 +58,7 @@ EXP=$'nested:child-grand:ping\nDONE'
 [ "$OUT" = "$EXP" ] || fail "1 nested spawn round-trip" "$OUT"
 
 # PID 证据：跑一个 spawn 孙但不退出的脚本，检查三级父子链。
-cp "$FIXI/main-nested-cascade.js" "$FIX/hold.js"
-sed -i "s#file:///home/gem/project/qwrt/test/nested-e2e#file://$FIX#g" "$FIX/hold.js"
-"$QWRT" "$FIX/hold.js" > "$FIX/hold.out" 2>&1 &
+"$QWRT" "$FIX/main-nested-cascade.js" > "$FIX/hold.out" 2>&1 &
 HPID=$!
 for _ in $(seq 1 50); do grep -q READY "$FIX/hold.out" 2>/dev/null && break; sleep 0.1; done
 sleep 0.6
@@ -123,7 +126,7 @@ printf '%s\n' "$OUT" | grep -q "NESTED-STORAGE-DONE" || fail "4 nested storage c
 start_tree() {
   TREE_OUT="$FIX/tree.out"
   : > "$TREE_OUT"
-  "$QWRT" "$FIX/hold.js" > "$TREE_OUT" 2>&1 &
+  "$QWRT" "$FIX/main-nested-cascade.js" > "$TREE_OUT" 2>&1 &
   TREE_HOST=$!
   for _ in $(seq 1 60); do grep -q READY "$TREE_OUT" 2>/dev/null && break; sleep 0.1; done
   sleep 0.6
