@@ -47,6 +47,7 @@ add_qwrt_gtest(test_suspend_gtest)
 target_compile_definitions(test_suspend_gtest PRIVATE TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_qwrt_gtest(test_qwrt_gtest)
 add_qwrt_gtest(test_control_gtest)          # CTL-0 控制面（进程内基线）
+add_qwrt_gtest(test_ctl_route_gtest)        # CTL-1 信封 CONTROL 树路由
 add_qwrt_gtest(test_multi_instance_gtest)   # M-R1 §13.4 双实例回归
 add_qwrt_gtest(test_worker_gtest)
 target_compile_definitions(test_worker_gtest PRIVATE TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
