@@ -1,0 +1,121 @@
+#!/bin/bash
+# 嵌套 spawn e2e（§1.1 树形拓扑 / §8.2 path 链路由 / CTL-1 path 扩展）。
+#
+# 覆盖：
+#   1. worker 进程内 new Worker → 孙 worker 进程：三级进程树（PID 证据，
+#      父子关系 host→主RT→worker→孙）+ postMessage 往返（能力打通 N-P1）。
+#   2. §8.2 port path 路由：port 经 worker 再转移给孙，main↔孙 跨两级往返
+#      （中继节点按路由表「改指转发」，payload 不解码）。
+#   3. CTL 到孙：--target-path <k1,k2> 的命令在孙 runtime 上执行（用「孙设的
+#      全局在主RT / worker 都不可见」证明驻留点），回执沿树回程配对。
+#
+# Usage: bash test/test_nested_e2e.sh [path-to-qwrt] [path-to-qwrt-ctl]
+set -u
+QWRT="${1:-./build/qwrt}"
+QWRTCTL="${2:-./build/qwrt-ctl}"
+DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$DIR/.." && pwd)"
+FIXI="$DIR/nested-e2e"
+
+for bin in "$QWRT" "$QWRTCTL"; do
+  [ -x "$bin" ] || { echo "FAIL: binary not found: $bin"; exit 1; }
+done
+
+FIX="$(mktemp -d)"
+QPID=""
+cleanup() {
+  [ -n "$QPID" ] && kill -TERM "$QPID" 2>/dev/null
+  sleep 0.3
+  pkill -f "qwrt-rt --qwrt-worker" 2>/dev/null
+  pkill -f "qwrt-rt --qwrt-rt-server" 2>/dev/null
+  rm -rf "$FIX"
+}
+trap cleanup EXIT
+fail() { echo "FAIL: $1"; [ -n "${2:-}" ] && { echo "--- got:"; printf '%s\n' "$2"; }; exit 1; }
+
+# fixture 里的 worker URL 是仓内绝对路径（历史写法）——按本仓根重写副本再跑。
+for f in main-nested.js main-nested-port.js; do
+  sed "s#file:///home/gem/project/qwrt#file://$ROOT#g" "$FIXI/$f" > "$FIX/$f"
+done
+for f in worker_spawn_child.js worker_grand_echo.js worker_port_relay.js worker_grand_port_echo.js; do
+  cp "$FIXI/$f" "$FIX/$f"
+done
+sed -i "s#file:///home/gem/project/qwrt/test/nested-e2e#file://$FIX#g" "$FIX"/*.js
+
+export QWRT_WORKER_BACKEND=process
+rm -f /tmp/qwrt-worker-*
+
+# ── 1: 孙 worker 进程能力 + 三级 PID + 往返 ──
+OUT="$(timeout 30 "$QWRT" "$FIX/main-nested.js" 2>&1)" || fail "1 nested run rc" "$OUT"
+EXP=$'nested:child-grand:ping\nDONE'
+[ "$OUT" = "$EXP" ] || fail "1 nested spawn round-trip" "$OUT"
+
+# PID 证据：跑一个 spawn 孙但不退出的脚本，检查三级父子链。
+cat > "$FIX/hold.js" <<EOF
+var w = new Worker('file://$FIX/worker_spawn_child_hold.js');
+console.log('READY');
+setInterval(function () {}, 100);
+EOF
+cat > "$FIX/worker_spawn_child_hold.js" <<EOF
+var g = new Worker('file://$FIX/worker_grand_echo.js');
+self.onmessage = function (e) { g.postMessage(e.data); };
+setInterval(function () {}, 100);
+EOF
+"$QWRT" "$FIX/hold.js" > "$FIX/hold.out" 2>&1 &
+HPID=$!
+for _ in $(seq 1 50); do grep -q READY "$FIX/hold.out" 2>/dev/null && break; sleep 0.1; done
+sleep 0.6
+MAINRT="$(pgrep -P "$HPID" -f 'qwrt-rt' 2>/dev/null | head -1)"
+[ -n "$MAINRT" ] || fail "1 no mainRT child of host $HPID" "$(cat "$FIX/hold.out")"
+WORKER="$(pgrep -P "$MAINRT" 2>/dev/null | head -1)"
+[ -n "$WORKER" ] || fail "1 no worker child of mainRT $MAINRT" "$(cat "$FIX/hold.out")"
+GRAND="$(pgrep -P "$WORKER" 2>/dev/null | head -1)"
+[ -n "$GRAND" ] || fail "1 no grandchild child of worker $WORKER" "$(cat "$FIX/hold.out")"
+[ "$MAINRT" != "$WORKER" ] && [ "$WORKER" != "$GRAND" ] && [ "$MAINRT" != "$GRAND" ] \
+  || fail "1 three distinct PIDs (host=$HPID mainRT=$MAINRT worker=$WORKER grand=$GRAND)"
+kill -TERM "$HPID" 2>/dev/null
+sleep 0.5
+
+# ── 2: §8.2 port path 路由（跨两级经 LCA + 改指转发）──
+OUT="$(timeout 30 "$QWRT" "$FIX/main-nested-port.js" 2>&1)" || fail "2 nested port rc" "$OUT"
+EXP2=$'G2M:echo:hello\nDONE'
+[ "$OUT" = "$EXP2" ] || fail "2 nested MessagePort two-level round-trip" "$OUT"
+kill -TERM "$HPID" 2>/dev/null
+for _ in $(seq 1 60); do kill -0 "$HPID" 2>/dev/null || break; sleep 0.1; done
+SOCK="$FIX/ctl.sock"
+"$QWRT" --control-plane=local --control-pipe="$SOCK" -e "
+var w = new Worker('file://$FIX/worker_spawn_child_hold.js');
+setInterval(function(){}, 100);
+" > "$FIX/q.out" 2>&1 &
+QPID=$!
+for _ in $(seq 1 50); do [ -S "$SOCK" ] && break; sleep 0.1; done
+[ -S "$SOCK" ] || fail "3 endpoint socket not created" "$(cat "$FIX/q.out")"
+ctl() { timeout 10 "$QWRTCTL" --pipe "$SOCK" "$@"; }
+
+# 孙的 path = [主RT 给 worker 的槽位, worker 给孙的槽位] = 1001,1001（见 worker.js procWorkerSeq）。
+OUT="$(ctl --correl n-set --target-path 1001,1001 eval "(function(){ globalThis.__GRAND__=42; return 'set-ok'; })()")" \
+  || fail "3 eval on grandchild rc" "$OUT"
+echo "$OUT" | grep -q '"correl":"n-set"' || fail "3 grandchild receipt correl" "$OUT"
+echo "$OUT" | grep -q '"result":"set-ok"' || fail "3 grandchild eval executed" "$OUT"
+OUT="$(ctl --target-path 1001,1001 eval "'grand:' + globalThis.__GRAND__")" \
+  || fail "3 grandchild readback rc" "$OUT"
+echo "$OUT" | grep -q '"result":"grand:42"' || fail "3 grandchild readback" "$OUT"
+OUT="$(ctl eval "'mainrt:' + (typeof globalThis.__GRAND__)")" || fail "3 mainRT eval rc" "$OUT"
+echo "$OUT" | grep -q '"result":"mainrt:undefined"' || fail "3 marker absent on mainRT" "$OUT"
+OUT="$(ctl --target-path 1001 eval "'worker:' + (typeof globalThis.__GRAND__)")" \
+  || fail "3 worker eval rc" "$OUT"
+echo "$OUT" | grep -q '"result":"worker:undefined"' || fail "3 marker absent on worker" "$OUT"
+OUT="$(ctl --target-path 1001,1001 metrics)" || fail "3 grandchild metrics rc" "$OUT"
+echo "$OUT" | grep -q '"worker_count":0' || fail "3 grandchild metrics (leaf)" "$OUT"
+
+kill -TERM "$QPID" 2>/dev/null; QPID=""
+# 进程树级联退出需要一个调度窗口（kill→EOF→自杀逐级传播）。
+for _ in $(seq 1 60); do
+  pgrep -f "qwrt-rt" > /dev/null 2>&1 || break
+  sleep 0.1
+done
+if pgrep -f "qwrt-rt" > /dev/null 2>&1; then
+  fail "cleanup: leftover qwrt-rt process" "$(pgrep -af qwrt-rt)"
+fi
+
+echo "PASS: 嵌套 spawn e2e — 三级进程树 (PID 证据) / worker↔孙 postMessage / §8.2 port path 跨两级经 LCA / CTL --target-path 到孙 + 回执配对 / 无残留"

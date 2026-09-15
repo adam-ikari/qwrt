@@ -297,12 +297,48 @@ static void ctl_extract(const char *buf, char **op_out, char **correl_out,
     cJSON_Delete(j);
 }
 
+/* §8.2/CTL-1 扩展：命令 JSON 可选 "target_path"（root-relative path 链，元素
+ * 为各级父分配的槽位 id）。返回元素数（0 = 无此字段 → 走旧 int32 单跳相对
+ * 语义，扁平拓扑不变）。路由器本已解析 JSON（回执判定），此处沿用同一裁决。 */
+static int ctl_extract_path(const uint8_t *payload, uint32_t len,
+                            int32_t *out, int cap)
+{
+    if (!payload || len == 0 || len > 65536u) return 0;
+    char *buf = (char *)malloc((size_t)len + 1);
+    if (!buf) return 0;
+    memcpy(buf, payload, len);
+    buf[len] = '\0';
+    int n = 0;
+    cJSON *j = cJSON_Parse(buf);
+    if (j) {
+        cJSON *tp = cJSON_GetObjectItemCaseSensitive(j, "target_path");
+        if (cJSON_IsArray(tp)) {
+            cJSON *e = NULL;
+            cJSON_ArrayForEach(e, tp) {
+                if (n >= cap) break;
+                if (cJSON_IsNumber(e)) out[n++] = (int32_t)e->valuedouble;
+            }
+        }
+        cJSON_Delete(j);
+    }
+    free(buf);
+    return n;
+}
+
 int32_t qwrt_ctl_cmd_target(const char *json, size_t len)
 {
     QWRT_UNUSED(len);
     int32_t target = 1;         /* 缺省：接收方自身（QWRT_IPC_MAIN_ID） */
     if (!json) return target;
     ctl_extract(json, NULL, NULL, NULL, &target);
+    /* 带 target_path 时，本跳信封 target = 路径首元素（根的直接子槽位）；
+     * 后续各跳由 qwrt_control_route 按各节点自身深度重写。 */
+    {
+        int32_t p[QWRT_SELF_PATH_MAX];
+        int pn = ctl_extract_path((const uint8_t *)json, (uint32_t)len, p,
+                                  QWRT_SELF_PATH_MAX);
+        if (pn > 0) return p[0];
+    }
     return target;
 }
 
@@ -466,6 +502,29 @@ int qwrt_control_route(qwrt_t *rt, int32_t local_id, int32_t source,
     /* OFF：信封 CONTROL 命令类入站即丢弃（§4.1）。系统级 CONTROL（握手/
      * idle/shutdown）由调用方先行分流，不受本档影响。 */
     if (rt->config.control_plane == QWRT_CONTROL_OFF) return -1;
+    /* §8.2 path 链寻址（CTL-1 单跳相对的扩展）：命令 JSON 带 target_path 时，
+     * 按「本节点深度 + 前缀比较」决定投递方向——本节点深度 == 路径长度且前缀
+     * 吻合 → 目的地即本节点；本节点是目的地严格祖先 → 下投路径中本层那座
+     * 槽位（信封 target 重写为该槽位，非本层子槽位）；否则上行（祖先再判）。
+     * 无 target_path → 走下方旧 int32 单跳相对语义（扁平拓扑零改动）。 */
+    {
+        int32_t p[QWRT_SELF_PATH_MAX];
+        int pn = ctl_extract_path(payload, len, p, QWRT_SELF_PATH_MAX);
+        if (pn > 0) {
+            int d = (int)rt->self_path_len;
+            int on_path = (d <= pn);
+            for (int i = 0; on_path && i < d; i++)
+                if ((int32_t)rt->self_path[i] != p[i]) on_path = 0;
+            if (on_path && d == pn) {
+                if (ctl_is_receipt(payload, len))
+                    return qwrt_ctl_deliver_receipt(rt, payload, len);
+                return ctl_local_command(rt, payload, len, source, NULL);
+            }
+            if (on_path)
+                return ctl_forward(rt, source, p[d], payload, len);
+            return ctl_forward(rt, source, QWRT_IPC_MAIN_ID, payload, len);
+        }
+    }
 
     switch (qwrt_ctl_route_decide(local_id, target)) {
     case QWRT_CTL_ROUTE_LOCAL:
@@ -496,6 +555,22 @@ int qwrt_control_endpoint_cmd(qwrt_t *rt, const char *bytes, size_t len,
     int timeout_ms = 5000;
     char *correl = NULL;
     ctl_extract(buf, NULL, &correl, &timeout_ms, &target);
+
+    /* §8.2 path 链寻址：target_path 指向孙及更深（本节点 depth 0 = 根）→
+     * 登记回执（sink 连接）后按路径首元素下投；回执沿树回来时按 correl 找到
+     * sink 写回。 */
+    {
+        int32_t p[QWRT_SELF_PATH_MAX];
+        int pn = ctl_extract_path((const uint8_t *)bytes, (uint32_t)len, p,
+                                  QWRT_SELF_PATH_MAX);
+        if (pn > (int)rt->self_path_len) {
+            uint64_t dl = uv_hrtime() + (uint64_t)timeout_ms * 1000000ULL;
+            qwrt_ctl_register(rt, correl, dl, -1, sink);
+            return ctl_forward(rt, qwrt_ctl_local_id(rt),
+                               p[rt->self_path_len], (const uint8_t *)bytes,
+                               (uint32_t)len);
+        }
+    }
     free(buf);
 
     int32_t local = qwrt_ctl_local_id(rt);

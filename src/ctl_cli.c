@@ -169,7 +169,7 @@ int main(int argc, char **argv)
     long target = -1;
     long timeout_ms = 5000;
     char correl[64];
-    correl[0] = '\0';
+    const char *target_path = NULL;   /* "k1,k2,..." → JSON target_path 数组 */
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
@@ -181,6 +181,8 @@ int main(int argc, char **argv)
             target = strtol(argv[++i], NULL, 10);
         } else if (!strcmp(argv[i], "--timeout-ms") && i + 1 < argc) {
             timeout_ms = strtol(argv[++i], NULL, 10);
+        } else if (!strcmp(argv[i], "--target-path") && i + 1 < argc) {
+            target_path = argv[++i];
         } else if (!strcmp(argv[i], "--correl") && i + 1 < argc) {
             snprintf(correl, sizeof correl, "%s", argv[++i]);
         } else if (!strcmp(argv[i], "--json") && i + 1 < argc) {
@@ -229,6 +231,9 @@ int main(int argc, char **argv)
             if (target > 0 && n > 0 && (size_t)n < cap)
                 n += snprintf(line + n, cap - (size_t)n,
                               ",\"target\":%ld", target);
+            if (target_path && n > 0 && (size_t)n < cap)
+                n += snprintf(line + n, cap - (size_t)n,
+                              ",\"target_path\":[%s]", target_path);
             if (field && n > 0 && (size_t)n < cap)
                 n += snprintf(line + n, cap - (size_t)n, ",\"%s\":%s",
                               field, esc);
