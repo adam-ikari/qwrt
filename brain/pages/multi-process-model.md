@@ -1,0 +1,67 @@
+---
+id: multi-process-model
+title: "多进程模型 M-P0..M-P5 + CTL + M-R2（宿主⇄主RT 进程模型与 path 链路由）"
+category: decision
+status: active
+created: "2026-09-15T23:20:12"
+updated: "2026-09-15T23:20:36"
+---
+
+<!-- compiled_truth -->
+<current best understanding — replace this with the real content>
+
+## Timeline
+
+- time: 2026-09-15T23:20:12
+  kind: decision
+  summary: "Created this page: 多进程模型 M-P0..M-P5 + CTL + M-R2（宿主⇄主RT 进程模型与 path 链路由）"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-15T23:20:22
+  kind: decision
+  summary: "M-P0..M-P5 + CTL + M-R2 全部落地（commit 范围 2295e402..b92709c7），多进程轨道完整落地。"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-15T23:20:23
+  kind: decision
+  summary: "M-P2 缺省 ISOLATED：qwrt 缺省宿主⇄主RT 独立进程（-DQWRT_PROCESS_MODEL=THREAD 回退）——用户裁决，最终态。"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-15T23:20:23
+  kind: decision
+  summary: "M-P5 嵌套 spawn + §8.2 path 链路由：worker 再 spawn worker（孙）；端点身份 int32→path 链（u16[]，根=[]，子=父path++槽位）；LCA 前缀比较路由（上/本地/下投），零路由表；PORT_TRANSFER 头 16B→变长；信封 source/target 冻结 schema 零改动（wire 兼容）。"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-15T23:20:30
+  kind: decision
+  summary: "Q1-Q3 裁决：① path 放 payload（PORT 头变长 + CTL target_path），信封 int32 只放当前跳；② (owner,id)→path，扁平退化 worker.path=[slot]/mainRT.path=[]，单元素退化为旧语义；③ path 元素 u16（>65535 升 u32）。"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-15T23:20:31
+  kind: decision
+  summary: "CTL-1/CTL-2：控制面树路由 + qwrt-ctl CLI（AF_UNIX 端点 + SO_PEERCRED uid 校验）。"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-15T23:20:31
+  kind: decision
+  summary: "M-R2：多 RT 组合 gtest（contexts × workers 正交）。"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-15T23:20:36
+  kind: decision
+  summary: "已知延后：tier-2 超时异步化（§9.2/I5）、§10.2 所有者死亡降级、STORAGE 中继并发关联 id、path u32 升级。"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-15T23:20:36
+  kind: decision
+  summary: "watch-item：mp4 e2e 本地挂（worker localStorage→主RT 同步 RPC）待查。"
+  source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
