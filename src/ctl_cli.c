@@ -21,6 +21,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <poll.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -115,18 +117,44 @@ static int write_all(int fd, const char *buf, size_t len)
     return 0;
 }
 
-/* 读一行回执（换行分帧）；返回 0 成功并把整行写进 out（不含换行）。 */
-static int read_line(int fd, char *out, size_t cap)
+/* 读一行回执（换行分帧）；返回 0 成功并把整行写进 out（不含换行）。
+ * budget_ms 为总预算：用尽即失败——控制命令在目标 runtime 不可达安全点
+ * （脚本死循环、DAP 暂停在 configuration 等）时不会有回执，客户端必须
+ * 自己收束，不能永久阻塞（§1.3「不可达 safepoint」）。 */
+static int read_line(int fd, char *out, size_t cap, int budget_ms)
 {
     size_t o = 0;
+    long long start = 0;
     for (;;) {
-        if (o + 1 >= cap) return -1;      /* 回执超长 */
+        int remain = budget_ms;
+        if (start) {
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            long long now = (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+            remain = budget_ms - (int)(now - start);
+            if (remain <= 0) return -1;
+        } else {
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            start = (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+        }
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        int pr = poll(&pfd, 1, remain);
+        if (pr == 0) return -1;                 /* 预算用尽 */
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (o + 1 >= cap) return -1;            /* 回执超长 */
         ssize_t n = read(fd, out + o, 1);
         if (n < 0) {
             if (errno == EINTR) continue;
             return -1;
         }
-        if (n == 0) return o > 0 ? 0 : -1;   /* EOF */
+        if (n == 0) return o > 0 ? 0 : -1;      /* EOF */
         if (out[o] == '\n') { out[o] = '\0'; return 0; }
         o++;
     }
@@ -228,8 +256,11 @@ int main(int argc, char **argv)
     }
 
     char resp[CTL_RESP_MAX];
-    if (read_line(fd, resp, sizeof resp) != 0) {
-        fprintf(stderr, "qwrt-ctl: no receipt (endpoint closed?)\n");
+    if (read_line(fd, resp, sizeof resp, (int)timeout_ms + 2000) != 0) {
+        fprintf(stderr,
+                "qwrt-ctl: no receipt within %ldms (command timeout, target "
+                "not at a safepoint, or endpoint closed)\n",
+                timeout_ms + 2000);
         goto done;
     }
     printf("%s\n", resp);
