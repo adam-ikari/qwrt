@@ -566,16 +566,19 @@ int main(int argc, char **argv)
         goto fail;
     }
 
-    if (qwrt_runtime_init(rt) != 0) {
-        fprintf(stderr, "qwrt-rt: runtime init failed\n");
-        goto fail;
-    }
-
-    /* CTL-2 §2.3：LOCAL 档在主RT 打开本地端点（qwrt-ctl 连入）。bind/listen
-     * 失败即显式失败，不静默降级为 in-proc。 */
+    /* CTL-2 §2.3：LOCAL 档在主RT 打开本地端点（qwrt-ctl 连入）。必须在
+     * qwrt_runtime_init 之前——runtime_init 会 attach DAP 并阻塞在
+     * configuration（debug 模式），端点若排在其后则调试会话期间完全不可用。
+     * 端点与 DAP stdio 是两个分离通道（§2.3「与 DAP 并存规则」），互不抢占。
+     * bind/listen 失败即显式失败，不静默降级为 in-proc。 */
     if (is_server && rt->config.control_plane == QWRT_CONTROL_LOCAL &&
         qwrt_ctl_endpoint_init(rt) != 0) {
         fprintf(stderr, "qwrt-rt: control endpoint init failed\n");
+        goto fail;
+    }
+
+    if (qwrt_runtime_init(rt) != 0) {
+        fprintf(stderr, "qwrt-rt: runtime init failed\n");
         goto fail;
     }
 

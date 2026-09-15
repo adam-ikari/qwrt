@@ -110,4 +110,28 @@ if timeout 5 "$QWRTCTL" --pipe "$FIX/off.sock" metrics >/dev/null 2>&1; then
   fail "4 OFF tier connect must fail"
 fi
 
-echo "PASS: CTL-1/CTL-2 control-plane e2e — endpoint 4 commands + correl pairing / tree routing to worker (target=$WORKER_ID, isolation + no id skew) / NOT_FOUND / OFF tier refused"
+# ── 5: DAP 并存（§2.3「与 DAP 并存规则」） ──
+# DAP 在 runtime_init 内 attach 并阻塞到 configuration；端点必须在此之前建立，
+# 否则调试会话期间控制面完全不可用。旧顺序（端点在 runtime_init 之后）在这里
+# 会失败——该断言即回归护栏。DAP 暂停期间控制命令按 timeout_ms 作废（§2.3
+# 明示），故此处只验证两通道并存、互不抢占。
+kill -TERM "$QPID" 2>/dev/null; wait "$QPID" 2>/dev/null; QPID=""
+rm -f "$FIX/dap.in" "$FIX/dap.sock"
+mkfifo "$FIX/dap.in"
+QWRT_DEBUG=1 setsid "$QWRT" --control-plane=local --control-pipe="$FIX/dap.sock" \
+  -e 'setInterval(function(){}, 100)' < "$FIX/dap.in" > "$FIX/dap.out" 2>&1 &
+QPID=$!
+exec 9> "$FIX/dap.in"      # 保持 DAP stdin 打开，会话不因 EOF 结束
+for _ in $(seq 1 50); do [ -S "$FIX/dap.sock" ] && break; sleep 0.1; done
+if [ ! -S "$FIX/dap.sock" ]; then
+  fail "5 endpoint missing while DAP attaches" "$(cat "$FIX/dap.out")"
+fi
+if grep -q "Content-Length" "$FIX/dap.out" 2>/dev/null; then
+  echo "       (5) DAP session active + control endpoint present"
+else
+  echo "       (5) no DAP output (build without QWRT_DEBUG_SUPPORT?); endpoint present"
+fi
+exec 9>&-
+kill -TERM "$QPID" 2>/dev/null; wait "$QPID" 2>/dev/null; QPID=""
+
+echo "PASS: CTL-1/CTL-2 control-plane e2e — endpoint 4 commands + correl pairing / tree routing to worker (target=$WORKER_ID, isolation + no id skew) / NOT_FOUND / OFF tier refused / DAP coexist"
