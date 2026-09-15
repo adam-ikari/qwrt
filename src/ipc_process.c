@@ -877,13 +877,29 @@ static void proc_process_rx(qwrt_proc_t *proc)
         if (proc->frame_len > 0) {
             ipc_envelope_view_t view;
             if (ipc_envelope_decode(proc->rbuf, proc->frame_len, &view) == 0) {
-                if (proc->msg_cb) {
+                /* CTL-1（§2.2）：命令类 CONTROL 信封在本节点树路由（worker 的
+                 * 回执上行 / 命令下行），不进 JS 层；系统级 CONTROL（握手/
+                 * idle/shutdown）与非 CONTROL 帧照旧走 msg_cb / msgq。 */
+                int ctl_routed = 0;
+                if (proc->ctl_route_id > 0 &&
+                    view.kind == IPC_ENV_KIND_CONTROL) {
+                    int cval = 0;
+                    if (qwrt_ipc_ctl_classify(view.payload, view.payload_len,
+                                              &cval) == QWRT_IPC_CTL_NONE) {
+                        qwrt_control_route((qwrt_t *)proc->parent_rt,
+                                           proc->ctl_route_id, view.source,
+                                           view.target, view.payload,
+                                           view.payload_len);
+                        ctl_routed = 1;
+                    }
+                }
+                if (!ctl_routed && proc->msg_cb) {
                     /* JS-managed 模式：信封解码 → 直接回调（bridge.c 的
                      * pal.processOnMessage 消费者）。payload 指向 rbuf 内
                      * 部，回调返回后即失效，JS_Call 需同步复制成 ArrayBuffer。 */
                     proc->msg_cb(proc->msg_user, view.kind, view.source,
                                  view.payload, view.payload_len);
-                } else {
+                } else if (!ctl_routed) {
                     int flags =
                         view.kind == IPC_ENV_KIND_CONTROL
                             ? QWRT_MSG_FLAG_CONTROL

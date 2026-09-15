@@ -118,9 +118,15 @@ static void host_wake_cb(uv_async_t *a)
     qwrt_msg_t *m;
     while ((m = qwrt_msg_pop(rt)) != NULL) {
         if (!rt->proc) break;
-        /* 写失败（peer 已死/通道异常）不额外终止：读泵侧的 EOF 同样会收束
-         * 本循环；线程后端的 post 也只是「入队即返回」。 */
-        qwrt_proc_post(rt->proc, QWRT_IPC_HOST_ID, QWRT_IPC_MAIN_ID,
+        /* CTL-1：控制命令的信封 target 取自命令 JSON 的 "target" 字段
+         * （缺省 1 = 主RT）。ISOLATED 下宿主只有到主RT 的一条通道，
+         * target>1 由主RT 按本地槽位表下行（§2.2 逐跳相对寻址）。
+         * 写失败（peer 已死/通道异常）不额外终止：读泵侧的 EOF 同样会
+         * 收束本循环；线程后端的 post 也只是「入队即返回」。 */
+        int32_t target = m->flags
+                             ? qwrt_ctl_cmd_target(m->data, m->len)
+                             : QWRT_IPC_MAIN_ID;
+        qwrt_proc_post(rt->proc, QWRT_IPC_HOST_ID, target,
                        m->flags ? IPC_ENV_KIND_CONTROL : IPC_ENV_KIND_MESSAGE,
                        (const uint8_t *)m->data, (uint32_t)m->len);
     }

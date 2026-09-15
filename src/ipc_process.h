@@ -146,6 +146,9 @@ struct qwrt_proc_s {
     int       role;           /* QWRT_IPC_ROLE_* */
     int       state;          /* qwrt_proc_state_t */
     void     *parent_rt;      /* parent qwrt_t* (for callbacks) */
+    /* CTL-1：>0 时本通道上到达的命令类 CONTROL 信封交 qwrt_control_route
+     * 树路由（值为本节点槽位 id）；0 = 不路由（宿主侧读泵交 msg_cb）。 */
+    int32_t   ctl_route_id;
     /* Read accumulator: frames = [4-byte LE len][envelope]; async reads via
      * qwrt_proc_start_read / qwrt_proc_start_read_cb. */
     uint8_t  *rbuf;

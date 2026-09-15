@@ -25,6 +25,8 @@
 struct qwrt_ctl_recept_s {
     char *correl;           /* strdup'd correl（简单 id：无转义字符） */
     uint64_t deadline_ns;   /* uv_hrtime() + timeout_ms * 1e6 */
+    int32_t  reply_dir;     /* CTL-1 回程方向：-1 = 本地 message_cb；
+                             * >=0 = 回执信封 target（命令来源地址） */
     struct qwrt_ctl_recept_s *next;
 };
 /* ── 控制命令字段提取（生产者线程，无 JSContext）──
@@ -38,17 +40,84 @@ struct qwrt_ctl_recept_s {
 
 #include <cJSON.h>
 
+/* CTL-1 跨进程回执走信封（ipc_process.c 的发送原语）。mock 测试构建无 ipc
+ * 后端（QWRT_USE_MOCK_LIBUV），回程恒为本地，转发路径不编入。 */
+#ifndef QWRT_USE_MOCK_LIBUV
+#include "ipc_process.h"
+#endif
+
 /* ── Receipt helpers (qwrt thread) ── */
 
-/* 构建 JSValue 回执对象并经 message_cb 下发。吞掉 obj。 */
-static void ctl_send_receipt(qwrt_t *rt, JSContext *ctx, JSValue receipt_obj)
+/* 本节点在父树中的槽位 id（宿主 0 / 主RT 1 / worker --worker-id）。不依赖
+ * ipc 后端（mock 构建亦编入），供 CTL-1 路由与转发复用。 */
+int32_t qwrt_ctl_local_id(qwrt_t *rt)
 {
-    if (!rt->config.message_cb) {
-        JS_FreeValue(ctx, receipt_obj);
+    if (rt->worker_self)
+        return (int32_t)((qwrt_worker_t *)rt->worker_self)->id;
+    return 1;                   /* QWRT_IPC_MAIN_ID：主RT 通道上的本地标签 */
+}
+
+#ifndef QWRT_USE_MOCK_LIBUV
+/* 回程发送：把回执 JSON 交给跨进程通道（CTL-1 §2.2「回执沿树回」）。
+ * target = 回程地址（命令来源，逐跳相对寻址）：0/1 → 上行（父通道）；
+ * >1 → 下行到本地子槽位。source 填本节点槽位 id（父视角的「来源」）。 */
+
+static void ctl_emit_remote(qwrt_t *rt, int32_t target,
+                            const uint8_t *json, size_t len)
+{
+    int32_t self = qwrt_ctl_local_id(rt);
+    if (target == 0 || target == 1) {
+        qwrt_ipc_child_emit(self, target, IPC_ENV_KIND_CONTROL, json,
+                            (uint32_t)len);
         return;
     }
-    JSValue str = JS_JSONStringify(ctx, receipt_obj, JS_UNDEFINED, JS_UNDEFINED);
-    JS_FreeValue(ctx, receipt_obj);
+    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+        qwrt_proc_handle_t *h = &rt->proc_handles[i];
+        if (h->live && h->proc && h->proc->id == target) {
+            qwrt_proc_post(h->proc, self, target, IPC_ENV_KIND_CONTROL, json,
+                           (uint32_t)len);
+            return;
+        }
+    }
+    /* 无对应通道：回执丢弃（发起方靠自身 timeout 收束）。 */
+}
+#else
+static void ctl_emit_remote(qwrt_t *rt, int32_t target,
+                            const uint8_t *json, size_t len)
+{
+    QWRT_UNUSED(rt); QWRT_UNUSED(target); QWRT_UNUSED(json); QWRT_UNUSED(len);
+}
+#endif
+
+/* 查表取回程方向并移除条目（qwrt 线程独占；回执消费点）。 */
+static int32_t ctl_take_reply_dir(qwrt_t *rt, const char *correl)
+{
+    if (!correl) return -1;
+    int32_t dir = -1;
+    uv_mutex_lock(&rt->ctl_lock);
+    struct qwrt_ctl_recept_s **pp = &rt->ctl_pending;
+    while (*pp) {
+        if (strcmp((*pp)->correl, correl) == 0) {
+            struct qwrt_ctl_recept_s *r = *pp;
+            *pp = r->next;
+            dir = r->reply_dir;
+            free(r->correl);
+            free(r);
+            break;
+        }
+        pp = &(*pp)->next;
+    }
+    uv_mutex_unlock(&rt->ctl_lock);
+    return dir;
+}
+
+/* 回执出口：序列化 obj（吞掉），按 reply_dir 分发——>=0 走信封（跨进程
+ * 命令），否则走 message_cb（进程内命令，CTL-0 行为不变）。 */
+static void ctl_emit_obj(qwrt_t *rt, JSContext *ctx, JSValue obj,
+                         int32_t reply_dir)
+{
+    JSValue str = JS_JSONStringify(ctx, obj, JS_UNDEFINED, JS_UNDEFINED);
+    JS_FreeValue(ctx, obj);
     if (JS_IsException(str)) {
         JS_FreeValue(ctx, str);
         return;
@@ -56,8 +125,27 @@ static void ctl_send_receipt(qwrt_t *rt, JSContext *ctx, JSValue receipt_obj)
     const char *json = JS_ToCString(ctx, str);
     JS_FreeValue(ctx, str);
     if (!json) return;
-    rt->config.message_cb(rt, json, strlen(json), rt->host_data);
+    if (reply_dir >= 0) {
+        ctl_emit_remote(rt, reply_dir, (const uint8_t *)json, strlen(json));
+    } else if (rt->config.message_cb) {
+        rt->config.message_cb(rt, json, strlen(json), rt->host_data);
+    }
     JS_FreeCString(ctx, json);
+}
+
+/* 构建 JSValue 回执对象并经回程下发（吞掉 obj）。条目在回执生成时消费
+ * （§1.2）：命中跨进程命令 → 信封；否则 message_cb。 */
+static void ctl_send_receipt(qwrt_t *rt, JSContext *ctx, JSValue receipt_obj)
+{
+    int32_t reply_dir = -1;
+    JSValue cv = JS_GetPropertyStr(ctx, receipt_obj, "correl");
+    const char *correl = JS_ToCString(ctx, cv);
+    if (correl) {
+        reply_dir = ctl_take_reply_dir(rt, correl);
+        JS_FreeCString(ctx, correl);
+    }
+    JS_FreeValue(ctx, cv);
+    ctl_emit_obj(rt, ctx, receipt_obj, reply_dir);
 }
 
 /* 标准回执骨架：{ctl:true, correl, ok, error?, code?}。吞掉 correl 字符串。 */
@@ -80,18 +168,21 @@ static void ctl_error_receipt(qwrt_t *rt, JSContext *ctx, char *correl,
     ctl_send_receipt(rt, ctx, r);
 }
 
-static void ctl_timeout_receipt(qwrt_t *rt, JSContext *ctx, const char *correl)
+/* 超时回执：条目已在 claim/reap 中移除，回程方向随参数带入。 */
+static void ctl_timeout_receipt(qwrt_t *rt, JSContext *ctx, const char *correl,
+                                int32_t reply_dir)
 {
     char *dup = correl ? strdup(correl) : NULL;
     JSValue r = ctl_receipt_obj(ctx, dup, 0);
     JS_SetPropertyStr(ctx, r, "error", JS_NewString(ctx, "timeout"));
     JS_SetPropertyStr(ctx, r, "code", JS_NewString(ctx, "TIMEOUT"));
-    ctl_send_receipt(rt, ctx, r);
+    ctl_emit_obj(rt, ctx, r, reply_dir);
 }
 
 /* ── Receipt table operations ── */
 
-void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns)
+void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns,
+                       int32_t reply_dir)
 {
     struct qwrt_ctl_recept_s *r =
         (struct qwrt_ctl_recept_s *)calloc(1, sizeof *r);
@@ -99,6 +190,7 @@ void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns)
     r->correl = strdup(correl ? correl : "");
     if (!r->correl) { free(r); return; }
     r->deadline_ns = deadline_ns;
+    r->reply_dir = reply_dir;
     uv_mutex_lock(&rt->ctl_lock);
     r->next = rt->ctl_pending;
     rt->ctl_pending = r;
@@ -123,29 +215,6 @@ static void ctl_unregister(qwrt_t *rt, const char *correl)
         pp = &(*pp)->next;
     }
     uv_mutex_unlock(&rt->ctl_lock);
-}
-
-void qwrt_ctl_resolve(qwrt_t *rt, const char *correl, const char *json, size_t len)
-{
-    /* qwrt 线程独占消费：锁内移除条目，锁外发 message_cb。 */
-    struct qwrt_ctl_recept_s *r = NULL;
-    uv_mutex_lock(&rt->ctl_lock);
-    struct qwrt_ctl_recept_s **pp = &rt->ctl_pending;
-    while (*pp) {
-        if (correl && (*pp)->correl && strcmp((*pp)->correl, correl) == 0) {
-            r = *pp;
-            *pp = r->next;
-            break;
-        }
-        pp = &(*pp)->next;
-    }
-    uv_mutex_unlock(&rt->ctl_lock);
-    if (r) {
-        if (rt->config.message_cb && json)
-            rt->config.message_cb(rt, json, len, rt->host_data);
-        free(r->correl);
-        free(r);
-    }
 }
 
 /* dispatch 前核验（fail-closed，§1.3）：命中且未过期 → 放行（1）；命中但
@@ -174,25 +243,50 @@ static int ctl_claim(qwrt_t *rt, const char *correl)
     uv_mutex_unlock(&rt->ctl_lock);
     if (dead) {
         JSContext *ctx = qwrt_get_active_jsctx(rt);
-        if (ctx) ctl_timeout_receipt(rt, ctx, dead->correl);
+        if (ctx) ctl_timeout_receipt(rt, ctx, dead->correl, dead->reply_dir);
         free(dead->correl);
         free(dead);
     }
     return live;
 }
+/* 命令顶层字段提取（生产者/路由路径，无 JSContext；用 vendored cJSON）。
+ * buf 须 NUL 结尾。缺失字段留 NULL/缺省；target_out 非 NULL 时提取
+ * "target"（CTL-1 寻址字段，缺省 1 = 接收方自身）。 */
+static void ctl_extract(const char *buf, char **op_out, char **correl_out,
+                        int *timeout_ms_out, int32_t *target_out)
+{
+    cJSON *j = cJSON_Parse(buf);
+    if (!j) return;
+    const cJSON *opv = cJSON_GetObjectItemCaseSensitive(j, "op");
+    const cJSON *correlv = cJSON_GetObjectItemCaseSensitive(j, "correl");
+    const cJSON *tmv = cJSON_GetObjectItemCaseSensitive(j, "timeout_ms");
+    const cJSON *tgv = cJSON_GetObjectItemCaseSensitive(j, "target");
+    if (op_out && cJSON_IsString(opv) && opv->valuestring)
+        *op_out = strdup(opv->valuestring);
+    if (correl_out && cJSON_IsString(correlv) && correlv->valuestring)
+        *correl_out = strdup(correlv->valuestring);
+    if (timeout_ms_out && cJSON_IsNumber(tmv))
+        *timeout_ms_out = tmv->valueint;
+    if (target_out && cJSON_IsNumber(tgv))
+        *target_out = (int32_t)tgv->valueint;
+    cJSON_Delete(j);
+}
+
+int32_t qwrt_ctl_cmd_target(const char *json, size_t len)
+{
+    QWRT_UNUSED(len);
+    int32_t target = 1;         /* 缺省：接收方自身（QWRT_IPC_MAIN_ID） */
+    if (!json) return target;
+    ctl_extract(json, NULL, NULL, NULL, &target);
+    return target;
+}
+
 int qwrt_control(qwrt_t *rt, const char *bytes, size_t len)
 {
     if (!rt || rt->magic != QWRT_MAGIC || !bytes)
         return -1;
     if (rt->config.control_plane == QWRT_CONTROL_OFF)
         return -1;
-
-#ifdef QWRT_HOST_SPLIT
-    /* M-P2 已知缺口：CTL-0 是「进程内宿主线程命令」（control-plane-design §4.1
-     * 的 IN_PROC = msgq 路径），ISOLATED 下 runtime 在另一进程，本进程没有可命令
-     * 的 runtime。显式失败（-1）而非静默失效或伪造回执（§5.3）。 */
-    return -1;
-#endif
 
     /* 提取器按 NUL 结尾扫描，而 API 契约只保证 (bytes, len)——先拷贝补
      * NUL（msgq 内部同样要拷，此处多一份短暂副本）。 */
@@ -203,30 +297,22 @@ int qwrt_control(qwrt_t *rt, const char *bytes, size_t len)
 
     int timeout_ms = 5000;
     char *op = NULL, *correl = NULL;
-    cJSON *j = cJSON_Parse(buf);
-    if (j) {
-        const cJSON *opv = cJSON_GetObjectItemCaseSensitive(j, "op");
-        const cJSON *correlv = cJSON_GetObjectItemCaseSensitive(j, "correl");
-        const cJSON *tmv = cJSON_GetObjectItemCaseSensitive(j, "timeout_ms");
-        if (cJSON_IsString(opv) && opv->valuestring)
-            op = strdup(opv->valuestring);
-        if (cJSON_IsString(correlv) && correlv->valuestring)
-            correl = strdup(correlv->valuestring);
-        if (cJSON_IsNumber(tmv))
-            timeout_ms = tmv->valueint;
-        cJSON_Delete(j);
-    }
+    ctl_extract(buf, &op, &correl, &timeout_ms, NULL);
 
     /* interrupt：投递即生效——原子标志在生产者线程置位（§1.1 唯一例外）。
      * 命令消息照常入队只为 correl 回执。 */
     if (op && strcmp(op, "interrupt") == 0)
         __atomic_store_n(&rt->ctl_interrupt, 1, __ATOMIC_RELEASE);
 
-    /* 登记先于入队（§1.2）：dispatch 必能命中条目。 */
+    /* 登记先于入队（§1.2）：dispatch 必能命中条目。本条命令在本进程产生
+     * 回执（进程内 dispatch 或本进程 message_cb）→ reply_dir = -1。 */
     uint64_t deadline = uv_hrtime() + (uint64_t)timeout_ms * 1000000ULL;
-    qwrt_ctl_register(rt, correl, deadline);
+    qwrt_ctl_register(rt, correl, deadline, -1);
 
-    int rc = qwrt_msg_push(rt, buf, len, QWRT_MSG_SRC_HOST, 1);
+    /* ISOLATED 宿主：入队后由 host_wake_cb 装 CONTROL 信封发主RT（target
+     * 取自命令 "target" 字段）；THREAD：由 qwrt_wake_cb 就地 dispatch。 */
+    int rc = qwrt_msg_push(rt, buf, len, QWRT_MSG_SRC_HOST,
+                           QWRT_MSG_FLAG_CONTROL);
     free(buf);
     if (rc != 0) {
         ctl_unregister(rt, correl);   /* §6：入队失败 → 表无条目 */
@@ -237,6 +323,73 @@ int qwrt_control(qwrt_t *rt, const char *bytes, size_t len)
     free(op);
     free(correl);
     return 0;
+}
+
+/* ── CTL-1：信封 CONTROL 命令树路由（§2.2 / 多进程 §4.3、§7.2）──
+ *
+ * 逐跳相对寻址：target 由当前持有信封的节点相对解释——等于本地槽位 id 即
+ * 命中本地（入 msgq flags=CONTROL）；0/1 为朝根方向（上行）；>1 为本地子
+ * 槽位（下行）。source 承载回程方向，转发时保持不变（只有 target 逐跳改写）。 */
+
+qwrt_ctl_route_t qwrt_ctl_route_decide(int32_t local_id, int32_t target)
+{
+    if (target == local_id) return QWRT_CTL_ROUTE_LOCAL;
+    if (target == 0 || target == 1) return QWRT_CTL_ROUTE_UP;
+    if (target > 1) return QWRT_CTL_ROUTE_DOWN;
+    return QWRT_CTL_ROUTE_DROP;     /* target < 0：无此地址 */
+}
+
+int qwrt_control_route(qwrt_t *rt, int32_t local_id, int32_t source,
+                       int32_t target, const uint8_t *payload, uint32_t len)
+{
+    if (!rt || rt->magic != QWRT_MAGIC || !payload) return -1;
+    /* OFF：信封 CONTROL 命令类入站即丢弃（§4.1）。系统级 CONTROL（握手/
+     * idle/shutdown）由调用方先行分流，不受本档影响。 */
+    if (rt->config.control_plane == QWRT_CONTROL_OFF) return -1;
+
+    switch (qwrt_ctl_route_decide(local_id, target)) {
+    case QWRT_CTL_ROUTE_LOCAL: {
+        char *buf = (char *)malloc((size_t)len + 1);
+        if (!buf) return -1;
+        memcpy(buf, payload, len);
+        buf[len] = '\0';
+        int timeout_ms = 5000;
+        char *op = NULL, *correl = NULL;
+        ctl_extract(buf, &op, &correl, &timeout_ms, NULL);
+        if (op && strcmp(op, "interrupt") == 0)
+            __atomic_store_n(&rt->ctl_interrupt, 1, __ATOMIC_RELEASE);
+        uint64_t deadline = uv_hrtime() + (uint64_t)timeout_ms * 1000000ULL;
+        qwrt_ctl_register(rt, correl, deadline, source);
+        int rc = qwrt_msg_push(rt, buf, (size_t)len, QWRT_MSG_SRC_HOST,
+                               QWRT_MSG_FLAG_CONTROL);
+        free(buf);
+        if (rc != 0) ctl_unregister(rt, correl);
+        free(op);
+        free(correl);
+        return rc == 0 ? 0 : -1;
+    }
+    case QWRT_CTL_ROUTE_UP:
+#ifndef QWRT_USE_MOCK_LIBUV
+        qwrt_ipc_child_emit(source, target, IPC_ENV_KIND_CONTROL, payload, len);
+#endif
+        return 0;
+    case QWRT_CTL_ROUTE_DOWN: {
+#ifndef QWRT_USE_MOCK_LIBUV
+        for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+            qwrt_proc_handle_t *h = &rt->proc_handles[i];
+            if (h->live && h->proc && h->proc->id == target) {
+                qwrt_proc_post(h->proc, source, target,
+                               IPC_ENV_KIND_CONTROL, payload, len);
+                return 0;
+            }
+        }
+#endif
+        return -1;              /* 无对应子槽位 */
+    }
+    case QWRT_CTL_ROUTE_DROP:
+    default:
+        return -1;
+    }
 }
 void qwrt_ctl_reap_timeouts(qwrt_t *rt)
 {
@@ -263,7 +416,7 @@ void qwrt_ctl_reap_timeouts(qwrt_t *rt)
     while (dead) {
         struct qwrt_ctl_recept_s *r = dead;
         dead = r->next;
-        if (ctx) ctl_timeout_receipt(rt, ctx, r->correl);
+        if (ctx) ctl_timeout_receipt(rt, ctx, r->correl, r->reply_dir);
         free(r->correl);
         free(r);
     }

@@ -623,10 +623,40 @@ void qwrt_ctl_reap_timeouts(qwrt_t *rt);
 void qwrt_ctl_teardown(qwrt_t *rt);
 /* interrupt handler（QuickJS 回调）：读 ctl_interrupt 原子标志。 */
 int qwrt_ctl_interrupt_handler(JSRuntime *jsrt, void *opaque);
-/* 回执表：登记 correl 条目（producer 线程，锁内插入）。 */
-void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns);
-/* 回执表：命中 correl 则经 message_cb 下发回执 JSON（qwrt 线程独占，锁内移除）。 */
-void qwrt_ctl_resolve(qwrt_t *rt, const char *correl, const char *json, size_t len);
+/* 本节点在父树中的槽位 id（宿主 0 / 主RT 1 / worker --worker-id）。 */
+int32_t qwrt_ctl_local_id(qwrt_t *rt);
+/* 回执表：登记 correl 条目（producer 线程，锁内插入）。reply_dir 为
+ * 跨进程回程方向（CTL-1）：-1 = 本地 message_cb；>=0 = 回执信封 target
+ * （命令来源地址，逐跳相对寻址语义，见 control.c qwrt_control_route）。 */
+void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns,
+                       int32_t reply_dir);
+
+/* ── CTL-1：信封 CONTROL 命令的树路由（§2.2 / 多进程 §4.3、§7.2）──
+ *
+ * 逐跳相对寻址（接收方视角）：target == 本地槽位 id → 命中本地（入 msgq
+ * flags=CONTROL）；target ∈ {0,1} 且非本地 → 上行（父/宿主方向）；target > 1
+ * → 下行到本地子槽位 target；无对应通道 → 丢弃。source 全程保持（承载回程
+ * 方向），只有 target 逐跳改写。
+ *
+ * local_id：本节点在父树中的槽位 id（宿主 0 / 主RT QWRT_IPC_MAIN_ID / worker
+ *   --worker-id）。仅 qwrt 线程调用（信封读泵中）。 */
+typedef enum {
+    QWRT_CTL_ROUTE_LOCAL = 0,   /* 命中本地：入 msgq 交 dispatch */
+    QWRT_CTL_ROUTE_UP    = 1,   /* 上行：发父通道（改写 target 后） */
+    QWRT_CTL_ROUTE_DOWN  = 2,   /* 下行：发本地子槽位 target */
+    QWRT_CTL_ROUTE_DROP  = 3,   /* 无对应通道 */
+} qwrt_ctl_route_t;
+
+/* 纯函数：路由决策（无副作用，便于单测）。 */
+qwrt_ctl_route_t qwrt_ctl_route_decide(int32_t local_id, int32_t target);
+
+/* 路由一条 CONTROL 命令信封（读泵调用；OFF 档丢弃，§4.1）。返回 0 = 已处理。 */
+int qwrt_control_route(qwrt_t *rt, int32_t local_id, int32_t source,
+                       int32_t target, const uint8_t *payload, uint32_t len);
+
+/* 命令 JSON 的可选 "target" 字段（C 层提取；缺省 1 = 接收方自身）。
+ * 生产者/路由路径用，无需 JSContext。 */
+int32_t qwrt_ctl_cmd_target(const char *json, size_t len);
 
 /* Monotonic clock in milliseconds. Ignores clock_gettime failure (same
  * behavior the former per-file copies had): CLOCK_MONOTONIC cannot fail with

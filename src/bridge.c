@@ -1845,6 +1845,9 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
     h->ctx = get_ctx_from_jsctx(rt, ctx);
     h->onmsg = JS_UNDEFINED;
     h->id = (int)(++rt->proc_handle_seq);
+    /* CTL-1：本进程是 runtime（主RT 或父 worker）——本通道到达的命令类
+     * CONTROL（worker 回执上行 / 子命令）在 C 层树路由，不进 JS 层。 */
+    proc->ctl_route_id = qwrt_ctl_local_id(rt);
 
     qwrt_proc_start_read_cb(proc, bridge_proc_msg_cb, h);
     return JS_NewInt32(ctx, h->id);

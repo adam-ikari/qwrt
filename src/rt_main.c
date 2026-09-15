@@ -63,6 +63,7 @@ static int has_substring(const uint8_t *hay, size_t hlen, const char *needle)
  * 同构（宿主消息即主 runtime 的 onmessage）。 */
 
 static int g_server_mode;   /* 1 = --qwrt-rt-server（主RT 进程，M-P2） */
+static int32_t g_local_id;  /* CTL-1：本节点槽位 id（主RT=1 / worker=--worker-id） */
 
 static void process_rx(qwrt_t *rt);   /* 帧累加器解码；child_storage_sync 在其前定义 */
 
@@ -250,6 +251,7 @@ static void process_rx(qwrt_t *rt)
             ipc_envelope_view_t view;
             if (ipc_envelope_decode(g_rx.buf, g_rx.frame_len, &view) == 0) {
                 int is_ctl = (view.kind == IPC_ENV_KIND_CONTROL);
+                int ctl_val = 0;    /* CTL-1：CONTROL 命令类判定 */
                 if (is_ctl && g_server_mode)
                     server_handle_control(rt, &view);
                 /* CONTROL{shutdown} → graceful exit (§9.2 tier 1)。两种 payload
@@ -277,6 +279,15 @@ static void process_rx(qwrt_t *rt)
                         }
                         g_sync_done = 1;
                     }
+                } else if (is_ctl &&
+                           qwrt_ipc_ctl_classify(view.payload, view.payload_len,
+                                                 &ctl_val) ==
+                               QWRT_IPC_CTL_NONE) {
+                    /* CTL-1（§2.2）：命令类 CONTROL 信封在本节点树路由——命中
+                     * 本地则入 msgq（flags=CONTROL）交 dispatch，否则逐跳向上/
+                     * 向下转发。系统级 CONTROL 已由上方分支消化，不受影响。 */
+                    qwrt_control_route(rt, g_local_id, view.source, view.target,
+                                       view.payload, view.payload_len);
                 } else {
                     /* kind → msgq flags：CONTROL 交控制面；PORT_TRANSFER 走
                      * 应用派发但 JS 拿到 kind=1，据此走 port 端点路由（M-P3）。 */
@@ -375,6 +386,9 @@ int main(int argc, char **argv)
     }
 
     g_server_mode = is_server;
+    /* CTL-1 本地标签：主RT 在宿主通道上恒为 1（QWRT_IPC_MAIN_ID）；worker 用
+     * --worker-id（与父侧 spawn 时登记的子槽位 id 同值）。 */
+    g_local_id = is_server ? QWRT_IPC_MAIN_ID : (int32_t)worker_id;
 
     if ((!is_worker && !is_server) || (is_worker && is_server) || parent_fd < 0) {
         fprintf(stderr,
