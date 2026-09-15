@@ -1,0 +1,272 @@
+/*
+ * qwrt Control Plane — 本地端点（CTL-2, §2.3）
+ *
+ * config.control_plane=LOCAL 时 runtime 在本机监听一个 uv_pipe（AF_UNIX）：
+ * 外部控制器（qwrt-ctl）连上后按「一行一条命令」发 JSON，回执按 correl 配对
+ * 写回同一连接。端点只是生产者——收到的字节走 qwrt_control_sink 同一入口，
+ * 不引入第二执行路径（与 qwrt_control 共用登记/派发/回执机制）。
+ *
+ * 认证（§4.2）：unix pipe 文件权限即认证——socket 0600 + SO_PEERCRED 校验
+ * peer uid 与 owner 一致，异 uid connect 直接断。首版无 token、无 ACL。
+ *
+ * 设计：docs/plans/2026-09-04-control-plane-design.md §2.3、§4.2、§6 CTL-2。
+ * 仅真实 libuv 构建编入（mock 构建无 uv_pipe；见 CMakeLists）。
+ */
+
+#include "qwrt_internal.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+
+/* struct ucred / SO_PEERCRED 是 Linux 内核 ABI。<sys/socket.h> 只在
+ * _GNU_SOURCE 下暴露该结构，而本项目编译带 _POSIX_C_SOURCE（严格 C99），
+ * 故此处按内核 ABI 本地声明（layout 稳定；端点本就 Linux-only，§7）。 */
+#ifndef SO_PEERCRED
+#define SO_PEERCRED 17
+#endif
+struct qwrt_peercred {
+    pid_t pid;
+    uid_t uid;
+    gid_t gid;
+};
+
+/* 缺省端点路径序号（进程内唯一，供 /tmp/qwrt-<pid>-<n>.ctl）。 */
+static unsigned g_ctl_seq;
+
+struct qwrt_ctl_conn_s {
+    uv_pipe_t pipe;
+    qwrt_t   *rt;
+    char     *buf;              /* 换行分帧累积缓冲 */
+    size_t    len;
+    size_t    cap;
+    int       closed;
+    struct qwrt_ctl_conn_s *next;
+};
+
+/* ── 回执写回（loop 线程独占） ── */
+
+static void conn_write_cb(uv_write_t *req, int status)
+{
+    QWRT_UNUSED(status);
+    free(req->data);            /* uv_buf_t.base（malloc 缓冲） */
+    free(req);
+}
+
+void qwrt_ctl_conn_write(void *conn_v, const char *json, size_t len)
+{
+    struct qwrt_ctl_conn_s *c = (struct qwrt_ctl_conn_s *)conn_v;
+    if (!c || c->closed || !json) return;
+    char *out = (char *)malloc(len + 2);
+    if (!out) return;
+    memcpy(out, json, len);
+    out[len] = '\n';            /* 换行分帧：一行一条回执 */
+    uv_write_t *req = (uv_write_t *)malloc(sizeof *req);
+    if (!req) { free(out); return; }
+    req->data = out;
+    uv_buf_t b = uv_buf_init(out, (unsigned)(len + 1));
+    if (uv_write(req, (uv_stream_t *)&c->pipe, &b, 1, conn_write_cb) != 0) {
+        free(out);
+        free(req);
+    }
+}
+
+/* ── 连接生命周期 ── */
+
+static void conn_unlink(qwrt_t *rt, struct qwrt_ctl_conn_s *c)
+{
+    struct qwrt_ctl_conn_s **pp = &rt->ctl_conns;
+    while (*pp) {
+        if (*pp == c) { *pp = c->next; return; }
+        pp = &(*pp)->next;
+    }
+}
+
+static void conn_close_cb(uv_handle_t *h)
+{
+    struct qwrt_ctl_conn_s *c = (struct qwrt_ctl_conn_s *)h->data;
+    free(c->buf);
+    free(c);
+}
+
+static void conn_close(struct qwrt_ctl_conn_s *c)
+{
+    if (c->closed) return;
+    c->closed = 1;
+    uv_read_stop((uv_stream_t *)&c->pipe);
+    /* 清理其名下未完成回执条目：条目 sink 悬垂会导致回执写 UAF。 */
+    qwrt_ctl_conn_drop(c->rt, c);
+    conn_unlink(c->rt, c);
+    c->pipe.data = c;
+    uv_close((uv_handle_t *)&c->pipe, conn_close_cb);
+}
+
+static void conn_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *b)
+{
+    QWRT_UNUSED(h);
+    size_t n = suggested > 0 ? suggested : 4096;
+    b->base = (char *)malloc(n);
+    b->len = b->base ? (unsigned)n : 0;
+}
+
+static void conn_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *b)
+{
+    struct qwrt_ctl_conn_s *c = (struct qwrt_ctl_conn_s *)s->data;
+    if (nread < 0) {            /* EOF/错误：客户端断开 */
+        free(b->base);
+        conn_close(c);
+        return;
+    }
+    if (nread == 0) { free(b->base); return; }
+
+    size_t need = c->len + (size_t)nread;
+    if (need > c->cap) {
+        size_t ncap = c->cap ? c->cap : 4096;
+        while (ncap < need) ncap *= 2;
+        char *nb = (char *)realloc(c->buf, ncap);
+        if (!nb) { free(b->base); conn_close(c); return; }
+        c->buf = nb;
+        c->cap = ncap;
+    }
+    memcpy(c->buf + c->len, b->base, (size_t)nread);
+    c->len += (size_t)nread;
+    free(b->base);
+
+    /* 换行分帧：完整行 → 端点命令入口（同一执行路径 + target 树路由）。 */
+    size_t start = 0;
+    for (size_t i = 0; i < c->len; i++) {
+        if (c->buf[i] != '\n') continue;
+        size_t llen = i - start;
+        if (llen > 0)
+            qwrt_control_endpoint_cmd(c->rt, c->buf + start, llen, c);
+        start = i + 1;
+    }
+    if (start > 0) {
+        memmove(c->buf, c->buf + start, c->len - start);
+        c->len -= start;
+    }
+}
+
+/* ── 接受连接（loop 线程） ── */
+
+static int conn_peer_uid(uv_pipe_t *p, uid_t *out)
+{
+    uv_os_fd_t fd;
+    if (uv_fileno((uv_handle_t *)p, &fd) != 0) return -1;
+    struct qwrt_peercred cred;
+    socklen_t cl = (socklen_t)sizeof cred;
+    if (getsockopt((int)(intptr_t)fd, SOL_SOCKET, SO_PEERCRED, &cred, &cl) != 0)
+        return -1;
+    *out = cred.uid;
+    return 0;
+}
+
+static void listener_cb(uv_stream_t *s, int status)
+{
+    qwrt_t *rt = (qwrt_t *)s->data;
+    if (status != 0) return;
+
+    struct qwrt_ctl_conn_s *c =
+        (struct qwrt_ctl_conn_s *)calloc(1, sizeof *c);
+    if (!c) return;
+    c->rt = rt;
+    if (uv_pipe_init(&rt->loop, &c->pipe, 0) != 0) { free(c); return; }
+    c->pipe.data = c;
+
+    if (uv_accept(s, (uv_stream_t *)&c->pipe) != 0) {
+        uv_close((uv_handle_t *)&c->pipe, conn_close_cb);
+        return;
+    }
+    /* 认证：SO_PEERCRED uid 必须与端点 owner 一致，否则直接断（§4.2）。 */
+    uid_t puid = (uid_t)-1;
+    if (conn_peer_uid(&c->pipe, &puid) != 0 || puid != getuid()) {
+        uv_close((uv_handle_t *)&c->pipe, conn_close_cb);
+        return;
+    }
+    c->next = rt->ctl_conns;
+    rt->ctl_conns = c;
+    uv_read_start((uv_stream_t *)&c->pipe, conn_alloc_cb, conn_read_cb);
+}
+
+/* ── 端点生命周期 ── */
+
+int qwrt_ctl_endpoint_init(qwrt_t *rt)
+{
+    if (!rt) return -1;
+    const char *cfg = rt->config.control_pipe_path;
+    int defaulted = (!cfg || !cfg[0]);
+    char path[256];
+    if (defaulted)
+        snprintf(path, sizeof path, "/tmp/qwrt-%ld-%u.ctl", (long)getpid(),
+                 __atomic_add_fetch(&g_ctl_seq, 1, __ATOMIC_RELAXED));
+    else
+        snprintf(path, sizeof path, "%s", cfg);
+
+    /* 缺省路径下清理上次崩溃残留的 socket（bind 对已存在路径返回 EADDRINUSE）；
+     * 显式路径归调用方管理，自动 unlink 会误删别人的端点。 */
+    if (defaulted) unlink(path);
+
+    rt->ctl_pipe_path = strdup(path);
+    if (!rt->ctl_pipe_path) return -1;
+
+    if (uv_pipe_init(&rt->loop, &rt->ctl_listener, 0) != 0) {
+        free(rt->ctl_pipe_path);
+        rt->ctl_pipe_path = NULL;
+        return -1;
+    }
+    rt->ctl_listener.data = rt;
+    if (uv_pipe_bind(&rt->ctl_listener, path) != 0) goto fail;
+    /* 端点权限 0600：unix pipe 权限即认证（§4.2）。 */
+    if (chmod(path, 0600) != 0) goto fail;
+    if (uv_listen((uv_stream_t *)&rt->ctl_listener, 16, listener_cb) != 0)
+        goto fail;
+    rt->ctl_listener_active = 1;
+    return 0;
+
+fail:
+    uv_close((uv_handle_t *)&rt->ctl_listener, NULL);   /* rt 内嵌，无需释放 */
+    unlink(path);
+    free(rt->ctl_pipe_path);
+    rt->ctl_pipe_path = NULL;
+    return -1;
+}
+
+void qwrt_ctl_endpoint_close(qwrt_t *rt)
+{
+    if (!rt) return;
+    struct qwrt_ctl_conn_s *c = rt->ctl_conns;
+    rt->ctl_conns = NULL;
+    while (c) {
+        struct qwrt_ctl_conn_s *next = c->next;
+        if (!c->closed) {
+            c->closed = 1;
+            uv_read_stop((uv_stream_t *)&c->pipe);
+            qwrt_ctl_conn_drop(rt, c);
+            c->pipe.data = c;
+            uv_close((uv_handle_t *)&c->pipe, conn_close_cb);
+        }
+        c = next;
+    }
+    if (rt->ctl_listener_active) {
+        rt->ctl_listener_active = 0;
+        uv_close((uv_handle_t *)&rt->ctl_listener, NULL);
+    }
+    if (rt->ctl_pipe_path) {
+        unlink(rt->ctl_pipe_path);
+        free(rt->ctl_pipe_path);
+        rt->ctl_pipe_path = NULL;
+    }
+}
+
+int qwrt_ctl_endpoint_owns(qwrt_t *rt, void *h)
+{
+    if (!rt || !h) return 0;
+    if (rt->ctl_listener_active && h == (void *)&rt->ctl_listener) return 1;
+    for (struct qwrt_ctl_conn_s *c = rt->ctl_conns; c; c = c->next)
+        if (h == (void *)&c->pipe) return 1;
+    return 0;
+}

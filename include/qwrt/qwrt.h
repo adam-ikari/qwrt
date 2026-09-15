@@ -21,10 +21,13 @@ typedef struct qwrt_config_s {
     void (*message_cb)(qwrt_t *rt, const char *json, size_t len, void *data);
     int  debug;                      /* 沿用 DAP bit 语义 */
     void *host_data;                 /* per-runtime opaque ptr，可经 qwrt_get_runtime_data 读取 */
-    /* 控制面三档（CTL-0）：OFF（默认，qwrt_control 恒 -1）/
-     * IN_PROC（进程内宿主线程命令）/ LOCAL（预留，CTL-2 端点，行为同 IN_PROC）。
+    /* 控制面三档（CTL-0/CTL-2）：OFF（默认，qwrt_control 恒 -1）/
+     * IN_PROC（进程内宿主线程命令）/ LOCAL（IN_PROC + 本机 uv_pipe 端点）。
      * 见 docs/plans/2026-09-04-control-plane-design.md §4.1。 */
     int control_plane;               /* qwrt_control_plane_t 值 */
+    /* LOCAL 档的端点路径（AF_UNIX）。NULL → 缺省 /tmp/qwrt-<pid>-<n>.ctl。
+     * 端点文件权限 0600；连接方以 SO_PEERCRED 校验 uid（§2.3 / §4.2）。 */
+    const char *control_pipe_path;
     /* Worker 执行后端（M-P1/M-P2 多进程模型 §1.4）。取值语义随编译模型
      * （QWRT_PROCESS_MODEL）条件编译——见下方 qwrt_worker_backend_t 注释。
      * 粒度 per-rt：同一 qwrt_t 的全部 worker 同后端。M-P1 缺省 THREAD；
@@ -34,7 +37,7 @@ typedef struct qwrt_config_s {
 typedef enum {
     QWRT_CONTROL_OFF = 0,     /* 默认：控制面关闭 */
     QWRT_CONTROL_IN_PROC = 1, /* 进程内命令（msgq 路径） */
-    QWRT_CONTROL_LOCAL = 2,   /* 预留（CTL-2 本地端点）；CTL-0 行为同 IN_PROC */
+    QWRT_CONTROL_LOCAL = 2,   /* IN_PROC + uv_pipe 本地端点（CTL-2） */
 } qwrt_control_plane_t;
 
 /* Worker 执行后端（qwrt_config_t.worker_backend 取值）。

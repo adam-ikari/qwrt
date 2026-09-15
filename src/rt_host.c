@@ -193,7 +193,7 @@ int qwrt_host_start(qwrt_t *rt)
 
     char fd_arg[16];
     snprintf(fd_arg, sizeof fd_arg, "%d", QWRT_IPC_CHANNEL_FD);
-    char *argv[10];
+    char *argv[14];
     int n = 0;
     argv[n++] = (char *)"qwrt-rt";
     argv[n++] = (char *)"--qwrt-rt-server";
@@ -205,6 +205,19 @@ int qwrt_host_start(qwrt_t *rt)
     if (tmp) {
         argv[n++] = (char *)"--script";
         argv[n++] = tmp;
+    }
+    /* CTL-2：控制面档位 + 端点路径传给主RT（runtime 在主RT 进程；宿主进程
+     * 只有通道桩，不监听端点）。路径以字符串字面量传入，argv 仅在 spawn
+     * 期间需要（qwrt_proc_spawn 同步 fork+exec）。 */
+    if (rt->config.control_plane == QWRT_CONTROL_IN_PROC ||
+        rt->config.control_plane == QWRT_CONTROL_LOCAL) {
+        argv[n++] = (char *)"--control-plane";
+        argv[n++] = (char *)(rt->config.control_plane == QWRT_CONTROL_LOCAL
+                                 ? "local" : "in-proc");
+        if (rt->config.control_pipe_path) {
+            argv[n++] = (char *)"--control-pipe";
+            argv[n++] = (char *)rt->config.control_pipe_path;
+        }
     }
     argv[n] = NULL;
 

@@ -710,6 +710,11 @@ if(NOT QWRT_BUILD_TESTS)
     # (QWRT_BUILD_TESTS) compile the core against mock_libuv.h and exclude it.
     list(APPEND _qwrt_core_sources src/ipc_process.c)
 
+    # CTL-2 本地控制端点（src/control_endpoint.c）：uv_pipe + SO_PEERCRED，
+    # 与 ipc_process.c 同款——mock 构建无 uv_pipe，mock 下 LOCAL 档由
+    # control.c 的 no-op stub 兜底（端点不可用，命令仍走进程内路径）。
+    list(APPEND _qwrt_core_sources src/control_endpoint.c)
+
 endif()
 if(QWRT_PROCESS_MODEL STREQUAL "ISOLATED" AND NOT QWRT_BUILD_TESTS)
     # M-P2：宿主↔主RT 进程分离（src/rt_host.c）。THREAD 编译不编该路径——语义门见
@@ -1038,6 +1043,17 @@ if(QWRT_BUILD_CLI AND NOT QWRT_BUILD_TESTS)
     # (review I8): rt_main.c is core runtime code, not an exception.
     qwrt_enable_warnings(qwrt_rt)
     target_link_libraries(qwrt_rt PRIVATE qwrt_full)
+endif()
+
+# ============================================================================
+# qwrt-ctl — control-plane endpoint client (CTL-2)
+# 纯 POSIX socket + stdio（不依赖 libuv / qwrt 库）；只在真实构建产出
+# （test 构建无控制面端点）。
+# ============================================================================
+if(QWRT_BUILD_CLI AND NOT QWRT_BUILD_TESTS)
+    add_executable(qwrt_ctl src/ctl_cli.c)
+    set_target_properties(qwrt_ctl PROPERTIES OUTPUT_NAME qwrt-ctl)
+    qwrt_enable_warnings(qwrt_ctl)
 endif()
 # ============================================================================
 # Install

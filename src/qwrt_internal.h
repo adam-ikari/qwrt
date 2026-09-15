@@ -435,6 +435,18 @@ struct qwrt_t {
     int ctl_interrupt;
     uv_mutex_t ctl_lock;
     struct qwrt_ctl_recept_s *ctl_pending;
+    /* ── Control plane 本地端点（CTL-2, §2.3）──
+     * ctl_listener/ctl_listener_active：LOCAL 档的 AF_UNIX 监听（loop 线程
+     *   独占；active 时被 idle 判定豁免——监听是基础设施句柄，不算"忙"）。
+     * ctl_conns：活跃连接链表（loop 线程独占；连接关闭时清理其名下回执条目）。
+     * ctl_pipe_path：端点实际路径（strdup；teardown 时 unlink + free）。
+     * mock 构建（QWRT_USE_MOCK_LIBUV）无 uv_pipe，整块不编入。 */
+#ifndef QWRT_USE_MOCK_LIBUV
+    uv_pipe_t ctl_listener;
+    int       ctl_listener_active;
+    struct qwrt_ctl_conn_s *ctl_conns;
+    char     *ctl_pipe_path;
+#endif
 };
 
 /* ================================================================
@@ -627,9 +639,10 @@ int qwrt_ctl_interrupt_handler(JSRuntime *jsrt, void *opaque);
 int32_t qwrt_ctl_local_id(qwrt_t *rt);
 /* 回执表：登记 correl 条目（producer 线程，锁内插入）。reply_dir 为
  * 跨进程回程方向（CTL-1）：-1 = 本地 message_cb；>=0 = 回执信封 target
- * （命令来源地址，逐跳相对寻址语义，见 control.c qwrt_control_route）。 */
+ * （命令来源地址，逐跳相对寻址语义，见 control.c qwrt_control_route）。
+ * sink 为 CTL-2 端点连接（非 NULL 时回执写回该连接，优先于 reply_dir）。 */
 void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns,
-                       int32_t reply_dir);
+                       int32_t reply_dir, void *sink);
 
 /* ── CTL-1：信封 CONTROL 命令的树路由（§2.2 / 多进程 §4.3、§7.2）──
  *
@@ -657,6 +670,29 @@ int qwrt_control_route(qwrt_t *rt, int32_t local_id, int32_t source,
 /* 命令 JSON 的可选 "target" 字段（C 层提取；缺省 1 = 接收方自身）。
  * 生产者/路由路径用，无需 JSContext。 */
 int32_t qwrt_ctl_cmd_target(const char *json, size_t len);
+
+/* ── CTL-2：本地端点 + 端点回执 sink（§2.3）──
+ *
+ * 端点只做生产者：连接上的每行 JSON 走 qwrt_control_sink 同一入口（不引入
+ * 第二执行路径），回执按条目 sink 写回该连接；无 sink 则走 message_cb/信封。
+ * control_endpoint.c 仅在真实 libuv 构建编入（mock 构建无 uv_pipe）；mock 下
+ * qwrt_ctl_endpoint_* 由 control.c 提供 no-op stub。 */
+int  qwrt_ctl_endpoint_init(qwrt_t *rt);    /* 0 = 已监听（bind+listen+0600） */
+void qwrt_ctl_endpoint_close(qwrt_t *rt);   /* 关监听+连接，unlink 端点文件 */
+int  qwrt_ctl_endpoint_owns(qwrt_t *rt, void *h);   /* idle 豁免判据 */
+/* 端点连接关闭：清理回执表里 sink 指向该连接的条目（防悬垂）。 */
+void qwrt_ctl_conn_drop(qwrt_t *rt, void *conn);
+/* 端点连接回写（一行一条回执；loop 线程独占）。 */
+void qwrt_ctl_conn_write(void *conn, const char *json, size_t len);
+/* 入站 CONTROL 回执投递（target 命中本地）：按回执表条目把回执交给端点
+ * 连接 / 继续沿树上行 / message_cb，并消费条目。 */
+int qwrt_ctl_deliver_receipt(qwrt_t *rt, const uint8_t *payload, uint32_t len);
+/* 端点命令入口：命令 JSON 的 target 决定本地执行还是树转发；回执一律写回
+ * sink 连接（CTL-2 §2.3：端点只是生产者，执行路径与 qwrt_control 同一套）。 */
+int qwrt_control_endpoint_cmd(qwrt_t *rt, const char *bytes, size_t len,
+                              void *sink);
+/* 命令入队 + 指定回执 sink（NULL = 进程内 message_cb / 跨进程信封路径）。 */
+int qwrt_control_sink(qwrt_t *rt, const char *bytes, size_t len, void *sink);
 
 /* Monotonic clock in milliseconds. Ignores clock_gettime failure (same
  * behavior the former per-file copies had): CLOCK_MONOTONIC cannot fail with

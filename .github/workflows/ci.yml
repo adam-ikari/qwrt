@@ -758,6 +758,11 @@ jobs:
           bash test/test_mp3_port_e2e.sh ./build/qwrt
           bash test/test_mp4_storage_crash_e2e.sh ./build/qwrt
 
+      # 控制面 CTL-1/CTL-2（本地端点 + 信封 CONTROL 树路由到 worker）。
+      - name: e2e — control plane (CTL-1 tree routing / CTL-2 endpoint + qwrt-ctl)
+        run: |
+          bash test/test_ctl_e2e.sh ./build/qwrt ./build/qwrt-ctl
+
   # ============================================================================
   # Coverage: gcov with WAMR default engine.
   # ============================================================================

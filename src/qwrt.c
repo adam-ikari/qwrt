@@ -286,6 +286,11 @@ static void qwrt_close_walk_cb(uv_handle_t *h, void *arg)
 
 void qwrt_thread_teardown(qwrt_t *rt)
 {
+    /* -1) 关闭本地控制端点（CTL-2 §2.3）：断开外部控制器连接（同时清理其
+     * 名下未完成回执条目），unlink 端点文件。uv_close 的回收由下文步骤 2.5
+     * 的 uv_run 处理；端点不持有 JSRuntime/context 状态，先关最安全。 */
+    qwrt_ctl_endpoint_close(rt);
+
     /* 0) 先终止所有 worker（Task 4）。必须在排空队列/JSRuntime 之前：worker
      * 线程可能仍向本队列推消息（join 期间 msg_mutex 必须存活），且 JSRuntime
      * 释放后 worker 自己的 teardown 不再需要父侧任何状态。join 在本线程做，

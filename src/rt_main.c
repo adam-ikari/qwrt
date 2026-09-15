@@ -355,9 +355,11 @@ int main(int argc, char **argv)
     int parent_fd = -1;
     int worker_id = 0;
     const char *script_path = NULL;
-    int is_worker = 0;
     int is_server = 0;          /* M-P2：主RT serve 形态 */
+    int is_worker = 0;
     int worker_backend = -1;    /* --worker-backend；-1 = 编译缺省 */
+    int control_plane = -1;     /* --control-plane；-1 = 缺省（OFF） */
+    const char *control_pipe = NULL;   /* --control-pipe 路径（NULL = 缺省） */
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--qwrt-worker") == 0) {
@@ -382,6 +384,17 @@ int main(int argc, char **argv)
             }
         } else if (strcmp(argv[i], "--script") == 0 && i + 1 < argc) {
             script_path = argv[++i];
+        } else if (strcmp(argv[i], "--control-plane") == 0 && i + 1 < argc) {
+            const char *cp = argv[++i];
+            if (strcmp(cp, "off") == 0) control_plane = QWRT_CONTROL_OFF;
+            else if (strcmp(cp, "in-proc") == 0) control_plane = QWRT_CONTROL_IN_PROC;
+            else if (strcmp(cp, "local") == 0) control_plane = QWRT_CONTROL_LOCAL;
+            else {
+                fprintf(stderr, "qwrt-rt: bad --control-plane: %s\n", cp);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--control-pipe") == 0 && i + 1 < argc) {
+            control_pipe = argv[++i];
         }
     }
 
@@ -524,6 +537,21 @@ int main(int argc, char **argv)
         rt->worker_self = w;
     }
 
+    /* CTL-2：控制面档位与端点路径由宿主经 argv 传入（ISOLATED 下 runtime
+     * 在本进程，宿主进程只有通道桩）。只有主RT 监听端点——worker 经父路由
+     * （§2.2 树形拓扑）。 */
+    if (control_plane >= 0) {
+        rt->config.control_plane = control_plane;
+    } else if (is_worker) {
+        /* worker 形态缺省 IN_PROC：worker 没有任何外部面（唯一入站是父通道，
+         * 且父受自身档位门控——父 OFF 时命令在父侧就丢了，§4.1），而 CTL-1
+         * 要求「target 指向 worker 槽位 → 沿树下发 → worker 自己 safepoint
+         * 执行」（§2.2）。若父未显式传档位，OFF 会让 worker 静默丢弃所有
+         * 命令、回执退化为 TIMEOUT——故 worker 缺省取可执行档。 */
+        rt->config.control_plane = QWRT_CONTROL_IN_PROC;
+    }
+    rt->config.control_pipe_path = control_pipe;
+
     int loop_inited = 0;
     if (uv_loop_init(&rt->loop) != 0) {
         fprintf(stderr, "qwrt-rt: loop init failed\n");
@@ -540,6 +568,14 @@ int main(int argc, char **argv)
 
     if (qwrt_runtime_init(rt) != 0) {
         fprintf(stderr, "qwrt-rt: runtime init failed\n");
+        goto fail;
+    }
+
+    /* CTL-2 §2.3：LOCAL 档在主RT 打开本地端点（qwrt-ctl 连入）。bind/listen
+     * 失败即显式失败，不静默降级为 in-proc。 */
+    if (is_server && rt->config.control_plane == QWRT_CONTROL_LOCAL &&
+        qwrt_ctl_endpoint_init(rt) != 0) {
+        fprintf(stderr, "qwrt-rt: control endpoint init failed\n");
         goto fail;
     }
 

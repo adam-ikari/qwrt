@@ -38,6 +38,11 @@ static void qwrt_idle_walk_cb(uv_handle_t *h, void *arg)
 {
     qwrt_idle_state_t *st = (qwrt_idle_state_t *)arg;
     if (h == (uv_handle_t *)&st->rt->wake) return;   /* exclude the internal wake async */
+    /* CTL-2 §2.3：本地控制端点（监听 + 活跃连接）是基础设施句柄，不参与
+     * idle 判定——否则开了端点的 runtime（尤其 qwrt-ctl 连接期间）永不判
+     * idle，wait_idle/destroy 卡死。与 wake async / IPC pipe / DAP timer
+     * 同款豁免。 */
+    if (qwrt_ctl_endpoint_owns(st->rt, h)) return;
     /* M-P1 + spawn 分层化: JS-managed 进程 worker 的 IPC pipe 恒活动（duplex
      * 通道随 child 生命周期保持打开）——wait_idle 须豁免，否则宿主脚本在进程
      * worker 存活时永不 idle 退出，镜像 DAP timer 的豁免。 */
@@ -117,6 +122,11 @@ void qwrt_thread_main(void *arg)
         loop_inited = 1;
         rt->wake.data = rt;
         if (uv_async_init(&rt->loop, &rt->wake, qwrt_wake_cb) != 0) {
+            rt->ready_err = -1;
+        } else if (rt->config.control_plane == QWRT_CONTROL_LOCAL &&
+                   qwrt_ctl_endpoint_init(rt) != 0) {
+            /* LOCAL 档端点 bind/listen 失败 → 显式失败（不静默降级为
+             * IN_PROC；§5.3 同款：能力缺失就报错，不伪造）。 */
             rt->ready_err = -1;
         } else if (qwrt_runtime_init(rt) != 0) {
             rt->ready_err = -1;

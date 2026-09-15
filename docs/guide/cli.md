@@ -72,6 +72,36 @@ qwrt 0.2.0 (WinterTC runtime) — type JS, Ctrl-D to exit
 - **Exit codes** — `0` success; `1` script threw (message on stderr) or the file
   was unreadable; `2` unknown flag / bad `-e` usage.
 
+## Control plane (`qwrt-ctl`)
+
+With `--control-plane=local`, the running runtime exposes a local AF_UNIX
+endpoint (0600, peer-uid checked via `SO_PEERCRED`) that accepts one JSON
+control command per line and writes back one receipt per command:
+
+```bash
+# start a runtime that exposes an endpoint
+qwrt --control-plane=local --control-pipe=/tmp/my-qwrt.ctl app.js
+
+# in another shell: send commands, print receipts
+qwrt-ctl --pipe /tmp/my-qwrt.ctl eval '1 + 1'
+qwrt-ctl --pipe /tmp/my-qwrt.ctl inspect '({a: 1})'
+qwrt-ctl --pipe /tmp/my-qwrt.ctl metrics
+qwrt-ctl --pipe /tmp/my-qwrt.ctl interrupt
+
+# address another node of the process tree (worker slot id), or send raw JSON
+qwrt-ctl --pipe /tmp/my-qwrt.ctl --target 1001 metrics
+qwrt-ctl --pipe /tmp/my-qwrt.ctl --json '{"op":"metrics","correl":"c1"}'
+```
+
+Commands are `eval` / `inspect` / `metrics` / `interrupt`. `--target N` routes
+the command through the process tree (CTL-1): `1` is the main runtime (default),
+`>1` is that node's child slot (i.e. a worker process — a `new Worker(...)`
+under the isolated build gets slot id 1001, 1002, …). Receipts are paired by
+`correl`; the exit code is `0` when the receipt says `ok:true`, `1` otherwise.
+The default path when `--control-pipe` is omitted is
+`/tmp/qwrt-<pid>-<n>.ctl`. `off` (the default) exposes nothing; `in-proc`
+allows in-process commands only.
+
 ## No Node.js API
 
 The CLI intentionally exposes **no** Node-style globals — there is no `process`,

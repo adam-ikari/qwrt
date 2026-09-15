@@ -267,3 +267,38 @@ worker 进程的控制命令**一律经父逐跳路由**——扁平直连不做
 | `message_cb` 在 qwrt 线程被调 | bridge.c:1366（`js_pal_post_message` 内直调） |
 | polyfill 为编译期注入（不支持运行时重载） | qwrt_internal.h:101-122（`QWRT_POLYFILL_MODE` 三模式）、:122（`qwrt_polyfill_load` 一次性装入） |
 | `qwrt_wait_idle` 复用 idle 判据 | qwrt.h:48（公开 API）、thread.c:51-72（`qwrt_loop_idle`） |
+
+---
+
+## 8. 落地状态（CTL-0 / CTL-1 / CTL-2）
+
+- **CTL-0（进程内基线）**：`src/control.c` 的 `qwrt_control` + flags 分流 + 四命令
+  （eval/inspect/metrics/interrupt）+ correl 回执表（`reply_dir` 回程通道 + `sink`
+  端点连接）。回归：`test/test_control_gtest.cpp`。
+- **CTL-1（信封 CONTROL 树路由）**：命令 JSON 增加可选 `target`（§3 通用字段的寻址
+  扩展；C 层提取，路由器不解 payload）。接收方相对解释——`target == 自身槽位 id`
+  → 本地执行；`0`/`1` → 朝根上行；`>1` → 下行本地子槽位；`source` 全程保持（承载
+  回程方向），只有 `target` 逐跳改写。路由点 = 各 runtime 的信封读泵
+  （`src/rt_main.c:process_rx`、`src/ipc_process.c` 的父侧 worker 通道读泵）；命中
+  本地的回执由 `qwrt_ctl_deliver_receipt` 按条目 sink / 回程方向 / message_cb 投递。
+  无对应槽位 → `NOT_FOUND` 回执（fail-closed 但不留无应答）。系统级 CONTROL
+  （握手/idle/shutdown/closing）经 `qwrt_ipc_ctl_classify` 保持通道层消费，不进命令
+  路由（新增 `QWRT_IPC_CTL_SYSTEM` 归类 M-P4 closing）。
+  **已知缺口**：`target` 是单个 int32 的相对地址，无法编码多跳路径（嵌套 spawn 的
+  孙槽位需逐层下发）；文档未定义路径编码，本期不做。
+  回归：`test/test_ctl_route_gtest.cpp`（决策分支/三层逐跳/信封透传/OFF/本地命中）。
+- **CTL-2（本地端点 + qwrt-ctl）**：`config.control_plane=LOCAL` 时 runtime 监听
+  `uv_pipe`（AF_UNIX）——路径 `config.control_pipe_path`，缺省
+  `/tmp/qwrt-<pid>-<n>.ctl`；绑定后 `chmod 0600`，连接以 `SO_PEERCRED` 校验 uid
+  （§4.2）。读循环换行分帧，命令走 `qwrt_control_endpoint_cmd`（同一执行路径 +
+  `target` 树路由），回执写回该连接。端点句柄被 `qwrt_loop_idle` 豁免（否则开着
+  端点的 runtime 永不判 idle）。ISOLATED 下端点由主RT 监听（宿主进程只有通道桩，
+  argv 传档位/路径）；THREAD 编译在宿主 runtime 的 loop 初始化。客户端
+  `qwrt-ctl`（`src/ctl_cli.c`，CMake `qwrt_ctl`）四命令 + `--json` 直发。
+  回归：`test/test_ctl_e2e.sh`（ISOLATED：端点四命令 + correl 配对 + 树路由到
+  worker 的「worker 设全局主RT 不可见」隔离证明与 worker/metrics 差异 + NOT_FOUND
+  + OFF 档无端点恒拒）。
+
+**worker 档位缺省**：worker 进程 argv 不带 `--control-plane` 时缺省取
+`QWRT_CONTROL_IN_PROC`（worker 无外部面，唯一入站是父通道；父按自身档位门控——
+OFF 时命令在父侧即丢弃）。否则 worker 会静默丢弃所有入站命令、回执退化为 TIMEOUT。

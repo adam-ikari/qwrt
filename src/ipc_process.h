@@ -102,6 +102,8 @@ typedef enum {
     QWRT_IPC_CTL_READY,
     QWRT_IPC_CTL_IDLE,
     QWRT_IPC_CTL_SHUTDOWN,
+    QWRT_IPC_CTL_SYSTEM,     /* 带 "qwrt" 标记的其他系统消息（M-P4 closing 等）：
+                              * 通道级，不进控制面命令路由器（CTL-1） */
 } qwrt_ipc_ctl_kind_t;
 
 /* 判定 CONTROL payload 是否为 M-P2 协议消息；命中时 *out_val = 对应键的数值

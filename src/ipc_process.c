@@ -192,6 +192,10 @@ qwrt_ipc_ctl_kind_t qwrt_ipc_ctl_classify(const uint8_t *payload,
         } else if (cJSON_IsNumber(sd)) {
             kind = QWRT_IPC_CTL_SHUTDOWN;
             *out_val = sd->valueint;
+        } else {
+            /* 带 "qwrt" 标记但非 ready/idle/shutdown（M-P4 closing 等）：
+             * 通道级系统消息，交通道层消费，不被当作控制面命令路由。 */
+            kind = QWRT_IPC_CTL_SYSTEM;
         }
     }
     cJSON_Delete(j);

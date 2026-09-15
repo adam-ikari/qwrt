@@ -16,6 +16,11 @@
 
 #define QWRT_CLI_VERSION "qwrt 0.2.0"
 
+/* CTL-2：控制面档位 / 端点路径（--control-plane / --control-pipe，main 解析、
+ * run_code 应用到 qwrt_config_t）。-1 = 缺省（OFF）。 */
+static int g_control_plane = -1;
+static const char *g_control_pipe = NULL;
+
 static void usage(FILE *out) {
     fprintf(out,
         "Usage: qwrt [options] [script.js [args...]]\n"
@@ -24,6 +29,11 @@ static void usage(FILE *out) {
         "\n"
         "Options:\n"
         "  -e, --eval <code>   evaluate <code> and exit\n"
+        "  --control-plane=<off|in-proc|local>\n"
+        "                      control-plane tier (default off); local exposes\n"
+        "                      an AF_UNIX endpoint (see qwrt-ctl)\n"
+        "  --control-pipe=<path>\n"
+        "                      endpoint path (default /tmp/qwrt-<pid>-<n>.ctl)\n"
         "  -h, --help          show this help\n"
         "  -v, --version       show version\n"
         "\n"
@@ -283,6 +293,13 @@ static void apply_worker_backend(qwrt_config_t *cfg) {
         cfg->worker_backend = QWRT_WORKER_BACKEND_THREAD;
 }
 
+/* CTL-2：把 main 解析到的 --control-plane/--control-pipe 应用到配置。
+ * LOCAL 档让 runtime 暴露本地端点（ISOLATED 下由主RT 监听）。 */
+static void apply_control_plane(qwrt_config_t *cfg) {
+    if (g_control_plane >= 0) cfg->control_plane = g_control_plane;
+    cfg->control_pipe_path = g_control_pipe;
+}
+
 static int run_code(const char *code, const char *const *args, int nargs) {
     cli_host_t host = {0};
 
@@ -292,6 +309,7 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     cfg.message_cb = cli_message_cb;
     cfg.initial_script = bootstrap;
     apply_worker_backend(&cfg);
+    apply_control_plane(&cfg);
 
     qwrt_t *rt = qwrt_create(&cfg);
     free(bootstrap);
@@ -300,7 +318,6 @@ static int run_code(const char *code, const char *const *args, int nargs) {
         return 1;
     }
     qwrt_set_runtime_data(rt, &host);
-
     char *cmd_json = json_escape(code);
     if (!cmd_json) {
         fprintf(stderr, "qwrt: out of memory\n");
@@ -371,6 +388,7 @@ static int repl_loop(void) {
     cfg.message_cb = cli_message_cb;
     cfg.initial_script = bootstrap;
     apply_worker_backend(&cfg);
+    apply_control_plane(&cfg);
 
     qwrt_t *rt = qwrt_create(&cfg);
     free(bootstrap);
@@ -379,7 +397,6 @@ static int repl_loop(void) {
         return 1;
     }
     qwrt_set_runtime_data(rt, &host);
-
     printf("%s (WinterTC runtime) — type JS, Ctrl-D to exit\n",
            QWRT_CLI_VERSION);
     fflush(stdout);
@@ -446,6 +463,18 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             usage(stdout);
             return 0;
+        }
+        if (!strncmp(argv[i], "--control-plane=", 16)) {
+            const char *v = argv[i] + 16;
+            if (!strcmp(v, "off")) g_control_plane = QWRT_CONTROL_OFF;
+            else if (!strcmp(v, "in-proc")) g_control_plane = QWRT_CONTROL_IN_PROC;
+            else if (!strcmp(v, "local")) g_control_plane = QWRT_CONTROL_LOCAL;
+            else { usage(stderr); return 2; }
+            continue;
+        }
+        if (!strncmp(argv[i], "--control-pipe=", 15)) {
+            g_control_pipe = argv[i] + 15;
+            continue;
         }
         if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--version")) {
             printf("%s\n", QWRT_CLI_VERSION);
