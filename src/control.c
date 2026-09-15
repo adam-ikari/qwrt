@@ -522,7 +522,8 @@ int qwrt_control_route(qwrt_t *rt, int32_t local_id, int32_t source,
             }
             if (on_path)
                 return ctl_forward(rt, source, p[d], payload, len);
-            return ctl_forward(rt, source, QWRT_IPC_MAIN_ID, payload, len);
+            /* 1 = QWRT_IPC_MAIN_ID（mock 构建不编入 ipc_process.h，用字面量） */
+            return ctl_forward(rt, source, 1, payload, len);
         }
     }
 

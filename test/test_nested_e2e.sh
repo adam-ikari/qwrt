@@ -39,7 +39,7 @@ for f in main-nested.js main-nested-port.js main-nested-storage.js; do
 done
 for f in worker_spawn_child.js worker_grand_echo.js worker_port_relay.js \
          worker_grand_port_echo.js worker_spawn_child_storage.js \
-         worker_grand_storage.js; do
+         worker_grand_storage.js worker_spawn_child_hold.js; do
   cp "$FIXI/$f" "$FIX/$f"
 done
 sed -i "s#file:///home/gem/project/qwrt/test/nested-e2e#file://$FIX#g" "$FIX"/*.js
@@ -53,16 +53,8 @@ EXP=$'nested:child-grand:ping\nDONE'
 [ "$OUT" = "$EXP" ] || fail "1 nested spawn round-trip" "$OUT"
 
 # PID 证据：跑一个 spawn 孙但不退出的脚本，检查三级父子链。
-cat > "$FIX/hold.js" <<EOF
-var w = new Worker('file://$FIX/worker_spawn_child_hold.js');
-console.log('READY');
-setInterval(function () {}, 100);
-EOF
-cat > "$FIX/worker_spawn_child_hold.js" <<EOF
-var g = new Worker('file://$FIX/worker_grand_echo.js');
-self.onmessage = function (e) { g.postMessage(e.data); };
-setInterval(function () {}, 100);
-EOF
+cp "$FIXI/main-nested-cascade.js" "$FIX/hold.js"
+sed -i "s#file:///home/gem/project/qwrt/test/nested-e2e#file://$FIX#g" "$FIX/hold.js"
 "$QWRT" "$FIX/hold.js" > "$FIX/hold.out" 2>&1 &
 HPID=$!
 for _ in $(seq 1 50); do grep -q READY "$FIX/hold.out" 2>/dev/null && break; sleep 0.1; done
@@ -126,4 +118,52 @@ OUT="$(timeout 30 "$QWRT" "$FIX/main-nested-storage.js" 2>&1)" || fail "4 nested
 printf '%s\n' "$OUT" | grep -q "grand:g-get=gv1" || fail "4 grandchild reads owner-set value" "$OUT"
 printf '%s\n' "$OUT" | grep -q "main-sees-gkey:gval" || fail "4 owner sees grandchild write" "$OUT"
 printf '%s\n' "$OUT" | grep -q "NESTED-STORAGE-DONE" || fail "4 nested storage completion" "$OUT"
-echo "PASS: 嵌套 spawn e2e — 三级进程树 (PID 证据) / worker↔孙 postMessage / §8.2 port path 跨两级经 LCA / CTL --target-path 到孙 + 回执配对 / §10.2 STORAGE 孙→主RT 中继 / 无残留"
+# ── 5: 死亡级联（§9.4 两级）──
+# 起一棵 host→主RT→worker→孙 的树并回传三级 PID（全局 PID_* / 输出文件）。
+start_tree() {
+  TREE_OUT="$FIX/tree.out"
+  : > "$TREE_OUT"
+  "$QWRT" "$FIX/hold.js" > "$TREE_OUT" 2>&1 &
+  TREE_HOST=$!
+  for _ in $(seq 1 60); do grep -q READY "$TREE_OUT" 2>/dev/null && break; sleep 0.1; done
+  sleep 0.6
+  PID_MAINRT="$(pgrep -P "$TREE_HOST" -f 'qwrt-rt' 2>/dev/null | head -1)"
+  PID_WORKER="$(pgrep -P "$PID_MAINRT" 2>/dev/null | head -1)"
+  PID_GRAND="$(pgrep -P "$PID_WORKER" 2>/dev/null | head -1)"
+  [ -n "$PID_MAINRT" ] && [ -n "$PID_WORKER" ] && [ -n "$PID_GRAND" ] \
+    || fail "5 tree not up (host=$TREE_HOST mainRT=$PID_MAINRT worker=$PID_WORKER grand=$PID_GRAND)" "$(cat "$TREE_OUT")"
+}
+zombies() { ps -eo stat=,comm= 2>/dev/null | awk '$2=="qwrt-rt" && $1 ~ /Z/' | wc -l; }
+
+# 5a：kill 孙 → 子（worker）收尸，主RT/worker 存活，零 zombie。
+start_tree
+kill -9 "$PID_GRAND" 2>/dev/null
+for _ in $(seq 1 60); do kill -0 "$PID_GRAND" 2>/dev/null || break; sleep 0.1; done
+kill -0 "$PID_GRAND" 2>/dev/null && fail "5a grandchild survived its own kill"
+kill -0 "$PID_WORKER" 2>/dev/null || fail "5a worker died when grandchild was killed"
+kill -0 "$PID_MAINRT" 2>/dev/null || fail "5a mainRT died when grandchild was killed"
+[ "$(zombies)" = "0" ] || fail "5a zombies after grandchild reap: $(zombies)"
+
+# 5b（新树）：kill worker → 孙按 §9.4 孤儿自杀 + 主RT 感知 error 且自身存活。
+kill -TERM "$TREE_HOST" 2>/dev/null
+for _ in $(seq 1 60); do pgrep -f qwrt-rt >/dev/null 2>&1 || break; sleep 0.1; done
+start_tree
+kill -9 "$PID_WORKER" 2>/dev/null
+for _ in $(seq 1 80); do kill -0 "$PID_GRAND" 2>/dev/null || break; sleep 0.1; done
+kill -0 "$PID_GRAND" 2>/dev/null && fail "5b grandchild orphan survived worker death (§9.4 chain)"
+kill -0 "$PID_MAINRT" 2>/dev/null || fail "5b mainRT died when worker was killed"
+for _ in $(seq 1 60); do grep -q "MAINRT-ONERROR:" "$TREE_OUT" 2>/dev/null && break; sleep 0.1; done
+grep -q "MAINRT-ONERROR:" "$TREE_OUT" || fail "5b mainRT onerror on worker death (§9.3)" "$(cat "$TREE_OUT")"
+
+# 5c（新树）：kill 宿主 → 主RT + worker + 孙 全链退出（§9.4）。
+kill -TERM "$TREE_HOST" 2>/dev/null
+for _ in $(seq 1 60); do pgrep -f qwrt-rt >/dev/null 2>&1 || break; sleep 0.1; done
+start_tree
+kill -9 "$TREE_HOST" 2>/dev/null
+for _ in $(seq 1 80); do pgrep -f qwrt-rt >/dev/null 2>&1 || break; sleep 0.1; done
+if pgrep -f qwrt-rt > /dev/null 2>&1; then
+  fail "5c two-level chain death incomplete" "$(pgrep -af qwrt-rt)"
+fi
+[ "$(zombies)" = "0" ] || fail "5c zombies after host kill: $(zombies)"
+
+echo "PASS: 嵌套 spawn e2e — 三级进程树 (PID 证据) / worker↔孙 postMessage / §8.2 port path 跨两级经 LCA / CTL --target-path 到孙 + 回执配对 / §10.2 STORAGE 孙→主RT 中继 / §9.4 两级死亡级联（收尸/孤儿自杀/连锁）无 zombie 无残留"

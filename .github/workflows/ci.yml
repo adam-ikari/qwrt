@@ -764,6 +764,12 @@ jobs:
         run: |
           bash test/test_ctl_e2e.sh ./build/qwrt ./build/qwrt-ctl
 
+      # 嵌套 spawn（N-P1..N-P4）：worker 内再 spawn 孙 + §8.2 path 链路由 +
+      # CTL path 寻址到孙 + STORAGE 两级中继 + §9.4 两级死亡级联。
+      - name: e2e — nested spawn (worker→grandchild / §8.2 path routing / CTL path / nested STORAGE / cascade death)
+        run: |
+          bash test/test_nested_e2e.sh ./build/qwrt ./build/qwrt-ctl
+
   # ============================================================================
   # Coverage: gcov with WAMR default engine.
   # ============================================================================

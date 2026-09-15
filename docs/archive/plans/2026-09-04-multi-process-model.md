@@ -10,6 +10,7 @@
 > 修订：2026-09-04 v7 —— 强制终止权强化：§9.2 终止协议三级化（CONTROL{shutdown} → 超时 → SIGKILL+收尸；优雅可失败、强杀不可拒绝，terminate 权=spawn 权）；线程后端诚实边界（同进程无法安全强杀单线程，强制上限=进程级）；§1.4 判据表新增终止语义轴；M-P1 验证门增强杀用例
 > 修订：2026-09-08 v8 —— 性能判据以实测修订（基准 commit f4ab5776，Ryzen 5800H / build/qwrt Release）：§1.4 判据表性能轴「依据」从量级档位改为实测数值（spawn ready 1.51×、往返 0B/1KB/64KB 1.19×/1.00×/0.97×、terminate 1353×、吞吐 0.3×、worker VmHWM 13.1 vs 22.4MB）；§12.2 与开放决策点 #1 的 10~50× 预测按实测更新（预测被证伪、实测为真）；标注 PROCESS worker 洪水卡死已知限制（>~500-1000 条间歇，commit 9b7c0781）
 > 修订：2026-09-14 v9 —— M-P2 落地（编译开关缺省 ISOLATED + 主RT serve 形态 + 宿主透明切换）。落地状态、偏差与已知缺口记于 §11 M-P2 节末。
+> 修订：2026-09-15 v10 —— M-P5 落地（嵌套 spawn + §8.2 path 链路由 + CTL path 寻址 + STORAGE 嵌套中继 + §9.4 两级级联）。落地状态与缺口记于 §11 M-P5 节末。
 > 范围：qwrt 运行时（QuickJS-ng 嵌入式）的应用模型，从「单进程多线程」演进为「多进程隔离」。默认独立进程（`ISOLATED`），线程模型（`THREAD`）保留为编译选项回退。
 > 背景（用户决策原文）：**"修改应用模型，支持宿主 主RT 和 WorkerRT 独立进程，通过编译选项设置，默认是独立进程。进程间通讯使用Flatbuffer序列化"**
 
@@ -556,6 +557,46 @@ qwrt-rt  --qwrt-worker --parent-fd N --worker-id K [--script PATH]
 - **落地状态（2026-09-14）**：已实施。① storage 单所有者代理：`IPC_ENV_KIND_STORAGE(4)` 落地（§4.1 冻结 schema，只加枚举值）；worker 进程内 localStorage 为同步代理（`polyfill/src/local-storage.js`：PROCESS worker 挂代理、THREAD worker 维持不挂，基线零改动），op 编排经 `{op,key,value?,storageDomain}` SC 字节走信封，主RT 所有者（`__qwrt_storage_dispatch__`，C 层 `worker.js` 的 proc 读泵按 kind=4 分流——**owner 侧请求不经 g_parent_pipe**，worker 通道是 proc 句柄读泵）执行后回发结果；同步语义由 C 侧 `qwrt_ipc_child_storage_sync`（rt_main.c `child_storage_sync`：poll/recv 等待、期间不跑 uv_run → 无 JS 重入；大 payload 走 `qwrt_ipc_child_emit_sync` 阻塞整帧发送）保证；配额异常跨进程保持 `DOMException('QuotaExceededError')`。② §9.3：worker fd EOF → 主RT `Worker.onerror`（自 close 发 CONTROL{closing} 区分、terminate 不误报）；主RT EOF → 宿主 `message_cb` `{"type":"error","error":"main-runtime-process-exited-unexpectedly"}` + `wait_idle` 立即返回（CLI 补报、退出码 1）。③ §6.4/§9.4 复核：孤儿自杀与连锁死亡已由 M-P1/M-P2 实现，本里程碑以 e2e 证实（宿主被杀 → 主RT+worker 皆退；主RT 被杀 → worker 连锁退；SIGKILL 后无 zombie）。
   验证：`test/test_mp4_storage_crash_e2e.sh`（跨进程 storage 一致性/配额 → worker kill -9 onerror + 新 worker 正常 + 无 zombie → 自关静默 → 主RT kill 宿主 error + worker 连锁死 → 宿主 kill 孤儿回收 → 2000 条洪泛零丢失）；`PolyfillTest.StorageOwnerDispatch`（所有者编排 + 回包线格式 kind=4/source 回显）；envelope kind 全枚举往返 gtest；M-P1/M-P2/M-P3 e2e 不回归；ctest offline 21/21（ISOLATED mock 与 THREAD 两配置）。
   偏差与缺口：① §10.2 的所有者死亡降级（本地快照只读 + 原子 rename 兜底）**未实现且当前不可达**——§9.4 连锁自杀使孤儿 worker 在主RT 死亡后立即自杀，降级路径无存活主体；若将来允许孤儿存活再补（文档记录，非静默缺口）。② 洪泛验证取 2000 条（计数 + 校验和精确）而非 10^5——全量 10^5 在 ~1769 msg/s（§12.2 R4）下需 ~1 分钟，压力结论已由 R4 基准覆盖；e2e 保持快速回归定位。③ nested spawn（worker 再 spawn）的 STORAGE 逐跳路由未做——扁平拓扑下 owner 即直接父，与 M-P3 的 LCA 退化同理。④ tier-2 终止超时轮询延后（见 §9.2）。
+
+## M-P5：嵌套 spawn（worker 再 spawn worker）+ §8.2 path 链路由
+
+- 产出：worker 进程内 `new Worker()` 起子 worker 进程（孙）；§8.2 `peerEndpoint = {path, port}`
+  的 path 链路由（逐跳前缀比较 + LCA 中继 + 路由表项改指转发）；CTL path 寻址到孙；
+  STORAGE 经各级到达根所有者；§9.4 两级死亡级联。
+- 能力：任意深度的 rt 树（受 `QWRT_SELF_PATH_MAX` 限），跨子树消息经 LCA 逐跳转发。
+- **验证门**：三级进程树 PID 证据 + worker↔孙 往返 + MessagePort 跨两级经 LCA +
+  控制命令寻址到孙 + 孙 localStorage 经中继到主RT 所有者 + kill 孙（子收尸）/
+  kill 子（孙孤儿自杀 + 主RT 感知）/ kill 主RT·宿主（全树连锁）→ 无 zombie。
+- **落地状态（2026-09-15）**：已实施。
+  ① **嵌套 spawn**：`pal.processSpawn/processPost/processOnMessage/processTerminate`
+  在 worker runtime 同样注册（此前仅父 runtime，且 `worker_self` 硬拒）——进程原语
+  （socketpair/fork+exec/握手/读泵）本不依赖「本 runtime 是主RT」。
+  ② **§8.2 path 链**：端点身份 = `u16[]` path（根 = 空 path，子 = 父 path ++ [父分配槽位]），
+  由 `qwrt_t.self_path` + `pal.selfPath()` 承载，worker 的完整链经 spawn argv `--path`
+  由直接父传入。PORT_TRANSFER 载荷路由头由定长 16B 改为**变长**
+  （`op/dest_len/key_len/pad` + `u16 dest_path[]` + `u16 key_path[]` + `u32 key_port`）；
+  **信封 `source/target(int32)` 与 §4.1 冻结 schema 零改动**（path 全部落在 payload 内，
+  与 §8.2「payload 不解码」一致——中继只重封头、SC 字节原样）。
+  ③ **路由 = path 前缀比较**（`dest == self` → 本地投递；`self` 是 `dest` 严格前缀 →
+  下投 `dest[len(self)]`；否则上转父）——LCA 中继由此自然涌现，**无需全网路由表**；
+  另按 §8.2 在「port 被本 runtime 再转移走」处登记**改指表项**，命中本地却已 detached
+  时重封头改指转发（`message-channel.js`）。
+  ④ **CTL 到孙**：命令 JSON 增可选 `target_path`（`qwrt-ctl --target-path k1,k2`）；
+  路由按「本节点深度 + 前缀比较」下投，信封 target 逐跳重写为该层槽位；无
+  `target_path` 时旧单跳相对语义不变（扁平零回归）。
+  ⑤ **STORAGE 嵌套**：owner 恒为根 runtime，非根 runtime 走 `pal.storageRelay`
+  （登记 `qwrt_t.storage_relay_child`，owner 回复由 `process_rx` 按登记下投）。
+  ⑥ 顺带修复嵌套暴露的既有 bug：`worker.js` 重载 `__qwrt_dispatch__` 时
+  `source===0` 分支丢弃 `kind`（加载了 Worker polyfill 的 worker 会把 port 帧当普通消息）。
+  验证：`test/test_nested_e2e.sh`（5 phase：三级 PID / worker↔孙 往返 / §8.2 port 跨两级经 LCA /
+  CTL `--target-path` 到孙 + 隔离证明 + 回执配对 / STORAGE 两级中继 / §9.4 两级死亡级联）；
+  `test/test_mp1..4`、`test_mr2_composition_e2e.sh`、`test_ctl_e2e.sh` 扁平全绿；CI 新增该 e2e job 步骤。
+  偏差与缺口：① 深度上限 = `QWRT_SELF_PATH_MAX`(8)（超深 spawn 未覆盖）；path 元素 u16
+  （>65535 需升 u32，注释已记升级路径）。② STORAGE 中继沿用 §10.2 的单飞行语义
+  （已有在途中继时新请求不排队）——同节点自身与子请求并发 storage 的交叉未做独立关联 id。
+  ③ `test/nested-e2e/worker_*` fixture 内 URL 仍为仓内绝对路径（与既有 mp1/mp4 fixture 同风格，
+  e2e 脚本按本仓根重写）。
+
 
 ---
 

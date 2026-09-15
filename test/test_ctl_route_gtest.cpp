@@ -145,3 +145,23 @@ TEST(ctl_route, local_hit_dispatches_command) {
     EXPECT_TRUE(seen);
     host_destroy(h);
 }
+
+/* ── 7. §8.2 path 链寻址：首跳提取（宿主侧装信封用；N-P3） ──
+ * 命令 JSON 带 target_path 时，信封 target 必须是路径首元素（根的直接子槽位）——
+ * 后续各跳由 qwrt_control_route 按各节点自身深度重写。无 target_path 时保持
+ * 旧单跳相对语义，扁平拓扑零改动。 */
+
+TEST(ctl_route, cmd_target_prefers_target_path_head) {
+    const char *cmd =
+        "{\"op\":\"eval\",\"correl\":\"c1\",\"target\":1,"
+        "\"target_path\":[1001,1002],\"script\":\"1\"}";
+    EXPECT_EQ(1001, qwrt_ctl_cmd_target(cmd, strlen(cmd)));
+}
+
+TEST(ctl_route, cmd_target_falls_back_to_scalar_target) {
+    const char *with_t = "{\"op\":\"eval\",\"target\":7}";
+    EXPECT_EQ(7, qwrt_ctl_cmd_target(with_t, strlen(with_t)));
+    const char *no_t = "{\"op\":\"metrics\"}";
+    EXPECT_EQ(1, qwrt_ctl_cmd_target(no_t, strlen(no_t)));   /* 缺省 = 主RT */
+    EXPECT_EQ(1, qwrt_ctl_cmd_target(nullptr, 0));
+}
