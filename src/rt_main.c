@@ -278,6 +278,21 @@ static void process_rx(qwrt_t *rt)
                             g_sync_err = 1;   /* OOM：等待方按失败返回 */
                         }
                         g_sync_done = 1;
+                    } else if (rt->storage_relay_child > 0) {
+                        /* N-P4：本节点是中继 —— owner（根）的回复沿父通道回来，
+                         * 按登记把回复原样下投给发起请求的子进程通道。 */
+                        for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+                            qwrt_proc_handle_t *h = &rt->proc_handles[i];
+                            if (h->live && h->proc &&
+                                h->proc->id == rt->storage_relay_child) {
+                                qwrt_proc_post(h->proc, g_local_id,
+                                               rt->storage_relay_child,
+                                               IPC_ENV_KIND_STORAGE,
+                                               view.payload, view.payload_len);
+                                break;
+                            }
+                        }
+                        rt->storage_relay_child = 0;
                     }
                 } else if (is_ctl &&
                            qwrt_ipc_ctl_classify(view.payload, view.payload_len,

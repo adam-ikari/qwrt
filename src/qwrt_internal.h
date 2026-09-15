@@ -355,6 +355,11 @@ struct qwrt_t {
     uint16_t self_path[QWRT_SELF_PATH_MAX];
     uint8_t  self_path_len;
 
+    /* §8.2/§10.2 STORAGE 中继（N-P4）：非根 runtime 收到子树发来的 storage
+     * 请求时，向上转发并登记「等待回程的子槽位 id」；owner（根 runtime）的
+     * 回复沿父通道回来时按此下投给发起者。0 = 无在途中继。 */
+    int storage_relay_child;
+
 #ifndef QWRT_USE_MOCK_LIBUV
     /* pal.processSpawn 句柄注册表（spawn 分层化, Phase B）+ id 分配器。
      * 仅父 runtime（worker_self == NULL）使用；teardown 统一清理残留句柄。 */

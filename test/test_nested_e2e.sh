@@ -34,10 +34,12 @@ trap cleanup EXIT
 fail() { echo "FAIL: $1"; [ -n "${2:-}" ] && { echo "--- got:"; printf '%s\n' "$2"; }; exit 1; }
 
 # fixture 里的 worker URL 是仓内绝对路径（历史写法）——按本仓根重写副本再跑。
-for f in main-nested.js main-nested-port.js; do
+for f in main-nested.js main-nested-port.js main-nested-storage.js; do
   sed "s#file:///home/gem/project/qwrt#file://$ROOT#g" "$FIXI/$f" > "$FIX/$f"
 done
-for f in worker_spawn_child.js worker_grand_echo.js worker_port_relay.js worker_grand_port_echo.js; do
+for f in worker_spawn_child.js worker_grand_echo.js worker_port_relay.js \
+         worker_grand_port_echo.js worker_spawn_child_storage.js \
+         worker_grand_storage.js; do
   cp "$FIXI/$f" "$FIX/$f"
 done
 sed -i "s#file:///home/gem/project/qwrt/test/nested-e2e#file://$FIX#g" "$FIX"/*.js
@@ -89,6 +91,7 @@ setInterval(function(){}, 100);
 " > "$FIX/q.out" 2>&1 &
 QPID=$!
 for _ in $(seq 1 50); do [ -S "$SOCK" ] && break; sleep 0.1; done
+
 [ -S "$SOCK" ] || fail "3 endpoint socket not created" "$(cat "$FIX/q.out")"
 ctl() { timeout 10 "$QWRTCTL" --pipe "$SOCK" "$@"; }
 
@@ -118,4 +121,9 @@ if pgrep -f "qwrt-rt" > /dev/null 2>&1; then
   fail "cleanup: leftover qwrt-rt process" "$(pgrep -af qwrt-rt)"
 fi
 
-echo "PASS: 嵌套 spawn e2e — 三级进程树 (PID 证据) / worker↔孙 postMessage / §8.2 port path 跨两级经 LCA / CTL --target-path 到孙 + 回执配对 / 无残留"
+# ── 4: §10.2 STORAGE 嵌套（孙的 localStorage 经子中继到主RT 所有者）──
+OUT="$(timeout 30 "$QWRT" "$FIX/main-nested-storage.js" 2>&1)" || fail "4 nested storage rc" "$OUT"
+printf '%s\n' "$OUT" | grep -q "grand:g-get=gv1" || fail "4 grandchild reads owner-set value" "$OUT"
+printf '%s\n' "$OUT" | grep -q "main-sees-gkey:gval" || fail "4 owner sees grandchild write" "$OUT"
+printf '%s\n' "$OUT" | grep -q "NESTED-STORAGE-DONE" || fail "4 nested storage completion" "$OUT"
+echo "PASS: 嵌套 spawn e2e — 三级进程树 (PID 证据) / worker↔孙 postMessage / §8.2 port path 跨两级经 LCA / CTL --target-path 到孙 + 回执配对 / §10.2 STORAGE 孙→主RT 中继 / 无残留"

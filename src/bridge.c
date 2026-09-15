@@ -2043,6 +2043,38 @@ static JSValue js_pal_storage_sync(JSContext *ctx, JSValueConst this_val,
     free(reply);
     return ret;
 }
+
+/* pal.storageRelay(bytes, childId) → bool（N-P4：非根 runtime 的 storage 中继
+ * 上游半边）。worker 收到子树发来的 kind=STORAGE 请求时调本函数：把请求原样
+ * 上行给父（逐跳直到根/所有者），并登记发起子槽位——owner 的回复沿父通道
+ * 回来时由 process_rx 按该登记下投（rt->storage_relay_child）。 */
+static JSValue js_pal_storage_relay(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt) return JS_EXCEPTION;
+    if (!rt->worker_self)
+        return JS_ThrowInternalError(ctx,
+            "storageRelay: root runtime is the storage owner");
+    if (argc < 2) return JS_EXCEPTION;
+    size_t len = 0;
+    const uint8_t *bytes = JS_GetUint8Array(ctx, &len, argv[0]);
+    if (!bytes) bytes = JS_GetArrayBuffer(ctx, &len, argv[0]);
+    if (!bytes) return JS_ThrowTypeError(ctx, "storageRelay: expected bytes");
+    int32_t child = 0;
+    if (JS_ToInt32(ctx, &child, argv[1]) != 0) return JS_EXCEPTION;
+    if (rt->storage_relay_child > 0)
+        return JS_FALSE;    /* 单飞行：已有在途中继，新请求不排队（§10.2） */
+    rt->storage_relay_child = child;
+    if (qwrt_ipc_child_emit((int32_t)((qwrt_worker_t *)rt->worker_self)->id,
+                            QWRT_IPC_HOST_ID, IPC_ENV_KIND_STORAGE, bytes,
+                            (uint32_t)len) != 0) {
+        rt->storage_relay_child = 0;
+        return JS_FALSE;
+    }
+    return JS_TRUE;
+}
 #endif /* !QWRT_USE_MOCK_LIBUV */
 
 /* Worker 侧 pal.workerId：返回自身 worker id（>0）。worker 把 MessagePort
@@ -2268,6 +2300,10 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
          * 不挂 localStorage（基线不回归），workerBackend()==='thread' 时
          * setupLocalStorage 直接 return，storageSync 不可达。 */
         JS_SetPropertyStr(jsctx, pal, "storageSync", JS_NewCFunction(jsctx, js_pal_storage_sync, "storageSync", 1));
+        /* N-P4：storage 中继 —— 非根 runtime 把子树的 kind=STORAGE 请求上行，
+         * owner（根）的回复由 process_rx 按登记下投（§10.2 单所有者代理的
+         * 嵌套延伸：孙的 localStorage 经各级到达主RT 所有者）。 */
+        JS_SetPropertyStr(jsctx, pal, "storageRelay", JS_NewCFunction(jsctx, js_pal_storage_relay, "storageRelay", 2));
         /* §1.1 嵌套 spawn：worker 进程同样注册通用进程原语，JS 层 Worker
          * 封装（worker.js）据此在 worker 内 new Worker 起子 worker 进程。
          * 与父 runtime 同签名；读泵/槽位登记复用 bridge 既有实现。 */

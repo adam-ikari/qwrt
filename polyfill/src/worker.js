@@ -141,8 +141,13 @@ export function setupWorker(pal) {
           return;
         }
         if (kind === 4) {
+          /* §10.2 单所有者代理：owner（根 runtime）就地执行；非根 runtime 是
+           * 中继节点（N-P4）——把子树的请求上行给父，owner 的回复沿父通道
+           * 回来时由 C 侧按登记的发起子槽位下投。 */
           if (typeof globalThis.__qwrt_storage_dispatch__ === 'function')
             globalThis.__qwrt_storage_dispatch__(bytes, w._proc._id);
+          else if (typeof pal.storageRelay === 'function')
+            pal.storageRelay(bytes, w._proc._id);
           return;
         }
         var ww = workers.get(w._proc._id);
