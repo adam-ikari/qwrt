@@ -751,12 +751,13 @@ jobs:
           bash test/service_worker_sw2_e2e.sh ./build/qwrt
 
       # 多进程模型（缺省 ISOLATED）：宿主↔主RT 进程分离 + 双后端 worker parity。
-      - name: e2e — multi-process (M-P1 worker / M-P2 host↔mainRT split / M-P3 MessagePort / M-P4 storage+crash)
+      - name: e2e — multi-process (M-P1 worker / M-P2 host↔mainRT split / M-P3 MessagePort / M-P4 storage+crash / M-R2 composition)
         run: |
           bash test/test_mp1_process_e2e.sh ./build/qwrt
           bash test/test_mp2_host_split_e2e.sh ./build/qwrt
           bash test/test_mp3_port_e2e.sh ./build/qwrt
           bash test/test_mp4_storage_crash_e2e.sh ./build/qwrt
+          bash test/test_mr2_composition_e2e.sh ./build/qwrt
 
       # 控制面 CTL-1/CTL-2（本地端点 + 信封 CONTROL 树路由到 worker）。
       - name: e2e — control plane (CTL-1 tree routing / CTL-2 endpoint + qwrt-ctl)

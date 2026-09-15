@@ -58,6 +58,8 @@ add_qwrt_gtest(test_polyfill_gtest)
 add_qwrt_gtest(test_polyfill_lazy_gtest)
 add_qwrt_gtest(test_host_messaging_gtest)   # host-messaging 边界直接测试（P2-10）
 add_qwrt_gtest(test_ipc_envelope_gtest)
+add_qwrt_gtest(test_context_worker_composition_gtest)   # M-R2 §14.3 组合语义（contexts × workers）
+target_compile_definitions(test_context_worker_composition_gtest PRIVATE TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # IPC Envelope wire-format cross-verification (M-P0): the CLI helper is pure
 # C99 + ipc_envelope.c (no libuv); the python driver needs the official
