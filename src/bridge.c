@@ -1773,8 +1773,10 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
     QWRT_UNUSED(this_val);
     qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
     if (!rt) return JS_ThrowInternalError(ctx, "processSpawn: no runtime");
-    if (rt->worker_self)
-        return JS_ThrowInternalError(ctx, "processSpawn: parent runtime only");
+    /* §1.1 树形拓扑：worker 进程亦可 spawn 子 worker（嵌套 spawn）。进程后端
+     * 原语（socketpair/fork+exec/握手/读泵）不依赖「本 runtime 是主RT」，
+     * worker runtime 同样持有 proc_handles[] 与 uv loop，故不再按 worker_self
+     * 拒绝（THREAD 编译由下方 ISOLATED 守卫拒绝）。 */
 
 #ifndef QWRT_PROCESS_MODEL_ISOLATED
     /* THREAD 编译未启用进程后端（§1.4：不静默降级——显式选 PROCESS 在求值点
@@ -2229,8 +2231,9 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
 
     /* Host message boundary / Web Worker (Task 4).
      * worker runtime（rt->worker_self 非 NULL）：postMessage → 父入站（克隆
-     * 字节），另有 workerClose；无宿主 message_cb。父 runtime：postMessage →
-     * 宿主 JSON，另有 spawnWorker / workerPost / workerTerminate。 */
+     * 字节），另有 workerClose；无宿主 message_cb，但持有进程原语以支持
+     * §1.1 嵌套 spawn（worker 内 new Worker 起子进程）。父 runtime：
+     * postMessage → 宿主 JSON，另有 spawnWorker / workerPost / workerTerminate。 */
     if (rt->worker_self) {
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_worker_emit, "postMessage", 1));
         JS_SetPropertyStr(jsctx, pal, "workerClose", JS_NewCFunction(jsctx, js_pal_worker_close, "workerClose", 0));
@@ -2241,6 +2244,13 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
          * 不挂 localStorage（基线不回归），workerBackend()==='thread' 时
          * setupLocalStorage 直接 return，storageSync 不可达。 */
         JS_SetPropertyStr(jsctx, pal, "storageSync", JS_NewCFunction(jsctx, js_pal_storage_sync, "storageSync", 1));
+        /* §1.1 嵌套 spawn：worker 进程同样注册通用进程原语，JS 层 Worker
+         * 封装（worker.js）据此在 worker 内 new Worker 起子 worker 进程。
+         * 与父 runtime 同签名；读泵/槽位登记复用 bridge 既有实现。 */
+        JS_SetPropertyStr(jsctx, pal, "processSpawn", JS_NewCFunction(jsctx, js_pal_process_spawn, "processSpawn", 3));
+        JS_SetPropertyStr(jsctx, pal, "processPost", JS_NewCFunction(jsctx, js_pal_process_post, "processPost", 2));
+        JS_SetPropertyStr(jsctx, pal, "processOnMessage", JS_NewCFunction(jsctx, js_pal_process_on_message, "processOnMessage", 2));
+        JS_SetPropertyStr(jsctx, pal, "processTerminate", JS_NewCFunction(jsctx, js_pal_process_terminate, "processTerminate", 1));
 #endif
     } else {
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_post_message, "postMessage", 1));
