@@ -1723,12 +1723,15 @@ static qwrt_proc_handle_t *bridge_proc_handle_get(qwrt_t *rt, int id)
 }
 
 /* 读泵回调（父 loop 线程 = JS 线程，可直接 JS_Call）：信封 payload → JS
- * 回调(Uint8Array, kind)；payload=NULL → peer-death/EOF，JS 回调(null, kind)。
- * kind（M-P3）原样透传：PORT_TRANSFER 帧让 JS port 层走端点路由，普通帧交
- * 各消费者的应用派发。h 指向 qwrt_t 内嵌数组元素，指针恒有效（terminate 只清
- * 字段不释放数组）。JS 回调内部可能 terminate 本句柄（proc 的释放是 uv_close
- * 异步），回调返回后我们不再 touch h，故无 UAF。source 对本消费者无意义。 */
+ * 回调(Uint8Array, kind, corr)；payload=NULL → peer-death/EOF，JS 回调(null,
+ * kind, 0)。kind（M-P3）原样透传：PORT_TRANSFER 帧让 JS port 层走端点路由，
+ * 普通帧交各消费者的应用派发；corr = STORAGE 中继关联 id（非 STORAGE 帧恒
+ * 0），owner 的 __qwrt_storage_dispatch__ 按它原样回显回复。h 指向 qwrt_t
+ * 内嵌数组元素，指针恒有效（terminate 只清字段不释放数组）。JS 回调内部可能
+ * terminate 本句柄（proc 的释放是 uv_close 异步），回调返回后我们不再 touch
+ * h，故无 UAF。source 对本消费者无意义。 */
 static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
+                               int32_t corr,
                                const uint8_t *payload, uint32_t len)
 {
     qwrt_proc_handle_t *h = (qwrt_proc_handle_t *)user;
@@ -1743,7 +1746,9 @@ static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
     JSValue arg = payload ? JS_NewArrayBufferCopy(ctx, payload, len)
                           : JS_NULL;
     JSValue jkind = JS_NewInt32(ctx, kind);
-    if (JS_IsException(arg) || JS_IsException(jkind)) {
+    JSValue jcorr = JS_NewInt32(ctx, corr);
+    if (JS_IsException(arg) || JS_IsException(jkind) ||
+        JS_IsException(jcorr)) {
         /* OOM 建 ArrayBuffer：跳过本帧。必须 JS_GetException 清掉挂起异常，
          * 否则该异常会污染 context——后续每一帧的 JS_NewArrayBufferCopy /
          * JS_Call 都立即返回同一个异常，读泵在 C 层照常解码但 JS 侧从此
@@ -1751,14 +1756,16 @@ static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
         JS_GetException(ctx);
         JS_FreeValue(ctx, arg);
         JS_FreeValue(ctx, jkind);
+        JS_FreeValue(ctx, jcorr);
         JS_FreeValue(ctx, fn);
         return;
     }
-    JSValue args[2] = { arg, jkind };
-    qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 2, args);
+    JSValue args[3] = { arg, jkind, jcorr };
+    qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 3, args);
     JS_FreeValue(ctx, fn);
     JS_FreeValue(ctx, arg);
     JS_FreeValue(ctx, jkind);
+    JS_FreeValue(ctx, jcorr);
 }
 
 /* pal.processSpawn(exe, argv, opts) → int handle id（>0）。
@@ -1855,8 +1862,9 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
     return JS_NewInt32(ctx, h->id);
 }
 
-/* pal.processPost(handle, bytes[, kind]) → bool（I6 语义：false = 写失败 /
- * 已死）。kind 缺省 MESSAGE；PORT_TRANSFER 让信封带 kind=1（M-P3）。 */
+/* pal.processPost(handle, bytes[, kind[, corr]]) → bool（I6 语义：false = 写
+ * 失败 / 已死）。kind 缺省 MESSAGE；PORT_TRANSFER 让信封带 kind=1（M-P3）；
+ * corr = STORAGE 中继关联 id（owner 回复回显请求 corr，缺省 0）。 */
 static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
@@ -1873,8 +1881,12 @@ static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val,
     if (!data) data = JS_GetArrayBuffer(ctx, &len, argv[1]);
     if (!data) return JS_ThrowTypeError(ctx, "processPost: expected bytes");
 
+    int32_t corr = 0;
+    if (argc > 3 && !JS_IsUndefined(argv[3]))
+        JS_ToInt32(ctx, &corr, argv[3]);
     int rc = qwrt_proc_post(h->proc, 0, h->proc->id,
                             bridge_kind_arg(ctx, argc, argv, 2),
+                            corr,
                             data, (uint32_t)len);
     return JS_NewBool(ctx, rc == 0);
 }
@@ -1977,6 +1989,7 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
 #ifndef QWRT_USE_MOCK_LIBUV
     else if (qwrt_ipc_child_channel() >= 0) {
         rc = qwrt_ipc_child_emit((int32_t)w->id, 0, (int8_t)kind,
+                                 0,
                                  bytes, (uint32_t)len);
     }
 #endif
@@ -1999,9 +2012,9 @@ static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val,
 #ifndef QWRT_USE_MOCK_LIBUV
         /* M-P4 §9.3：进程后端先发 CONTROL{closing} 通知父「自愿退出」——父侧
          * 收到后随后的 fd EOF 不再当作崩溃触发 Worker.onerror。 */
-        if (qwrt_ipc_child_channel() >= 0)
             qwrt_ipc_child_emit((int32_t)(w ? w->id : 0), 0,
                                 IPC_ENV_KIND_CONTROL,
+                                0,
                                 (const uint8_t *)QWRT_IPC_CTL_CLOSING,
                                 (uint32_t)strlen(QWRT_IPC_CTL_CLOSING));
 #endif
@@ -2044,10 +2057,13 @@ static JSValue js_pal_storage_sync(JSContext *ctx, JSValueConst this_val,
     return ret;
 }
 
-/* pal.storageRelay(bytes, childId) → bool（N-P4：非根 runtime 的 storage 中继
- * 上游半边）。worker 收到子树发来的 kind=STORAGE 请求时调本函数：把请求原样
- * 上行给父（逐跳直到根/所有者），并登记发起子槽位——owner 的回复沿父通道
- * 回来时由 process_rx 按该登记下投（rt->storage_relay_child）。 */
+/* pal.storageRelay(bytes, childId, corr) → bool（N-P4：非根 runtime 的 storage
+ * 中继上游半边）。worker 收到子树发来的 kind=STORAGE 请求时调本函数：把请求
+ * 原样上行给父（逐跳直到根/所有者），并登记「上行 corr → 发起子槽位 + 下行
+ * corr（= 子进程帧携带的 corr，回复原样回传）」。owner 的回复沿父通道回来时
+ * 由 process_rx 按 corr 配对下投（rt->storage_relays 表）。corr 由本节点
+ * storage_corr_seq 单调分配（与自身同步 RPC 共用计数，杜绝撞号）。表满 → 返回
+ * false（§10.2 单飞行兜底：并发子树请求超过槽位数时新请求不排队）。 */
 static JSValue js_pal_storage_relay(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
 {
@@ -2064,13 +2080,26 @@ static JSValue js_pal_storage_relay(JSContext *ctx, JSValueConst this_val,
     if (!bytes) return JS_ThrowTypeError(ctx, "storageRelay: expected bytes");
     int32_t child = 0;
     if (JS_ToInt32(ctx, &child, argv[1]) != 0) return JS_EXCEPTION;
-    if (rt->storage_relay_child > 0)
-        return JS_FALSE;    /* 单飞行：已有在途中继，新请求不排队（§10.2） */
-    rt->storage_relay_child = child;
+    int32_t down_corr = 0;
+    if (argc > 2 && !JS_IsUndefined(argv[2]))
+        JS_ToInt32(ctx, &down_corr, argv[2]);
+
+    int slot = -1;
+    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+        if (rt->storage_relays[i].up_corr == 0) { slot = i; break; }
+    }
+    if (slot < 0)
+        return JS_FALSE;    /* 表满：并发子树请求超槽位数，不排队（§10.2） */
+    int32_t up_corr;
+    do { up_corr = ++rt->storage_corr_seq; } while (up_corr == 0);
+    rt->storage_relays[slot].up_corr = up_corr;
+    rt->storage_relays[slot].down_corr = down_corr;
+    rt->storage_relays[slot].child = child;
     if (qwrt_ipc_child_emit((int32_t)((qwrt_worker_t *)rt->worker_self)->id,
-                            QWRT_IPC_HOST_ID, IPC_ENV_KIND_STORAGE, bytes,
-                            (uint32_t)len) != 0) {
-        rt->storage_relay_child = 0;
+                            QWRT_IPC_HOST_ID, IPC_ENV_KIND_STORAGE,
+                            up_corr,
+                            bytes, (uint32_t)len) != 0) {
+        rt->storage_relays[slot].up_corr = 0;
         return JS_FALSE;
     }
     return JS_TRUE;

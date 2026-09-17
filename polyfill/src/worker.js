@@ -86,9 +86,9 @@ export function setupWorker(pal) {
     this._dead = false;
     this._closing = false;   /* M-P4 §9.3：worker 自 close 的 closing 通知 */
   }
-  ProcessWorker.prototype.post = function (bytes, kind) {
+  ProcessWorker.prototype.post = function (bytes, kind, corr) {
     if (this._dead) return false;
-    return pal.processPost(this._handle, bytes, kind);
+    return pal.processPost(this._handle, bytes, kind, corr);
   };
   ProcessWorker.prototype.terminate = function () {
     if (this._dead) return;
@@ -107,7 +107,7 @@ export function setupWorker(pal) {
     if (isProc) {
       this._proc = new ProcessWorker(code);
       this._id = this._proc._id;
-      this._send = function (bytes, kind) { return w._proc.post(bytes, kind); };
+      this._send = function (bytes, kind, corr) { return w._proc.post(bytes, kind, corr); };
       this._terminate = function () { w._proc.terminate(); };
       /* 入站：processOnMessage 直收（(bytes, kind)；kind=1 = PORT_TRANSFER 帧）。
        * EOF (bytes === null) → 标死 + 清端点路由表（对端 port 收 error，后续
@@ -117,7 +117,7 @@ export function setupWorker(pal) {
        * __qwrt_storage_dispatch__），不进应用消息流。
        * kind=3（CONTROL）→ 协议面，不进应用消息流；worker 自 close 的
        * closing 通知在这里消费（随后 EOF 不再当作崩溃，§9.3）。 */
-      pal.processOnMessage(this._proc._handle, function (bytes, kind) {
+      pal.processOnMessage(this._proc._handle, function (bytes, kind, corr) {
         if (bytes === null) {
           /* §9.3 崩溃检测：peer EOF。正常终止不触发 onerror——
            *   · 显式 terminate：ProcessWorker.terminate() 先置 _dead 再杀进程；
@@ -143,11 +143,11 @@ export function setupWorker(pal) {
         if (kind === 4) {
           /* §10.2 单所有者代理：owner（根 runtime）就地执行；非根 runtime 是
            * 中继节点（N-P4）——把子树的请求上行给父，owner 的回复沿父通道
-           * 回来时由 C 侧按登记的发起子槽位下投。 */
+           * 回来时由 C 侧按 corr 配对下投（并发关联 id，见 ipc_envelope.h）。 */
           if (typeof globalThis.__qwrt_storage_dispatch__ === 'function')
-            globalThis.__qwrt_storage_dispatch__(bytes, w._proc._id);
+            globalThis.__qwrt_storage_dispatch__(bytes, w._proc._id, corr);
           else if (typeof pal.storageRelay === 'function')
-            pal.storageRelay(bytes, w._proc._id);
+            pal.storageRelay(bytes, w._proc._id, corr);
           return;
         }
         var ww = workers.get(w._proc._id);
@@ -361,11 +361,12 @@ export function setupWorker(pal) {
   /* 统一父→worker 字节通道（THREAD: pal.workerPost；PROCESS: processPost）。
    * message-channel.js 用它路由 MessagePort 跨线程消息。worker 存在即视为
    * 投递成功（THREAD 的 workerPost 返回 undefined；PROCESS 的 processPost
-   * 对已死句柄返回 false 也在此静默，与 THREAD 语义对齐）。 */
-  globalThis.__qwrt_worker_post__ = function (workerId, bytes, kind) {
+   * 对已死句柄返回 false 也在此静默，与 THREAD 语义对齐）。corr = STORAGE
+   * 中继关联 id（owner 回复回显，缺省 undefined → 0）。 */
+  globalThis.__qwrt_worker_post__ = function (workerId, bytes, kind, corr) {
     var w = workers.get(workerId);
     if (!w) return false;
-    w._send(bytes, kind);
+    w._send(bytes, kind, corr);
     return true;
   };
 

@@ -92,9 +92,9 @@ static void child_wake_cb(uv_async_t *a)
 static void server_emit_cb(qwrt_t *rt, const char *json, size_t len, void *data)
 {
     QWRT_UNUSED(rt); QWRT_UNUSED(data);
-    if (!json || len == 0) return;
     qwrt_ipc_child_emit(QWRT_IPC_MAIN_ID, QWRT_IPC_HOST_ID,
                         IPC_ENV_KIND_MESSAGE,
+                        0,
                         (const uint8_t *)json, (uint32_t)len);
 }
 
@@ -124,11 +124,14 @@ static void server_handle_control(qwrt_t *rt, const ipc_envelope_view_t *view)
  * 无 timer/async 回调 → 无 JS 重入，同步 API 语义不被破坏。
  * 父进程死亡（fd EOF/POLLHUP）→ 置 shutting_down 走 §9.4 孤儿自杀路径，
  * 返回 -1（JS 抛错；worker 随之退出，连锁死亡是预期行为）。
- * 无 request id：单飞行（JS 同步调用期间无并发），等待中收到的第一个
- * STORAGE 帧必是本次回复。 */
+ * 本节点自身请求单飞行（JS 同步调用期间无并发）——但父通道上的 STORAGE
+ * 帧不必然是本节点回复：子树中继请求（storage_relays）与自身请求可同时在
+ * 途。每个出站请求分配唯一 corr（rt->storage_corr_seq），回复按 corr 配对
+ * （g_sync_corr = 自身在途请求的 corr），不再靠到达序。 */
 static int g_sync_waiting = 0;
 static int g_sync_done = 0;
 static int g_sync_err = 0;
+static int32_t g_sync_corr = 0;   /* 自身在途同步请求的关联 id（0 = 无） */
 static uint8_t *g_sync_reply = NULL;
 static uint32_t g_sync_reply_len = 0;
 
@@ -141,13 +144,16 @@ static int child_storage_sync(qwrt_t *rt, const uint8_t *payload,
     *out_reply = NULL;
     *out_reply_len = 0;
     if (!w || fd < 0) return -1;
-
     /* 阻塞发送整帧（含 FIFO 排空 spill buffer）：大 payload（quota 内可达
      * ~5MB）远超 socket 缓冲，poll(POLLOUT) 等待父侧排空；父死 → -1。 */
+    int32_t corr;
+    do { corr = ++rt->storage_corr_seq; } while (corr == 0);
     if (qwrt_ipc_child_emit_sync((int32_t)w->id, 0, IPC_ENV_KIND_STORAGE,
+                                 corr,
                                  payload, payload_len) != 0)
         return -1;
 
+    g_sync_corr = corr;
     g_sync_waiting = 1;
     g_sync_done = 0;
     g_sync_err = 0;
@@ -262,12 +268,13 @@ static void process_rx(qwrt_t *rt)
                     __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
                     uv_async_send(&rt->wake);
                 } else if (view.kind == IPC_ENV_KIND_STORAGE) {
-                    /* M-P4 §10.2：worker 进程侧 = 同步 RPC 的回复（单飞行，
-                     * 无 request id）→ 捕获给等待方；非等待状态收到 STORAGE =
-                     * 协议外（所有者从不主动发起），丢弃。所有者（主RT）侧的
-                     * 请求帧不经过本管道——worker 通道是 proc 句柄读泵，JS 层
-                     * processOnMessage 按 kind=4 分流（worker.js）。 */
-                    if (g_sync_waiting) {
+                    /* M-P4 §10.2：父通道上的 STORAGE 帧 = 本节点自己同步 RPC
+                     * 的回复（corr == g_sync_corr）或子树中继请求的回复（corr
+                     * 命中 storage_relays → 按登记下投发起子进程）。两者都匹配
+                     * 不到 = 协议外（所有者从不主动发起），丢弃。所有者（主RT）
+                     * 侧的请求帧不经过本管道——worker 通道是 proc 句柄读泵，
+                     * JS 层 processOnMessage 按 kind=4 分流（worker.js）。 */
+                    if (g_sync_waiting && view.corr == g_sync_corr) {
                         g_sync_reply = (uint8_t *)malloc(view.payload_len);
                         if (g_sync_reply || view.payload_len == 0) {
                             if (view.payload_len > 0)
@@ -278,23 +285,32 @@ static void process_rx(qwrt_t *rt)
                             g_sync_err = 1;   /* OOM：等待方按失败返回 */
                         }
                         g_sync_done = 1;
-                    } else if (rt->storage_relay_child > 0) {
-                        /* N-P4：本节点是中继 —— owner（根）的回复沿父通道回来，
-                         * 按登记把回复原样下投给发起请求的子进程通道。 */
+                    } else {
+                        /* N-P4：本节点是中继 —— owner（根）的回复按 corr 配对
+                         * 下投；转发帧把下行 corr（发起子进程帧携带的原值）带回，
+                         * 让子进程侧按它匹配自己的同步等待。 */
                         for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
-                            qwrt_proc_handle_t *h = &rt->proc_handles[i];
-                            if (h->live && h->proc &&
-                                h->proc->id == rt->storage_relay_child) {
-                                qwrt_proc_post(h->proc, g_local_id,
-                                               rt->storage_relay_child,
-                                               IPC_ENV_KIND_STORAGE,
-                                               view.payload, view.payload_len);
-                                break;
+                            if (rt->storage_relays[i].up_corr != view.corr)
+                                continue;
+                            for (int j = 0; j < QWRT_MAX_PROC_HANDLES; j++) {
+                                qwrt_proc_handle_t *h = &rt->proc_handles[j];
+                                if (h->live && h->proc &&
+                                    h->proc->id == rt->storage_relays[i].child) {
+                                    qwrt_proc_post(h->proc, g_local_id,
+                                                   rt->storage_relays[i].child,
+                                                   IPC_ENV_KIND_STORAGE,
+                                                   rt->storage_relays[i].down_corr,
+                                                   view.payload,
+                                                   view.payload_len);
+                                    break;
+                                }
                             }
+                            rt->storage_relays[i].up_corr = 0;  /* 释放槽 */
+                            break;
                         }
-                        rt->storage_relay_child = 0;
                     }
-                } else if (is_ctl &&
+                }
+                else if (is_ctl &&
                            qwrt_ipc_ctl_classify(view.payload, view.payload_len,
                                                  &ctl_val) ==
                                QWRT_IPC_CTL_NONE) {
@@ -477,6 +493,7 @@ int main(int argc, char **argv)
                                             (int32_t)hs_id,
                                             is_server ? QWRT_IPC_HOST_ID : 1,
                                             IPC_ENV_KIND_CONTROL,
+                                            0,
                                             (const uint8_t *)hs_json,
                                             (uint32_t)hs_len);
         if (env_len == 0) {

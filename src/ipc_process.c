@@ -397,6 +397,7 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
         size_t env_len = ipc_envelope_encode(env_buf, env_cap,
                                             1, (int32_t)hsid,
                                             IPC_ENV_KIND_CONTROL,
+                                            0,
                                             (const uint8_t *)ack_json,
                                             (uint32_t)ack_jlen);
         if (env_len == 0) { free(env_buf); goto kill_fail; }
@@ -463,6 +464,7 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
         size_t env_len = ipc_envelope_encode(env_buf, env_cap,
                                             0, (int32_t)proc->id,
                                             IPC_ENV_KIND_CONTROL,
+                                            0,
                                             (const uint8_t *)shutdown_json,
                                             (uint32_t)slen);
         if (env_len > 0) {
@@ -575,6 +577,7 @@ static int qwrt_tx_send(qwrt_tx_t *tx, const uint8_t *frame, size_t flen)
 /* Encode [4-byte LE len][envelope] and hand to the spill-buffer queue. */
 static int proc_frame_send(qwrt_tx_t *tx,
                            int32_t source, int32_t target, int8_t kind,
+                           int32_t corr,
                            const uint8_t *payload, uint32_t payload_len)
 {
     size_t env_cap = IPC_ENVELOPE_ENCODED_SIZE(payload_len);
@@ -582,6 +585,7 @@ static int proc_frame_send(qwrt_tx_t *tx,
     if (!env_buf) return -1;
     size_t env_len = ipc_envelope_encode(env_buf, env_cap,
                                         source, target, kind,
+                                        corr,
                                         payload, payload_len);
     if (env_len == 0 || env_len > 0xFFFFFFFFu - 4u) {
         free(env_buf);
@@ -600,6 +604,7 @@ static int proc_frame_send(qwrt_tx_t *tx,
 
 int qwrt_proc_post(qwrt_proc_t *proc,
                    int32_t source, int32_t target, int8_t kind,
+                   int32_t corr,
                    const uint8_t *payload, uint32_t payload_len)
 {
     if (!proc || proc->state != QWRT_PROC_RUN) return -1;
@@ -609,6 +614,7 @@ int qwrt_proc_post(qwrt_proc_t *proc,
         proc->tx.fd = (int)(intptr_t)osfd;
     }
     return proc_frame_send(&proc->tx, source, target, kind,
+                           corr,
                            payload, payload_len);
 }
 
@@ -618,6 +624,7 @@ int qwrt_proc_post_ctl(qwrt_proc_t *proc, const char *json)
     if (!json) return -1;
     return qwrt_proc_post(proc, QWRT_IPC_HOST_ID, QWRT_IPC_MAIN_ID,
                           IPC_ENV_KIND_CONTROL,
+                          0,
                           (const uint8_t *)json, (uint32_t)strlen(json));
 }
 
@@ -708,10 +715,12 @@ void qwrt_ipc_child_tx_init(uv_loop_t *loop, int fd)
 }
 
 int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
+                        int32_t corr,
                         const uint8_t *payload, uint32_t payload_len)
 {
     if (g_child_tx.fd < 0) return -1;
     return proc_frame_send(&g_child_tx, source, target, kind,
+                           corr,
                            payload, payload_len);
 }
 
@@ -739,6 +748,7 @@ int qwrt_ipc_child_emit_ctl(const char *json)
     if (!json) return -1;
     return qwrt_ipc_child_emit(QWRT_IPC_MAIN_ID, QWRT_IPC_HOST_ID,
                                IPC_ENV_KIND_CONTROL,
+                               0,
                                (const uint8_t *)json, (uint32_t)strlen(json));
 }
 
@@ -763,6 +773,7 @@ int qwrt_ipc_child_tx_pending(void)
  * poll+send 循环发完整帧，父进程死亡（POLLHUP/EOF）→ 返回 -1（§9.4 孤儿
  * 自杀路径由调用方触发）。 */
 int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
+                             int32_t corr,
                              const uint8_t *payload, uint32_t payload_len)
 {
     if (g_child_tx.fd < 0) return -1;
@@ -787,6 +798,7 @@ int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
     if (!env_buf) return -1;
     size_t env_len = ipc_envelope_encode(env_buf, env_cap,
                                          source, target, kind,
+                                         corr,
                                          payload, payload_len);
     if (env_len == 0 || env_len > 0xFFFFFFFFu - 4u) {
         free(env_buf);
@@ -851,13 +863,11 @@ static void proc_peer_dead(qwrt_proc_t *proc)
         } else if (r == 0) {
             int kr = kill(proc->pid, SIGKILL);
             if (kr == 0 || errno == ESRCH) proc_reap_blocking(proc->pid);
-            proc->pid = -1;
-        } else {
             proc->pid = -1;   /* ECHILD — 已被别处收割 */
         }
     }
     if (proc->msg_cb)
-        proc->msg_cb(proc->msg_user, 0, 0, NULL, 0);   /* EOF 通知（JS-managed） */
+        proc->msg_cb(proc->msg_user, 0, 0, 0, NULL, 0);  /* EOF 通知（JS-managed） */
 }
 
 static void proc_process_rx(qwrt_proc_t *proc)
@@ -902,6 +912,7 @@ static void proc_process_rx(qwrt_proc_t *proc)
                      * pal.processOnMessage 消费者）。payload 指向 rbuf 内
                      * 部，回调返回后即失效，JS_Call 需同步复制成 ArrayBuffer。 */
                     proc->msg_cb(proc->msg_user, view.kind, view.source,
+                                 view.corr,
                                  view.payload, view.payload_len);
                 } else if (!ctl_routed) {
                     int flags =

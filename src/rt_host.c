@@ -61,10 +61,12 @@ static char *host_write_script(const char *code)
  *   kind == CONTROL → M-P2 协议（ready / idle ack）就地消化；其余 CONTROL
  *   （控制面回执等）同样交 message_cb，与线程后端一致。 */
 static void host_proc_msg_cb(void *user, int8_t kind, int32_t source,
+                             int32_t corr,
                              const uint8_t *payload, uint32_t len)
 {
     qwrt_t *rt = (qwrt_t *)user;
     QWRT_UNUSED(source);
+    QWRT_UNUSED(corr);
 
     if (!payload) {
         /* 主RT 退出：宿主 loop 收束，wait_idle/destroy 的 join 随之返回。
@@ -128,6 +130,7 @@ static void host_wake_cb(uv_async_t *a)
                              : QWRT_IPC_MAIN_ID;
         qwrt_proc_post(rt->proc, QWRT_IPC_HOST_ID, target,
                        m->flags ? IPC_ENV_KIND_CONTROL : IPC_ENV_KIND_MESSAGE,
+                       0,
                        (const uint8_t *)m->data, (uint32_t)m->len);
     }
 }

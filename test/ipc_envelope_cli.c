@@ -96,6 +96,7 @@ int main(int argc, char **argv)
         if (!buf) { free(payload); return 2; }
         size_t n = ipc_envelope_encode(buf, IPC_ENVELOPE_ENCODED_SIZE(plen),
                                        source, target, (int8_t)kind,
+                                       0 /* corr */,
                                        payload, (uint32_t)plen);
         if (!n) {
             fprintf(stderr, "encode failed\n");

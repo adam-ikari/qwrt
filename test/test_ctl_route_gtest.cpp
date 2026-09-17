@@ -70,6 +70,7 @@ TEST(ctl_route, envelope_roundtrip_preserves_headers_and_payload) {
     uint32_t len = (uint32_t)strlen(cmd);
     uint8_t buf[256];
     size_t n = ipc_envelope_encode(buf, sizeof buf, 0, 5, IPC_ENV_KIND_CONTROL,
+                                   0 /* corr */,
                                    (const uint8_t *)cmd, len);
     ASSERT_EQ(IPC_ENVELOPE_ENCODED_SIZE(len), n);
     ipc_envelope_view_t v;

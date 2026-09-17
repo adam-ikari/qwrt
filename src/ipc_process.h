@@ -134,11 +134,13 @@ typedef struct qwrt_tx_s {
     int         timer_active;
 } qwrt_tx_t;
 
-/* 读泵回调（qwrt_proc_start_read_cb）：cb(user, kind, source, payload, len)。
- * payload == NULL 表示 peer-death/EOF（回调后不再调用，kind/source 无意义）；
- * kind = IPC_ENV_KIND_*、source = 信封源标签，接收方据此分流（如 M-P2 宿主侧
- * 区分 CONTROL 协议消息与 MESSAGE 数据）。 */
+/* 读泵回调（qwrt_proc_start_read_cb）：cb(user, kind, source, corr, payload, len)。
+ * payload == NULL 表示 peer-death/EOF（回调后不再调用，kind/source/corr 无意义）；
+ * kind = IPC_ENV_KIND_*、source = 信封源标签、corr = STORAGE 中继关联 id（非
+ * STORAGE 帧恒 0），接收方据此分流（如 M-P2 宿主侧区分 CONTROL 协议消息与
+ * MESSAGE 数据；STORAGE owner 按 corr 原样回显回复）。 */
 typedef void (*qwrt_proc_msg_cb_t)(void *user, int8_t kind, int32_t source,
+                                   int32_t corr,
                                    const uint8_t *payload, uint32_t len);
 
 struct qwrt_proc_s {
@@ -238,21 +240,19 @@ void qwrt_ipc_child_set_channel(int fd);
 /* Child-side outbound queue init (spill buffer + flush timer on the child's
  * loop). fd is the inherited --parent-fd. */
 void qwrt_ipc_child_tx_init(uv_loop_t *loop, int fd);
-/* Child → parent envelope write. Returns 0 ok, -1 error. Never blocks; under
- * backpressure the frame is queued in the spill buffer, not dropped. */
-int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
-                        const uint8_t *payload, uint32_t payload_len);
 /* Child channel fd, -1 if unset. */
 int qwrt_ipc_child_channel(void);
+int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
+                        int32_t corr,
+                        const uint8_t *payload, uint32_t payload_len);
+/* 阻塞整帧发送（M-P4 同步 storage RPC 用）：先排空 spill buffer 再 poll+send；
+ * 父死亡 → -1。corr 语义同 qwrt_ipc_child_emit。 */
+int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
+                             int32_t corr,
+                             const uint8_t *payload, uint32_t payload_len);
 /* M-P4 同步 storage RPC 用：同步排空出站 spill buffer；查询是否仍有未发帧。 */
 void qwrt_ipc_child_tx_flush(void);
 int qwrt_ipc_child_tx_pending(void);
-/* M-P4 同步 storage RPC 用：阻塞发送整帧（先 FIFO 排空 spill buffer，再
- * poll(POLLOUT)+send 循环直到发完；父死 → -1）。异步 emit 依赖 uv_run 的
- * flush timer，而同步等待期间 loop 不转——大 payload（quota 内可达 ~5MB）
- * 必须走本函数。 */
-int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
-                             const uint8_t *payload, uint32_t payload_len);
 
 /* ── M-P4 同步 storage RPC（§10.2 单所有者代理的传输半边）──
  * worker 进程的 localStorage 代理需要「发请求 → 阻塞等回复」的同步原语。
@@ -262,9 +262,10 @@ int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
  * 求值报错（worker 进程之外不可达）。
  *
  * 语义：发一条 kind=STORAGE 信封上行（target=父），阻塞等待匹配回复
- * （单飞行：JS 同步调用期间无并发，无需 request id）。期间到达的其它帧
- * 照常进 msgq（wake 未消费，主循环 uv_run 时统一派发，不丢帧）；父进程
- * 死亡（fd EOF）→ 置 shutting_down 走孤儿自杀路径并返回 -1。 */
+ * （单飞行：JS 同步调用期间无并发——本节点自身；子树中继请求经 corr 区分，
+ * 见 ipc_envelope.h field id 4）。期间到达的其它帧照常进 msgq（wake 未消费，
+ * 主循环 uv_run 时统一派发，不丢帧）；父进程死亡（fd EOF）→ 置 shutting_down
+ * 走孤儿自杀路径并返回 -1。 */
 typedef int (*qwrt_ipc_storage_sync_fn)(
     qwrt_t *rt, const uint8_t *payload, uint32_t payload_len,
     uint8_t **out_reply, uint32_t *out_reply_len);
@@ -276,6 +277,7 @@ int qwrt_ipc_child_storage_sync(qwrt_t *rt, const uint8_t *payload,
 /* Post an envelope to child (async; 0 = queued/sent, -1 = failed). */
 int qwrt_proc_post(qwrt_proc_t *proc,
                    int32_t source, int32_t target, int8_t kind,
+                   int32_t corr,
                    const uint8_t *payload, uint32_t payload_len);
 
 

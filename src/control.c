@@ -68,15 +68,17 @@ static void ctl_emit_remote(qwrt_t *rt, int32_t target,
 {
     int32_t self = qwrt_ctl_local_id(rt);
     if (target == 0 || target == 1) {
-        qwrt_ipc_child_emit(self, target, IPC_ENV_KIND_CONTROL, json,
-                            (uint32_t)len);
+        qwrt_ipc_child_emit(self, target, IPC_ENV_KIND_CONTROL,
+                            0,
+                            json, (uint32_t)len);
         return;
     }
     for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
         qwrt_proc_handle_t *h = &rt->proc_handles[i];
         if (h->live && h->proc && h->proc->id == target) {
-            qwrt_proc_post(h->proc, self, target, IPC_ENV_KIND_CONTROL, json,
-                           (uint32_t)len);
+            qwrt_proc_post(h->proc, self, target, IPC_ENV_KIND_CONTROL,
+                           0,
+                           json, (uint32_t)len);
             return;
         }
     }
@@ -442,13 +444,15 @@ static int ctl_forward(qwrt_t *rt, int32_t source, int32_t target,
             qwrt_proc_handle_t *h = &rt->proc_handles[i];
             if (h->live && h->proc && h->proc->id == target) {
                 qwrt_proc_post(h->proc, source, target,
-                               IPC_ENV_KIND_CONTROL, payload, len);
+                               IPC_ENV_KIND_CONTROL, 0,
+                               payload, len);
                 return 0;
             }
         }
         return -1;              /* 无对应子槽位 */
     }
-    qwrt_ipc_child_emit(source, target, IPC_ENV_KIND_CONTROL, payload, len);
+    qwrt_ipc_child_emit(source, target, IPC_ENV_KIND_CONTROL, 0,
+                        payload, len);
     return 0;
 #else
     QWRT_UNUSED(rt); QWRT_UNUSED(source); QWRT_UNUSED(target);

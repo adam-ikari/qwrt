@@ -26,26 +26,29 @@ TEST(IpcEnvelope, CanonicalLayoutFrozen)
     const uint8_t payload[] = {0xAA, 0xBB};
     std::vector<uint8_t> buf(IPC_ENVELOPE_ENCODED_SIZE(2));
     size_t n = ipc_envelope_encode(buf.data(), buf.size(),
-                                   1, 2, IPC_ENV_KIND_MESSAGE, payload, 2);
+                                   1, 2, IPC_ENV_KIND_MESSAGE, 0 /* corr */,
+                                   payload, 2);
     ASSERT_EQ(n, IPC_ENVELOPE_ENCODED_SIZE(2));
-    ASSERT_EQ(n, 42u);
+    ASSERT_EQ(n, 50u);
 
-    // root uoffset -> table at +16
-    EXPECT_EQ(buf[0], 16);
-    // vtable: len=12, table_len=20, slots 4/8/12/16
-    const uint8_t vt[] = {12, 0, 20, 0, 4, 0, 8, 0, 12, 0, 16, 0};
+    // root uoffset -> table at +20
+    EXPECT_EQ(buf[0], 20);
+    // vtable: len=14, table_len=24, slots 4/8/12/16/20
+    const uint8_t vt[] = {14, 0, 24, 0, 4, 0, 8, 0, 12, 0, 16, 0, 20, 0};
     EXPECT_EQ(std::memcmp(buf.data() + 4, vt, sizeof vt), 0) << "vtable";
-    // soffset = 12 (vtable before table)
-    EXPECT_EQ(buf[17], 0);
-    // source=1 @+20, target=2 @+24, kind=0 @+28
-    EXPECT_EQ(buf[20], 1);
-    EXPECT_EQ(buf[24], 2);
-    EXPECT_EQ(buf[28], 0);
-    // payload uoffset=4 @+32, vlen=2 @+36, data @+40
-    EXPECT_EQ(buf[32], 4);
-    EXPECT_EQ(buf[36], 2);
-    EXPECT_EQ(buf[40], 0xAA);
-    EXPECT_EQ(buf[41], 0xBB);
+    // soffset = 16 (vtable before table)
+    EXPECT_EQ(buf[20], 16);
+    // source=1 @+24, target=2 @+28, kind=0 @+32
+    EXPECT_EQ(buf[24], 1);
+    EXPECT_EQ(buf[28], 2);
+    EXPECT_EQ(buf[32], 0);
+    // payload uoffset=8 @+36 (vector at +44), corr=0 @+40, vlen=2 @+44
+    EXPECT_EQ(buf[36], 8);
+    EXPECT_EQ(buf[40], 0);
+    EXPECT_EQ(buf[44], 2);
+    // payload data @+48
+    EXPECT_EQ(buf[48], 0xAA);
+    EXPECT_EQ(buf[49], 0xBB);
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +57,9 @@ TEST(IpcEnvelope, CanonicalLayoutFrozen)
 TEST(IpcEnvelope, RoundtripAllFields)
 {
     /* kind 是路由判别位（§4.1/§4.3）：MESSAGE/PORT_TRANSFER/CONTROL/STORAGE
-     * 全枚举都要字节级往返（M-P4 新增 STORAGE=4）。 */
+     * 全枚举都要字节级往返（M-P4 新增 STORAGE=4）。corr 也往返：请求方分配
+     * 单调 id，owner 回复原样回显，中继节点按它配对。 */
+    const int32_t corr = 12345;
     for (int8_t kind : {IPC_ENV_KIND_MESSAGE, IPC_ENV_KIND_PORT_TRANSFER,
                         IPC_ENV_KIND_CONTROL, IPC_ENV_KIND_STORAGE}) {
         for (uint32_t plen : {0u, 1u, 3u, 40u, 1024u, 70000u}) {
@@ -64,7 +69,7 @@ TEST(IpcEnvelope, RoundtripAllFields)
 
             std::vector<uint8_t> buf(IPC_ENVELOPE_ENCODED_SIZE(plen));
             size_t n = ipc_envelope_encode(buf.data(), buf.size(),
-                                           -5, 77, kind,
+                                           -5, 77, kind, corr,
                                            plen ? payload.data() : nullptr, plen);
             ASSERT_EQ(n, buf.size()) << "plen=" << plen;
 
@@ -73,11 +78,12 @@ TEST(IpcEnvelope, RoundtripAllFields)
             EXPECT_EQ(v.source, -5);
             EXPECT_EQ(v.target, 77);
             EXPECT_EQ(v.kind, kind) << "kind=" << (int)kind;
+            EXPECT_EQ(v.corr, corr) << "plen=" << plen;
             ASSERT_EQ(v.payload_len, plen);
             if (plen) {
                 EXPECT_EQ(std::memcmp(v.payload, payload.data(), plen), 0);
                 // Zero-copy: view points into the encoded buffer, not a copy.
-                EXPECT_EQ(v.payload, buf.data() + 40);
+                EXPECT_EQ(v.payload, buf.data() + 48);
             } else {
                 EXPECT_NE(v.payload, nullptr);  // empty vector header still present
             }
@@ -89,15 +95,15 @@ TEST(IpcEnvelope, EncodeRejectsSmallCap)
 {
     uint8_t tiny[8];
     const uint8_t p[1] = {0};
-    EXPECT_EQ(ipc_envelope_encode(tiny, sizeof tiny, 1, 2, 0, p, 1), 0u);
-    EXPECT_EQ(ipc_envelope_encode(nullptr, 1024, 1, 2, 0, p, 1), 0u);
+    EXPECT_EQ(ipc_envelope_encode(tiny, sizeof tiny, 1, 2, 0, 0, p, 1), 0u);
+    EXPECT_EQ(ipc_envelope_encode(nullptr, 1024, 1, 2, 0, 0, p, 1), 0u);
 }
 
 TEST(IpcEnvelope, DecodeRejectsBadArgs)
 {
     ipc_envelope_view_t v;
     uint8_t buf[64];
-    size_t n = ipc_envelope_encode(buf, sizeof buf, 1, 2, 0, nullptr, 0);
+    size_t n = ipc_envelope_encode(buf, sizeof buf, 1, 2, 0, 0, nullptr, 0);
     ASSERT_EQ(n, IPC_ENVELOPE_ENCODED_SIZE(0));
     EXPECT_EQ(ipc_envelope_decode(nullptr, n, &v), -1);
     EXPECT_EQ(ipc_envelope_decode(buf, n, nullptr), -1);
@@ -116,7 +122,7 @@ TEST(IpcEnvelope, MutationFuzz)
     const size_t plen = sizeof payload - 1;  // without the NUL
     std::vector<uint8_t> good(IPC_ENVELOPE_ENCODED_SIZE(plen));
     size_t n = ipc_envelope_encode(good.data(), good.size(), 1, 2,
-                                   IPC_ENV_KIND_MESSAGE, payload, plen);
+                                   IPC_ENV_KIND_MESSAGE, 0, payload, plen);
     ASSERT_EQ(n, good.size());
 
     for (size_t i = 0; i < n; i++) {
@@ -137,7 +143,7 @@ TEST(IpcEnvelope, TruncatedPrefixes)
     const uint8_t payload[] = {1, 2, 3, 4};
     std::vector<uint8_t> buf(IPC_ENVELOPE_ENCODED_SIZE(4));
     size_t n = ipc_envelope_encode(buf.data(), buf.size(), 3, 4,
-                                   IPC_ENV_KIND_CONTROL, payload, 4);
+                                   IPC_ENV_KIND_CONTROL, 0, payload, 4);
     ASSERT_EQ(n, buf.size());
     for (size_t cut = 0; cut < n; cut++) {
         ipc_envelope_view_t v;
@@ -147,6 +153,7 @@ TEST(IpcEnvelope, TruncatedPrefixes)
             (void)ipc_envelope_decode(buf.data(), cut, &v);  // no crash
     }
 }
+
 
 // ---------------------------------------------------------------------------
 // fb-semantics: absent fields decode to defaults. Hand-build a buffer with

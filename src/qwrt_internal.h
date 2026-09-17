@@ -355,12 +355,19 @@ struct qwrt_t {
     uint16_t self_path[QWRT_SELF_PATH_MAX];
     uint8_t  self_path_len;
 
-    /* §8.2/§10.2 STORAGE 中继（N-P4）：非根 runtime 收到子树发来的 storage
-     * 请求时，向上转发并登记「等待回程的子槽位 id」；owner（根 runtime）的
-     * 回复沿父通道回来时按此下投给发起者。0 = 无在途中继。 */
-    int storage_relay_child;
-
 #ifndef QWRT_USE_MOCK_LIBUV
+    /* §8.2/§10.2 STORAGE 中继（N-P4 + 并发关联 id）：非根 runtime 收到子树
+     * 发来的 storage 请求时向上转发，登记「上行 corr → 发起子槽位 + 下行
+     * corr」；owner（根 runtime）的回复沿父通道回来时按 corr 配对下投（不再
+     * 靠到达序，自身同步 RPC × 子树在途请求可并发而不错配）。corr 由
+     * storage_corr_seq 单调分配（0 恒无效 = 信封缺省）；表满（并发子树请求
+     * 超过槽位数）→ 新请求拒绝，维持 §10.2 单飞行兜底语义。 */
+    struct qwrt_storage_relay_s {
+        int32_t up_corr;    /* 本节点分配、上行帧携带的关联 id（>0） */
+        int32_t down_corr;  /* 发起子进程帧携带的关联 id（回复原样回传） */
+        int child;          /* 发起子进程槽位 id */
+    } storage_relays[QWRT_MAX_PROC_HANDLES];
+    int32_t storage_corr_seq;   /* 本节点全部出站 storage 帧共用计数器 */
     /* pal.processSpawn 句柄注册表（spawn 分层化, Phase B）+ id 分配器。
      * 仅父 runtime（worker_self == NULL）使用；teardown 统一清理残留句柄。 */
     qwrt_proc_handle_t proc_handles[QWRT_MAX_PROC_HANDLES];

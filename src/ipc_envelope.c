@@ -10,25 +10,27 @@
 
 size_t ipc_envelope_encode(uint8_t *out, size_t cap,
                            int32_t source, int32_t target, int8_t kind,
+                           int32_t corr,
                            const uint8_t *payload, uint32_t payload_len)
 {
     size_t need = IPC_ENVELOPE_ENCODED_SIZE(payload_len);
     if (!out || need > cap) return 0;
-
-    qwrt_wr32(out + 0, 16);            /* root uoffset -> table at +16       */
-    qwrt_wr16(out + 4, 12);            /* vtable_len: 2 hdr u16 + 4 slots u16 */
-    qwrt_wr16(out + 6, 20);            /* table_len                          */
+    qwrt_wr32(out + 0, 20);            /* root uoffset -> table at +20       */
+    qwrt_wr16(out + 4, 14);            /* vtable_len: 2 hdr u16 + 5 slots u16 */
+    qwrt_wr16(out + 6, 24);            /* table_len                          */
     qwrt_wr16(out + 8, 4);             /* vtable slot 0 (source)             */
     qwrt_wr16(out + 10, 8);            /* vtable slot 1 (target)             */
     qwrt_wr16(out + 12, 12);           /* vtable slot 2 (kind)               */
     qwrt_wr16(out + 14, 16);           /* vtable slot 3 (payload)            */
-    qwrt_wr32(out + 16, 12);           /* soffset: vtable(+4) = table(+16)-12 */
-    qwrt_wr32(out + 20, (uint32_t)source);
-    qwrt_wr32(out + 24, (uint32_t)target);
-    out[28] = (uint8_t)kind;           /* +29..31 pad                        */
-    qwrt_wr32(out + 32, 4);            /* payload uoffset -> vector at +36   */
-    qwrt_wr32(out + 36, payload_len);
-    if (payload_len) memcpy(out + 40, payload, payload_len);
+    qwrt_wr16(out + 16, 20);           /* vtable slot 4 (corr)               */
+    qwrt_wr32(out + 20, 16);           /* soffset: vtable(+4) = table(+20)-16 */
+    qwrt_wr32(out + 24, (uint32_t)source);
+    qwrt_wr32(out + 28, (uint32_t)target);
+    out[32] = (uint8_t)kind;           /* +33..35 pad                        */
+    qwrt_wr32(out + 36, 8);            /* payload uoffset -> vector at +44   */
+    qwrt_wr32(out + 40, (uint32_t)corr);
+    qwrt_wr32(out + 44, payload_len);
+    if (payload_len) memcpy(out + 48, payload, payload_len);
     return need;
 }
 
@@ -60,6 +62,7 @@ int ipc_envelope_decode(const uint8_t *buf, size_t len,
         view->source = 0;
         view->target = 0;
         view->kind = 0;
+        view->corr = 0;
         view->payload = NULL;
         view->payload_len = 0;
     }
@@ -78,10 +81,12 @@ int ipc_envelope_decode(const uint8_t *buf, size_t len,
     const uint8_t *psrc = field_at(buf, len, root, slot_voff(vt, vt_len, 0), 4);
     const uint8_t *ptgt = field_at(buf, len, root, slot_voff(vt, vt_len, 1), 4);
     const uint8_t *pknd = field_at(buf, len, root, slot_voff(vt, vt_len, 2), 1);
+    const uint8_t *pcor = field_at(buf, len, root, slot_voff(vt, vt_len, 4), 4);
 
     view->source = psrc ? (int32_t)qwrt_rd32(psrc) : 0;
     view->target = ptgt ? (int32_t)qwrt_rd32(ptgt) : 0;
     view->kind = pknd ? (int8_t)pknd[0] : 0;
+    view->corr = pcor ? (int32_t)qwrt_rd32(pcor) : 0;
 
     const uint8_t *ppl = field_at(buf, len, root, slot_voff(vt, vt_len, 3), 4);
     if (ppl) {

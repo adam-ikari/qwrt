@@ -229,7 +229,7 @@ export function setupLocalStorage(pal) {
    * 透传信封（qwrt_storage_dispatch），op 编排在这里——对同一 map/persist
    * 执行，异常（配额/落盘）原样封装成 {e:{name,message}} 回发，代理侧据此
    * 重建 DOMException，同步 API 语义跨进程保持一致。 */
-  globalThis.__qwrt_storage_dispatch__ = function (bytes, source) {
+  globalThis.__qwrt_storage_dispatch__ = function (bytes, source, corr) {
     var o;
     try { o = __qwrt_deserialize__(bytes); } catch (err) { return; }
     if (!o || typeof o !== 'object') return;
@@ -253,7 +253,7 @@ export function setupLocalStorage(pal) {
     var rep;
     try { rep = __qwrt_serialize__(reply); } catch (err) { return; }
     if (typeof globalThis.__qwrt_worker_post__ === 'function')
-      globalThis.__qwrt_worker_post__(source, rep, 4);   /* kind=STORAGE */
+      globalThis.__qwrt_worker_post__(source, rep, 4, corr);  /* kind=STORAGE */
   };
 
   /* Storage 接口实例：方法/访问器均不可枚举（Object.keys(localStorage) 为空）。 */
