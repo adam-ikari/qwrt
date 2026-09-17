@@ -4,7 +4,7 @@ title: "多进程模型 M-P0..M-P5 + CTL + M-R2（宿主⇄主RT 进程模型与
 category: decision
 status: active
 created: "2026-09-15T23:20:12"
-updated: "2026-09-15T23:20:36"
+updated: "2026-09-17T04:05:45"
 ---
 
 <!-- compiled_truth -->
@@ -64,4 +64,10 @@ updated: "2026-09-15T23:20:36"
   kind: decision
   summary: "watch-item：mp4 e2e 本地挂（worker localStorage→主RT 同步 RPC）待查。"
   source: "2026-09-15 多进程轨道落地会话"
+  affects: [multi-process-model]
+
+- time: 2026-09-17T04:05:45
+  kind: decision
+  summary: "watch-item 关闭：mp4 storage 同步 RPC「本地挂」经 2026-09-16 量化验证 = 非真 bug，环境/设计误判。ISOLATED 进程模型 test_mp4_storage_crash_e2e.sh 3/3 通过（6.8–7.7s/次，脚本 timeout 30s，CI e2e 无 timeout-minutes 默认 360min，风险低）；THREAD 构建无 process 后端，脚本 probe.js 检测 PROC-ERR → SKIP 退出 0（设计如此），「挂」系绕过探针直接跑 fixture 所致；worker_storage.js 6MB setItem 超 5MiB quota → QuotaExceededError（设计预期），payload 整帧 RPC 到 owner 后才检查，单次 ~7.5s = 同步 RPC 大 payload 线性成本（~1.1ms/KB，src/ipc_process.c emit_sync + src/rt_main.c pipe_read_cb），非死锁。证据：test/test_mp4_storage_crash_e2e.sh、test/mp4-e2e/*.js。"
+  source: "2026-09-16 量化验证会话"
   affects: [multi-process-model]
