@@ -44,6 +44,8 @@ service Greeter {
   rpc Slow (HelloRequest) returns (HelloReply) {}
   rpc EchoMeta (HelloRequest) returns (HelloReply) {}
   rpc Big (HelloRequest) returns (HelloReply) {}
+  rpc CountUp (HelloRequest) returns (stream HelloReply) {}
+  rpc CountList (HelloRequest) returns (stream HelloReply) {}
 }
 message HelloRequest { string name = 1; repeated string tags = 2; }
 message HelloReply { string message = 1; int32 count = 2; }
@@ -118,6 +120,7 @@ const pal = {
 // __native_inject__ must be set BEFORE importing the bundle (pal.js reads it
 // at module init).
 globalThis.__native_inject__ = pal;
+globalThis.qwrt = globalThis.qwrt || {};
 const { setupHttpServer, setupGrpcStack } = await import(bundlePath);
 setupHttpServer(pal);
 setupGrpcStack();
@@ -275,6 +278,14 @@ if (!peer) {
         return { message: 'meta:' + text + ':' + bin, count: 0 };
       },
       Big: () => ({ message: 'B'.repeat(200 * 1024), count: 0 }),
+      // Server streaming: async generator (promise-backed iteration) ...
+      CountUp: async function* (call) {
+        const n = (call.request.tags || []).length;
+        for (let i = 1; i <= n; i++) yield { message: 'chunk ' + i, count: i };
+      },
+      // ... and a plain array (sync iterator).
+      CountList: (call) => Array.from({ length: (call.request.tags || []).length },
+                                      (_, i) => ({ message: 'item ' + (i + 1), count: i + 1 })),
     },
   });
   const greeter = new pkg.helloworld.Greeter(
@@ -342,6 +353,30 @@ if (!peer) {
     try { await qch.invoke('/helloworld.Greeter/Fail', { name: 'x' }, { registry: regOwn }); }
     catch (e) { err = e; }
     ok(err && err.code === grpc.Status.NOT_FOUND, 'qwrt client saw NOT_FOUND, got ' + (err && err.code));
+    await qch.close();
+  });
+
+  await t('server streaming (async generator): grpc-js client gets every message + OK', async () => {
+    const msgs = [];
+    await new Promise((res, rej) => {
+      const s = greeter.CountUp({ name: 'x', tags: ['a', 'b', 'c'] });
+      s.on('data', (m) => msgs.push(m));
+      s.on('error', rej);
+      s.on('end', res);
+    });
+    eq(msgs.length, 3, 'message count');
+    eq(msgs.map((m) => m.message).join('|'), 'chunk 1|chunk 2|chunk 3', 'messages in order');
+    eq(msgs[2].count, 3, 'last payload intact');
+  });
+
+  await t('server streaming (array): qwrt client invokeStream collects all messages', async () => {
+    const regOwn = grpc.loadProto(PROTO_TEXT);
+    const countList = regOwn.service('helloworld.Greeter').method('CountList');
+    const qch = grpc.createInsecureChannel('127.0.0.1:' + srv.port);
+    const rs = await qch.invokeStream(countList, { name: 'x', tags: ['p', 'q'] });
+    eq(rs.length, 2, 'message count');
+    eq(rs.map((r) => r.message).join('|'), 'item 1|item 2', 'messages in order');
+    eq(rs[1].count, 2, 'payload intact');
     await qch.close();
   });
 

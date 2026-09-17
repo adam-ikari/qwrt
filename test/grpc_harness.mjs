@@ -196,7 +196,11 @@ function startRawServer(handlers) {
           // Node fires wantTrailers only when respond() opts waitForTrailers.
           // sendTrailers() then emits the trailer HEADERS frame (END_STREAM).
           stream.on('wantTrailers', () => stream.sendTrailers(trailer));
-          stream.end(r.body && r.body.length ? Buffer.from(rawFrame(r.body)) : undefined);
+          // r.body: a single payload, or an array of payloads — server
+          // streaming sends one framed message per entry (separate DATA).
+          const bodies = Array.isArray(r.body) ? r.body : (r.body == null ? [] : [r.body]);
+          for (const b of bodies) stream.write(Buffer.from(rawFrame(b)));
+          stream.end();
         } catch (e) { entry.serverError = e.message; }
       }, delay);
     });
@@ -344,6 +348,31 @@ await t('connection reuse: one socket serves many calls', async () => {
   const reply = await ch.invoke(sayHello, { name: 'after' });
   eq(reply.message, 'Hello after', 'still healthy afterwards');
 });
+
+await t('server streaming: invokeStream collects every framed message', async () => {
+  const p = await startRawServer({
+    '/helloworld.Greeter/CountUp': () => ({
+      body: [1, 2, 3].map((i) => rawEncodeReply({ message: 'chunk' + i, count: i })),
+    }),
+  });
+  const c = grpc.createInsecureChannel('127.0.0.1:' + p.port);
+  const m = reg.service('helloworld.Greeter').method('CountUp');
+  const rs = await c.invokeStream(m, { name: 'x' });
+  eq(rs.length, 3, 'message count');
+  eq(rs.map((r) => r.message).join('|'), 'chunk1|chunk2|chunk3', 'messages in order');
+  eq(rs[2].count, 3, 'last payload');
+  await c.close(); p.srv.close();
+});
+
+await t('server streaming: empty stream is a valid response', async () => {
+  const p = await startRawServer({ '/helloworld.Greeter/CountUp': () => ({ body: [] }) });
+  const c = grpc.createInsecureChannel('127.0.0.1:' + p.port);
+  const m = reg.service('helloworld.Greeter').method('CountUp');
+  const rs = await c.invokeStream(m, { name: 'x' });
+  eq(rs.length, 0, 'zero messages resolved');
+  await c.close(); p.srv.close();
+});
+
 await t('streaming methods are refused, not silently truncated', async () => {
   let err = null;
   try { await ch.invoke(sayHello, { name: 'x' }, {}); } catch (e) { err = e; }
@@ -352,7 +381,11 @@ await t('streaming methods are refused, not silently truncated', async () => {
     service S { rpc Up(stream A) returns (B); }
     message A { string a = 1; } message B { string b = 1; }`);
   try { await ch.invoke(sreg.service('S').method('Up'), { a: 'x' }); } catch (e) { err = e; }
-  eq(err && err.code, grpc.Status.UNIMPLEMENTED, 'code');
+  eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invoke() refuses streaming, code');
+  try { await ch.invokeStream(sayHello, { name: 'x' }); } catch (e) { err = e; }
+  eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invokeStream() refuses a unary method');
+  try { await ch.invokeStream(sreg.service('S').method('Up'), { a: 'x' }); } catch (e) { err = e; }
+  eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invokeStream() refuses a client-streaming method');
 });
 
 
@@ -383,6 +416,11 @@ if (!peer) {
       md.set('x-custom', call.metadata.get('x-custom')[0] || '');
       md.set('x-bin', Buffer.from(call.metadata.get('x-bin')[0] || '', 'base64'));
       cb(null, { message: 'meta' }, md);
+    },
+    CountUp: (call) => {
+      const n = (call.request.tags || []).length || 1;
+      for (let i = 1; i <= n; i++) call.write({ message: 'c' + i, count: i });
+      call.end();
     },
   });
   const port = await new Promise((res, rej) => server.bindAsync('127.0.0.1:0', peer.grpc.ServerCredentials.createInsecure(),
@@ -426,6 +464,14 @@ if (!peer) {
     }
     const rs = await Promise.all(Array.from({ length: 20 }, (_, i) => gch.invoke(sayHello, { name: 'c' + i })));
     eq(rs.map((r) => r.message).join('|'), Array.from({ length: 20 }, (_, i) => 'Hello c' + i).join('|'), 'concurrent');
+  });
+
+  await t('interop: server streaming against grpc-js (qwrt client)', async () => {
+    const countUp = reg.service('helloworld.Greeter').method('CountUp');
+    const rs = await gch.invokeStream(countUp, { name: 'x', tags: ['a', 'b', 'c'] });
+    eq(rs.length, 3, 'message count');
+    eq(rs.map((r) => r.message).join('|'), 'c1|c2|c3', 'messages in order');
+    eq(rs[2].count, 3, 'last payload');
   });
 
   await gch.close();

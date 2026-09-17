@@ -18,8 +18,10 @@
  * pass the server as `serve(options, handler)` via `options.grpc`. The h2
  * connection is recognized automatically (ALPN 'h2' or plaintext preface).
  *
- * Scope: unary RPCs only — streaming handlers and message compression are
- * later phases (streaming methods in the registry are refused at dispatch).
+ * Scope: unary + server-streaming RPCs — a streaming handler returns an
+ * (async) iterable of reply objects (array or generator); each item becomes
+ * one framed message, OK trailers end the stream. Client-streaming and
+ * message compression are later phases.
  */
 
 import {
@@ -79,7 +81,7 @@ export class GrpcServer {
       if (!svc.methods) continue;
       for (var mname in svc.methods) {
         var md = svc.methods[mname];
-        if (md.clientStreaming || md.serverStreaming) continue; // unary only
+        if (md.clientStreaming) continue; // client-streaming later; server-streaming supported
         this.addHandler(md, impls && impls[mname]);
       }
     }
@@ -163,7 +165,18 @@ export class GrpcServer {
         self._respondError(stream, toStatus(e));
         return;
       }
-      if (result && typeof result.then === 'function') {
+      if (entry.method.serverStreaming) {
+        // Server streaming: handler returns an (async) iterable of reply
+        // objects — array, generator, or a promise of those. Each item
+        // becomes one framed gRPC message; OK trailers end the stream.
+        if (result && typeof result.then === 'function') {
+          result.then(
+            function (val) { self._respondStreamOk(stream, entry.method, val); },
+            function (e) { self._respondError(stream, toStatus(e)); });
+        } else {
+          self._respondStreamOk(stream, entry.method, result);
+        }
+      } else if (result && typeof result.then === 'function') {
         result.then(
           function (val) { self._respondOk(stream, entry.method, val); },
           function (e) { self._respondError(stream, toStatus(e)); });
@@ -191,6 +204,56 @@ export class GrpcServer {
     ]);
     stream.write(body);
     stream.end([['grpc-status', '0']]);
+  }
+
+  /* Server streaming: initial headers, then one framed message per yielded
+   * item, then OK trailers. A mid-stream failure uses the trailers form
+   * (grpc-status in the trailing HEADERS with END_STREAM) — the standard way
+   * to fail an already-started response. */
+  _respondStreamOk(stream, method, iterable) {
+    var self = this;
+    var ended = false;
+    var it = null;
+    function finish(status) {
+      if (ended) return;
+      ended = true;
+      if (status) self._respondError(stream, status);
+      else if (!stream.aborted && !stream.localEnded) stream.end([['grpc-status', '0']]);
+      if (it && typeof it.return === 'function') { try { it.return(); } catch (e) {} }
+    }
+    if (!stream.headersSent) {
+      stream.respond([
+        [':status', '200'],
+        ['content-type', 'application/grpc+proto'],
+        ['grpc-encoding', 'identity'],
+      ]);
+    }
+    try {
+      it = (iterable != null && typeof iterable[Symbol.asyncIterator] === 'function')
+        ? iterable[Symbol.asyncIterator]()
+        : iterable[Symbol.iterator]();
+    } catch (e) {
+      finish(new StatusError('streaming handler result is not iterable', Status.INTERNAL));
+      return;
+    }
+    function step() {
+      if (ended || stream.aborted || stream.localEnded) return;
+      var p;
+      try { p = it.next(); }
+      catch (e) { finish(toStatus(e)); return; }
+      if (p && typeof p.then === 'function') p.then(emit, function (e) { finish(toStatus(e)); });
+      else emit(p);
+    }
+    function emit(r) {
+      if (ended) return;
+      if (r.done) { finish(null); return; }
+      var payload;
+      try { payload = method.responseType.encode(r.value); }
+      catch (e) { finish(new StatusError('failed to encode response: ' + e.message, Status.INTERNAL)); return; }
+      stream.write(frameMessage(payload));
+      step();
+    }
+    step();
   }
 
   _respondError(stream, status) {

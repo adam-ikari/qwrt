@@ -20,8 +20,10 @@
  * evaluated and retired from the JS layer — see ROADMAP H5 and
  * docs/plans/2026-09-03-flatbuffers-runtime-builtin.md for rationale.
  *
- * Scope: unary client calls only. Streaming and gzip compression are later
- * phases; `grpc-encoding` is advertised as `identity` only.
+ * Scope: unary + server-streaming calls — invoke() for unary, invokeStream()
+ * for `returns (stream T)` RPCs (resolves with an array of all messages).
+ * Client-streaming and gzip compression are later phases; `grpc-encoding` is
+ * advertised as `identity` only.
  */
 
 import { HTTP2Client, ERR } from './http2.js';
@@ -233,7 +235,8 @@ function resolveCall(method, opts, registry) {
     throw new Error('grpc: message types for ' + m.path + ' lack encode/decode');
   }
   return { path: m.path, reqType: reqType, respType: respType,
-           streaming: !!(m.clientStreaming || m.serverStreaming) };
+           streaming: !!(m.clientStreaming || m.serverStreaming),
+           serverStreaming: !!m.serverStreaming };
 }
 
 /* ── channel ── */
@@ -299,9 +302,38 @@ Channel.prototype.invoke = function (method, req, opts) {
     return Promise.reject(e instanceof StatusError ? e : new StatusError(e.message, Status.INVALID_ARGUMENT));
   }
   if (call.streaming) {
-    return Promise.reject(new StatusError('streaming RPCs are not supported yet: ' + call.path,
-                                          Status.UNIMPLEMENTED));
+    // invoke() is the unary API; streaming methods must use invokeStream().
+    return Promise.reject(new StatusError('use invokeStream() for streaming RPC: ' + call.path,
+                                          Status.INVALID_ARGUMENT));
   }
+  return this._send(call, req, opts);
+};
+
+/**
+ * Server-streaming call.
+ *
+ * Same transport as invoke() but for `returns (stream T)` RPCs: resolves
+ * with an ARRAY of all decoded response messages (an empty array is a valid
+ * empty stream). Only server-streaming methods are accepted; unary methods
+ * must use invoke().
+ *
+ * @returns {Promise<object[]>} the decoded response messages
+ */
+Channel.prototype.invokeStream = function (method, req, opts) {
+  var call;
+  try {
+    call = resolveCall(method, opts || {}, this._registry);
+  } catch (e) {
+    return Promise.reject(e instanceof StatusError ? e : new StatusError(e.message, Status.INVALID_ARGUMENT));
+  }
+  if (!call.serverStreaming) {
+    return Promise.reject(new StatusError('not a server-streaming RPC, use invoke(): ' + call.path,
+                                          Status.INVALID_ARGUMENT));
+  }
+  return this._send(call, req, opts);
+};
+
+Channel.prototype._send = function (call, req, opts) {
   var payload;
   try {
     payload = frameMessage(call.reqType.encode(req));
@@ -377,13 +409,20 @@ Channel.prototype._once = function (call, payload, opts, isRetry) {
           reject(new StatusError(statusText || StatusName[code] || 'RPC failed', code, respMeta, detailsBin));
           return;
         }
-        if (!messages.length) {
-          reject(new StatusError('response is missing the reply message', Status.INTERNAL));
-          return;
-        }
         var reply;
-        try { reply = call.respType.decode(messages[0]); }
-        catch (e) {
+        try {
+          if (call.streaming) {
+            // Server streaming: every framed message is a reply; an empty
+            // stream is a valid (zero-message) response.
+            reply = messages.map(function (m) { return call.respType.decode(m); });
+          } else {
+            if (!messages.length) {
+              reject(new StatusError('response is missing the reply message', Status.INTERNAL));
+              return;
+            }
+            reply = call.respType.decode(messages[0]);
+          }
+        } catch (e) {
           reject(new StatusError('failed to decode reply for ' + call.path + ': ' + e.message, Status.INTERNAL));
           return;
         }
