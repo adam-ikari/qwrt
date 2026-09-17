@@ -5,6 +5,7 @@ All notable changes to Qwrt.js.
 ## [Unreleased]
 
 ### Fixed
+- **跨进程 storage quota 白传 RPC（perf）**：PROCESS worker `localStorage.setItem` 超配额（>5 MiB）时，payload 整帧跨进程 RPC 传到 owner 后才检查抛 `QuotaExceededError`——6 MB 单次 ~7.5 s（同步 RPC 线性 ~1.1 ms/KB），超限数据全额白传。修复：`polyfill/src/local-storage.js` worker `setItem` 在发 `storageSync` RPC **之前**本地判 `key.length + value.length > QUOTA` → 直接抛 `QuotaExceededError`（同步 API 语义不变，异常形状与 owner 侧一致），不走 RPC。按 code units 计（与 owner `total` 口径一致；不按序列化字节预拒，避免误拒多字节字符值）。6 MB `setItem`：~7500 ms → 44 ms；4 MB（quota 内）仍正常走 RPC、值一致。
 - **64KB worker 消息往返挂死（真回归，M-P4 446d7ea3 引入）**：`src/rt_main.c` 的 `process_rx` 帧累加器丢失「帧体未收齐就返回」的判定（`if (g_rx.len < g_rx.frame_len) return;`，只剩注释 `Need frame body`）。任何大于一个管道读块（`QWRT_IPC_READ_BUF_SIZE` = libuv `UV__IO_MAX_BYTES` = 64KB）的帧会被拆成多次 read 回调，第二次回调里 `g_rx.len -= g_rx.frame_len` 在 `size_t` 上下溢 → `memmove` 巨量越界 → 堆破坏（`double free or corruption (!prev)`）/挂死。修复：恢复该判定。实测触发阈值 = payload + 44（帧头 4B + 信封 40B）> 65536，即 payload > 65492；`r3 65536` 由挂死恢复为 THREAD 54ms / PROCESS 51ms，`r4` 恢复 13.8k msg/s。回归护栏：`test/test_mp1_process_e2e.sh` 新增 phase 1b（128KB payload 往返，修前 FAIL / 修后 PASS）。
 
 ### Added

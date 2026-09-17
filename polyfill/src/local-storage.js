@@ -60,6 +60,7 @@ export function setupLocalStorage(pal) {
   /* THREAD worker：不挂（基线）。接住 localStoragePath/workerBackend 抛错的
    * 非标准环境（如 service worker 线程）与现状一致：静默跳过。 */
   if (isWorker && backend !== 'process') return;
+  var QUOTA = 5 * 1024 * 1024;   /* Web Storage default, in code units */
   if (typeof globalThis.localStorage !== 'undefined') return;
 
   /* ================= PROCESS worker：同步代理（M-P4 §10.2） =================
@@ -83,11 +84,29 @@ export function setupLocalStorage(pal) {
       }
       return r ? r.v : undefined;
     }
+  /* 本地预检（同步语义不变）：单次写入 key+value 即超配额 → 所有者必拒，
+   * 直接抛 QuotaExceededError，避免超大 payload 跨进程 RPC 白传。
+   * 按 code units 计（与所有者 total 口径一致）；不按序列化字节预拒——
+   * 序列化字节（UTF-8）≠ code units，按字节会误拒所有者可接受的写入
+   * （多字节字符值），破坏同步 API 语义一致性。 */
+  function quotaExceeded(key) {
+    var msg = "Failed to execute 'setItem' on 'Storage': setting the value of '" +
+              key + "' exceeded the quota.";
+    var ex;
+    try { ex = new DOMException(msg, 'QuotaExceededError'); }
+    catch (err) { ex = new Error(msg); ex.name = 'QuotaExceededError'; }
+    throw ex;
+  }
     mountGlobal(buildStorageObject({
       length: function () { return request('length'); },
       key: function (i) { return request('key', i >>> 0); },
       getItem: function (k) { return request('get', String(k)); },
-      setItem: function (k, v) { request('set', String(k), String(v)); },
+      setItem: function (k, v) {
+        k = String(k);
+        v = String(v);
+        if (k.length + v.length > QUOTA) quotaExceeded(k);
+        request('set', k, v);
+      },
       removeItem: function (k) { request('remove', String(k)); },
       clear: function () { request('clear'); },
     }));
@@ -108,7 +127,6 @@ export function setupLocalStorage(pal) {
   var map = Object.create(null);
   var keys = [];
   var total = 0;
-  var QUOTA = 5 * 1024 * 1024;   /* Web Storage default, in code units */
 
   function has(key) {
     return Object.prototype.hasOwnProperty.call(map, key);
