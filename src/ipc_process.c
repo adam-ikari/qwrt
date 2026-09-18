@@ -910,27 +910,18 @@ static void proc_process_rx(qwrt_proc_t *proc)
                     qwrt_ipc_ctl_kind_t ck =
                         qwrt_ipc_ctl_classify(view.payload, view.payload_len,
                                               &cval);
-                    /* Liveness PING（sub worker 侧）：本节点是 worker runtime
-                     * （ctl_route_id>0 且非宿主主RT 通道——本读泵只服务 spawn
-                     * 出的子进程通道）→ 读泵 C 层就地直回 PONG（corr = ping
-                     * seq 原样回显），不经 msgq/JS——pong 延迟反映对端 uv
-                     * loop 健康度。宿主主RT 通道不经过本读泵（rt_host.c），
-                     * 分支天然不重叠。 */
-                    if (ck == QWRT_IPC_CTL_PING &&
-                        proc->ctl_route_id > 0) {
-                        qwrt_ipc_child_emit(0, 0, IPC_ENV_KIND_CONTROL,
-                                            view.corr,
-                                            (const uint8_t *)
-                                                QWRT_IPC_CTL_PONG_MSG,
-                                            (uint32_t)(sizeof
-                                                QWRT_IPC_CTL_PONG_MSG - 1));
-                        ctl_routed = 1;
-                    } else if (ck == QWRT_IPC_CTL_PONG) {
-                        /* Liveness PONG：回填回显 seq 供 qwrt_proc_ping 的
-                         * compare 判定对端 loop 通畅；不进 msgq/JS。 */
+                    int ck_routed = 0;
+                    /* Liveness PONG（sub worker 直回）：仅 worker 通道
+                     * （ctl_route_id>0）拦截回填 proc->pong_seq 供
+                     * qwrt_proc_ping 判定；宿主主RT 通道（ctl_route_id==0）
+                     * 的 PONG 交回 msg_cb（host_proc_msg_cb 回填 rt->pong_seq，
+                     * c734194d 宿主 qwrt_ping 消费）——无守卫会劫走宿主
+                     * PONG 致其永远超时。 */
+                    if (ck == QWRT_IPC_CTL_PONG && proc->ctl_route_id > 0) {
                         __atomic_store_n(&proc->pong_seq, (int32_t)view.corr,
                                          __ATOMIC_RELEASE);
                         ctl_routed = 1;
+                        ck_routed = 1;
                     } else if (proc->ctl_route_id > 0 &&
                                ck == QWRT_IPC_CTL_NONE) {
                         qwrt_control_route((qwrt_t *)proc->parent_rt,
@@ -938,7 +929,9 @@ static void proc_process_rx(qwrt_proc_t *proc)
                                            view.target, view.payload,
                                            view.payload_len);
                         ctl_routed = 1;
+                        ck_routed = 1;
                     }
+                    QWRT_UNUSED(ck_routed);
                 }
                 if (!ctl_routed && proc->msg_cb) {
                     /* JS-managed 模式：信封解码 → 直接回调（bridge.c 的
@@ -1103,30 +1096,40 @@ int qwrt_proc_ping(qwrt_proc_t *proc, int32_t timeout_ms)
                     proc->rbuf_len -= 4;
                     if (proc->rbuf_len > 0)
                         memmove(proc->rbuf, proc->rbuf + 4, proc->rbuf_len);
-                    if (proc->frame_len > 16u * 1024 * 1024) return -1;
+                    if (proc->frame_len > 16u * 1024 * 1024) {
+                        /* 与 proc_process_rx 一致：协议错误按对端死亡处理
+                         * （收尸 + 释放槽位），不留垃圾 frame_len 卡死通道。 */
+                        proc_peer_dead(proc);
+                        return -1;
+                    }
                 }
                 if (proc->rbuf_len < proc->frame_len) break;
                 if (proc->frame_len > 0) {
                     ipc_envelope_view_t v;
+                    int is_pong = 0;
                     if (ipc_envelope_decode(proc->rbuf, proc->frame_len,
                                             &v) == 0 &&
                         v.kind == IPC_ENV_KIND_CONTROL && v.payload_len > 0) {
                         int pv = 0;
                         if (qwrt_ipc_ctl_classify(v.payload, v.payload_len,
                                                   &pv) == QWRT_IPC_CTL_PONG)
-                            __atomic_store_n(&proc->pong_seq,
-                                             (int32_t)v.corr,
-                                             __ATOMIC_RELEASE);
-                        /* 非 PONG 帧留在 rbuf：读泵下次活动按完整帧
-                         * 正常消费（frame_len 已置好，不丢不重）。 */
+                            is_pong = 1;
                     }
+                    if (!is_pong) {
+                        /* 非 PONG 帧保留在 rbuf（frame_len 不归零）：读泵
+                         * 下次活动按完整帧正常消费——ping 等待窗口不吞应用
+                         * 帧（MESSAGE/STORAGE/CONTROL 命令），零丢失。 */
+                        break;
+                    }
+                    __atomic_store_n(&proc->pong_seq, (int32_t)v.corr,
+                                     __ATOMIC_RELEASE);
                 }
                 proc->rbuf_len -= proc->frame_len;
                 if (proc->rbuf_len > 0)
                     memmove(proc->rbuf,
                             proc->rbuf + proc->frame_len, proc->rbuf_len);
                 proc->frame_len = 0;
-            }
+                }
             continue;
         }
         sched_yield();
