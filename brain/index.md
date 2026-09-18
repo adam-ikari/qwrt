@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-17T04:05:45.106Z._
+_Auto-generated. Last updated 2026-09-18T06:58:45.205Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [c-js-layering](pages/c-js-layering.md) — category: decision | tags: [arch, layering, policy] | # C/JS 分层原则与标准（判据摘要）
@@ -34,6 +34,7 @@ _Auto-generated. Last updated 2026-09-17T04:05:45.106Z._
 - [urlpattern-modifier-fix](pages/urlpattern-modifier-fix.md) — category: decision | tags: [urlpattern, wintertc, ecma429, polyfill] | ## 问题
 - [wamr-init-lazy](pages/wamr-init-lazy.md) — category: decision | tags: [wamr, startup, lazy-init] | ## 决策
 - [wasm-engine-integration](pages/wasm-engine-integration.md) — category: decision | tags: [wasm, wamr, threading] | # WAMR 线程环境（关键坑）
+- [wasm-ts-runtime](pages/wasm-ts-runtime.md) — category: decision | tags: [wasm, ts, wamr, roadmap] | <current best understanding — replace this with the real content>
 - [wintertc-byob-streams](pages/wintertc-byob-streams.md) — category: decision | tags: [wintertc, streams, byob, ecma-429] | - **背景**：ECMA-429（WinterTC Minimum common web API，2025 snapshot）要求 Streams 的三个 BYOB 接口必须暴露在 globalThis 上：`ReadableByteStreamController`、`Rea
 - [wintertc-crypto-performance-globals](pages/wintertc-crypto-performance-globals.md) — category: decision | tags: [wintertc, ecma-429, crypto, performance] | - **背景**：ECMA-429（WinterTC Minimum common web API）WEBCRYPTO 要求 globalThis 暴露 `Crypto`/`CryptoKey`/`SubtleCrypto`/`crypto`，HR-TIME 要求 `Perfor
 - [wintertc-ecma429-coverage](pages/wintertc-ecma429-coverage.md) — category: decision | tags: [wintertc, ecma-429, coverage, gtest, streams] | ## 结论
