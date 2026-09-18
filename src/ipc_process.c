@@ -192,6 +192,14 @@ qwrt_ipc_ctl_kind_t qwrt_ipc_ctl_classify(const uint8_t *payload,
         } else if (cJSON_IsNumber(sd)) {
             kind = QWRT_IPC_CTL_SHUTDOWN;
             *out_val = sd->valueint;
+        } else if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(j, "ping"))) {
+            /* liveness 探测：宿主→对端。对端 C 层读泵识别后直回 PONG。 */
+            kind = QWRT_IPC_CTL_PING;
+            *out_val = 1;
+        } else if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(j, "pong"))) {
+            /* liveness 应答：对端读泵回显 corr（= ping seq）。 */
+            kind = QWRT_IPC_CTL_PONG;
+            *out_val = 1;
         } else {
             /* 带 "qwrt" 标记但非 ready/idle/shutdown（M-P4 closing 等）：
              * 通道级系统消息，交通道层消费，不被当作控制面命令路由。 */

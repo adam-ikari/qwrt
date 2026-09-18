@@ -382,6 +382,11 @@ struct qwrt_t {
     qwrt_proc_t *proc;              /* ISOLATED 宿主：主RT 通道句柄 */
     uv_pipe_t   *ipc_channel_pipe;  /* 主RT 进程：宿主通道读管道（idle 豁免） */
     int          idle_ack;          /* atomic: 主RT 已回 CONTROL{idle} ack */
+    /* liveness ping/pong（宿主↔主RT C 层直回，检测对端 uv loop 阻塞）：
+     * ping_seq = 发起方分配的单调序号（宿主线程写）；pong_seq = 最近收到
+     * 的 PONG 回显序号（宿主 loop 线程读泵写）。compare 判定 loop 通畅。 */
+    int32_t      ping_seq;          /* atomic: 宿主线程写的探测序号 */
+    int32_t      pong_seq;          /* atomic: 宿主读泵回填的应答序号 */
 #endif
 
 

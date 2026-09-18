@@ -85,6 +85,14 @@ int qwrt_post_message(qwrt_t *rt, const char *json, size_t len);
  * cancel pending async work (e.g. a live timer). */
 void qwrt_wait_idle(qwrt_t *rt);
 
+/* Liveness ping（ISOLATED 编译，宿主→主RT 进程）：发 CONTROL ping（corr =
+ * 单调 seq）并阻塞等待主RT C 层读泵直回的 PONG（不经 JS/msgq——pong 延迟
+ * 只反映主RT 进程 uv loop 的健康度，JS 忙不误报）。返回 0 = loop 通畅
+ * （deadline 内 PONG 命中）；1 = 超时 = 对端 loop 阻塞（或对端极度繁忙但
+ * 读泵 starvation，见设计文档）；-1 = 参数/状态错误（未 ready、正在关停、
+ * 通道已死——进程死亡另有 EOF 路径）。timeout_ms 建议 100–1000。 */
+int qwrt_ping(qwrt_t *rt, int32_t timeout_ms);
+
 /* 控制命令入队（线程安全，任何线程可调）。bytes 为命令 JSON，内部拷贝。
  * control_plane=OFF 时恒返回 -1。返回 0 成功，-1 失败（OFF/OOM/参数非法）。
  * 命令由 qwrt 线程在自己事件循环的安全点自主执行；结果经 message_cb 异步

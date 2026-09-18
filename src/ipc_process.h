@@ -97,6 +97,10 @@ size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok);
 #define QWRT_IPC_CTL_CLOSING      "{\"qwrt\":1,\"closing\":1}"   /* M-P4 §9.3：
                                          * worker 自 close 前通知父（EOF 不再
                                          * 当作崩溃触发 onerror） */
+#define QWRT_IPC_CTL_PING_MSG   "{\"qwrt\":1,\"ping\":1}"   /* liveness 探测：
+                                         * 宿主→对端；对端 C 层读泵就地直回 */
+#define QWRT_IPC_CTL_PONG_MSG   "{\"qwrt\":1,\"pong\":1}"   /* liveness 应答：
+                                         * 对端读泵回显 corr（= ping seq） */
 typedef enum {
     QWRT_IPC_CTL_NONE = 0,   /* 非 M-P2 协议 CONTROL payload */
     QWRT_IPC_CTL_READY,
@@ -104,6 +108,8 @@ typedef enum {
     QWRT_IPC_CTL_SHUTDOWN,
     QWRT_IPC_CTL_SYSTEM,     /* 带 "qwrt" 标记的其他系统消息（M-P4 closing 等）：
                               * 通道级，不进控制面命令路由器（CTL-1） */
+    QWRT_IPC_CTL_PING,       /* liveness 探测（payload {"qwrt":1,"ping":1}） */
+    QWRT_IPC_CTL_PONG,       /* liveness 应答（payload {"qwrt":1,"pong":1}） */
 } qwrt_ipc_ctl_kind_t;
 
 /* 判定 CONTROL payload 是否为 M-P2 协议消息；命中时 *out_val = 对应键的数值

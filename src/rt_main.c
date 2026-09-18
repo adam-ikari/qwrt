@@ -260,6 +260,19 @@ static void process_rx(qwrt_t *rt)
                 int ctl_val = 0;    /* CTL-1：CONTROL 命令类判定 */
                 if (is_ctl && g_server_mode)
                     server_handle_control(rt, &view);
+                /* Liveness ping（{"qwrt":1,"ping":1}）：读泵 C 层就地直回
+                 * PONG（corr = ping seq 原样回显），不经 msgq/JS——pong 延迟
+                 * 反映 uv loop 健康度（loop 阻塞在读泵 poll 里就回不了）。 */
+                if (is_ctl && view.payload_len > 0 &&
+                    qwrt_ipc_ctl_classify(view.payload, view.payload_len,
+                                          &ctl_val) == QWRT_IPC_CTL_PING) {
+                    qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+                                        IPC_ENV_KIND_CONTROL,
+                                        view.corr,
+                                        (const uint8_t *)QWRT_IPC_CTL_PONG_MSG,
+                                        (uint32_t)(sizeof QWRT_IPC_CTL_PONG_MSG
+                                                   - 1));
+                }
                 /* CONTROL{shutdown} → graceful exit (§9.2 tier 1)。两种 payload
                  * 形态都认：M-P2 的 {"qwrt":1,"shutdown":1} 与 M-P1 三级终止
                  * tier-1 的 {"cmd":"shutdown"}（qwrt_proc_terminate 发出）。 */

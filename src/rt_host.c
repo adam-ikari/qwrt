@@ -102,6 +102,12 @@ static void host_proc_msg_cb(void *user, int8_t kind, int32_t source,
             __atomic_store_n(&rt->idle_ack, 1, __ATOMIC_RELEASE);
             return;
         }
+        if (k == QWRT_IPC_CTL_PONG) {
+            /* 读泵 C 层直回的 liveness 应答：回填回显的 seq（qwrt_ping
+             * 的 compare 据此判定对端 loop 通畅）。PONG 不进 message_cb。 */
+            __atomic_store_n(&rt->pong_seq, (int32_t)corr, __ATOMIC_RELEASE);
+            return;
+        }
     }
 
     if (rt->config.message_cb)
@@ -297,6 +303,33 @@ void qwrt_host_wait_idle(qwrt_t *rt)
         sched_yield();
     uv_thread_join(&rt->thread);
     __atomic_store_n(&rt->thread_joined, 1, __ATOMIC_RELEASE);
+}
+
+/* ── Liveness ping（宿主→主RT,检测对端 uv loop 是否阻塞）──
+ * 发 CONTROL{"qwrt":1,"ping":1}（corr = 单调 seq）→ 阻塞等待 PONG（对端
+ * C 层读泵就地直回,不经 JS/msgq）→ 回显 seq 命中 = loop 通畅;deadline 内
+ * 未命中 = 对端 loop 阻塞（或死亡——死亡另有 EOF 路径）。单飞行:同一 rt
+ * 同时只有一个 ping 在途（宿主线程 API,线程不安全由调用方保证）。 */
+int qwrt_ping(qwrt_t *rt, int32_t timeout_ms)
+{
+    if (!rt || rt->magic != QWRT_MAGIC) return -1;
+    if (!rt->proc || rt->proc->state != QWRT_PROC_RUN) return -1;
+    if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return -1;
+
+    int32_t seq = __atomic_add_fetch(&rt->ping_seq, 1, __ATOMIC_ACQ_REL);
+    if (qwrt_proc_post(rt->proc, QWRT_IPC_HOST_ID, QWRT_IPC_MAIN_ID,
+                       IPC_ENV_KIND_CONTROL, seq,
+                       (const uint8_t *)QWRT_IPC_CTL_PING_MSG,
+                       (uint32_t)(sizeof QWRT_IPC_CTL_PING_MSG - 1)) < 0)
+        return -1;
+
+    int64_t deadline = qwrt_now_ms() + timeout_ms;
+    while (__atomic_load_n(&rt->pong_seq, __ATOMIC_ACQUIRE) < seq) {
+        if (qwrt_now_ms() >= deadline) return 1;   /* 超时 = 对端 loop 阻塞 */
+        if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return -1;
+        sched_yield();
+    }
+    return 0;   /* deadline 内 PONG 命中 = 对端 loop 通畅 */
 }
 
 void qwrt_host_destroy(qwrt_t *rt)
