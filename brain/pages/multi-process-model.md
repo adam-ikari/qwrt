@@ -77,3 +77,9 @@ updated: "2026-09-17T04:05:45"
   summary: "延后项复查：tier-2 超时异步化（§9.2/I5）→ 维持 DEFERRED（非真问题，不实施）。qwrt_proc_terminate（src/ipc_process.c:453）同步三级终止，最坏 2s/挂死 worker，但①冻结只在已损坏（无视 shutdown）子进程兑现，正常退出 ~1ms；②嵌入宿主自身从不阻塞——宿主侧 terminate 仅 destroy 路径（rt_host.c:160，专用 loop 线程，非宿主主线程），JS 侧 processTerminate（bridge.c:1927）冻结的是主RT 自身 loop（ISOLATED 缺省为独立进程）；③异步化须迁移 pid 属权与 proc 生命周期跨 loop tick，4 个调用点均紧跟 qwrt_proc_free（假设 terminate 返回即已收尸）→ UAF/双释放风险大于收益。详见 CHANGELOG。"
   source: "tier-2 超时异步化调查会话"
   affects: [multi-process-model]
+
+- time: 2026-09-18
+  kind: decision
+  summary: "延后项复查：path 元素 u16→u32 → 维持 u16（YAGNI，不实施）。证据：QWRT_MAX_PROC_HANDLES=64 并发进程句柄/rt（qwrt_internal.h:135），path 深度上限 QWRT_SELF_PATH_MAX=8（:138）；path 元素 = 各 runtime 本地单调计数器 procWorkerSeq（polyfill/src/worker.js:66，1000 起），溢出须单 runtime 累积 >6.45 万次 PROCESS spawn（id 每 runtime 本地分配，非全局），现实不可达；rt_main.c:600 已有 v<=0xFFFF 解析守卫。非 path 字段 key_port 本为 u32，无其他溢出点。升 u32 须改 PORT_TRANSFER 头变长公式 8+2*(dl+kl)→8+4*(dl+kl)，破坏 §4.1 冻结 schema / §7.2 字节不动 wire 兼容 → 超出低成本，维持延后。详见 CHANGELOG。"
+  source: "path u16 升级调查会话"
+  affects: [multi-process-model]
