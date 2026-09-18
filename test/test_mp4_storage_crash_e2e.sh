@@ -60,6 +60,14 @@ printf '%s\n' "$OUT" | grep -q "main-len:1"         || fail "1 mainRT length aft
 printf '%s\n' "$OUT" | grep -q "main-removed:null"  || fail "1 mainRT sees worker removeItem" "$OUT"
 printf '%s\n' "$OUT" | grep -q "STORAGE-DONE"       || fail "1 done" "$OUT"
 grep -q '"wkey":"wval"' "$TMPLS/ls.json" 2>/dev/null || fail "1 owner persisted worker write" "$(cat "$TMPLS/ls.json" 2>/dev/null)"
+printf '%s\n' "$OUT" | grep -q "|ss-get=sval|"          || fail "1 worker sessionStorage get" "$OUT"
+printf '%s\n' "$OUT" | grep -q "|ss-len=1|"             || fail "1 worker sessionStorage length" "$OUT"
+printf '%s\n' "$OUT" | grep -q "|ss-isolated=null|"     || fail "1 sessionStorage isolated from localStorage" "$OUT"
+printf '%s\n' "$OUT" | grep -q "|ss-quota=QuotaExceededError$" || fail "1 sessionStorage quota" "$OUT"
+printf '%s\n' "$OUT" | grep -q "main-ss-sees:sval"      || fail "1 mainRT reads worker sessionStorage write" "$OUT"
+printf '%s\n' "$OUT" | grep -q "main-ss-isolated:null"  || fail "1 mainRT sessionStorage isolated from localStorage" "$OUT"
+printf '%s\n' "$OUT" | grep -q "main-ls-isolated:null"  || fail "1 mainRT localStorage isolated from sessionStorage" "$OUT"
+grep -q '"skey"' "$TMPLS/ls.json" 2>/dev/null && fail "1 sessionStorage leaked into localStorage file" "$(cat "$TMPLS/ls.json" 2>/dev/null)"
 
 # ── 2: worker 崩溃注入（kill -9）→ 主RT onerror + 继续 + 收尸 ──
 "$QWRT" "$FIX/main_worker_crash.js" > "$FIX/crash.out" 2>&1 &

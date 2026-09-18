@@ -8,6 +8,9 @@ w.onmessage = function (e) {
   console.log('main-sees:' + localStorage.getItem('wkey'));
   console.log('main-len:' + localStorage.length);
   console.log('main-removed:' + localStorage.getItem('k1'));
+  console.log('main-ss-sees:' + sessionStorage.getItem('skey'));      /* worker 写 session → 主RT 读 */
+  console.log('main-ss-isolated:' + sessionStorage.getItem('wkey'));  /* localStorage 的 key → null */
+  console.log('main-ls-isolated:' + localStorage.getItem('skey'));    /* session 的 key → null */
   console.log('STORAGE-DONE');
   clearInterval(keep);
 };

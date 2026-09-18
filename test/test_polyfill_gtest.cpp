@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <unistd.h>
+#include <fstream>
 
 class PolyfillTest : public ::testing::Test {
 protected:
@@ -310,10 +311,10 @@ TEST_F(PolyfillTest, StorageOwnerDispatch) {
         "globalThis.__qwrt_worker_post__ = function (src, bytes, kind) {\n"
         "  __replies.push({s: src, k: kind, r: __qwrt_deserialize__(bytes)});\n"
         "};\n"
-        "function req(op, key, value) {\n"
+        "function req(op, key, value, domain) {\n"
         "  __qwrt_storage_dispatch__(\n"
         "    __qwrt_serialize__({ op: op, key: key, value: value,\n"
-        "                         storageDomain: 'localStorage' }), 1001);\n"
+        "                         storageDomain: domain || 'localStorage' }), 1001);\n"
         "  return __replies[__replies.length - 1];\n"
         "}\n"
         "localStorage.clear();\n"
@@ -336,6 +337,22 @@ TEST_F(PolyfillTest, StorageOwnerDispatch) {
     EXPECT_EQ("[[1001,4,null],[1001,4,null],[1001,4,1],[1001,4,\"a\"],"
               "[1001,4,\"A\"],[1001,4,\"Error\"],"
               "[1001,4,null],[1001,4,0]]", v) << "got: " << v;
+    /* sessionStorage 域路由：storageDomain='sessionStorage' → 独立区（ssArea），
+     * 与 localStorage 同 key 互不污染；缺省/其他域 → localStorage。 */
+    ASSERT_TRUE(host_value(h,
+        "sessionStorage.clear();\n"
+        "localStorage.clear();\n"
+        "localStorage.setItem('shared', 'ls');\n"
+        "var out = [];\n"
+        "req('set', 'shared', 'ss', 'sessionStorage');\n"
+        "out.push(req('get', 'shared', undefined, 'sessionStorage').r.v);\n"
+        "out.push(req('get', 'shared').r.v);\n"               /* 缺省域 → localStorage */
+        "out.push(req('length', undefined, undefined, 'sessionStorage').r.v);\n"
+        "out.push(req('remove', 'shared', undefined, 'sessionStorage').r.v);\n"
+        "out.push(req('get', 'shared', undefined, 'sessionStorage').r.v);\n"
+        "out.push(req('get', 'shared').r.v);\n"               /* localStorage 不受 session remove 影响 */
+        "JSON.stringify(out)", &v));
+    EXPECT_EQ("[\"ss\",\"ls\",1,null,null,\"ls\"]", v) << "got: " << v;
 
     unsetenv("QWRT_LOCALSTORAGE_FILE");
     ::remove(tmpl);
@@ -419,6 +436,67 @@ TEST_F(PolyfillTest, LocalStorageQuotaExceeded) {
         "catch (e) { name2 = e.name; }\n"
         "JSON.stringify([name2, localStorage.length, localStorage.getItem('a') !== null])", &v));
     EXPECT_EQ("[\"QuotaExceededError\",2,true]", v) << "got: " << v;
+
+    unsetenv("QWRT_LOCALSTORAGE_FILE");
+    ::remove(tmpl);
+}
+/* sessionStorage：独立域（纯内存区，生命周期 = runtime 会话）——与 localStorage
+ * 同 key 完全隔离、全 op 语义一致、超限同 QUOTA（5 MiB）、不落盘（数据不写进
+ * localStorage 持久文件）。 */
+TEST_F(PolyfillTest, SessionStorageBasic) {
+    char tmpl[] = "/tmp/qwrt_ss_basic_XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    ASSERT_GE(fd, 0);
+    ::close(fd);
+    ::remove(tmpl);
+    setenv("QWRT_LOCALSTORAGE_FILE", tmpl, 1);
+    host_destroy(h);
+    h = host_create();
+    ASSERT_NE(nullptr, h);
+    std::string v;
+
+    /* 同 key 隔离（双向）+ 全 op（getItem/setItem/removeItem/clear/length/key）
+     * + 键/值强制 String */
+    ASSERT_TRUE(host_value(h,
+        "var r = [];\n"
+        "localStorage.setItem('k', 'ls-v');\n"
+        "sessionStorage.setItem('k', 'ss-v');\n"
+        "r.push(sessionStorage.getItem('k'));\n"        /* 'ss-v'：session 读自己的 */
+        "r.push(localStorage.getItem('k'));\n"          /* 'ls-v'：反向隔离 */
+        "r.push(sessionStorage.length);\n"
+        "r.push(sessionStorage.key(0));\n"
+        "sessionStorage.setItem(7, 8);\n"               /* 键/值强制 String */
+        "r.push(sessionStorage.getItem('7'));\n"
+        "sessionStorage.removeItem('k');\n"
+        "r.push(sessionStorage.getItem('k'));\n"        /* null */
+        "r.push(sessionStorage.length);\n"
+        "r.push(localStorage.getItem('k'));\n"          /* localStorage 不受 session 操作影响 */
+        "sessionStorage.clear();\n"
+        "r.push(sessionStorage.length);\n"
+        "r.push(localStorage.length);\n"
+        "JSON.stringify(r)", &v));
+    EXPECT_EQ("[\"ss-v\",\"ls-v\",1,\"k\",\"8\",null,1,\"ls-v\",0,1]", v) << "got: " << v;
+
+    /* 超限同 QUOTA：单次 key+value > 5 MiB → QuotaExceededError，状态不变 */
+    ASSERT_TRUE(host_value(h,
+        "var name = 'no-error';\n"
+        "try { sessionStorage.setItem('big', 'x'.repeat(6 * 1024 * 1024)); }\n"
+        "catch (e) { name = e.name; }\n"
+        "JSON.stringify([name, sessionStorage.length, sessionStorage.getItem('big')])", &v));
+    EXPECT_EQ("[\"QuotaExceededError\",0,null]", v) << "got: " << v;
+
+    /* 接口面：方法/访问器不可枚举（与 localStorage 一致） */
+    ASSERT_TRUE(host_value(h, "JSON.stringify(Object.keys(sessionStorage).length)", &v));
+    EXPECT_EQ("0", v) << "got: " << v;
+
+    /* sessionStorage 不落盘：localStorage 持久文件只含 localStorage 数据 */
+    std::ifstream f(tmpl);
+    std::string contents((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_NE(std::string::npos, contents.find("\"k\":\"ls-v\""))
+        << "localStorage file missing its own data: " << contents;
+    EXPECT_EQ(std::string::npos, contents.find("ss-v"))
+        << "session data leaked into localStorage file: " << contents;
 
     unsetenv("QWRT_LOCALSTORAGE_FILE");
     ::remove(tmpl);

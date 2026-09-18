@@ -228,9 +228,9 @@ lazyUnit(
   [[globalThis.qwrt, 'storage']],
   function () { setupStorage(pal); });
 
-/* LS — local-storage */
+/* LS — local-storage / session-storage（同一 setup 物化两域） */
 lazyUnit(
-  ['localStorage'],
+  ['localStorage', 'sessionStorage'],
   [],
   function () { setupLocalStorage(pal); });
 
