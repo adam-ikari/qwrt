@@ -46,6 +46,8 @@ service Greeter {
   rpc Big (HelloRequest) returns (HelloReply) {}
   rpc CountUp (HelloRequest) returns (stream HelloReply) {}
   rpc CountList (HelloRequest) returns (stream HelloReply) {}
+  rpc Collect (stream HelloRequest) returns (HelloReply) {}
+  rpc Chat (stream HelloRequest) returns (stream HelloReply) {}
 }
 message HelloRequest { string name = 1; repeated string tags = 2; }
 message HelloReply { string message = 1; int32 count = 2; }
@@ -286,6 +288,14 @@ if (!peer) {
       // ... and a plain array (sync iterator).
       CountList: (call) => Array.from({ length: (call.request.tags || []).length },
                                       (_, i) => ({ message: 'item ' + (i + 1), count: i + 1 })),
+      // Client streaming: the whole request stream arrives as an array
+      // (call.request), handler returns the single reply.
+      Collect: (call) => {
+        const names = (call.request || []).map((r) => r.name);
+        return { message: 'collected:' + names.join(','), count: names.length };
+      },
+      // Bidi: whole request array in, whole response iterable out.
+      Chat: (call) => (call.request || []).map((r) => ({ message: 'echo ' + r.name, count: 0 })),
     },
   });
   const greeter = new pkg.helloworld.Greeter(
@@ -379,6 +389,54 @@ if (!peer) {
     eq(rs[1].count, 2, 'payload intact');
     await qch.close();
   });
+  await t('client streaming: grpc-js writable stream → whole array to handler', async () => {
+    const reply = await new Promise((res, rej) => {
+      const call = greeter.Collect((e, v) => (e ? rej(e) : res(v)));
+      call.write({ name: 'a' });
+      call.write({ name: 'b' });
+      call.write({ name: 'c' });
+      call.end();
+    });
+    eq(reply.message, 'collected:a,b,c', 'message');
+    eq(reply.count, 3, 'count');
+  });
+
+  await t('client streaming: empty request stream → empty array to handler', async () => {
+    const reply = await new Promise((res, rej) => {
+      const call = greeter.Collect((e, v) => (e ? rej(e) : res(v)));
+      call.end();
+    });
+    eq(reply.message, 'collected:', 'message');
+    eq(reply.count, 0, 'count');
+  });
+
+  await t('bidi: grpc-js duplex, 3↔3 against qwrt server', async () => {
+    const msgs = [];
+    const done = new Promise((res, rej) => {
+      const call = greeter.Chat();
+      call.on('data', (m) => msgs.push(m));
+      call.on('end', res);
+      call.on('error', rej);
+      call.write({ name: 'a' });
+      call.write({ name: 'b' });
+      call.write({ name: 'c' });
+      call.end();
+    });
+    await done;
+    eq(msgs.length, 3, 'message count');
+    eq(msgs.map((m) => m.message).join('|'), 'echo a|echo b|echo c', 'messages in order');
+  });
+
+  await t('bidi: qwrt client invokeBidi against qwrt server (own stack)', async () => {
+    const regOwn = grpc.loadProto(PROTO_TEXT);
+    const chat = regOwn.service('helloworld.Greeter').method('Chat');
+    const qch = grpc.createInsecureChannel('127.0.0.1:' + srv.port);
+    const rs = await qch.invokeBidi(chat, [{ name: 'x' }, { name: 'y' }]);
+    eq(rs.length, 2, 'message count');
+    eq(rs.map((r) => r.message).join('|'), 'echo x|echo y', 'messages in order');
+    await qch.close();
+  });
+
 
   await t('HTTP/1.1 and gRPC share the same serve() port', async () => {
     const body = await new Promise((res, rej) => {

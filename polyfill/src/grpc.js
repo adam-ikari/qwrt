@@ -20,10 +20,16 @@
  * evaluated and retired from the JS layer — see ROADMAP H5 and
  * docs/plans/2026-09-03-flatbuffers-runtime-builtin.md for rationale.
  *
- * Scope: unary + server-streaming calls — invoke() for unary, invokeStream()
- * for `returns (stream T)` RPCs (resolves with an array of all messages).
- * Client-streaming and gzip compression are later phases; `grpc-encoding` is
- * advertised as `identity` only.
+ * Scope: unary + all four streaming shapes, all Promise-style (this layer
+ * deliberately has NO event/stream-object API — each call resolves once the
+ * peer's whole response has arrived): invoke() for unary, invokeStream() for
+ * server-streaming `returns (stream T)` (resolves with an array of all
+ * messages), invokeClientStream() for client-streaming `(stream T) returns`
+ * (resolves with the single reply), invokeBidi() for bidi `(stream A) returns
+ * (stream B)` (resolves with an array of all reply messages). Client-streaming
+ * and bidi send one framed message per item of the request array / (async)
+ * iterable. gzip compression is a later phase; `grpc-encoding` is advertised
+ * as `identity` only.
  */
 
 import { HTTP2Client, ERR } from './http2.js';
@@ -236,6 +242,7 @@ function resolveCall(method, opts, registry) {
   }
   return { path: m.path, reqType: reqType, respType: respType,
            streaming: !!(m.clientStreaming || m.serverStreaming),
+           clientStreaming: !!m.clientStreaming,
            serverStreaming: !!m.serverStreaming };
 }
 
@@ -302,8 +309,9 @@ Channel.prototype.invoke = function (method, req, opts) {
     return Promise.reject(e instanceof StatusError ? e : new StatusError(e.message, Status.INVALID_ARGUMENT));
   }
   if (call.streaming) {
-    // invoke() is the unary API; streaming methods must use invokeStream().
-    return Promise.reject(new StatusError('use invokeStream() for streaming RPC: ' + call.path,
+    // invoke() is the unary API; streaming methods must use the stream API.
+    return Promise.reject(new StatusError('use invokeStream()/invokeClientStream()/invokeBidi() '
+                                          + 'for streaming RPC: ' + call.path,
                                           Status.INVALID_ARGUMENT));
   }
   return this._send(call, req, opts);
@@ -326,11 +334,63 @@ Channel.prototype.invokeStream = function (method, req, opts) {
   } catch (e) {
     return Promise.reject(e instanceof StatusError ? e : new StatusError(e.message, Status.INVALID_ARGUMENT));
   }
-  if (!call.serverStreaming) {
-    return Promise.reject(new StatusError('not a server-streaming RPC, use invoke(): ' + call.path,
+  if (!call.serverStreaming || call.clientStreaming) {
+    // bidi methods must use invokeBidi(); client-streaming invokeClientStream().
+    return Promise.reject(new StatusError('invokeStream() is for server-streaming RPCs: ' + call.path,
                                           Status.INVALID_ARGUMENT));
   }
   return this._send(call, req, opts);
+};
+
+/**
+ * Client-streaming call: `(stream T) returns R`. The request stream is the
+ * array / (async) iterable `reqs` — each item becomes one framed message and
+ * is sent in order, then the request side is closed and the single reply is
+ * awaited. Contrast grpc-js's event style (call.on('data')): qwrt always
+ * collects the whole request stream up front and resolves with the decoded
+ * reply message once it arrives.
+ *
+ * @param {Array|Iterable|AsyncIterable} reqs  request messages, one frame each
+ * @returns {Promise<object>} the decoded response message
+ */
+Channel.prototype.invokeClientStream = function (method, reqs, opts) {
+  var call;
+  try {
+    call = resolveCall(method, opts || {}, this._registry);
+  } catch (e) {
+    return Promise.reject(e instanceof StatusError ? e : new StatusError(e.message, Status.INVALID_ARGUMENT));
+  }
+  if (!call.clientStreaming || call.serverStreaming) {
+    return Promise.reject(new StatusError('invokeClientStream() is for client-streaming RPCs: ' + call.path,
+                                          Status.INVALID_ARGUMENT));
+  }
+  return this._sendMany(call, reqs, opts);
+};
+
+/**
+ * Bidi-streaming call: `(stream A) returns (stream B)`. The request stream is
+ * the array / (async) iterable `reqs` (one framed message each, then the
+ * request side closes); resolves with an ARRAY of all decoded reply messages
+ * once the peer ends its response stream (an empty array is a valid empty
+ * stream). Like invokeStream() this is the Promise-style "send whole request
+ * stream, receive whole response stream" shape — NOT grpc-js's bidirectional
+ * event streams (call.write()/on('data')). Bidi handlers on the qwrt server
+ * receive the whole request array and return the whole response iterable.
+ *
+ * @returns {Promise<object[]>} the decoded response messages
+ */
+Channel.prototype.invokeBidi = function (method, reqs, opts) {
+  var call;
+  try {
+    call = resolveCall(method, opts || {}, this._registry);
+  } catch (e) {
+    return Promise.reject(e instanceof StatusError ? e : new StatusError(e.message, Status.INVALID_ARGUMENT));
+  }
+  if (!call.clientStreaming || !call.serverStreaming) {
+    return Promise.reject(new StatusError('invokeBidi() is for bidi-streaming RPCs: ' + call.path,
+                                          Status.INVALID_ARGUMENT));
+  }
+  return this._sendMany(call, reqs, opts);
 };
 
 Channel.prototype._send = function (call, req, opts) {
@@ -340,17 +400,55 @@ Channel.prototype._send = function (call, req, opts) {
   } catch (e) {
     return Promise.reject(new Error('grpc: failed to encode request for ' + call.path + ': ' + e.message));
   }
-  var self = this;
-  // One transparent retry when the pooled connection died under us — the
-  // second attempt gets a fresh connection from _connect().
-  return this._once(call, payload, opts || {}, false)
-    .catch(function (err) {
-      if (err && err.__grpcRetry) return self._once(call, payload, opts || {}, true);
-      throw err;
-    });
+  return this._once(call, [payload], opts || {}, false);
 };
 
-Channel.prototype._once = function (call, payload, opts, isRetry) {
+/* Client-streaming / bidi: frame every item of `reqs` (array or (async)
+ * iterable — one frame per item, consumed in order), then send them all on
+ * one stream. Same transparent retry as _send(); a framing failure rejects
+ * with a plain Error like _send's encode failure. Frames are materialized
+ * once and reused for the retry (generators cannot be re-iterated). */
+Channel.prototype._sendMany = function (call, reqs, opts) {
+  var self = this;
+  return this._frameAll(call, reqs).then(function (payloads) {
+    return self._once(call, payloads, opts || {}, false)
+      .catch(function (err) {
+        if (err && err.__grpcRetry) return self._once(call, payloads, opts || {}, true);
+        throw err;
+      });
+  });
+};
+
+Channel.prototype._frameAll = function (call, reqs) {
+  var frames = [];
+  function encodeOne(req) {
+    var payload;
+    try { payload = frameMessage(call.reqType.encode(req)); }
+    catch (e) {
+      throw new Error('grpc: failed to encode request for ' + call.path + ': ' + e.message);
+    }
+    frames.push(payload);
+  }
+  function step(it) {
+    var p = it.next();
+    return Promise.resolve(p).then(function (r) {
+      if (r.done) return frames;
+      encodeOne(r.value);
+      return step(it);
+    });
+  }
+  return Promise.resolve().then(function () {
+    if (reqs == null) return frames;           // empty request stream
+    var asyncIt = typeof reqs[Symbol.asyncIterator] === 'function' && reqs[Symbol.asyncIterator]();
+    var it = asyncIt || (typeof reqs[Symbol.iterator] === 'function' && reqs[Symbol.iterator]());
+    if (!it) {
+      throw new Error('grpc: request stream for ' + call.path + ' is not iterable');
+    }
+    return step(it);
+  });
+};
+
+Channel.prototype._once = function (call, payloads, opts, isRetry) {
   var self = this;
   return this._connect().then(function (client) {
     return new Promise(function (resolve, reject) {
@@ -411,11 +509,12 @@ Channel.prototype._once = function (call, payload, opts, isRetry) {
         }
         var reply;
         try {
-          if (call.streaming) {
-            // Server streaming: every framed message is a reply; an empty
-            // stream is a valid (zero-message) response.
+          if (call.serverStreaming) {
+            // Server streaming + bidi: every framed message is a reply; an
+            // empty stream is a valid (zero-message) response.
             reply = messages.map(function (m) { return call.respType.decode(m); });
           } else {
+            // Unary + client streaming: exactly one reply message.
             if (!messages.length) {
               reject(new StatusError('response is missing the reply message', Status.INTERNAL));
               return;
@@ -423,7 +522,6 @@ Channel.prototype._once = function (call, payload, opts, isRetry) {
             reply = call.respType.decode(messages[0]);
           }
         } catch (e) {
-          reject(new StatusError('failed to decode reply for ' + call.path + ': ' + e.message, Status.INTERNAL));
           return;
         }
         if (opts.onMetadata) { try { opts.onMetadata(respMeta); } catch (e) {} }
@@ -482,7 +580,12 @@ Channel.prototype._once = function (call, payload, opts, isRetry) {
         reject(err);
         return;
       }
-      try { stream.end(payload); }
+      try {
+        // One framed message per request; unary/server-streaming send exactly
+        // one, client-streaming/bidi send the whole materialized stream.
+        for (var i = 0; i < payloads.length; i++) stream.write(payloads[i]);
+        stream.end();
+      }
       catch (e) {
         if (settled) return;
         settled = true;

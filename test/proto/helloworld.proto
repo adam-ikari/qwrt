@@ -8,6 +8,8 @@ service Greeter {
   rpc Slow (HelloRequest) returns (HelloReply) {}
   rpc EchoMeta (HelloRequest) returns (HelloReply) {}
   rpc CountUp (HelloRequest) returns (stream HelloReply) {}
+  rpc Collect (stream HelloRequest) returns (HelloReply) {}
+  rpc Chat (stream HelloRequest) returns (stream HelloReply) {}
 }
 
 message HelloRequest {

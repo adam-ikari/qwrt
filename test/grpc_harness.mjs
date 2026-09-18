@@ -137,6 +137,21 @@ function rawUnframe(buf) {
   return buf.subarray(5);
 }
 
+/* Unframe every gRPC message in a byte blob (client-streaming requests send
+ * several length-prefixed messages back to back). */
+function rawUnframeAll(buf) {
+  const out = [];
+  let i = 0;
+  while (i + 5 <= buf.length) {
+    const len = ((buf[i + 1] << 24) | (buf[i + 2] << 16) | (buf[i + 3] << 8) | buf[i + 4]) >>> 0;
+    if (i + 5 + len > buf.length) throw new Error('raw peer: truncated frame len ' + len);
+    out.push(buf.subarray(i + 5, i + 5 + len));
+    i += 5 + len;
+  }
+  if (i !== buf.length) throw new Error('raw peer: trailing garbage ' + (buf.length - i) + ' bytes');
+  return out;
+}
+
 // ── the hand-written gRPC-over-http2 peer ──────────────────────────
 // handlers: { '/pkg.Svc/M': (req, ctx) => ({reply|status|...}) }
 function startRawServer(handlers) {
@@ -165,8 +180,11 @@ function startRawServer(handlers) {
                          'grpc-status': '12', 'grpc-message': 'unimplemented' }, { endStream: true });
         return;
       }
+      // Handlers receive the full request message stream as an array of
+      // unframed payloads ([] for an empty request stream) — one entry per
+      // gRPC message, so client-streaming/bidi requests are visible whole.
       let r;
-      try { r = h(all.length ? rawUnframe(all) : new Uint8Array(0), ctx); }
+      try { r = h(all.length ? rawUnframeAll(all) : [], ctx); }
       catch (e) {
         stream.respond({ ':status': 200, 'content-type': 'application/grpc',
                          'grpc-status': '13', 'grpc-message': String(e.message) }, { endStream: true });
@@ -221,10 +239,21 @@ const echoMeta = reg.service('helloworld.Greeter').method('EchoMeta');
 
 const H = {
   '/helloworld.Greeter/SayHello': (req) => {
-    const r = rawDecodeRequest(req);
+    const r = rawDecodeRequest(req[0]);
     return { body: rawEncodeReply({ message: 'Hello ' + r.name, count: r.tags.length }) };
   },
   '/helloworld.Greeter/Fail': () => ({ status: 5, message: 'no such %E2%98%BA thing' }),
+  '/helloworld.Greeter/Collect': (req) => {
+    // Client-streaming: the whole request stream arrives as one frame per
+    // message in `req`.
+    const names = req.map((b) => rawDecodeRequest(b).name);
+    return { body: rawEncodeReply({ message: 'collected:' + names.join(','), count: names.length }) };
+  },
+  '/helloworld.Greeter/Chat': (req) => {
+    // Bidi: reply with one framed message per request, in order.
+    const names = req.map((b) => rawDecodeRequest(b).name);
+    return { body: names.map((n) => rawEncodeReply({ message: 'echo ' + n, count: 0 })) };
+  },
   '/helloworld.Greeter/Slow': () => ({ body: rawEncodeReply({ message: 'late' }), delayMs: 400 }),
   '/helloworld.Greeter/EchoMeta': (req, ctx) => ({
     body: rawEncodeReply({ message: 'meta' }),
@@ -388,6 +417,53 @@ await t('streaming methods are refused, not silently truncated', async () => {
   eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invokeStream() refuses a client-streaming method');
 });
 
+const collect = reg.service('helloworld.Greeter').method('Collect');
+const chat = reg.service('helloworld.Greeter').method('Chat');
+
+await t('client streaming: 3 requests → 1 reply (raw peer)', async () => {
+  const reply = await ch.invokeClientStream(collect, [{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
+  eq(reply.message, 'collected:a,b,c', 'reply.message');
+  eq(reply.count, 3, 'reply.count');
+});
+
+await t('client streaming: async generator request stream', async () => {
+  async function* gen() { yield { name: 'x' }; yield { name: 'y' }; }
+  const reply = await ch.invokeClientStream(collect, gen());
+  eq(reply.message, 'collected:x,y', 'generator consumed in order');
+});
+
+await t('client streaming: empty request stream is valid', async () => {
+  const reply = await ch.invokeClientStream(collect, []);
+  eq(reply.message, 'collected:', 'empty stream');
+  eq(reply.count, 0, 'count');
+});
+
+await t('bidi: 3 requests → 3 replies, order preserved (raw peer)', async () => {
+  const rs = await ch.invokeBidi(chat, [{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
+  eq(rs.length, 3, 'message count');
+  eq(rs.map((r) => r.message).join('|'), 'echo a|echo b|echo c', 'messages in order');
+});
+
+await t('bidi: empty request stream → empty response stream', async () => {
+  const rs = await ch.invokeBidi(chat, []);
+  eq(rs.length, 0, 'zero messages resolved');
+});
+
+await t('new stream APIs refuse non-matching methods', async () => {
+  let err = null;
+  try { await ch.invokeClientStream(sayHello, [{ name: 'x' }]); } catch (e) { err = e; }
+  eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invokeClientStream() refuses a unary method');
+  try { await ch.invokeClientStream(reg.service('helloworld.Greeter').method('CountUp'), [{ name: 'x' }]); }
+  catch (e) { err = e; }
+  eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invokeClientStream() refuses a server-streaming method');
+  try { await ch.invokeBidi(sayHello, [{ name: 'x' }]); } catch (e) { err = e; }
+  eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invokeBidi() refuses a unary method');
+  try { await ch.invokeBidi(collect, [{ name: 'x' }]); } catch (e) { err = e; }
+  eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invokeBidi() refuses a client-streaming method');
+  try { await ch.invokeStream(chat, { name: 'x' }); } catch (e) { err = e; }
+  eq(err && err.code, grpc.Status.INVALID_ARGUMENT, 'invokeStream() refuses a bidi method');
+});
+
 
 // ════════════════════════════════════════════════════════════════════
 //  C. @grpc/grpc-js — a real standard peer (optional)
@@ -421,6 +497,15 @@ if (!peer) {
       const n = (call.request.tags || []).length || 1;
       for (let i = 1; i <= n; i++) call.write({ message: 'c' + i, count: i });
       call.end();
+    },
+    Collect: (call, cb) => {
+      const names = [];
+      call.on('data', (req) => names.push(req.name));
+      call.on('end', () => cb(null, { message: 'collected:' + names.join(','), count: names.length }));
+    },
+    Chat: (call) => {
+      call.on('data', (req) => call.write({ message: 'echo ' + req.name, count: 0 }));
+      call.on('end', () => call.end());
     },
   });
   const port = await new Promise((res, rej) => server.bindAsync('127.0.0.1:0', peer.grpc.ServerCredentials.createInsecure(),
@@ -472,6 +557,23 @@ if (!peer) {
     eq(rs.length, 3, 'message count');
     eq(rs.map((r) => r.message).join('|'), 'c1|c2|c3', 'messages in order');
     eq(rs[2].count, 3, 'last payload');
+  });
+
+  await t('interop: client streaming against grpc-js (qwrt client)', async () => {
+    const reply = await gch.invokeClientStream(collect, [{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
+    eq(reply.message, 'collected:a,b,c', 'reply.message');
+    eq(reply.count, 3, 'reply.count');
+  });
+
+  await t('interop: bidi against grpc-js, 3↔3 full duplex (qwrt client)', async () => {
+    const rs = await gch.invokeBidi(chat, [{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
+    eq(rs.length, 3, 'message count');
+    eq(rs.map((r) => r.message).join('|'), 'echo a|echo b|echo c', 'messages in order');
+  });
+
+  await t('interop: empty bidi request stream against grpc-js', async () => {
+    const rs = await gch.invokeBidi(chat, []);
+    eq(rs.length, 0, 'zero messages resolved');
   });
 
   await gch.close();

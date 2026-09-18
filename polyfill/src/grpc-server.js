@@ -18,10 +18,16 @@
  * pass the server as `serve(options, handler)` via `options.grpc`. The h2
  * connection is recognized automatically (ALPN 'h2' or plaintext preface).
  *
- * Scope: unary + server-streaming RPCs — a streaming handler returns an
- * (async) iterable of reply objects (array or generator); each item becomes
- * one framed message, OK trailers end the stream. Client-streaming and
- * message compression are later phases.
+ * Scope: unary + all four streaming shapes. A server-streaming handler
+ * returns an (async) iterable of reply objects (array or generator); each
+ * item becomes one framed message, OK trailers end the stream. A
+ * client-streaming handler receives the WHOLE request stream (call.request is
+ * an array of decoded request objects) and returns a single reply object. A
+ * bidi handler receives the whole request array the same way and returns the
+ * whole response iterable — unlike grpc-js's event style (call.on('data') /
+ * call.write()), qwrt collects the full request stream before invoking the
+ * handler, then sends the full response stream. Message compression is a
+ * later phase.
  */
 
 import {
@@ -81,7 +87,9 @@ export class GrpcServer {
       if (!svc.methods) continue;
       for (var mname in svc.methods) {
         var md = svc.methods[mname];
-        if (md.clientStreaming) continue; // client-streaming later; server-streaming supported
+        // All four shapes register: unary / server-streaming / client-streaming
+        // / bidi. Streaming handlers differ only in what call.request is (see
+        // the module header) and what they return.
         this.addHandler(md, impls && impls[mname]);
       }
     }
@@ -128,10 +136,11 @@ export class GrpcServer {
                                                  Status.UNIMPLEMENTED));
       return;
     }
-
-    var reqBytes = null;
+    // Every complete request message, in arrival order (client-streaming and
+    // bidi send several; unary/server-streaming send exactly one or none).
+    var reqMsgs = [];
     var framingError = null;
-    var splitter = new FrameSplitter(self._maxRecv, function (m) { reqBytes = m; });
+    var splitter = new FrameSplitter(self._maxRecv, function (m) { reqMsgs.push(m); });
     stream.onData = function (chunk) {
       try { splitter.push(chunk); }
       catch (e) { framingError = e instanceof StatusError ? e : new StatusError(e.message, Status.INTERNAL); }
@@ -141,7 +150,13 @@ export class GrpcServer {
       if (framingError) { self._respondError(stream, framingError); return; }
       var request;
       try {
-        request = entry.method.requestType.decode(reqBytes || new Uint8Array(0));
+        if (entry.method.clientStreaming) {
+          // Client-streaming / bidi: call.request is the WHOLE decoded request
+          // array (empty stream → []). The handler sees everything up front.
+          request = reqMsgs.map(function (m) { return entry.method.requestType.decode(m); });
+        } else {
+          request = entry.method.requestType.decode(reqMsgs[0] || new Uint8Array(0));
+        }
       } catch (e) {
         self._respondError(stream, new StatusError('failed to decode request: ' + e.message,
                                                    Status.INTERNAL));
