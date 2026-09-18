@@ -95,6 +95,12 @@ export function setupWorker(pal) {
     this._dead = true;
     pal.processTerminate(this._handle);
   };
+  /* Liveness ping（父 → sub worker，仅显式调用）：检测 sub worker 事件循
+   * 环是否阻塞。返回 0=通畅 / 1=超时（sub worker loop 阻塞）/ -1=通道死。 */
+  ProcessWorker.prototype.ping = function (timeoutMs) {
+    if (this._dead) return -1;
+    return pal.processPing(this._handle, timeoutMs === undefined ? 1000 : timeoutMs);
+  };
 
   function Worker(url) {
     var code = loadScript(url);
@@ -293,6 +299,16 @@ export function setupWorker(pal) {
      * 进程后端正常终止，两次调用幂等）。 */
     if (globalThis.__qwrt_endpoint_dead__)
       globalThis.__qwrt_endpoint_dead__(childPath(this._id));
+  };
+
+  /* Liveness ping（父 → sub worker，仅显式调用）：检测 sub worker 事件循环
+   * 是否阻塞。PROCESS 后端经 pal.processPing；THREAD 后端恒 0（同进程 loop，
+   * 无独立事件循环可测——线程忙即主线程忙，语义不适配，按通畅处理）。返回
+   * 0=通畅 / 1=超时（sub worker loop 阻塞）/ -1=通道死。 */
+  Worker.prototype.ping = function (timeoutMs) {
+    if (this._proc && typeof this._proc.ping === 'function')
+      return this._proc.ping(timeoutMs);
+    return 0;   /* THREAD 后端：无独立事件循环，恒通畅 */
   };
 
   /* 判断是否为 C 侧 worker 错误通知：{type:'error', error:<string>}。

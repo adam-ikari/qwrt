@@ -24,6 +24,7 @@
 #include <sys/socket.h>
 #include <poll.h>
 #include <time.h>
+#include <sched.h>   /* sched_yield: qwrt_proc_ping 的自旋等待 */
 #include <stdio.h>
 
 /* ── Helpers ── */
@@ -903,11 +904,35 @@ static void proc_process_rx(qwrt_proc_t *proc)
                  * 回执上行 / 命令下行），不进 JS 层；系统级 CONTROL（握手/
                  * idle/shutdown）与非 CONTROL 帧照旧走 msg_cb / msgq。 */
                 int ctl_routed = 0;
-                if (proc->ctl_route_id > 0 &&
-                    view.kind == IPC_ENV_KIND_CONTROL) {
+                if (view.kind == IPC_ENV_KIND_CONTROL &&
+                    view.payload_len > 0) {
                     int cval = 0;
-                    if (qwrt_ipc_ctl_classify(view.payload, view.payload_len,
-                                              &cval) == QWRT_IPC_CTL_NONE) {
+                    qwrt_ipc_ctl_kind_t ck =
+                        qwrt_ipc_ctl_classify(view.payload, view.payload_len,
+                                              &cval);
+                    /* Liveness PING（sub worker 侧）：本节点是 worker runtime
+                     * （ctl_route_id>0 且非宿主主RT 通道——本读泵只服务 spawn
+                     * 出的子进程通道）→ 读泵 C 层就地直回 PONG（corr = ping
+                     * seq 原样回显），不经 msgq/JS——pong 延迟反映对端 uv
+                     * loop 健康度。宿主主RT 通道不经过本读泵（rt_host.c），
+                     * 分支天然不重叠。 */
+                    if (ck == QWRT_IPC_CTL_PING &&
+                        proc->ctl_route_id > 0) {
+                        qwrt_ipc_child_emit(0, 0, IPC_ENV_KIND_CONTROL,
+                                            view.corr,
+                                            (const uint8_t *)
+                                                QWRT_IPC_CTL_PONG_MSG,
+                                            (uint32_t)(sizeof
+                                                QWRT_IPC_CTL_PONG_MSG - 1));
+                        ctl_routed = 1;
+                    } else if (ck == QWRT_IPC_CTL_PONG) {
+                        /* Liveness PONG：回填回显 seq 供 qwrt_proc_ping 的
+                         * compare 判定对端 loop 通畅；不进 msgq/JS。 */
+                        __atomic_store_n(&proc->pong_seq, (int32_t)view.corr,
+                                         __ATOMIC_RELEASE);
+                        ctl_routed = 1;
+                    } else if (proc->ctl_route_id > 0 &&
+                               ck == QWRT_IPC_CTL_NONE) {
                         qwrt_control_route((qwrt_t *)proc->parent_rt,
                                            proc->ctl_route_id, view.source,
                                            view.target, view.payload,
@@ -1010,4 +1035,100 @@ int qwrt_proc_handle_is_pipe(qwrt_t *rt, uv_handle_t *h)
             return 1;
     }
     return 0;
+}
+
+/* ── Liveness ping（worker 进程→sub worker，镜像 rt_host.c 的 qwrt_ping）──
+ * 发 CONTROL{"qwrt":1,"ping":seq}（corr = seq，schema 零破坏）→ 阻塞等待
+ * sub worker C 层读泵直回的 PONG（不经 JS/msgq——pong 延迟反映对端 uv loop
+ * 健康度）。等待期间 uv 读泵不跑（JS 同步调用栈内），本函数自 poll+recv
+ * 驱动：收到的字节进 rbuf 累加器逐帧解析，PONG 按 corr 配对（pong_seq 回
+ * 填），非 PONG 帧留在 rbuf 原样待读泵下次活动正常消费（无 JS 重入、零丢
+ * 帧）。POLLHUP/read==0 = 对端死 → -1（EOF 路径）。单飞行：同一 proc 同
+ * 时至多一个 ping（JS 同步调用无并发，无需加锁）。 */
+int qwrt_proc_ping(qwrt_proc_t *proc, int32_t timeout_ms)
+{
+    if (!proc || proc->state != QWRT_PROC_RUN) return -1;
+    uv_os_fd_t osfd;
+    if (uv_fileno((uv_handle_t *)&proc->pipe, &osfd) < 0) return -1;
+    int fd = (int)(intptr_t)osfd;
+
+    int32_t seq = __atomic_add_fetch(&proc->ping_seq, 1, __ATOMIC_ACQ_REL);
+    if (qwrt_proc_post(proc, 0, (int32_t)proc->id, IPC_ENV_KIND_CONTROL,
+                       seq,
+                       (const uint8_t *)QWRT_IPC_CTL_PING_MSG,
+                       (uint32_t)(sizeof QWRT_IPC_CTL_PING_MSG - 1)) < 0)
+        return -1;
+
+    int64_t deadline = qwrt_now_ms() + timeout_ms;
+    uint8_t chunk[4096];
+    for (;;) {
+        if (__atomic_load_n(&proc->pong_seq, __ATOMIC_ACQUIRE) >= seq)
+            return 0;   /* deadline 内 PONG 命中 = 对端 loop 通畅 */
+        int64_t remain = deadline - qwrt_now_ms();
+        if (remain <= 0) return 1;   /* 超时 = 对端 loop 阻塞 */
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        int pr = poll(&pfd, 1, (int)(remain > 100 ? 100 : remain));
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            /* 可能在 HUP 前还有残余数据：照常尝试读一轮，读不到再判死。 */
+            if (!(pfd.revents & POLLIN)) return -1;
+        }
+        if (pfd.revents & POLLIN) {
+            ssize_t n = read(fd, chunk, sizeof chunk);
+            if (n < 0) {
+                if (errno == EINTR || errno == EAGAIN) continue;
+                return -1;
+            }
+            if (n == 0) return -1;   /* EOF = 对端死 */
+            /* 喂 rbuf 累加器并逐帧解析（与 proc_process_rx 同逻辑，仅在此
+             * 等待窗口内联——PONG 回填 pong_seq，非 PONG 帧留在 rbuf）。 */
+            size_t need = proc->rbuf_len + (size_t)n;
+            if (need > proc->rbuf_cap) {
+                size_t ncap = proc->rbuf_cap ? proc->rbuf_cap : 4096;
+                while (ncap < need) ncap *= 2;
+                uint8_t *nb = (uint8_t *)realloc(proc->rbuf, ncap);
+                if (!nb) return -1;
+                proc->rbuf = nb;
+                proc->rbuf_cap = ncap;
+            }
+            memcpy(proc->rbuf + proc->rbuf_len, chunk, (size_t)n);
+            proc->rbuf_len += (size_t)n;
+            for (;;) {
+                if (proc->frame_len == 0) {
+                    if (proc->rbuf_len < 4) break;
+                    proc->frame_len = qwrt_rd32(proc->rbuf);
+                    proc->rbuf_len -= 4;
+                    if (proc->rbuf_len > 0)
+                        memmove(proc->rbuf, proc->rbuf + 4, proc->rbuf_len);
+                    if (proc->frame_len > 16u * 1024 * 1024) return -1;
+                }
+                if (proc->rbuf_len < proc->frame_len) break;
+                if (proc->frame_len > 0) {
+                    ipc_envelope_view_t v;
+                    if (ipc_envelope_decode(proc->rbuf, proc->frame_len,
+                                            &v) == 0 &&
+                        v.kind == IPC_ENV_KIND_CONTROL && v.payload_len > 0) {
+                        int pv = 0;
+                        if (qwrt_ipc_ctl_classify(v.payload, v.payload_len,
+                                                  &pv) == QWRT_IPC_CTL_PONG)
+                            __atomic_store_n(&proc->pong_seq,
+                                             (int32_t)v.corr,
+                                             __ATOMIC_RELEASE);
+                        /* 非 PONG 帧留在 rbuf：读泵下次活动按完整帧
+                         * 正常消费（frame_len 已置好，不丢不重）。 */
+                    }
+                }
+                proc->rbuf_len -= proc->frame_len;
+                if (proc->rbuf_len > 0)
+                    memmove(proc->rbuf,
+                            proc->rbuf + proc->frame_len, proc->rbuf_len);
+                proc->frame_len = 0;
+            }
+            continue;
+        }
+        sched_yield();
+    }
 }

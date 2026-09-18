@@ -74,6 +74,7 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val, int a
 static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_process_on_message(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_process_terminate(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
+static JSValue js_pal_process_ping(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 #endif
 static JSValue js_pal_worker_backend(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_context_destroy(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
@@ -1934,6 +1935,27 @@ static JSValue js_pal_process_terminate(JSContext *ctx, JSValueConst this_val,
     h->live = 0;
     return JS_UNDEFINED;
 }
+
+/* pal.processPing(handle, timeoutMs) → int（liveness：检测 sub worker 事件
+ * 循环阻塞。仅显式调用触发，无后台心跳。镜像 rt_host.c qwrt_ping：发
+ * CONTROL{"qwrt":1,"ping":seq}（corr=seq）→ 阻塞等 sub worker 读泵 C 层直
+ * 回的 PONG → 0=通畅 / 1=超时（对端 loop 阻塞）/ -1=通道死（EOF/状态错）。
+ * 单飞行：JS 同步调用同一 handle 同时至多一个在途 ping。 */
+static JSValue js_pal_process_ping(JSContext *ctx, JSValueConst this_val,
+                                   int argc, JSValueConst *argv)
+{
+    QWRT_UNUSED(this_val);
+    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    if (!rt || argc < 1) return JS_NewInt32(ctx, -1);
+    int32_t hid = 0;
+    if (JS_ToInt32(ctx, &hid, argv[0]) != 0) return JS_NewInt32(ctx, -1);
+    int32_t timeout_ms = 1000;
+    if (argc >= 2 && JS_ToInt32(ctx, &timeout_ms, argv[1]) != 0)
+        return JS_NewInt32(ctx, -1);
+    qwrt_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
+    if (!h || !h->proc) return JS_NewInt32(ctx, -1);
+    return JS_NewInt32(ctx, qwrt_proc_ping(h->proc, timeout_ms));
+}
 #endif /* !QWRT_USE_MOCK_LIBUV */
 
 /* pal.workerBackend → 'thread' | 'process'（当前 worker 后端，JS 层查询用）。
@@ -2340,6 +2362,7 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "processPost", JS_NewCFunction(jsctx, js_pal_process_post, "processPost", 2));
         JS_SetPropertyStr(jsctx, pal, "processOnMessage", JS_NewCFunction(jsctx, js_pal_process_on_message, "processOnMessage", 2));
         JS_SetPropertyStr(jsctx, pal, "processTerminate", JS_NewCFunction(jsctx, js_pal_process_terminate, "processTerminate", 1));
+        JS_SetPropertyStr(jsctx, pal, "processPing", JS_NewCFunction(jsctx, js_pal_process_ping, "processPing", 2));
 #endif
     } else {
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_post_message, "postMessage", 1));
@@ -2352,6 +2375,7 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "processPost", JS_NewCFunction(jsctx, js_pal_process_post, "processPost", 2));
         JS_SetPropertyStr(jsctx, pal, "processOnMessage", JS_NewCFunction(jsctx, js_pal_process_on_message, "processOnMessage", 2));
         JS_SetPropertyStr(jsctx, pal, "processTerminate", JS_NewCFunction(jsctx, js_pal_process_terminate, "processTerminate", 1));
+        JS_SetPropertyStr(jsctx, pal, "processPing", JS_NewCFunction(jsctx, js_pal_process_ping, "processPing", 2));
 #endif
         /* Multi-context (Task 5) — 父 runtime 专属 */
         JS_SetPropertyStr(jsctx, pal, "contextSpawn", JS_NewCFunction(jsctx, js_pal_context_spawn, "contextSpawn", 1));

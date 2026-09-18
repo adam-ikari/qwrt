@@ -179,6 +179,12 @@ struct qwrt_proc_s {
      * freed 保证 qwrt_proc_free 幂等（防重复 free / 二次 uv_close）。 */
     int       close_pending;
     int       freed;
+    /* ── Liveness ping/pong（父 → sub worker，镜像 rt->ping_seq/pong_seq）──
+     * ping_seq = 发起方分配的单调序号（JS 线程写）；pong_seq = 最近收到的
+     * PONG 回显序号（读泵线程或 qwrt_proc_ping 同步扫帧回填）。compare 判定
+     * 对端 loop 通畅。单飞行：JS 同步调用，同一 proc 同时至多一个 ping。 */
+    int32_t   ping_seq;       /* atomic */
+    int32_t   pong_seq;       /* atomic */
 };
 #endif /* !QWRT_USE_MOCK_LIBUV */
 
@@ -237,6 +243,13 @@ void qwrt_proc_start_read_cb(qwrt_proc_t *proc, qwrt_proc_msg_cb_t cb,
  * (mock_libuv.h has no uv_pipe_t). */
 qwrt_proc_t *qwrt_proc_new(void);
 void qwrt_proc_free(qwrt_proc_t *proc);   /* destroy + free struct */
+/* ── Liveness ping（worker 进程→sub worker，镜像 rt_host.c 的 qwrt_ping）──
+ * 发 CONTROL{"qwrt":1,"ping":seq}（corr = seq）并阻塞等待 sub worker C 层
+ * 读泵直回的 PONG（不经 JS/msgq）。等待期间 uv 读泵不跑（JS 同步调用），
+ * 由本函数自 poll+recv 驱动帧解析：PONG 按 corr 配对唤醒；其它帧缓存进
+ * rbuf 待读泵下次活动正常消费（无 JS 重入）。返回 0 = 通畅；1 = 超时
+ * （对端 loop 阻塞）；-1 = 参数/状态错误或通道死（EOF/POLLHUP）。 */
+int qwrt_proc_ping(qwrt_proc_t *proc, int32_t timeout_ms);
 
 /* ── Child-side emit channel ──
  * The child process (qwrt-rt) registers its inherited --parent-fd here so
