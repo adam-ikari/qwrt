@@ -2,7 +2,10 @@
  * Phase 3 acceptance — REAL qwrt runtime:
  *   grpc-js TLS client (ALPN h2) → qwrt serve({tls, grpc})
  *   + HTTPS (HTTP/1.1 over TLS, same port) + plaintext h2c on a 2nd port.
+ *   + TLS streaming family: server / client / bidi (CountUp / Collect / Chat).
  * Usage: node test/grpc_server_tls_e2e.mjs --qwrt-bin ./build/qwrt
+ * (needs QWRT_WITH_GRPC=ON binary — the gRPC stack only exists in ON bundles;
+ *  self-signed certs are generated on the fly when missing, openssl required)
  */
 import net from 'node:net';
 import https from 'node:https';
@@ -10,7 +13,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -22,11 +25,21 @@ for (let i = 0; i < argv.length; i++) if (argv[i] === '--qwrt-bin' && i + 1 < ar
 const QWRT = qwrtPath || process.env.QWRT_BIN || path.resolve(__dirname, '..', 'build', 'qwrt');
 const CERT = '/tmp/qwrt-tls.crt';
 const KEY = '/tmp/qwrt-tls.key';
+if (!(fs.existsSync(CERT) && fs.existsSync(KEY))) {
+  // Self-signed cert on the fly (mirrors test_httpserver_e2e.py; openssl required).
+  const r = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048',
+    '-keyout', KEY, '-out', CERT, '-days', '365', '-nodes', '-subj', '/CN=localhost'],
+    { stdio: 'ignore' });
+  if (r.status !== 0) { console.error('cert generation failed (openssl rc=' + r.status + ')'); process.exit(2); }
+}
 const PROTO = `syntax = "proto3";
 package helloworld;
 service Greeter {
   rpc SayHello (HelloRequest) returns (HelloReply) {}
   rpc Fail (HelloRequest) returns (HelloReply) {}
+  rpc CountUp (HelloRequest) returns (stream HelloReply) {}
+  rpc Collect (stream HelloRequest) returns (HelloReply) {}
+  rpc Chat (stream HelloRequest) returns (stream HelloReply) {}
 }
 message HelloRequest { string name = 1; repeated string tags = 2; }
 message HelloReply { string message = 1; int32 count = 2; }`;
@@ -48,6 +61,15 @@ const srv = grpc.createServer();
 srv.addService(reg, {
   SayHello: (call) => ({ message: 'Hello ' + call.request.name, count: (call.request.tags || []).length }),
   Fail: () => { throw new grpc.StatusError('tls-failed', grpc.Status.PERMISSION_DENIED); },
+  CountUp: async function* (call) {
+    const n = (call.request.tags || []).length;
+    for (let i = 1; i <= n; i++) yield { message: 'chunk ' + i, count: i };
+  },
+  Collect: (call) => {
+    const names = (call.request || []).map((r) => r.name);
+    return { message: 'collected:' + names.join(','), count: names.length };
+  },
+  Chat: (call) => (call.request || []).map((r) => ({ message: 'echo ' + r.name, count: 0 })),
 });
 serve({ port: ${port}, tls: { cert: ${JSON.stringify(CERT)}, key: ${JSON.stringify(KEY)} }, grpc: srv },
   (req) => 'https1:' + req.url);
@@ -105,6 +127,44 @@ try {
   ok(err && err.code === grpcjs.status.PERMISSION_DENIED && /tls-failed/.test(err.details || ''),
      'TLS error mapping: code=' + (err && err.code) + ' details=' + JSON.stringify(err && err.details));
 } catch (e) { ok(false, 'TLS error mapping threw: ' + e.message); }
+
+// ── TLS streaming family: server / client / bidi via grpc-js ──
+try {
+  const msgs = [];
+  await new Promise((res, rej) => {
+    const s = greeter.CountUp({ name: 'x', tags: ['a', 'b', 'c'] });
+    s.on('data', (m) => msgs.push(m));
+    s.on('error', rej);
+    s.on('end', res);
+  });
+  ok(msgs.length === 3 && msgs.map((m) => m.message).join('|') === 'chunk 1|chunk 2|chunk 3' && msgs[2].count === 3,
+     'TLS server streaming (CountUp 3 msgs, in order): ' + JSON.stringify(msgs.map((m) => m.message)));
+} catch (e) { ok(false, 'TLS server streaming: ' + (e && e.message)); }
+try {
+  const reply = await new Promise((res, rej) => {
+    const call = greeter.Collect((e, v) => (e ? rej(e) : res(v)));
+    call.write({ name: 'a' });
+    call.write({ name: 'b' });
+    call.write({ name: 'c' });
+    call.end();
+  });
+  ok(reply.message === 'collected:a,b,c' && reply.count === 3, 'TLS client streaming (Collect 3 → array): ' + JSON.stringify(reply));
+} catch (e) { ok(false, 'TLS client streaming: ' + (e && e.message)); }
+try {
+  const msgs = [];
+  await new Promise((res, rej) => {
+    const call = greeter.Chat();
+    call.on('data', (m) => msgs.push(m));
+    call.on('end', res);
+    call.on('error', rej);
+    call.write({ name: 'a' });
+    call.write({ name: 'b' });
+    call.write({ name: 'c' });
+    call.end();
+  });
+  ok(msgs.length === 3 && msgs.map((m) => m.message).join('|') === 'echo a|echo b|echo c',
+     'TLS bidi streaming (Chat 3↔3): ' + JSON.stringify(msgs.map((m) => m.message)));
+} catch (e) { ok(false, 'TLS bidi streaming: ' + (e && e.message)); }
 const httpsBody = await new Promise((res, rej) => {
   https.get({ host: 'localhost', port: tls.port, path: '/t', rejectUnauthorized: false }, (rsp) => {
     let b = ''; rsp.on('data', (d) => (b += d)); rsp.on('end', () => res(b));

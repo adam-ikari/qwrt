@@ -770,6 +770,51 @@ jobs:
         run: |
           bash test/test_nested_e2e.sh ./build/qwrt ./build/qwrt-ctl
 
+
+  # ============================================================================
+  # grpc-e2e: QWRT_WITH_GRPC=ON real binary — the embedded gRPC stack only
+  # exists in ON bundles (default OFF), so the TLS server e2e (unary +
+  # streaming family) runs nowhere else. Polyfill rebuild (build.js + qjsc)
+  # happens inside the CMake build via the grpcON stamp.
+  # ============================================================================
+  grpc-e2e:
+    runs-on: ubuntu-latest
+    name: grpc-e2e (QWRT_WITH_GRPC=ON + TLS streaming)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Install Node (harnesses + polyfill esbuild)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
+      - name: Configure (QWRT_WITH_GRPC=ON)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQWRT_BUILD_TESTS=OFF \
+            -DQWRT_WITH_GRPC=ON
+
+      - name: Build (polyfill rebuild via build.js + qjsc)
+        run: cmake --build build --parallel
+
+      - name: Install gRPC peer modules (grpc-js + proto-loader)
+        run: npm install --prefix /tmp/grpcpeer @grpc/grpc-js @grpc/proto-loader
+
+      - name: gRPC server e2e (real binary over TLS — unary + streaming family)
+        run: |
+          node test/grpc_server_tls_e2e.mjs --qwrt-bin ./build/qwrt
+          node test/grpc_server_harness.mjs
   # ============================================================================
   # Coverage: gcov with WAMR default engine.
   # ============================================================================
