@@ -201,6 +201,11 @@ qwrt_ipc_ctl_kind_t qwrt_ipc_ctl_classify(const uint8_t *payload,
             /* liveness 应答：对端读泵回显 corr（= ping seq）。 */
             kind = QWRT_IPC_CTL_PONG;
             *out_val = 1;
+        } else if (cJSON_IsNumber(
+                       cJSON_GetObjectItemCaseSensitive(j, "pfail"))) {
+            /* 跨层 ping 转发失败：中间节点回 corr=seq（宿主快速 -1）。 */
+            kind = QWRT_IPC_CTL_PFAIL;
+            *out_val = 1;
         } else {
             /* 带 "qwrt" 标记但非 ready/idle/shutdown（M-P4 closing 等）：
              * 通道级系统消息，交通道层消费，不被当作控制面命令路由。 */
@@ -209,6 +214,31 @@ qwrt_ipc_ctl_kind_t qwrt_ipc_ctl_classify(const uint8_t *payload,
     }
     cJSON_Delete(j);
     return kind;
+}
+
+/* 跨层 ping 的 "tp" 数组提取（{"qwrt":1,"ping":N,"tp":[...]} / PONG 回显同
+ * 字段）。返回元素数（0 = 无 tp = 单跳形态）。栈缓冲 + cJSON（与 classify
+ * 同裁决：不手写解析）；读泵/主RT g_rx 两侧共用。 */
+int qwrt_ipc_ping_tp(const uint8_t *payload, uint32_t len,
+                     int32_t *out, int cap)
+{
+    if (!payload || len == 0 || len > 256) return 0;
+    char buf[257];
+    memcpy(buf, payload, len);
+    buf[len] = '\0';
+    cJSON *j = cJSON_Parse(buf);
+    if (!j) return 0;
+    int n = 0;
+    const cJSON *tp = cJSON_GetObjectItemCaseSensitive(j, "tp");
+    if (cJSON_IsArray(tp)) {
+        const cJSON *e = NULL;
+        cJSON_ArrayForEach(e, tp) {
+            if (n >= cap) break;
+            if (cJSON_IsNumber(e)) out[n++] = (int32_t)e->valuedouble;
+        }
+    }
+    cJSON_Delete(j);
+    return n;
 }
 
 /* ── Binary path detection ── */
@@ -910,18 +940,39 @@ static void proc_process_rx(qwrt_proc_t *proc)
                     qwrt_ipc_ctl_kind_t ck =
                         qwrt_ipc_ctl_classify(view.payload, view.payload_len,
                                               &cval);
-                    int ck_routed = 0;
-                    /* Liveness PONG（sub worker 直回）：仅 worker 通道
-                     * （ctl_route_id>0）拦截回填 proc->pong_seq 供
-                     * qwrt_proc_ping 判定；宿主主RT 通道（ctl_route_id==0）
-                     * 的 PONG 交回 msg_cb（host_proc_msg_cb 回填 rt->pong_seq，
-                     * c734194d 宿主 qwrt_ping 消费）——无守卫会劫走宿主
-                     * PONG 致其永远超时。 */
-                    if (ck == QWRT_IPC_CTL_PONG && proc->ctl_route_id > 0) {
-                        __atomic_store_n(&proc->pong_seq, (int32_t)view.corr,
-                                         __ATOMIC_RELEASE);
-                        ctl_routed = 1;
-                        ck_routed = 1;
+                    if (ck == QWRT_IPC_CTL_PONG || ck == QWRT_IPC_CTL_PFAIL) {
+                        /* 跨层帧（qwrt_ping_path 家族）：PONG 带 tp = 过境
+                         * 标记 → 沿本节点父通道上行转发（corr/payload 保持，
+                         * 信封 source = 本节点槽位）；pfail（中间节点转发
+                         * 失败回执）同理直接上行。无 tp 的 PONG = 单跳
+                         * qwrt_proc_ping 的直回应答 → 拦截回填 proc->pong_seq
+                         * （c734194d：宿主主RT 通道 ctl_route_id==0 的 PONG
+                         * 必须走 msg_cb，否则劫走宿主 PONG 致其永远超时）。 */
+                        int32_t tp[QWRT_SELF_PATH_MAX];
+                        int tpn = (ck == QWRT_IPC_CTL_PONG)
+                                      ? qwrt_ipc_ping_tp(view.payload,
+                                                         view.payload_len,
+                                                         tp,
+                                                         QWRT_SELF_PATH_MAX)
+                                      : 1;
+                        if (proc->ctl_route_id > 0 &&
+                            (ck == QWRT_IPC_CTL_PFAIL || tpn > 0)) {
+                            qwrt_ipc_child_emit(proc->ctl_route_id, 0,
+                                                IPC_ENV_KIND_CONTROL,
+                                                view.corr,
+                                                view.payload,
+                                                view.payload_len);
+                            ctl_routed = 1;
+                        } else if (proc->ctl_route_id > 0 &&
+                                   ck == QWRT_IPC_CTL_PONG) {
+                            __atomic_store_n(&proc->pong_seq,
+                                             (int32_t)view.corr,
+                                             __ATOMIC_RELEASE);
+                            ctl_routed = 1;
+                        }
+                        /* ctl_route_id==0（宿主主RT 通道）：PONG/pfail 一律
+                         * 不拦截 → 交 msg_cb（host_proc_msg_cb 回填
+                         * rt->pong_seq/ping_fail）——守卫回归 3e733e12。 */
                     } else if (proc->ctl_route_id > 0 &&
                                ck == QWRT_IPC_CTL_NONE) {
                         qwrt_control_route((qwrt_t *)proc->parent_rt,
@@ -929,9 +980,7 @@ static void proc_process_rx(qwrt_proc_t *proc)
                                            view.target, view.payload,
                                            view.payload_len);
                         ctl_routed = 1;
-                        ck_routed = 1;
                     }
-                    QWRT_UNUSED(ck_routed);
                 }
                 if (!ctl_routed && proc->msg_cb) {
                     /* JS-managed 模式：信封解码 → 直接回调（bridge.c 的

@@ -98,9 +98,20 @@ size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok);
                                          * worker 自 close 前通知父（EOF 不再
                                          * 当作崩溃触发 onerror） */
 #define QWRT_IPC_CTL_PING_MSG   "{\"qwrt\":1,\"ping\":1}"   /* liveness 探测：
-                                         * 宿主→对端；对端 C 层读泵就地直回 */
+                                         * 宿主→对端；对端 C 层读泵就地直回。
+                                         * 跨层形态加 "tp":[u16 链]（§8.2
+                                         * root-relative 槽位链，宿主→任意
+                                         * worker）：中间节点按链下投（读泵
+                                         * 转发，不消费），目标读泵直回。 */
 #define QWRT_IPC_CTL_PONG_MSG   "{\"qwrt\":1,\"pong\":1}"   /* liveness 应答：
-                                         * 对端读泵回显 corr（= ping seq） */
+                                         * 对端读泵回显 corr（= ping seq）。
+                                         * 跨层 PONG 回显 "tp"（过境标记：
+                                         * 中间节点见 tp 沿父通道上行转发，
+                                         * 不吃进自身 ping_seq 配对槽）。 */
+#define QWRT_IPC_CTL_PFAIL_FMT  "{\"qwrt\":1,\"pfail\":1,\"corr\":%d}"  /* 跨层
+                                         * ping 转发失败（无对应子槽位/通道
+                                         * 死）：中间节点回 corr=seq，宿主
+                                         * 快速 -1（不白等 timeout）。 */
 typedef enum {
     QWRT_IPC_CTL_NONE = 0,   /* 非 M-P2 协议 CONTROL payload */
     QWRT_IPC_CTL_READY,
@@ -108,9 +119,18 @@ typedef enum {
     QWRT_IPC_CTL_SHUTDOWN,
     QWRT_IPC_CTL_SYSTEM,     /* 带 "qwrt" 标记的其他系统消息（M-P4 closing 等）：
                               * 通道级，不进控制面命令路由器（CTL-1） */
-    QWRT_IPC_CTL_PING,       /* liveness 探测（payload {"qwrt":1,"ping":1}） */
-    QWRT_IPC_CTL_PONG,       /* liveness 应答（payload {"qwrt":1,"pong":1}） */
+    QWRT_IPC_CTL_PING,       /* liveness 探测（payload {"qwrt":1,"ping":1}，
+                              * 跨层加 "tp"） */
+    QWRT_IPC_CTL_PONG,       /* liveness 应答（payload {"qwrt":1,"pong":1}，
+                              * 跨层回显 "tp"） */
+    QWRT_IPC_CTL_PFAIL,      /* 跨层 ping 转发失败（{"qwrt":1,"pfail":1,
+                              * "corr":seq}） */
 } qwrt_ipc_ctl_kind_t;
+
+/* 跨层 ping/pong payload 的 "tp" 数组提取（u16 槽位链，§8.2 root-relative）。
+ * 返回元素数（0 = 无 tp = 单跳形态）。 */
+int qwrt_ipc_ping_tp(const uint8_t *payload, uint32_t len,
+                     int32_t *out, int cap);
 
 /* 判定 CONTROL payload 是否为 M-P2 协议消息；命中时 *out_val = 对应键的数值
  * （ready: 1=ok/0=fail；idle: 0=请求/1=ack；shutdown: 1）。非协议返回 NONE

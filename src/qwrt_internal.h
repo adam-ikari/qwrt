@@ -387,6 +387,8 @@ struct qwrt_t {
      * 的 PONG 回显序号（宿主 loop 线程读泵写）。compare 判定 loop 通畅。 */
     int32_t      ping_seq;          /* atomic: 宿主线程写的探测序号 */
     int32_t      pong_seq;          /* atomic: 宿主读泵回填的应答序号 */
+    int32_t      ping_fail;         /* atomic: 跨层 ping 转发失败回执的 seq
+                                     * （pfail corr，qwrt_ping_path 快速 -1） */
 #endif
 
 

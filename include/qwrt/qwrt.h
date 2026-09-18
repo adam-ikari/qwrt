@@ -93,6 +93,16 @@ void qwrt_wait_idle(qwrt_t *rt);
  * 通道已死——进程死亡另有 EOF 路径）。timeout_ms 建议 100–1000。 */
 int qwrt_ping(qwrt_t *rt, int32_t timeout_ms);
 
+/* Liveness ping 到树中任意 worker（§8.2 path 寻址，仅 ISOLATED）：path =
+ * root-relative 槽位链（同命令面 target_path，如 {1001,1002} = 主RT 的
+ * worker 1001 的 sub worker 1002）。返回 0 = 目标 loop 通畅；1 = 超时 =
+ * 目标 loop 阻塞；-1 = 参数/状态错误/路径不存在/中间通道死（转发失败由
+ * 中间节点回执快速判 -1，不白等 timeout）。PING 按链逐跳下投（读泵 C 层
+ * 转发，不消费不进 JS），目标读泵直回 PONG（回显路径作过境标记）沿树上
+ * 行；中间节点目标级 JS 零参与。timeout_ms 建议 100–1000。 */
+int qwrt_ping_path(qwrt_t *rt, const int32_t *path, int path_len,
+                   int32_t timeout_ms);
+
 /* 控制命令入队（线程安全，任何线程可调）。bytes 为命令 JSON，内部拷贝。
  * control_plane=OFF 时恒返回 -1。返回 0 成功，-1 失败（OFF/OOM/参数非法）。
  * 命令由 qwrt 线程在自己事件循环的安全点自主执行；结果经 message_cb 异步

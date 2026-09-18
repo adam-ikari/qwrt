@@ -24,6 +24,60 @@
 #include <stdio.h>
 #include <errno.h>
 #include <sched.h>
+#include <cJSON.h>
+
+/* ── 跨层 liveness ping/pong（宿主→树中任意 worker，§8.2 path 寻址）──
+ *
+ * payload 格式（PING）：{"qwrt":1,"ping":N,"tp":[...]}——"tp" = root-relative
+ * 槽位链（与命令面 target_path 同一 §8.2 范式）；PONG 回显 "tp" 作过境标记：
+ * 中间节点读泵见 tp 沿父通道上行转发（corr 保持），不吃进自身 ping_seq/pong_seq
+ * 配对槽；转发失败回 {"qwrt":1,"pfail":1,"corr":N}，宿主快速 -1。 */
+
+int qwrt_ping_path(qwrt_t *rt, const int32_t *path, int path_len,
+                   int32_t timeout_ms)
+{
+    if (!rt || rt->magic != QWRT_MAGIC || !path || path_len <= 0 ||
+        path_len > QWRT_SELF_PATH_MAX)
+        return -1;
+    if (!rt->proc || rt->proc->state != QWRT_PROC_RUN) return -1;
+    if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return -1;
+
+    /* 组 PING payload：{"qwrt":1,"ping":seq,"tp":[p0,p1,...]}。corr 复用
+     * §4.1 既定槽位（同 qwrt_ping），tp 是 payload 扩展字段——信封 schema
+     * 零改动。tp[0] 作信封 target（根的直接子槽位，N-P3 同款）。 */
+    int32_t seq = __atomic_add_fetch(&rt->ping_seq, 1, __ATOMIC_ACQ_REL);
+    char msg[64];
+    int off = snprintf(msg, sizeof msg, "{\"qwrt\":1,\"ping\":%d,\"tp\":[",
+                       seq);
+    if (off < 0 || off >= (int)sizeof msg) return -1;
+    for (int i = 0; i < path_len; i++) {
+        int n = snprintf(msg + off, (size_t)((int)sizeof msg - off),
+                         "%s%d", i ? "," : "", path[i]);
+        if (n < 0 || off + n >= (int)sizeof msg) return -1;
+        off += n;
+    }
+    if (off + 2 >= (int)sizeof msg) return -1;
+    msg[off++] = ']';
+    msg[off++] = '}';
+    msg[off] = '\0';
+
+    if (qwrt_proc_post(rt->proc, QWRT_IPC_HOST_ID, path[0],
+                       IPC_ENV_KIND_CONTROL, seq,
+                       (const uint8_t *)msg, (uint32_t)off) < 0)
+        return -1;
+
+    int64_t deadline = qwrt_now_ms() + timeout_ms;
+    for (;;) {
+        if (__atomic_load_n(&rt->pong_seq, __ATOMIC_ACQUIRE) >= seq)
+            return 0;   /* deadline 内 PONG 命中 = 目标 loop 通畅 */
+        if (__atomic_load_n(&rt->ping_fail, __ATOMIC_ACQUIRE) >= seq)
+            return -1;  /* pfail：转发失败/路径不存在/通道死 */
+        if (qwrt_now_ms() >= deadline) return 1;   /* 超时 = 目标 loop 阻塞 */
+        if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return -1;
+        sched_yield();
+    }
+}
+
 
 /* ── 初始脚本临时文件 ──
  * 与 M-P1 worker 脚本同机制：mkstemp 原子创建（无 TOCTOU），子进程读毕 unlink；
@@ -103,9 +157,18 @@ static void host_proc_msg_cb(void *user, int8_t kind, int32_t source,
             return;
         }
         if (k == QWRT_IPC_CTL_PONG) {
-            /* 读泵 C 层直回的 liveness 应答：回填回显的 seq（qwrt_ping
-             * 的 compare 据此判定对端 loop 通畅）。PONG 不进 message_cb。 */
+            /* 读泵 C 层直回/树中继的 liveness 应答：跨层形态（带 tp）回填
+             * pong_seq 供 qwrt_ping_path 配对——单跳 qwrt_ping 的 seq 与跨层
+             * seq 同源单调，两 API 都按「pong_seq >= seq」判定，无需第二槽
+             * 位。无 tp 的 PONG 不可能是过境帧（tp 只由 qwrt_ping_path 下
+             * 发），语义不变。PONG 不进 message_cb。 */
             __atomic_store_n(&rt->pong_seq, (int32_t)corr, __ATOMIC_RELEASE);
+            return;
+        }
+        if (k == QWRT_IPC_CTL_PFAIL) {
+            /* 中间节点转发失败回执（corr = 原始 seq）：qwrt_ping_path 快速
+             * 判 -1（路径不存在/无对应子槽位），不白等 timeout。 */
+            __atomic_store_n(&rt->ping_fail, (int32_t)corr, __ATOMIC_RELEASE);
             return;
         }
     }

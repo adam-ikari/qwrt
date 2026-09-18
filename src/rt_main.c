@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <poll.h>
 #include <errno.h>
+#include <cJSON.h>
 #include <sys/socket.h>   /* recv：M-P4 同步 storage RPC 的 poll/recv 等待 */
 
 /* ── Pipe read state (one pipe per child process — static is fine) ── */
@@ -225,6 +226,32 @@ static void pipe_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *buf)
     buf->len = buf->base ? QWRT_IPC_READ_BUF_SIZE : 0;
 }
 
+/* ── 跨层 liveness ping（§8.2 path 寻址，宿主→任意 worker）──
+ * PING 过境下投：payload 字节零改写（"tp" 保留作回程过境标记），corr 保持；
+ * 下一跳 = 链上第 self_path_len+1 个元素（本节点深度即已走跳数）。无对应
+ * 子槽位/写失败 → 回 pfail（corr=seq）沿上行直接回宿主，不白等。 */
+static void ping_forward_down(qwrt_t *rt, int32_t source, int32_t child_slot,
+                              int32_t corr, const uint8_t *payload,
+                              uint32_t len)
+{
+    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+        qwrt_proc_handle_t *h = &rt->proc_handles[i];
+        if (h->live && h->proc && h->proc->id == (int)child_slot) {
+            if (qwrt_proc_post(h->proc, source, child_slot,
+                               IPC_ENV_KIND_CONTROL, corr,
+                               payload, len) == 0)
+                return;
+            break;
+        }
+    }
+    char msg[48];
+    int n = snprintf(msg, sizeof msg, QWRT_IPC_CTL_PFAIL_FMT, corr);
+    if (n > 0 && n < (int)sizeof msg)
+        qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+                            IPC_ENV_KIND_CONTROL, corr,
+                            (const uint8_t *)msg, (uint32_t)n);
+}
+
 /* Process accumulated bytes: extract complete frames, decode, push to msgq */
 static void process_rx(qwrt_t *rt)
 {
@@ -262,16 +289,72 @@ static void process_rx(qwrt_t *rt)
                     server_handle_control(rt, &view);
                 /* Liveness ping（{"qwrt":1,"ping":1}）：读泵 C 层就地直回
                  * PONG（corr = ping seq 原样回显），不经 msgq/JS——pong 延迟
-                 * 反映 uv loop 健康度（loop 阻塞在读泵 poll 里就回不了）。 */
+                 * 反映 uv loop 健康度（loop 阻塞在读泵 poll 里就回不了）。
+                 * 跨层形态（带 "tp"，宿主→任意 worker）：本节点非目的地时
+                 * 按链下投（读泵转发，不消费），仅目的地直回。 */
                 if (is_ctl && view.payload_len > 0 &&
                     qwrt_ipc_ctl_classify(view.payload, view.payload_len,
                                           &ctl_val) == QWRT_IPC_CTL_PING) {
-                    qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
-                                        IPC_ENV_KIND_CONTROL,
-                                        view.corr,
-                                        (const uint8_t *)QWRT_IPC_CTL_PONG_MSG,
-                                        (uint32_t)(sizeof QWRT_IPC_CTL_PONG_MSG
-                                                   - 1));
+                    int32_t tp[QWRT_SELF_PATH_MAX];
+                    int tpn = qwrt_ipc_ping_tp(view.payload, view.payload_len,
+                                               tp, QWRT_SELF_PATH_MAX);
+                    int hop = (int)rt->self_path_len;   /* 深度 = 已走跳数 */
+                    if (tpn > hop) {
+                        /* 过境：tp[hop] 是本节点的下投子槽位（根=宿主直发
+                         * 主RT 时 self_path 空，tp[0] 即子槽位）。 */
+                        ping_forward_down(rt, view.source, tp[hop],
+                                          view.corr, view.payload,
+                                          view.payload_len);
+                    } else if (tpn > 0) {
+                        /* 跨层目的地（本节点深度 == 链长）：直回 PONG 并
+                         * 回显 "tp" 作过境标记——中间节点读泵凭 tp 识别
+                         * 上行中继（corr 保持）。（不经 JS/msgq：pong 延迟
+                         * 反映本节点 uv loop 健康度。） */
+                        char msg[160];
+                        int off = snprintf(msg, sizeof msg,
+                                           "{\"qwrt\":1,\"pong\":1,\"tp\":[");
+                        int ok = off > 0 && off < (int)sizeof msg;
+                        for (int i = 0; ok && i < tpn; i++) {
+                            int n = snprintf(msg + off,
+                                             (size_t)((int)sizeof msg - off),
+                                             "%s%d", i ? "," : "", tp[i]);
+                            if (n < 0 || off + n >= (int)sizeof msg) ok = 0;
+                            else off += n;
+                        }
+                        if (ok) {
+                            msg[off++] = ']';
+                            msg[off++] = '}';
+                            qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+                                                IPC_ENV_KIND_CONTROL,
+                                                view.corr,
+                                                (const uint8_t *)msg,
+                                                (uint32_t)off);
+                        }
+                    } else {
+                        /* 单跳目的地（无 tp 的 qwrt_ping）：原样直回。 */
+                        qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+                                            IPC_ENV_KIND_CONTROL,
+                                            view.corr,
+                                            (const uint8_t *)QWRT_IPC_CTL_PONG_MSG,
+                                            (uint32_t)(sizeof QWRT_IPC_CTL_PONG_MSG
+                                                       - 1));
+                    }
+                } else {
+                    int pong_val = 0;
+                    qwrt_ipc_ctl_kind_t ck =
+                        qwrt_ipc_ctl_classify(view.payload, view.payload_len,
+                                              &pong_val);
+                    /* 跨层 PONG/pfail 过境（宿主 ping_path 发起的帧沿上行回
+                     * 来）：沿父通道转发给宿主（corr/payload 保持）。本节点
+                     * 自身的单跳 PONG 不会到达这里——那类帧已在子通道读泵
+                     * （proc_process_rx）按 pong_seq 槽拦截。 */
+                    if (ck == QWRT_IPC_CTL_PONG || ck == QWRT_IPC_CTL_PFAIL) {
+                        qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+                                            IPC_ENV_KIND_CONTROL,
+                                            view.corr,
+                                            view.payload,
+                                            view.payload_len);
+                    }
                 }
                 /* CONTROL{shutdown} → graceful exit (§9.2 tier 1)。两种 payload
                  * 形态都认：M-P2 的 {"qwrt":1,"shutdown":1} 与 M-P1 三级终止
