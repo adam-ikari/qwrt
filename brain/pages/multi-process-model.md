@@ -83,3 +83,9 @@ updated: "2026-09-17T04:05:45"
   summary: "延后项复查：path 元素 u16→u32 → 维持 u16（YAGNI，不实施）。证据：QWRT_MAX_PROC_HANDLES=64 并发进程句柄/rt（qwrt_internal.h:135），path 深度上限 QWRT_SELF_PATH_MAX=8（:138）；path 元素 = 各 runtime 本地单调计数器 procWorkerSeq（polyfill/src/worker.js:66，1000 起），溢出须单 runtime 累积 >6.45 万次 PROCESS spawn（id 每 runtime 本地分配，非全局），现实不可达；rt_main.c:600 已有 v<=0xFFFF 解析守卫。非 path 字段 key_port 本为 u32，无其他溢出点。升 u32 须改 PORT_TRANSFER 头变长公式 8+2*(dl+kl)→8+4*(dl+kl)，破坏 §4.1 冻结 schema / §7.2 字节不动 wire 兼容 → 超出低成本，维持延后。详见 CHANGELOG。"
   source: "path u16 升级调查会话"
   affects: [multi-process-model]
+
+- time: 2026-09-18
+  kind: decision
+  summary: "延后项复查：§10.2 所有者死亡降级 → 不实施，孤儿自杀即设计终点（§9.4 优先）。owner 死亡时孤儿自杀而非存活降级：主RT 死 → parent-fd EOF → shutting_down → teardown → exit（rt_main.c:348-353）；storage 代理同步 RPC 收 EOF → storageSync 抛 InternalError → 连锁自杀（bridge.c:2053、local-storage.js:27-28）。判定不实施：① §9.4 连锁死亡是预期行为，§6.4 通道不重连，孤儿存活即成不可达死进程；② 降级态结构上不可达——owner 恒为树根主RT（§10.2+N-P4），owner 死 ⇒ 祖先全死 ⇒ 任何孤儿必经 §9.4 自杀；③ 计划 §10.2 降级兜底（快照只读+LWW）破坏单所有者不变量且与现有 e2e 级联断言冲突。详见 CHANGELOG。"
+  source: "§10.2 所有者死亡降级调查会话"
+  affects: [multi-process-model]
