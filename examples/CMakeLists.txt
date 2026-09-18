@@ -15,6 +15,7 @@ foreach(_ex_js IN ITEMS
         httpserver/server.js
         stream-pipeline/pipeline.js
         fetch-proxy/main.js
+        grpc-hello/grpc-hello.js
         worker-orchestrate/orchestrate.js)
     get_filename_component(_ex_name "${_ex_js}" NAME_WE)
     set(_ex_bc "${CMAKE_CURRENT_BINARY_DIR}/${_ex_name}.qjsc.c")
