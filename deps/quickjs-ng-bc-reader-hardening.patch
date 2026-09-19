@@ -1,5 +1,5 @@
 diff --git a/quickjs.c b/quickjs.c
-index 91661ab..bb5dbb4 100644
+index 91661ab..91274b0 100644
 --- a/quickjs.c
 +++ b/quickjs.c
 @@ -39518,7 +39542,15 @@ static JSString *JS_ReadString(BCReaderState *s)
@@ -71,23 +71,25 @@ index 91661ab..bb5dbb4 100644
              idx = get_u32(bc_buf + pos + 1);
              if (bc_idx_to_atom(s, &atom, idx)) {
                  /* Note: the atoms will be freed up to this position */
-@@ -39738,6 +39800,55 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
-     b = js_mallocz(ctx, function_size);
-     if (!b)
-         goto fail;
-+    if (local_count < 0 || local_count > (int)bc.arg_count + (int)bc.var_count) {
-+        /* qwrt fix: free_function_bytecode() walks arg_count + var_count
-+         * vardefs while the stream may claim a larger local_count, making
-+         * the free path read heap garbage as atoms (fuzzer-found OOB in
-+         * __JS_FreeAtom). Bound the stream value to what the function
-+         * can actually own. Strict equality does NOT hold: the writer
-+         * emits local_count only when b->vardefs is non-NULL, and zero-
-+         * arg/zero-var functions legitimately read 0 == 0 — but legacy
-+         * bytecode (and other writers) may disagree on the exact value,
-+         * so clamp rather than reject. */
+@@ -39735,9 +39797,57 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
+     byte_code_offset = function_size;
+     function_size += bc.byte_code_len;
+ 
++    /* qwrt fix: the writer emits local_count == arg_count + var_count
++     * ("redundant" per writer comment); free_function_bytecode() walks
++     * arg_count + var_count vardefs. Reject mismatch BEFORE the
++     * js_mallocz() below so the allocated vardefs block always covers
++     * exactly what the free path walks — and so a mismatched local_count
++     * cannot inflate function_size itself (fuzzer-found OOB read in
++     * free_function_bytecode via free_gc_object on the fail path). */
++    if (local_count != (int)(bc.arg_count + bc.var_count)) {
 +        JS_ThrowSyntaxError(ctx, "invalid local count");
 +        goto fail;
 +    }
++
+     b = js_mallocz(ctx, function_size);
+     if (!b)
+         goto fail;
 +    /* qwrt fix: cpool_count and byte_code_len multiply into the single
 +     * js_mallocz() for the whole JSFunctionBytecode block, so absurd
 +     * stream values attempt multi-GB allocations (fuzzer-found OOM).
@@ -127,7 +129,7 @@ index 91661ab..bb5dbb4 100644
  
      memcpy(b, &bc, sizeof(*b));
      bc.func_name = JS_ATOM_NULL;
-@@ -39876,8 +39987,15 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
+@@ -39876,8 +39986,15 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
          printf(", line: %d, column: %d\n", b->line_num, b->col_num);
      }
  #endif
@@ -143,7 +145,7 @@ index 91661ab..bb5dbb4 100644
      if (b->pc2line_len) {
          bc_read_trace(s, "positions: %d bytes\n", b->pc2line_len);
          b->pc2line_buf = js_mallocz(ctx, b->pc2line_len);
-@@ -39888,6 +40006,10 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
+@@ -39888,6 +40005,10 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
      }
      if (bc_get_leb128_int(s, &b->source_len))
          goto fail;
@@ -154,7 +156,7 @@ index 91661ab..bb5dbb4 100644
      if (b->source_len) {
          bc_read_trace(s, "source: %d bytes\n", b->source_len);
          if (s->ptr_last)
-@@ -39922,20 +40044,23 @@ static JSValue JS_ReadModule(BCReaderState *s)
+@@ -39922,20 +40043,23 @@ static JSValue JS_ReadModule(BCReaderState *s)
  
      if (bc_get_atom(s, &module_name))
          goto fail;
@@ -186,7 +188,7 @@ index 91661ab..bb5dbb4 100644
      if (m->req_module_entries_count != 0) {
          m->req_module_entries_size = m->req_module_entries_count;
          m->req_module_entries = js_mallocz(ctx, sizeof(m->req_module_entries[0]) * m->req_module_entries_size);
-@@ -39958,6 +40083,12 @@ static JSValue JS_ReadModule(BCReaderState *s)
+@@ -39958,6 +40082,12 @@ static JSValue JS_ReadModule(BCReaderState *s)
              *pm = js_host_resolve_imported_module_atom(s->ctx, m->module_name,
                                                         rme->module_name,
                                                         rme->attributes);
@@ -199,7 +201,7 @@ index 91661ab..bb5dbb4 100644
              if (!*pm)
                  goto fail;
          }
-@@ -39965,6 +40096,11 @@ static JSValue JS_ReadModule(BCReaderState *s)
+@@ -39965,6 +40095,11 @@ static JSValue JS_ReadModule(BCReaderState *s)
  
      if (bc_get_leb128_int(s, &m->export_entries_count))
          goto fail;
@@ -211,7 +213,7 @@ index 91661ab..bb5dbb4 100644
      if (m->export_entries_count != 0) {
          m->export_entries_size = m->export_entries_count;
          m->export_entries = js_mallocz(ctx, sizeof(m->export_entries[0]) * m->export_entries_size);
-@@ -39991,6 +40127,11 @@ static JSValue JS_ReadModule(BCReaderState *s)
+@@ -39991,6 +40126,11 @@ static JSValue JS_ReadModule(BCReaderState *s)
  
      if (bc_get_leb128_int(s, &m->star_export_entries_count))
          goto fail;
@@ -223,7 +225,7 @@ index 91661ab..bb5dbb4 100644
      if (m->star_export_entries_count != 0) {
          m->star_export_entries_size = m->star_export_entries_count;
          m->star_export_entries = js_mallocz(ctx, sizeof(m->star_export_entries[0]) * m->star_export_entries_size);
-@@ -40005,6 +40146,11 @@ static JSValue JS_ReadModule(BCReaderState *s)
+@@ -40005,6 +40145,11 @@ static JSValue JS_ReadModule(BCReaderState *s)
  
      if (bc_get_leb128_int(s, &m->import_entries_count))
          goto fail;
@@ -235,7 +237,7 @@ index 91661ab..bb5dbb4 100644
      if (m->import_entries_count != 0) {
          m->import_entries_size = m->import_entries_count;
          m->import_entries = js_mallocz(ctx, sizeof(m->import_entries[0]) * m->import_entries_size);
-@@ -40030,8 +40176,25 @@ static JSValue JS_ReadModule(BCReaderState *s)
+@@ -40030,8 +40175,25 @@ static JSValue JS_ReadModule(BCReaderState *s)
          goto fail;
      return obj;
   fail:
