@@ -1027,10 +1027,31 @@ jobs:
             -lm -lpthread -ldl \
             -o fuzz_bc
 
-      - name: Fuzz (60 s smoke, no corpus)
+      - name: Replay seed corpus (regression gate — every seed must parse clean)
+        env:
+          ASAN_OPTIONS: detect_leaks=0:allocator_may_return_null=1
+        run: |
+          # Every seed is a known input (real bytecode heads, historical
+          # crash/OOM repros). A failure here means the bc-reader hardening
+          # regressed — fail the job before the fuzz step even starts.
+          for seed in test/fuzz-corpus/*; do
+            echo "--- $seed"
+            ./fuzz_bc "$seed"
+          done
+
+      - name: Fuzz (60 s, seeded from the corpus)
         env:
           # ASan's shadows make the process start at ~2 GB RSS, and LSan does
           # not work under the runner's tracing — hence the raised limit and
           # the leak check off. Neither weakens crash/UB detection.
           ASAN_OPTIONS: detect_leaks=0:allocator_may_return_null=1
-        run: ./fuzz_bc -max_total_time=60 -rss_limit_mb=4096 -timeout=25 -print_final_stats=1
+        # Seeded run: libFuzzer starts from the corpus (real bytecode
+        # structure + past crashers) instead of scratch, so the 60 s budget
+        # spends its time mutating around known-interesting shapes rather
+        # than rediscovering the container format from scratch. New crashing
+        # inputs land in the working dir; promote interesting ones into
+        # test/fuzz-corpus/ as seeds.
+        run: |
+          mkdir -p corpus-out
+          ./fuzz_bc -max_total_time=60 -rss_limit_mb=4096 -timeout=25 \
+            -print_final_stats=1 test/fuzz-corpus corpus-out
