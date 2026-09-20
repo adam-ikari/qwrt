@@ -23,6 +23,7 @@ runtime.
 | `QWRT_WITH_COMPRESS` | ON | miniz compression extension. Adds gzip/zlib/deflate to the JS API. |
 | `QWRT_WITH_CRYPTO_EXT` | ON | `crypto.subtle` extension: SHA-256/384/512, HMAC, PBKDF2, AES-GCM via mbedTLS. May be used without TLS (HTTP-only); required by `QWRT_WITH_TLS`. When OFF, `crypto.subtle` is `undefined` (no JS fallback). |
 | `QWRT_WITH_TEXTCODEC` | ON | UTF-8 and Base64 TextEncoder/TextDecoder. |
+| `QWRT_WITH_NONUTF_ENCODINGS` | OFF | Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder. |
 | `QWRT_WITH_WAMR` | ON | WAMR WebAssembly engine (Fast Interpreter + AOT). Default WASM engine. |
 | `QWRT_WITH_WASM3` | OFF | wasm3 WebAssembly interpreter (alternative, more portable). |
 
@@ -58,6 +59,12 @@ build directory when mixing presets with explicit overrides.
 | Option | Default | Description |
 |--------|---------|-------------|
 | `QWRT_BUILD_TESTS` | OFF | Build the test suite. Enables FetchContent for GoogleTest. |
+| `QWRT_BUILD_EXAMPLES` | OFF | Build the examples in `examples/` (httpserver, grpc-hello, stream-pipeline, worker orchestration). |
+| `QWRT_BUILD_CLI` | ON | Build the `qwrt` CLI (`build/qwrt`, `build/qwrt-ctl`, `build/qwrt-rt`). |
+| `QWRT_BUILD_DEBUGGER` | OFF | Build the DAP step-debugger, applying the QuickJS-ng debugger patch and adding `src/debugger.c` + `src/debugger_dap.c` to `libqwrt`. |
+
+> **Note:** `QWRT_BUILD_DEBUGGER` and `QWRT_WITH_NONUTF_ENCODINGS` are gate-checked
+> by the `QWRT_WITH_*` feature matrix in CI — see `.github/workflows/ci.yml`.
 
 ## Common Configurations
 

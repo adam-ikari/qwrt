@@ -73,6 +73,7 @@ const sidebar = {
       items: [
         { text: 'Bytecode Compilation', link: '/guide/bytecode' },
         { text: 'Build Options', link: '/guide/build-options' },
+        { text: 'Performance Benchmarks', link: '/guide/benchmarking' },
         { text: 'Embedding Patterns', link: '/guide/embedding' },
         { text: 'Testing', link: '/dev/testing' },
         { text: 'Debugging', link: '/dev/debugging' },
@@ -170,6 +171,7 @@ const zhSidebar = {
       items: [
         { text: '字节码编译', link: '/zh/guide/bytecode' },
         { text: '构建选项', link: '/zh/guide/build-options' },
+        { text: '性能基准', link: '/zh/guide/benchmarking' },
         { text: '嵌入模式', link: '/zh/guide/embedding' },
         { text: '调试', link: '/zh/dev/debugging' },
       ],
