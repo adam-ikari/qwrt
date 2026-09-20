@@ -14,7 +14,8 @@ updated: "2026-09-13T07:11:14"
 - deps/quickjs-ng 与 deps/libuv 均为「本地快照 + 补丁文件」双机制：源码作为 git submodule 快照锁定在仓库内，上游差异通过补丁文件维护。
 - gitlink 已修复：deps/libuv 回指上游存在的 commit 20b08342（v1.52.1 祖先，可被 CI fetch），不再指向悬空 commit。
 - **quickjs-ng 已升级至 v0.16.2（commit 1009e662，2026-09-12）**：97 commits，三补丁 3way rebase 零冲突；BC_VERSION 26→27；唯一公开 API 破坏为 realloc_func 签名（7 callsite + 3 回调改造）。polyfill.bytecode 须用同版本 qjsc 重编，否则 host_create 全挂（findQjsc 扫描 build* 会静默选到旧 qjsc，已定案：CMake 传 $QJSC 指向当前 build 目录）。
-- libuv 落后基线（2026-08）：134 commits，未升级。
+- **quickjs-ng 已升级至 v0.17.0（commit 6d46d07，2026-09-18）**：32 commits，四补丁（c99-atomics / drain-jobs / bc-reader-hardening / debugger）rebase 零 FAILED（仅 hunk offset 位移）；BC_VERSION 27→28；polyfill.bytecode/worker-boot.bytecode 已用 v0.17.0 qjsc 重编。收获上游安全修复（TypedArray OOB / AsyncDisposableStack UAF / Promise.withResolvers refcount / hash 碰撞）。offline ctest 23/23 + e2e + seeded fuzz 全绿（CI 35451993074）。
+- libuv 已跟进 v1.x HEAD（84af0b18，2026-09-20）：上游 v1.x 线仅 8 commits（BSD/CI 类），零冲突；c99-atomics patch 扩展纳入 io_uring env workaround（见 brain/pages/libuv-io-uring-workaround.md）。master 线为 v2 dev，暂不跟随。
 
 ## 策略（最保守默认）
 
