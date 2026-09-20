@@ -1,0 +1,80 @@
+{
+  "qwrt": {
+    "streams": {
+      "pipe_mbs": 2014.8,
+      "tee_mbs": 2779.2
+    },
+    "crypto": {
+      "aes_gcm_enc_mbs": 266.9,
+      "aes_gcm_dec_mbs": 289.9,
+      "sha256_mbs": 286.7,
+      "hmac_sha256_mbs": 285.7
+    },
+    "compress": {
+      "gzip_mbs": 124.2,
+      "deflate_raw_mbs": 130.1,
+      "input_bytes": 1048576
+    },
+    "fs": {
+      "fs_backend": "qwrt",
+      "big_read_mbs": 5432.9,
+      "small_batch_files_per_s": 25628
+    },
+    "wasm": {
+      "fib38_ops_per_s": 0.76,
+      "round_ms": 1314.8
+    }
+  },
+  "node": {
+    "streams": {
+      "pipe_mbs": 7163,
+      "tee_mbs": 11308.5
+    },
+    "crypto": {
+      "aes_gcm_enc_mbs": 1182,
+      "aes_gcm_dec_mbs": 951.8,
+      "sha256_mbs": 1385.8,
+      "hmac_sha256_mbs": 1359.8
+    },
+    "compress": {
+      "gzip_mbs": 373.4,
+      "deflate_raw_mbs": 419.3,
+      "input_bytes": 4194304
+    },
+    "fs": {
+      "fs_backend": "node",
+      "big_read_mbs": 1461.6,
+      "small_batch_files_per_s": 15016
+    },
+    "wasm": {
+      "fib38_ops_per_s": 6.26,
+      "round_ms": 159.7
+    }
+  },
+  "bun": {
+    "streams": {
+      "pipe_mbs": 73268.5,
+      "tee_mbs": 122742.7
+    },
+    "crypto": {
+      "aes_gcm_enc_mbs": 1458.2,
+      "aes_gcm_dec_mbs": 2117.7,
+      "sha256_mbs": 1334.8,
+      "hmac_sha256_mbs": 1353.1
+    },
+    "compress": {
+      "gzip_mbs": 3081.7,
+      "deflate_raw_mbs": 3362.2,
+      "input_bytes": 4194304
+    },
+    "fs": {
+      "fs_backend": "node",
+      "big_read_mbs": 2669.4,
+      "small_batch_files_per_s": 272367
+    },
+    "wasm": {
+      "fib38_ops_per_s": 10.73,
+      "round_ms": 93.2
+    }
+  }
+}

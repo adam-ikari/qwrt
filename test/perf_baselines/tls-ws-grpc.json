@@ -1,0 +1,55 @@
+{
+  "tls": {
+    "tls_bench": true,
+    "backend": "qwrt",
+    "tiny": {
+      "rps": 19687.94,
+      "latency_ms": null,
+      "errors": 0
+    },
+    "small": {
+      "rps": 16140.06,
+      "latency_ms": null,
+      "errors": 0
+    },
+    "hs": {
+      "rps": 155.3,
+      "latency_ms": null,
+      "errors": 0
+    }
+  },
+  "ws": {
+    "ws_bench": true,
+    "connections": 1,
+    "messages_per_conn": 1000,
+    "single_conn_msg_per_s": 2885.5,
+    "multi_conn_aggregate_msg_per_s": 5257.7,
+    "per_conn_msg_per_s": [
+      5259.6
+    ]
+  },
+  "ws-8": {
+    "ws_bench": true,
+    "connections": 8,
+    "messages_per_conn": 125,
+    "single_conn_msg_per_s": null,
+    "multi_conn_aggregate_msg_per_s": 5323.1,
+    "per_conn_msg_per_s": [
+      671.4,
+      781,
+      783.3,
+      784.7,
+      784.8,
+      788.4,
+      788.1,
+      787.7
+    ]
+  },
+  "grpc": {
+    "grpc_unary": true,
+    "calls": 2000,
+    "ok": 2000,
+    "unary_per_s": 24.3,
+    "latency_us": 41161.6
+  }
+}

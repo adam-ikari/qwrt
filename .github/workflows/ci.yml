@@ -760,11 +760,22 @@ jobs:
                   print('%s: parse error %s' % (rt, e))
           EOF
 
+      - name: Compare vs baseline (Δ% per metric)
+        run: |
+          for rt in qwrt node bun; do
+            [ -f /tmp/js-api-$rt.out ] || { echo "$rt: (no output)"; continue; }
+            echo "--- $rt ---"
+            python3 test/compare_perf.py \
+              --baseline test/perf_baselines/js-api.json \
+              --out /tmp/js-api-$rt.out --section $rt || true
+          done
+
       - name: Upload perf JSON
         uses: actions/upload-artifact@v4
         with:
           name: js-api-perf-json
-          path: /tmp/js-api-*.out
+          path: |
+            /tmp/js-api-*.out
 
   # ============================================================================
   # TLS / WS / gRPC perf: record-only server benches (qwrt-native, CI-only).
@@ -827,11 +838,25 @@ jobs:
                   print('%s: parse error %s' % (label, e))
           EOF
 
+      - name: Compare vs baseline (Δ% per metric)
+        run: |
+          for sec in tls ws ws-8 grpc; do
+            [ -f /tmp/$sec.out ] || { echo "$sec: (no output)"; continue; }
+            echo "--- $sec ---"
+            python3 test/compare_perf.py \
+              --baseline test/perf_baselines/tls-ws-grpc.json \
+              --out /tmp/$sec.out --section $sec || true
+          done
+
       - name: Upload perf JSON
         uses: actions/upload-artifact@v4
         with:
           name: tls-ws-grpc-perf-json
-          path: /tmp/{tls,ws,ws-8,grpc}.out
+          path: |
+            /tmp/tls.out
+            /tmp/ws.out
+            /tmp/ws-8.out
+            /tmp/grpc.out
   # ============================================================================
   # e2e: real-libuv CLI (QWRT_BUILD_TESTS=OFF) driving the four standalone e2e
   # suites plus the pure-JS verification harnesses (node only, no C build).
