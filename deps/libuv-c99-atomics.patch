@@ -1,7 +1,3 @@
-# qwrt patch: map C11 atomic_* ops + _Atomic to GCC/Clang __atomic_* builtins
-# in libuv's uv-common.h so libuv compiles under -std=c99.
-# Base submodule: deps/libuv @ 096a02d14cb9d3de6d55a29ec02c4dfcb7643c7f (v1.52.1-110-g096a02d1)
-# Working-tree-only (the submodule stays clean); CMake re-applies when needed.
 diff --git a/src/unix/async.c b/src/unix/async.c
 index dab168da..0c2077e5 100644
 --- a/src/unix/async.c
@@ -27,7 +23,7 @@ index 06a6986e..0dd7dabd 100644
  #include <stdlib.h>
  #include <string.h>
 diff --git a/src/unix/linux.c b/src/unix/linux.c
-index 19a63af0..060e8958 100644
+index 19a63af0..1cb7532d 100644
 --- a/src/unix/linux.c
 +++ b/src/unix/linux.c
 @@ -28,7 +28,6 @@
@@ -38,6 +34,17 @@ index 19a63af0..060e8958 100644
  #include <stddef.h>  /* offsetof */
  #include <stdint.h>
  #include <stdio.h>
+@@ -530,10 +529,6 @@ static int uv__use_io_uring(uint32_t flags) {
+     return 0;
+ #endif
+ 
+-  /* SQPOLL is all kinds of buggy but epoll batching should work fine. */
+-  if (0 == (flags & UV__IORING_SETUP_SQPOLL))
+-    return 1;
+-
+   /* Older kernels have a bug where the sqpoll thread uses 100% CPU. */
+   if (uv__kernel_version() < /*5.10.186*/0x050ABA)
+     return 0;
 diff --git a/src/unix/tty.c b/src/unix/tty.c
 index 21d37882..e39bb537 100644
 --- a/src/unix/tty.c
