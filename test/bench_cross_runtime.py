@@ -128,6 +128,32 @@ def version(bin_path):
         return '?'
 
 
+def run_js_api(bins, progress):
+    """Run test/bench_js_api.mjs on each runtime; return {runtime: modes}.
+    qwrt needs --iters 0.25 (interpreter — the JIT runtimes use 1.0).
+    Any runtime that fails or times out yields no entry (record-only)."""
+    script = os.path.join(bench_dir(), 'bench_js_api.mjs')
+    if not os.path.exists(script):
+        progress('skip js_api: %s not found' % script)
+        return None
+    out = {}
+    for name, bin_path in bins.items():
+        iters = '0.25' if name == 'qwrt' else '1.0'
+        timeout = 900 if name == 'qwrt' else 300
+        cmd = [bin_path, script, '--mode', 'all', '--iters', iters]
+        progress('js_api[%s] iters=%s ...' % (name, iters))
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=timeout)
+            lines = [ln for ln in r.stdout.strip().splitlines() if ln.strip()]
+            data = json.loads(lines[-1])
+            data.pop('js_api_bench', None)
+            data.pop('date', None)
+            out[name] = data
+        except (subprocess.TimeoutExpired, json.JSONDecodeError,
+                IndexError, OSError) as e:
+            progress('js_api[%s] FAILED: %s' % (name, e))
+    return out or None
 def ratio(a, b):
     if a is None or b is None or b == 0:
         return None
@@ -143,6 +169,10 @@ def main():
                     help='reduced sample counts')
     ap.add_argument('--json', metavar='PATH',
                     help='also write the summary JSON to PATH')
+    ap.add_argument('--js-api', action='store_true',
+                    help='also run test/bench_js_api.mjs (streams/crypto/'
+                         'compress/fs/wasm) on every runtime and include '
+                         'the results under "js_api" in the summary')
     args = ap.parse_args()
 
     params = QUICK if args.quick else DEFAULT
@@ -230,6 +260,31 @@ def main():
                r['eval']['closure_mops'], r['eval']['str_mops'],
                r['peak_rss_kb']))
 
+    js_api = None
+    if args.js_api:
+        js_api = run_js_api(bins, progress)
+        if js_api:
+            # per-metric ratio table: runtime / qwrt (>1 = "more")
+            q = js_api.get('qwrt', {})
+            js_api_ratios = {}
+            for name, modes in js_api.items():
+                if name == 'qwrt':
+                    continue
+                row = {}
+                for mode, metrics in modes.items():
+                    if not isinstance(metrics, dict):
+                        continue
+                    qm = q.get(mode, {})
+                    row[mode] = {k: ratio(v, qm.get(k))
+                                 for k, v in metrics.items()
+                                 if isinstance(v, (int, float))}
+                js_api_ratios[name] = row
+            summary_js_api = js_api_ratios
+        else:
+            summary_js_api = None
+    else:
+        summary_js_api = None
+
     summary = {
         'cross_runtime': True,
         'run': {'date': time.strftime('%Y-%m-%d'),
@@ -237,6 +292,8 @@ def main():
                 'uname': ' '.join(os.uname())[:120]},
         'runtimes': res,
         'vs_qwrt': vs,
+        'js_api': js_api,
+        'js_api_vs_qwrt': summary_js_api,
         'meta': {'bins': {k: ALIAS[k] for k in bins},
                  'versions': {k: version(v) for k, v in bins.items()},
                  'iters': params['r6_iters'],

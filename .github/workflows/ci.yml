@@ -696,6 +696,142 @@ jobs:
         with:
           name: cross-runtime-json
           path: /tmp/cross-runtime.json
+
+  # ============================================================================
+  # JS-API perf: test/bench_js_api.mjs (streams / crypto / compress / fs / wasm)
+  # across qwrt / node / bun. Record-only — no thresholds; first run establishes
+  # a baseline. qwrt runs with --iters 0.25 (interpreter) and a long timeout.
+  # ============================================================================
+  js-api-perf:
+    runs-on: ubuntu-latest
+    name: js-api perf (streams/crypto/compress/fs/wasm × qwrt/node/bun)
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build
+
+      - name: Install Node (polyfill build + bench driver)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
+      - name: Configure (Release, real-libuv CLI)
+        run: |
+          cmake -B build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DQWRT_BUILD_TESTS=OFF             -DQWRT_WITH_TLS=ON
+
+      - name: Build (polyfill rebuild via build.js + qjsc)
+        run: cmake --build build --parallel
+
+      - name: Install Bun
+        run: curl -fsSL https://bun.sh/install | bash
+
+      - name: Benchmark JS API (all modes, all runtimes)
+        run: |
+          export PATH="$HOME/.bun/bin:$PATH"
+          set -x
+          for rt in qwrt node bun; do
+            bin="$([ $rt = qwrt ] && echo ./build/qwrt || (which $rt))"
+            timeout 1200 "$bin" test/bench_js_api.mjs --mode all               --iters $([ $rt = qwrt ] && echo 0.25 || echo 1.0)               | tee /tmp/js-api-$rt.out
+          done
+
+      - name: Summarize
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          for rt in ('qwrt', 'node', 'bun'):
+              path = '/tmp/js-api-%s.out' % rt
+              if not os.path.exists(path):
+                  print('%s: (no data)' % rt)
+                  continue
+              try:
+                  line = [l for l in open(path).read().strip().splitlines() if l.strip()][-1]
+                  d = json.loads(line)
+                  print('%s: %s' % (rt, ' '.join('%s=%s' % (k, v) for m, vs in d.items() if m not in ('js_api_bench','date') for k, v in (vs.items() if isinstance(vs, dict) else [(m, vs)]))))
+              except Exception as e:
+                  print('%s: parse error %s' % (rt, e))
+          EOF
+
+      - name: Upload perf JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: js-api-perf-json
+          path: /tmp/js-api-*.out
+
+  # ============================================================================
+  # TLS / WS / gRPC perf: record-only server benches (qwrt-native, CI-only).
+  # ============================================================================
+  tls-ws-grpc-perf:
+    runs-on: ubuntu-latest
+    name: tls/ws/grpc perf (record-only)
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config ninja-build wrk
+
+      - name: Install Node (polyfill build + ws client)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install polyfill deps (esbuild)
+        run: npm --prefix polyfill ci
+
+      - name: Configure (Release, CLI + TLS + gRPC)
+        run: |
+          cmake -B build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DQWRT_BUILD_TESTS=OFF             -DQWRT_WITH_TLS=ON             -DQWRT_WITH_GRPC=ON
+
+      - name: Build (polyfill rebuild via build.js + qjsc)
+        run: cmake --build build --parallel
+
+      - name: Benchmark TLS server (wrk)
+        run: |
+          python3 test/bench_tls_server.py --backend qwrt --qwrt-bin ./build/qwrt --duration 5             | tee /tmp/tls.out
+
+      - name: Benchmark WebSocket echo (node client)
+        run: |
+          node test/bench_ws_server.mjs --qwrt-bin ./build/qwrt --messages 1000 --connections 1             | tee /tmp/ws.out
+          node test/bench_ws_server.mjs --qwrt-bin ./build/qwrt --messages 1000 --connections 8             | tee /tmp/ws-8.out
+
+      - name: Benchmark gRPC unary (qwrt client -> qwrt server)
+        run: |
+          python3 test/bench_grpc_unary.py --qwrt-bin ./build/qwrt --calls 2000             | tee /tmp/grpc.out
+
+      - name: Summarize
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          for label, path in (('tls', '/tmp/tls.out'), ('ws', '/tmp/ws.out'),
+                              ('ws-8', '/tmp/ws-8.out'), ('grpc', '/tmp/grpc.out')):
+              if not os.path.exists(path):
+                  print('%s: (no data)' % label)
+                  continue
+              try:
+                  line = [l for l in open(path).read().strip().splitlines() if l.strip()][-1]
+                  print('%s: %s' % (label, line))
+              except Exception as e:
+                  print('%s: parse error %s' % (label, e))
+          EOF
+
+      - name: Upload perf JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: tls-ws-grpc-perf-json
+          path: /tmp/{tls,ws,ws-8,grpc}.out
   # ============================================================================
   # e2e: real-libuv CLI (QWRT_BUILD_TESTS=OFF) driving the four standalone e2e
   # suites plus the pure-JS verification harnesses (node only, no C build).
