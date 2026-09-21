@@ -5,14 +5,14 @@ description: Complete JavaScript API reference for Qwrt.js — WinterTC-compatib
 
 # JS API Reference
 
-qwrt provides a WinterTC-compatible JavaScript API surface through its WinterTC modules. The modules are precompiled to bytecode and injected into the runtime at creation; all globals listed here are available in any JS that runs in the runtime (the `initial_script`, message handlers, and code invoked via `qwrt_post_message`) without requiring `require()` or `import`.
+qwrt provides a WinterTC-compatible JavaScript API. The globals listed here are available in any JS that runs in the runtime (`initial_script`, message handlers, and code invoked via `qwrt_post_message`), without requiring `require()` or `import`.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
     A["Your JS code"] --> B
-    subgraph B["WinterTC runtime (precompiled to bytecode)"]
+    subgraph B["WinterTC runtime"]
         direction LR
         C["fetch<br/>console<br/>URL<br/>qwrt.fs"]
         D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
