@@ -38,21 +38,27 @@ const SKIP_FILE = /\.min\.(js|cjs|mjs)$/
  * crypto.randomUUID, qwrt.fs, ...) is not listed here at all.
  */
 const MISSING_GLOBALS = [
-  { re: /\bprocess\./, name: 'process' },
-  { re: /\bBuffer\.|\bnew Buffer\b/, name: 'Buffer' },
+  // (?<![\w$.]) — only flag a bare global access. `root.process`,
+  // `self.document`, `globalThis.Buffer` are optional feature-detect
+  // property reads and must not count (qwrt lacks them, so they stay
+  // undefined and the guarded branch is skipped).
+  { re: /(?<![\w$.])process\./, name: 'process' },
+  { re: /(?<![\w$.])(?:new Buffer\b|Buffer\.)/, name: 'Buffer' },
   { re: /\b__dirname\b/, name: '__dirname' },
   { re: /\b__filename\b/, name: '__filename' },
-  { re: /\bdocument\./, name: 'document' },
-  { re: /\bwindow\./, name: 'window' },
-  { re: /\bXMLHttpRequest\b/, name: 'XMLHttpRequest' },
+  { re: /(?<![\w$.])document\./, name: 'document' },
+  { re: /(?<![\w$.])window\./, name: 'window' },
+  { re: /(?<![\w$.])XMLHttpRequest\b/, name: 'XMLHttpRequest' },
   { re: /\brequestAnimationFrame\b/, name: 'requestAnimationFrame' },
   { re: /\bgetComputedStyle\b/, name: 'getComputedStyle' },
   { re: /\bHTMLElement\b/, name: 'HTMLElement' },
 ]
 
-// Guard that makes a require() feature-detected rather than a hard dependency
-// (lodash's _nodeUtil.js: `typeof require === 'function' ? require('util') : ...`).
-const REQUIRE_GUARD = /typeof\s+require\s+(?:===?\s*['"]?function|!==?\s*['"]?undefined)/i
+// Guard that makes a require() feature-detected rather than a hard dependency:
+//   - `typeof require === 'function'`          (UMD / env check)
+//   - `freeModule && freeModule.require &&`    (lodash _nodeUtil.js)
+//   - `module && module.require &&`            (CommonJS env check)
+const REQUIRE_GUARD = /(?:typeof\s+require\s+(?:===?\s*['"]?function|!==?\s*['"]?undefined))|(?:\b(?:freeModule|module)\b\s*&&\s*\w*\.?require\s*&&)/i
 
 function fetchTimeout(url, ms) {
   const ctrl = new AbortController()
@@ -100,6 +106,16 @@ function parseTar(buf) {
     }
   }
   return files
+}
+
+/** Strip block and line comments before scanning — doc examples in
+ * comments (e.g. lodash's "@example ... document.querySelectorAll") and prose
+ * like "... value to process." caused false positives. Keeps http URLs intact.
+ * Good enough for a static scan. */
+function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:\\])\/\/[^\n]*/g, '$1')
 }
 
 /** Collect every dependency specifier (require/import) in a source file. */
@@ -155,7 +171,7 @@ export async function scan(packageName) {
   const npmDeps = new Set()
 
   for (const f of jsFiles) {
-    const src = new TextDecoder().decode(f.content)
+    const src = stripComments(new TextDecoder().decode(f.content))
     for (const g of MISSING_GLOBALS) {
       if (g.re.test(src)) {
         ;(globalHits[g.name] || (globalHits[g.name] = { files: [], count: 0 }))
