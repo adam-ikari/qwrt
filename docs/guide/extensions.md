@@ -111,12 +111,12 @@ a built-in, list only the entries you want instead of `QWRT_DEFAULT_EXTENSIONS`.
 
 ## Lifecycle Hooks
 
-- **`init`** — called when the extension is registered on a context (at `qwrt_create` / `qwrt_spawn` / `qwrt_reset`). Register JS globals, allocate resources. Return 0 on success, <0 on failure.
+- **`init`** — called when the extension is registered on a context (at `qwrt_create`, or when a worker context is created). Register JS globals, allocate resources. Return 0 on success, <0 on failure.
 - **`destroy`** — called when the context is destroyed. Free extension resources. JSContext cleanup is automatic — you only need to free your own allocations.
 - **`suspend`** — called when the context is suspended. Save state, pause timers, close connections.
 - **`resume`** — called when the context is resumed. Restore state, resume timers, reopen connections.
 
-All hooks receive both the extension and the runtime. Get the active `JSContext*` via `qwrt_get_jsctx(rt)`.
+All hooks receive both the extension and the runtime. Get the active `JSContext*` via `qwrt_get_active_jsctx(rt)` (internal, `src/qwrt_internal.h`).
 
 ### Per-runtime data in init
 

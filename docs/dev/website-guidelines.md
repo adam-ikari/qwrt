@@ -67,7 +67,6 @@ const sidebar = {
 const nav = [
   { text: 'Guide', link: '/guide/' },
   { text: 'JS API', link: '/js-api/' },
-  { text: 'Playground', link: '/playground' },
   { text: 'GitHub', link: 'https://github.com/adam-ikari/qwrt' },
 ]
 ```
@@ -97,31 +96,6 @@ QJSC=../build/deps/quickjs-ng/qjsc npm run build
 # This regenerates src/polyfill_<mode>.c (rodata default: src/polyfill_default.c)
 # Then rebuild qwrt: cmake --build build
 ```
-
-## Playground WASM
-
-The playground compiles qwrt to WebAssembly:
-
-```bash
-# Requires Emscripten (source /tmp/emsdk/emsdk_env.sh)
-# Build qwrt for WASM:
-cmake -B build-wasm -S . \
-  -DCMAKE_TOOLCHAIN_FILE=/tmp/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
-  -DCMAKE_BUILD_TYPE=Release -DQWRT_BUILD_TESTS=OFF \
-  -DQWRT_PROFILE=minimal
-cmake --build build-wasm
-
-# Compile playground:
-emcc -O2 -Iinclude -Ideps/quickjs-ng \
-  /tmp/qwrt_playground.c \
-  -Lbuild-wasm -lqwrt -Lbuild-wasm/deps/quickjs-ng -lqjs \
-  -s EXPORTED_FUNCTIONS='["_qwrt_playground_init","_qwrt_playground_eval",...]' \
-  -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString",...]' \
-  -s NO_EXIT_RUNTIME=1 -s INITIAL_MEMORY=64MB -s ALLOW_MEMORY_GROWTH=1 \
-  -o docs/public/qwrt-playground.js
-```
-
-Output files (`docs/public/qwrt-playground.js` + `.wasm`) are committed to git and served by VitePress.
 
 ## Pre-commit Checklist
 
