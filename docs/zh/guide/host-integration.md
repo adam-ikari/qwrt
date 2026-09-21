@@ -73,6 +73,31 @@ qwrt_post_message(rt, "{\"cmd\":\"start\",\"n\":42}", 22);
 反方向（JS 调 C）也一样：JS 里 `postMessage` 会落到 `message_cb`，或者把 C 函数
 注册成 JS 全局。见 [扩展](/zh/guide/extensions) 和 [嵌入模式](/zh/guide/embedding)。
 
+### 发送代码执行
+
+边界承载 JSON，但往 JSON 里放什么由你决定。常见的做法是发一条
+`{ cmd: 'eval', code: ... }` 消息，让 JS 侧执行——REPL、动态规则引擎就是这么做的：
+
+```js
+// initial_script
+globalThis.onmessage = function (e) {
+  if (e.data && e.data.cmd === 'eval') {
+    let out;
+    try { out = eval(e.data.code); }
+    catch (err) { out = { error: String(err) }; }
+    postMessage({ result: out });
+  }
+};
+```
+
+```c
+// 宿主侧——发送要执行的代码
+qwrt_post_message(rt, "{\"cmd\":\"eval\",\"code\":\"2 + 2\"}", 26);
+// message_cb 收到：{"result":4}
+```
+
+代码片段由运行时的 JS `eval` 执行，结果像任何其他回复一样经 `message_cb` 流回。
+
 ## 4. 向 JS 出借能力
 
 运行时里的 JS 以全局对象的形式拿到 WinterTC 接口，不用 import：`fetch`、

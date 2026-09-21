@@ -85,6 +85,33 @@ The reciprocal — **JS calling C** — is `postMessage` from JS (which lands in
 [Extensions](/guide/extensions) and the deep-dive
 [Embedding Patterns](/guide/embedding).
 
+### Sending code to run
+
+The boundary carries JSON, but what you put in that JSON is up to you. A
+common pattern is sending a `{ cmd: 'eval', code: ... }` message and having
+the JS side execute it — this is how a REPL or a dynamic-rule engine works:
+
+```js
+// initial_script
+globalThis.onmessage = function (e) {
+  if (e.data && e.data.cmd === 'eval') {
+    let out;
+    try { out = eval(e.data.code); }
+    catch (err) { out = { error: String(err) }; }
+    postMessage({ result: out });
+  }
+};
+```
+
+```c
+// host side — send code to run
+qwrt_post_message(rt, "{\"cmd\":\"eval\",\"code\":\"2 + 2\"}", 26);
+// message_cb receives: {"result":4}
+```
+
+The snippet is executed by the JS `eval` in the runtime; the result flows back
+over `message_cb` like any other reply.
+
 ## 4. Lend Capabilities to JS
 
 JS in the runtime sees the WinterTC surface as globals, with no imports:
