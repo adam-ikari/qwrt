@@ -68,7 +68,6 @@ const nav = [
   { text: 'Guide', link: '/guide/' },
   { text: 'JS API', link: '/js-api/' },
   { text: 'Playground', link: '/playground' },
-  { text: 'Compat Check', link: '/compat-checker' },
   { text: 'GitHub', link: 'https://github.com/adam-ikari/qwrt' },
 ]
 ```

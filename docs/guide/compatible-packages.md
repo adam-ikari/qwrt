@@ -42,3 +42,20 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
 ```
 
 Then load `nanoid.bundle.js` via `qwrt_eval`.
+
+## Checking Compatibility
+
+A CLI tool in `test/compat_check.py` pulls a package from the npm registry and
+statically scans its source for Node built-ins and globals qwrt does not provide:
+
+```bash
+python3 test/compat_check.py lodash
+python3 test/compat_check.py express uuid      # multiple packages
+python3 test/compat_check.py lodash --json    # machine-readable
+```
+
+Output lists issues (Node built-ins, missing globals with file locations) and
+notes (npm dependencies to verify). Exit code is 1 if any hard issue is found,
+so it works as a CI gate. The scan is static — a clean report means "no obvious
+blockers in the source"; runtime behavior still has to be verified against
+qwrt itself.

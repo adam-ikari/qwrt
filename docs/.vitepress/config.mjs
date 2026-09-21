@@ -154,7 +154,6 @@ const nav = [
   { text: 'Guide', link: '/guide/' },
   { text: 'JS API', link: '/js-api/' },
   { text: 'Playground', link: '/playground' },
-  { text: 'Compat Check', link: '/compat-checker' },
   { text: 'GitHub', link: 'https://github.com/adam-ikari/qwrt' },
 ]
 
@@ -259,7 +258,6 @@ const zhNav = [
   { text: '指南', link: '/zh/guide/' },
   { text: 'JS API', link: '/zh/js-api/' },
   { text: '演练场', link: '/zh/playground' },
-  { text: '兼容检查', link: '/zh/compat-checker' },
   { text: 'GitHub', link: 'https://github.com/adam-ikari/qwrt' },
 ]
 

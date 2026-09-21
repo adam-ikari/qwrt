@@ -52,7 +52,7 @@ The Guide follows the order a host developer works in:
 
 ## When NOT to Use qwrt
 
-- You need the **Node.js module system** — qwrt has no `require`/`import` of Node built-ins. Many pure-JS npm packages work (check with the [compat checker](/compat-checker) or see [Compatible Packages](/guide/compatible-packages)); Node-only ones do not.
+- You need the **Node.js module system** — qwrt has no `require`/`import` of Node built-ins. Many pure-JS npm packages work (run `python3 test/compat_check.py <pkg>` (see [Compatible Packages](/guide/compatible-packages#checking-compatibility))); Node-only ones do not.
 - You need **DOM** — qwrt provides the WinterTC/W3C subset (fetch, WebSocket, streams, localStorage, ...) but no `document`/`window`.
 - You need **shared-memory concurrency** — the main runtime is single-threaded; Web Workers run real parallel threads or processes but communicate via structured-clone messages, not shared memory.
 - You need **JIT performance** — QuickJS is an interpreter, not a JIT compiler.

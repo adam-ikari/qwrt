@@ -52,7 +52,7 @@ Guide 按宿主开发者的工作顺序组织：
 
 ## 何时不应使用 qwrt
 
-- 你需要 **Node.js 模块系统** —— qwrt 没有 `require`/`import`（Node 内置模块不可用）。很多纯 JS npm 包能用（用[兼容性检查](/zh/compat-checker)测，或见[兼容包](/zh/guide/compatible-packages)）；依赖 Node 专属模块的不行。
+- 你需要 **Node.js 模块系统** —— qwrt 没有 `require`/`import`（Node 内置模块不可用）。很多纯 JS npm 包能用（用 `python3 test/compat_check.py <pkg>` 测（见[兼容包](/zh/guide/compatible-packages#如何验证)））；依赖 Node 专属模块的不行。
 - 你需要 **DOM** —— qwrt 提供 WinterTC/W3C 子集（fetch、WebSocket、streams、localStorage 等），但没有 `document`/`window`。
 - 你需要 **共享内存并发** —— 主运行时单线程；Web Worker 是真并行线程或进程，但通过 structured-clone 消息通信，不共享内存。
 - 你需要 **JIT 性能** —— QuickJS 是解释器，不是 JIT 编译器。
