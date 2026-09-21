@@ -11,15 +11,7 @@ For a C application that wants part of its logic in JavaScript, qwrt supplies th
 
 ## How the Host Fits
 
-```
-   your C process
-        │  qwrt_create(cfg)          — starts qwrt's own thread + libuv loop
-        ▼
-   [ qwrt runtime ] ─── internal thread, all JS runs here
-        ▲
-        │  message_cb(json)          — outbound JS→host
-        │  qwrt_post_message(json)   — inbound host→JS, thread-safe
-```
+![Qwrt architecture](../assets/qwrt-arch.svg)
 
 - **Own thread + event loop** — qwrt starts an internal thread running a libuv loop; the host never pumps it
 - **Message-based host boundary** — `qwrt_post_message` (in) / `message_cb` (out), JSON in both directions

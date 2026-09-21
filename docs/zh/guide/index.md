@@ -11,15 +11,7 @@ QuickJS-ng 引擎之上提供精简的 C API 和 **WinterTC 兼容的运行时**
 
 C 应用想把一部分逻辑放进 JavaScript 的话，qwrt 提供运行时；宿主不用自己搭事件循环和线程。
 
-```
-   你的 C 进程
-        │  qwrt_create(cfg)          — 启动 qwrt 自有线程 + libuv 循环
-        ▼
-   [ qwrt runtime ] ─── 内部线程，所有 JS 在此运行
-        ▲
-        │  message_cb(json)          — 出站 JS→宿主
-        │  qwrt_post_message(json)   — 入站 宿主→JS，线程安全
-```
+![Qwrt 架构图](../../assets/qwrt-arch.svg)
 
 - **自有线程 + 事件循环** — qwrt 启动一个内部线程运行 libuv 循环；宿主从不泵动它
 - **基于消息的宿主边界** — `qwrt_post_message`（入）/ `message_cb`（出），双向 JSON
