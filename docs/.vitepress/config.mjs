@@ -166,6 +166,7 @@ const zhSidebar = {
         { text: '概览', link: '/zh/guide/' },
         { text: '快速上手', link: '/zh/guide/quickstart' },
         { text: '构建', link: '/zh/guide/building' },
+        { text: '兼容包', link: '/zh/guide/compatible-packages' },
       ],
     },
     {
@@ -191,6 +192,7 @@ const zhSidebar = {
         { text: '构建选项', link: '/zh/guide/build-options' },
         { text: '性能基准', link: '/zh/guide/benchmarking' },
         { text: '嵌入模式', link: '/zh/guide/embedding' },
+        { text: '测试', link: '/zh/dev/testing' },
         { text: '调试', link: '/zh/dev/debugging' },
       ],
     },
