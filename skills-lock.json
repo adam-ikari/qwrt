@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "svg-diagram": {
+      "source": "bybit-exchange/svg-diagram",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "f9c20050e9d3b4f3470fc14dc82c6a6766137b4cab249a3a3e654f4dc96d3922"
+    }
+  }
+}

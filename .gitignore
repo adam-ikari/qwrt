@@ -74,3 +74,6 @@ docs/api/
 __pycache__/
 .pytest_cache/
 *.pyc
+
+# Claude Code skill symlinks (point at .agents/skills)
+.claude/
