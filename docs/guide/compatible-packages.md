@@ -1,6 +1,6 @@
 # Compatible npm Packages
 
-These packages have been **downloaded and run** in the actual qwrt runtime. Each was loaded via `qwrt_eval` and tested with real function calls.
+These packages have been **downloaded and run** in the actual qwrt runtime. Each is loaded by `test/compat_check.py` through a minimal CommonJS loader and exercised with real calls.
 
 ## Runtime-Verified ✅
 
@@ -26,7 +26,7 @@ Many npm packages use CommonJS (`module.exports`). qwrt does not have a built-in
 var module = { exports: {} };
 var exports = module.exports;
 
-// Load the package source via qwrt_eval
+// (compat_check.py performs this load inside a real qwrt runtime)
 
 // Access the package:
 var myPkg = module.exports;
@@ -41,7 +41,7 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
   npx esbuild --bundle --format=iife --global-name=nanoid_bundle > nanoid.bundle.js
 ```
 
-Then load `nanoid.bundle.js` via `qwrt_eval`.
+Then run the IIFE bundle as an `initial_script` or `new Worker(url)` script — there is no `qwrt_eval`.
 
 ## Checking Compatibility
 

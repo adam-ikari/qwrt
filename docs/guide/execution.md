@@ -1,103 +1,109 @@
 ---
 title: JS Execution
-description: How Qwrt.js evaluates JavaScript — qwrt_eval, bytecode evaluation, result handling, error propagation, and promise support.
+description: How Qwrt.js executes JavaScript — initial_script, message-driven evaluation, Web Workers, and extension-injected globals. The host never evaluates JS directly.
 ---
 
 # JS Execution
 
-qwrt provides three ways to run JavaScript: evaluate source code, evaluate bytecode, and call named functions.
+All JavaScript runs on qwrt's internal thread. The host never evaluates or
+calls into JS directly — there is **no `qwrt_eval`**, no `qwrt_call`, and no
+`qwrt_tick` in the public API. Code is executed in one of four ways:
 
-## Evaluating Source Code
+1. **`initial_script`** — a script eval'd once when the runtime starts
+2. **Message-driven** — JSON messages posted from the host run handlers in JS
+3. **Web Workers** — `new Worker(url)` runs a separate script in parallel
+4. **Extension globals** — C extensions (built into qwrt at compile time) expose
+   native functions to JS
+
+## 1. Initial Script
+
+`qwrt_create` eval's `config.initial_script` on the internal thread before it
+returns. A throw makes `qwrt_create` return `NULL`:
 
 ```c
-char *result = NULL;
-int ret = qwrt_eval(rt, "1 + 1", &result);
-if (ret == 0) {
-    printf("Result: %s\n", result);  // "2"
-    qwrt_free(result);
-} else {
-    // JS exception — result contains the error message
-    fprintf(stderr, "Error: %s\n", result ? result : "unknown");
-    qwrt_free(result);
+qwrt_config_t cfg = {
+    .initial_script =
+        "console.log('hello from qwrt');"
+        "globalThis.onmessage = function (e) { postMessage('got: ' + e.data); };",
+    .message_cb = on_message,
+};
+qwrt_t *rt = qwrt_create(&cfg);   // NULL if initial_script threw
+```
+
+This is where you install message handlers and top-level state before the host
+starts driving the runtime.
+
+## 2. Message-Driven Execution
+
+The host drives JS by posting JSON messages; JS replies with `postMessage`:
+
+```
+host  ── qwrt_post_message(json) ──▶  JS: globalThis.onmessage(e)
+host  ◀── message_cb(json)       ───  JS: postMessage(value)
+```
+
+- `qwrt_post_message` is **thread-safe** (the JSON is copied) and may be called
+  from any host thread.
+- The message arrives as a JS object/string via `onmessage`; `e.data` is the
+  parsed payload.
+- `message_cb` fires on the qwrt thread with the JSON serialized from
+  `postMessage`, so the callback must be thread-safe.
+
+This is the only channel for host ↔ JS data. There is no synchronous return
+value — results always flow back through `message_cb`.
+
+## 3. Web Workers
+
+`new Worker(url)` runs a script in a separate, isolated execution context —
+real parallel work, not a shared-`JSRuntime` context. Workers communicate with
+their creator and each other via `postMessage`/`onmessage`:
+
+```js
+// main script
+const w = new Worker("worker.js");
+w.onmessage = (e) => console.log("from worker:", e.data);
+w.postMessage("start");
+```
+
+Under `-DQWRT_PROCESS_MODEL=THREAD` a worker runs on a parallel thread; under
+the default `ISOLATED` model it runs as a dedicated child process (`qwrt-rt`
+spawned via fork+exec). See [Multi-Context](/guide/multi-context).
+
+## 4. Extension Globals
+
+Native C functions are exposed to JS by building an extension into qwrt (the
+compile-time `QWRT_EXTENSIONS` table), not by calling into JS from the host.
+An extension's `init` hook runs when a context is created and may register
+globals via the QuickJS API:
+
+```c
+#include <qwrt/qwrt.h>
+#include <quickjs.h>
+#include "qwrt_internal.h"   // qwrt_get_active_jsctx (internal)
+
+static JSValue js_greet(JSContext *ctx, JSValueConst this_val,
+                        int argc, JSValueConst *argv) {
+    const char *name = argc > 0 ? JS_ToCString(ctx, argv[0]) : "world";
+    JSValue v = JS_NewString(ctx, name);
+    if (argc > 0) JS_FreeCString(ctx, name);
+    return v;
+}
+
+static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
+    JSContext *ctx = qwrt_get_active_jsctx(rt);   // internal helper
+    JSValue global = JS_GetGlobalObject(ctx);
+    JS_SetPropertyStr(ctx, global, "greet",
+                      JS_NewCFunction(ctx, js_greet, "greet", 1));
+    JS_FreeValue(ctx, global);
+    return 0;
 }
 ```
 
-Parameters:
-- `rt` — the runtime
-- `code` — null-terminated JavaScript source string
-- `result` — if non-NULL, receives a `malloc`'d string (free with `qwrt_free`)
+Register the extension at compile time (see [Extensions](/guide/extensions)).
 
-Returns 0 on success, <0 on JS exception.
+## Asynchronous Execution
 
-The WinterTC-compatible runtime is **automatically injected** before the first `qwrt_eval` on each context — you don't need to manually set up `fetch`, `console`, etc.
-
-## Evaluating Bytecode
-
-For production, precompile JS to QuickJS bytecode for faster startup and smaller size:
-
-```c
-// Compile step (do once, ship the bytecode)
-size_t bytecode_len;
-uint8_t *bytecode = qwrt_compile(rt, "1 + 1", 5, &bytecode_len);
-
-// Eval step (fast — no parsing needed)
-char *result = NULL;
-qwrt_eval_bytecode(rt, bytecode, bytecode_len, &result);
-qwrt_free(result);
-qwrt_free(bytecode);
-```
-
-See [Bytecode Compilation](/guide/bytecode) for details.
-
-## Calling JavaScript Functions
-
-Call a global JS function by name with JSON arguments:
-
-```c
-// First, define the function
-qwrt_eval(rt,
-    "function add(a, b) { return a + b; }"
-, NULL);
-
-// Then call it
-char *result = NULL;
-qwrt_call(rt, "add", "[3, 4]", &result);
-printf("add(3, 4) = %s\n", result);  // "7"
-qwrt_free(result);
-```
-
-- `func` — name of a global function (must exist in the active context)
-- `args_json` — JSON array of arguments (e.g., `"[1, \"hello\", true]"`) or NULL for no args
-- `result` — receives the JSON-stringified return value
-
-## Draining Microtasks
-
-Many JS APIs (Promises, async/await) enqueue microtasks. Call `qwrt_tick` to drain them:
-
-```c
-// After any eval that creates promises:
-qwrt_tick(rt, 100);
-```
-
-Typically you drive this in a loop with the PAL event loop:
-
-```c
-while (pal->run_cycle(pal, 100) > 0) {
-    qwrt_tick(rt, 100);
-}
-```
-
-## Accessing the JSContext
-
-For advanced use (direct QuickJS API), get the raw `JSContext*`:
-
-```c
-JSContext *ctx = qwrt_get_jsctx(rt);
-if (ctx) {
-    // Use QuickJS C API directly
-    JSValue val = JS_NewInt32(ctx, 42);
-    // ...
-}
-```
-
-The pointer is valid until the context is destroyed or the runtime is reset.
+Promises, `async`/`await`, and timers are driven by the embedded libuv loop on
+the internal thread. Microtasks are flushed naturally between loop iterations —
+the host does not and cannot pump the queue. A `setTimeout`/`fetch`/stream
+continues to make progress until it settles; see [Event Loop](/guide/event-loop).

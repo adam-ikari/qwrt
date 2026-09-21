@@ -35,8 +35,10 @@ Build types: `Release` (optimized), `Debug` (with symbols and assertions), `RelW
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `QWRT_BUILD_TESTS` | OFF | Build test suite (26 test targets) |
+| `QWRT_BUILD_TESTS` | OFF | Build test suite (25 test targets) |
 | `QWRT_BUILD_EXAMPLES` | OFF | Build examples in `examples/` |
+| `QWRT_BUILD_CLI` | ON | Build the `qwrt` CLI plus the `qwrt-rt` worker and `qwrt-ctl` control-plane binaries |
+| `QWRT_PROCESS_MODEL` | ISOLATED | `THREAD` (single-process multi-thread) or `ISOLATED` (dedicated child processes via fork+exec, default since the M-P2 milestone) |
 
 ## Example Configurations
 
@@ -81,6 +83,9 @@ qwrt and all its dependencies build under **strict C99** (`-std=c99`). quickjs-n
 |----------|------|
 | `libqwrt.a` | `build/` (static core — deliberately does not link libuv; uv symbols resolve at the final executable) |
 | `libqwrt_full.a` | `build/` (CMake link-interface aggregator: qwrt + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt) |
-| `qwrt.pc` | `build/lib/pkgconfig/` (pkg-config — `pkg-config --cflags --libs qwrt` lists every vendored archive) |
+| `qwrt.pc` | `build/` (pkg-config — `pkg-config --cflags --libs qwrt` lists every vendored archive) |
 | Test binaries | `build/test/` |
+| `qwrt` | `build/` (CLI — `qwrt -e 'console.log(1)'`) |
+| `qwrt-rt` | `build/` (worker-process binary, spawned by `qwrt_proc_spawn` via fork+exec) |
+| `qwrt-ctl` | `build/` (control-plane endpoint client) |
 

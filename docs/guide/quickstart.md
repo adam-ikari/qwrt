@@ -9,8 +9,8 @@ Get qwrt running in under 5 minutes.
 
 ## Prerequisites
 
-- **C compiler** — GCC 8+, Clang 10+, or MSVC 2019+
-- **CMake** 3.16+
+- **C compiler** — GCC 8+ or Clang 10+ (POSIX; Windows/MSVC is not yet supported)
+- **CMake** 3.10+
 - **Git** (for submodules)
 
 ## Clone & Build
@@ -72,7 +72,7 @@ cc -std=c99 -o hello hello.c $(pkg-config --cflags --libs qwrt)
 For an in-tree build, point pkg-config at the build directory first:
 
 ```bash
-export PKG_CONFIG_PATH="$PWD/build/lib/pkgconfig"
+export PKG_CONFIG_PATH="$PWD/build"
 ```
 
 ## Build with Tests
@@ -86,9 +86,9 @@ cd build && ctest --output-on-failure
 Tests are labeled for targeted runs:
 
 ```bash
-ctest -L offline     # local, deterministic tests (CI default)
-ctest -L network     # outbound HTTP/HTTPS tests
-ctest -L benchmark   # performance benchmarks (not pass/fail)
+ctest -L offline   # local, deterministic tests (CI default)
+ctest -L dap       # DAP protocol tests
+ctest -L test262   # ECMA-262 conformance suite
 ```
 
 ## Next Steps

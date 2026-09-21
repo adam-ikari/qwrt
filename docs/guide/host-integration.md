@@ -14,7 +14,7 @@ JSON messages.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. create      qwrt_create(&cfg)   — thread + loop + JS ready │
-│ 2. script      initial_script / bytecode — what JS runs first │
+│ 2. script      initial_script            — what JS runs first │
 │ 3. communicate qwrt_post_message ⇄ message_cb  — JSON contract│
 │ 4. lend        expose C funcs, serve/fs/worker/crypto to JS   │
 │ 5. destroy     qwrt_destroy(rt)    — graceful shutdown         │
@@ -36,11 +36,11 @@ qwrt_t *rt = qwrt_create(&cfg);   // blocks until ready
 
 ## 2. Choose What JS Runs First
 
-Three ways to feed the runtime its initial script:
+Two ways to feed the runtime its initial script:
 
-- **`initial_script`** — a small string, good for bootstrap logic
-- **Compiled bytecode** — precompile with `qjsc`, ship the `.bc` (faster
-  startup, no source). See [Bytecode](/guide/bytecode)
+- **`initial_script`** — a small string, good for bootstrap logic. qwrt
+  compiles its own WinterTC polyfill to bytecode internally; a host provides
+  JS as source, never as a bytecode blob (see [Bytecode](/guide/bytecode))
 - **`qwrt_post_message`** — drive everything else by messaging the runtime
   after creation
 

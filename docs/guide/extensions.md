@@ -39,9 +39,10 @@ typedef struct qwrt_ext_t {
 ```c
 #include <qwrt/qwrt.h>
 #include <quickjs.h>
+#include "qwrt_internal.h"   // qwrt_get_active_jsctx (internal helper)
 
 static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     // Add a global function

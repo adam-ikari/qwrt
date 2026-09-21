@@ -1,87 +1,56 @@
 ---
-title: Multi-Context
-description: Isolated JS contexts in Qwrt.js — spawn, suspend, resume, and destroy contexts with per-context PAL and extension state.
+title: Multi-Context & Web Workers
+description: Parallel execution in Qwrt.js — new Worker(url), isolated contexts, and the ISOLATED vs THREAD process models.
 ---
 
-# Multi-Context
+# Multi-Context & Web Workers
 
-qwrt supports multiple isolated JS contexts within a single runtime. Each context has its own global object, PAL, WinterTC modules, and extension state — like lightweight sandboxes.
+qwrt runs multiple independent JS execution contexts. The **host-facing** way
+to get parallelism is the standard `new Worker(url)` Web API. Internally, each
+worker gets its own isolated `JSContext` (and, under the default process model,
+its own process).
 
-## Why Multi-Context?
+## Web Workers
 
-- **Plugin isolation** — each plugin gets its own context; one crash doesn't take down others
-- **Permission separation** — different PAL configurations per context (e.g., one has network access, another doesn't)
-- **Request scoping** — create a fresh context per HTTP request for clean state
-- **Resource limits** — destroy contexts individually to reclaim memory
+Create a worker from any script with the standard API:
 
-## Architecture
+```js
+// main script
+const w = new Worker("worker.js");   // file:// script path
+w.onmessage = (e) => console.log("from worker:", e.data);
+w.postMessage({ cmd: "start" });
 
-One `qwrt_t` owns one `JSRuntime`. Multiple `JSContext` instances share that runtime. QuickJS class IDs are runtime-scoped, so class definitions are shared — but each context has independent instances.
-
-Only **one context is active at a time**. `qwrt_eval` and `qwrt_tick` always operate on the active context.
-
-## Spawning a Context
-
-```c
-// Create a new context with its own PAL (e.g., restricted permissions)
-qwrt_config_t ctx_config = {
-    .pal = restricted_pal,
-    .debug = 0,
-};
-int ctx_id = qwrt_spawn(rt, &ctx_config);
-if (ctx_id < 0) {
-    // Spawn failed
-}
+// worker.js
+globalThis.onmessage = (e) => postMessage("echo: " + e.data.cmd);
 ```
 
-The new context starts in **suspended** state. The current active context is unchanged.
+Workers communicate only via `postMessage`/`onmessage` — they share no globals,
+no DOM, and no `JSRuntime` with their creator. This is the only multi-context
+surface exposed to JS.
 
-## Switching Contexts
+## Process Model
 
-```c
-// Suspend current context (deactivates it)
-qwrt_suspend(rt);
+The `-DQWRT_PROCESS_MODEL` build option controls how a worker runs:
 
-// Resume a different context (activates it)
-qwrt_resume(rt, ctx_id);
+| Model | Worker execution |
+|-------|------------------|
+| `THREAD` | a parallel thread in the same process |
+| `ISOLATED` (default) | a dedicated child process (`qwrt-rt`, spawned via fork+exec) |
 
-// Now qwrt_eval runs in ctx_id's context
-qwrt_eval(rt, "console.log('Hello from context!');", NULL);
-```
+`ISOLATED` (the default since the M-P2 milestone) gives each worker a separate
+process with its own address space and event loop. `THREAD` is the single-
+process fallback. Both present the same `new Worker` API to JS.
 
-Suspending calls each extension's `suspend` hook. Resuming calls `resume` hooks.
+## Isolated Contexts (internal)
 
-## Destroying a Context
+At the C layer qwrt maintains a set of isolated contexts (`qwrt_ctx_t`) with a
+single active context at a time. Contexts have independent globals, PAL, and
+extension state, and can be soft-suspended/resumed to disk. This machinery is
+**internal** — there is no public host API to spawn/suspend/resume a context.
+It exists to back `new Worker` and the extension lifecycle, and is exposed to C
+extensions (built into qwrt) through the internal context helpers
+(`qwrt_get_active_ctx`, `qwrt_get_active_jsctx`, `qwrt_get_ctx_by_id` in
+`src/context.c`).
 
-```c
-qwrt_destroy_ctx(rt, ctx_id);
-```
-
-Fails if this is the **only remaining context** — you can't destroy the last context. Use `qwrt_reset` or `qwrt_destroy` to tear everything down.
-
-## Getting Context Info
-
-```c
-// Current active context ID, or -1 if none
-int active = qwrt_get_active_ctx_id(rt);
-
-// Active context's JSContext*, or NULL
-JSContext *ctx = qwrt_get_jsctx(rt);
-```
-
-## Context Lifecycle Summary
-
-```mermaid
-flowchart TB
-    A["qwrt_create()"] --> B["ctx 0 (active)"]
-    B --> C["qwrt_spawn()"]
-    C --> D["ctx 0 (active) + ctx 1 (suspended)"]
-    D --> E["qwrt_suspend()"]
-    E --> F["ctx 0 (suspended) + ctx 1 (suspended)"]
-    F --> G["qwrt_resume(1)"]
-    G --> H["ctx 0 (suspended) + ctx 1 (active)"]
-    H --> I["qwrt_destroy_ctx(0)"]
-    I --> J["ctx 1 (active) — can't destroy last context"]
-    J --> K["qwrt_destroy()"]
-    K --> L["all freed"]
-```
+Extension `init`/`destroy`/`suspend`/`resume` hooks fire at the corresponding
+context lifecycle points; see [Extensions](/guide/extensions).

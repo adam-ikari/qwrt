@@ -48,6 +48,7 @@ Register C functions as JS globals:
 
 ```c
 #include <quickjs.h>
+#include "qwrt_internal.h"   // qwrt_get_active_jsctx (internal helper)
 
 static JSValue greet(JSContext *ctx, JSValue this_val,
                      int argc, JSValue *argv) {
