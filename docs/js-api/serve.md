@@ -150,6 +150,27 @@ serve({
 }, (req) => 'secure!');
 ```
 
+## gRPC Server
+
+Passing `grpc: server` registers a [gRPC](/js-api/grpc) service on the same
+listener. The gRPC stack is a pure-JS h2/HPACK/protobuf implementation
+(`polyfill/src/grpc-stack.js`, `http2-server.js`); it lives on the same TCP
+port as the HTTP/1.1 handler — the listener dispatches on ALPN (`h2` for TLS
+connections) or the `PRI * HTTP/2.0` connection preface (h2c, plaintext).
+
+```js
+const server = grpc.createServer();
+server.addService(reg, { Echo: (call) => ({ text: call.request.text }) });
+serve({ port: 50051, grpc: server }, () => 'not-grpc');
+```
+
+Requires `QWRT_WITH_GRPC=ON` at build time (the gRPC bundle is opt-in because
+it adds ~3.5k lines to the polyfill; see [Build Options](/guide/build-options)).
+
+For a complete unary/streaming walkthrough, see the
+[grpc-hello example](https://github.com/adam-ikari/qwrt/tree/master/examples/grpc-hello)
+and the [gRPC API reference](/js-api/grpc).
+
 ## Notes
 
 - HTTP/1.1 keep-alive is supported; the connection closes after the response when the client requests `close` or uses HTTP/1.0.

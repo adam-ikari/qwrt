@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Qwrt.js"
   text: "Embeddable QuickJS Runtime"
-  tagline: C99 · WinterTC Compatible · Internal Thread + libuv Loop · Zero System Dependencies
+  tagline: C99 · Host-owned thread + libuv loop · JSON message boundary · Zero system dependencies
   actions:
     - theme: brand
       text: Get Started
@@ -14,24 +14,24 @@ hero:
       link: /js-api/
 
 features:
-  - icon: ⚡
-    title: Strict C99
-    details: Embeddable in any C99 codebase. No host compiler requirements beyond C99.
-  - icon: 📦
-    title: Zero System Dependencies
-    details: QuickJS-ng, mbedTLS, miniz, libuv, WAMR — all built from source via CMake. No system packages required.
-  - icon: 🌐
-    title: WinterTC Compatible
-    details: A WinterTC-compatible JavaScript runtime — the standard Web APIs embedders expect, precompiled to bytecode.
   - icon: 🔌
     title: Message-Based Host Boundary
-    details: Host ⇄ runtime speak JSON over qwrt_post_message / message_cb. Thread-safe inbound, clean outbound callback.
+    details: Host ⇄ runtime speak JSON over `qwrt_post_message` / `message_cb`. Thread-safe inbound, fires on the runtime thread outbound. No `eval`, no `tick` — the boundary is clean.
   - icon: 🧵
     title: Own Thread + Event Loop
-    details: qwrt runs its own internal thread with an embedded libuv loop. The host never pumps an event loop.
+    details: qwrt starts its own internal thread running an embedded libuv loop. The host never pumps an event loop or blocks on JS.
+  - icon: 📦
+    title: Zero System Dependencies
+    details: QuickJS-ng, mbedTLS, miniz, libuv, WAMR — all built from source via CMake. No system packages. ~2.45 MiB stripped (minimal profile).
+  - icon: ⚡
+    title: Strict C99 + Embeddable
+    details: Any C99 codebase, any host compiler. ~7.6 ms cold start (Ryzen-class), ~3.3 MB peak RSS — 23× lighter than node for the same eval workload.
+  - icon: 🌐
+    title: WinterTC Compatible
+    details: A WinterTC-compatible surface — fetch, crypto.subtle, streams, WebSocket, BroadcastChannel, EventSource, timers, fs, serve(), and more. Precompiled to bytecode, available as globals.
   - icon: 🔒
     title: No Global State
-    details: Zero mutable file-scope state. Per-runtime isolation via opaque qwrt_t — safe to run multiple independent instances in one process.
+    details: Zero mutable file-scope state. Per-runtime isolation via opaque `qwrt_t` — safe to run multiple independent instances in one process.
 ---
 
 ## Quick Start

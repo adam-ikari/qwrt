@@ -59,6 +59,12 @@ const sidebar = {
       ],
     },
     {
+      text: 'Host Integration',
+      items: [
+        { text: 'Host Integration', link: '/guide/host-integration' },
+      ],
+    },
+    {
       text: 'Core Concepts',
       items: [
         { text: 'Runtime Lifecycle', link: '/guide/lifecycle' },
@@ -111,6 +117,11 @@ const sidebar = {
         { text: 'TextEncoder / TextDecoder', link: '/js-api/encoding' },
         { text: 'AbortController', link: '/js-api/abort' },
         { text: 'performance', link: '/js-api/performance' },
+        { text: 'WebSocket', link: '/js-api/websocket' },
+        { text: 'BroadcastChannel', link: '/js-api/broadcast-channel' },
+        { text: 'EventSource', link: '/js-api/event-source' },
+        { text: 'CacheStorage', link: '/js-api/cache-storage' },
+        { text: 'Service Worker', link: '/js-api/service-worker' },
       ],
     },
     {
@@ -119,6 +130,8 @@ const sidebar = {
         { text: 'fs (Filesystem)', link: '/js-api/fs' },
         { text: 'storage', link: '/js-api/storage' },
         { text: 'navigator', link: '/js-api/navigator' },
+        { text: 'serve (HTTP/WS/gRPC server)', link: '/js-api/serve' },
+        { text: 'grpc', link: '/js-api/grpc' },
       ],
     },
     {
@@ -154,6 +167,12 @@ const zhSidebar = {
         { text: '概览', link: '/zh/guide/' },
         { text: '快速上手', link: '/zh/guide/quickstart' },
         { text: '构建', link: '/zh/guide/building' },
+      ],
+    },
+    {
+      text: '主机集成',
+      items: [
+        { text: '主机集成', link: '/zh/guide/host-integration' },
       ],
     },
     {
@@ -207,6 +226,11 @@ const zhSidebar = {
         { text: 'TextEncoder / TextDecoder', link: '/zh/js-api/encoding' },
         { text: 'AbortController', link: '/zh/js-api/abort' },
         { text: 'performance', link: '/zh/js-api/performance' },
+        { text: 'WebSocket', link: '/zh/js-api/websocket' },
+        { text: 'BroadcastChannel', link: '/zh/js-api/broadcast-channel' },
+        { text: 'EventSource', link: '/zh/js-api/event-source' },
+        { text: 'CacheStorage', link: '/zh/js-api/cache-storage' },
+        { text: 'Service Worker', link: '/zh/js-api/service-worker' },
       ],
     },
     {
@@ -215,6 +239,8 @@ const zhSidebar = {
         { text: 'fs (文件系统)', link: '/zh/js-api/fs' },
         { text: 'storage', link: '/zh/js-api/storage' },
         { text: 'navigator', link: '/zh/js-api/navigator' },
+        { text: 'serve（HTTP/WS/gRPC 服务器）', link: '/zh/js-api/serve' },
+        { text: 'grpc', link: '/zh/js-api/grpc' },
       ],
     },
     {

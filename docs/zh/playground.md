@@ -143,7 +143,7 @@ onMounted(async () => {
 
 演练场使用 Emscripten 将 Qwrt.js 编译为 WebAssembly。
 
-- **QuickJS-ng** — ES2020 JavaScript engine (QuickJS-ng)
+- **QuickJS-ng** — ES2023 JavaScript engine (QuickJS-ng)
 - **Mock PAL** — no network, no filesystem, deterministic
 - **WinterTC polyfills** — fetch stubs, timers, crypto.subtle, URL, Blob, etc.
 

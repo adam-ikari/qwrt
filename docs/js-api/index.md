@@ -46,9 +46,13 @@ flowchart TB
 | [TextEncoder](/js-api/encoding) | `TextEncoder`, `TextDecoder` | ✅ Standard |
 | [Blob / File / FormData](/js-api/blob) | `Blob`, `File`, `FormData` | ✅ Standard |
 | [structuredClone](/js-api/structured-clone) | `structuredClone` | ✅ Standard |
-| [MessageChannel](/js-api/message-channel) | `MessageChannel`, `MessagePort` | ✅ Standard |
 | [Worker](/js-api/worker) | `Worker` | ✅ Standard |
 | [navigator](/js-api/navigator) | `navigator` | ✅ Standard |
+| [WebSocket](/js-api/serve#websocket-routes) | `WebSocket` | ✅ Standard |
+| [BroadcastChannel](/js-api/broadcast-channel) | `BroadcastChannel` | ✅ Standard |
+| [EventSource](/js-api/event-source) | `EventSource` | ✅ Standard |
+| [CacheStorage](/js-api/cache-storage) | `caches`, `CacheStorage`, `Cache` | qwrt 扩展 |
+| [ServiceWorker](/js-api/service-worker) | `navigator.serviceWorker` | qwrt 子集 |
 
 ### Platform APIs (qwrt extensions)
 
@@ -57,6 +61,8 @@ flowchart TB
 | [fs](/js-api/fs) | `qwrt.fs` | Filesystem operations |
 | [storage](/js-api/storage) | `qwrt.storage` | Key-value storage |
 | [serve](/js-api/serve) | `serve()` | HTTP server |
+| [grpc](/js-api/grpc) | `grpc` | gRPC client + server (`QWRT_WITH_GRPC=ON`) |
+| [localStorage](/js-api/storage#localstorage) | `localStorage`, `sessionStorage` | Web Storage (persisted) |
 
 ## Standards Compliance
 
@@ -69,8 +75,8 @@ These browser APIs are explicitly excluded:
 - **DOM**: `document`, `window`, `HTMLElement`, `addEventListener` on globals
 - **CSS**: `CSSStyleSheet`, `getComputedStyle`, CSSOM
 - **Layout**: `requestAnimationFrame`, `IntersectionObserver`, `ResizeObserver`
-- **Media**: `WebSocket` (use fetch + streams), `WebRTC`, `AudioContext`
-- **Storage**: `localStorage`, `sessionStorage`, `indexedDB` (use `qwrt.storage`)
+- **Media**: `WebRTC`, `AudioContext`
+- **Storage**: `indexedDB` (use `qwrt.storage`)
 
 ## Usage
 

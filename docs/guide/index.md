@@ -1,21 +1,44 @@
 ---
 title: Overview
-description: Qwrt.js is an embeddable QuickJS-ng runtime wrapper in strict C99 — a WinterTC-compatible JS runtime with its own internal thread and libuv event loop.
+description: Qwrt.js is an embeddable QuickJS-ng runtime wrapper in strict C99 — a WinterTC-compatible JS runtime with its own internal thread and libuv event loop. Designed for host developers who embed JavaScript in their own C applications.
 ---
 
 # Overview
 
 qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. It provides a small C API on top of the QuickJS-ng engine and a **WinterTC-compatible runtime**. qwrt owns its own internal thread and libuv event loop, and communicates with the host over JSON messages.
 
-## What qwrt Gives You
+If you are a **host developer** — building a C application and want to script parts of it in JavaScript — qwrt is the boundary layer: it gives your C process a JS runtime without making you own an event loop, a thread, or a dependency tree.
 
-- **ECMAScript engine (ES2020)** — QuickJS-ng under the hood, fast startup, low memory
-- **WinterTC-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, and more
+## How the Host Fits
+
+```
+   your C process
+        │  qwrt_create(cfg)          — starts qwrt's own thread + libuv loop
+        ▼
+   [ qwrt runtime ] ─── internal thread, all JS runs here
+        ▲
+        │  message_cb(json)          — outbound JS→host
+        │  qwrt_post_message(json)   — inbound host→JS, thread-safe
+```
+
 - **Own thread + event loop** — qwrt starts an internal thread running a libuv loop; the host never pumps it
 - **Message-based host boundary** — `qwrt_post_message` (in) / `message_cb` (out), JSON in both directions
+- **Single-threaded runtime** — no locks, no atomics; all JS runs on qwrt's internal thread
+- **ECMAScript engine (ES2023)** — QuickJS-ng under the hood, fast startup, low memory
+- **WinterTC-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, WebSocket, and more
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec, WebAssembly (WAMR, wasm3 optional)
 - **Zero system dependencies** — all deps built from source via CMake; libuv is built from the deps submodule
-- **Single-threaded runtime** — no locks, no atomics; all JS runs on qwrt's internal thread
+
+## The Host Integration Path
+
+The Guide is organized as the steps a host developer actually takes:
+
+1. **[Quick Start](/guide/quickstart)** — build qwrt and run the minimal C embedding
+2. **[Host Integration](/guide/host-integration)** — the full loop: create → messaging → lending capabilities → destroy
+3. **[Lifecycle](/guide/lifecycle)** — thread ownership, readiness, graceful shutdown
+4. **[Multi-Context](/guide/multi-context)** — multiple isolated contexts in one runtime
+5. **[Extensions](/guide/extensions)** — register your own C functions as JS globals
+6. **[Bytecode](/guide/bytecode)** — precompile JS to QuickJS bytecode (faster startup, no source shipped)
 
 ## When to Use qwrt
 
@@ -23,13 +46,13 @@ qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. 
 |----------|----------|
 | **Embedded / edge scripting** | C99, tiny footprint, libuv event loop built in |
 | **Plugin systems** | Per-runtime isolation, multi-context handled inside the runtime |
+| **Host applications needing scripting** | Script your C app's behavior in JS without shipping Node.js |
 | **Edge compute** | WinterTC APIs feel familiar to JS developers |
 | **Testing & simulation** | `mock_libuv` for deterministic tests, no network needed |
-| **CLI tools with JS config** | Embed a JS engine without pulling in Node.js |
 
 ## When NOT to Use qwrt
 
-- You need **Node.js/npm ecosystem** — qwrt has no package manager
+- You need **Node.js/npm ecosystem** — qwrt is a runtime, not a Node.js clone (see [Compatible Packages](/guide/compatible-packages) for what does work)
 - You need **DOM** — qwrt is a server/runtime, not a browser
 - You need **multi-threaded JS** — qwrt is single-threaded by design
 - You need **JIT performance** — QuickJS is an interpreter, not a JIT compiler
@@ -48,14 +71,5 @@ qwrt/
 │   ├── bridge.c         #   JS ↔ runtime bridge
 │   └── context.c        #   Multi-context
 ├── polyfill/src/        # WinterTC module source
-├── test/                # Test suite (C + gtest + mock_libuv)
-├── deps/                # Git submodules (quickjs-ng, libuv, mbedtls, ...)
-└── docs/                # This documentation
+
 ```
-
-## Next Steps
-
-- [Quick Start](/guide/quickstart) — clone, build, run your first script
-- [Standalone CLI](/guide/cli) — run scripts / one-liners / REPL without embedding
-- [Event Loop](/guide/event-loop) — how the internal thread and libuv loop work
-- [JS API Reference](/js-api/) — what WinterTC APIs are available

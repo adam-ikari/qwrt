@@ -9,7 +9,7 @@ qwrt 是一个用**严格 C99** 编写的**可嵌入 QuickJS-ng 运行时封装*
 
 ## qwrt 为你提供什么
 
-- **ECMAScript 引擎（ES2020）** — 底层基于 QuickJS-ng，启动快，内存占用低
+- **ECMAScript 引擎（ES2023）** — 底层基于 QuickJS-ng，启动快，内存占用低
 - **WinterTC 兼容运行时** — `fetch`、`console`、`crypto.subtle`、`ReadableStream`、定时器、`fs`、`URL`、`TextEncoder` 等
 - **自带线程 + 事件循环** — qwrt 启动一个内部线程运行 libuv 循环；宿主从不泵动它
 - **基于消息的宿主边界** — `qwrt_post_message`（入）/ `message_cb`（出），双向 JSON

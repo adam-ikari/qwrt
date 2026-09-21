@@ -101,6 +101,27 @@ map (implemented in `uv_io.c`, lazily allocated on first use, default capacity
 lives only as long as the runtime and is lost on restart. Keys you depend on
 should be (re)initialized during startup (e.g. in `initial_script`).
 
+## localStorage / sessionStorage
+
+qwrt also exposes the standard Web Storage globals `localStorage` and
+`sessionStorage` (lazy-installed on first access). Unlike `qwrt.storage`
+(in-memory, per-runtime), `localStorage` **persists across runtime
+restarts** — the PAL resolves the backing file (`pal.localStoragePath()`,
+default `~/.qwrt/localstorage.json`) and `sessionStorage` is a per-runtime
+copy.
+
+```js
+localStorage.setItem('token', 'abc123');   // survives runtime destroy
+const v = localStorage.getItem('token');   // 'abc123'
+
+sessionStorage.setItem('temp', 'x');        // gone after runtime destroy
+```
+
+Both support the standard `getItem` / `setItem` / `removeItem` / `clear`
+methods and `length` / `key(i)` enumeration. Use `localStorage` for state
+that should outlive the runtime; use `qwrt.storage` for ephemeral,
+in-process key-value pairs.
+
 ## Notes
 
 - Storage is **per-context** — different contexts can have different key-value stores
