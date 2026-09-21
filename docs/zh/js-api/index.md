@@ -23,44 +23,55 @@ flowchart TB
 
 ## API 分类
 
-### 核心 API
+API 按来源标准分三类。
 
-| API | 全局对象 | WinterTC |
-|-----|--------|----------|
-| [console](/zh/js-api/console) | `console` | ✅ 标准 |
-| [performance](/zh/js-api/performance) | `performance` | ✅ 标准 |
-| [timers](/zh/js-api/timers) | `setTimeout`、`setInterval`、`clearTimeout`、`clearInterval` | ✅ 标准 |
-| [EventTarget](/zh/js-api/events) | `EventTarget`、`Event`、`CustomEvent`、`ErrorEvent` | ✅ 标准 |
-| [AbortController](/zh/js-api/abort) | `AbortController`、`AbortSignal`、`DOMException` | ✅ 标准 |
-| [URL](/zh/js-api/url) | `URL`、`URLSearchParams`、`URLPattern` | ✅ 标准 |
+### WinterTC（WinterCG 标准）
 
-### Web API
+qwrt 实现的 WinterCG 兼容 Web API 子集。
 
-| API | 全局对象 | WinterTC |
-|-----|--------|----------|
-| [fetch](/zh/js-api/fetch) | `fetch`、`Headers`、`Request`、`Response` | ✅ 标准 |
-| [crypto](/zh/js-api/crypto) | `crypto.getRandomValues()`、`crypto.subtle` | ✅ 标准 |
-| [streams](/zh/js-api/streams) | `ReadableStream`、`WritableStream`、`TransformStream` | ✅ 标准 |
-| [TextEncoder](/zh/js-api/encoding) | `TextEncoder`、`TextDecoder` | ✅ 标准 |
-| [Blob / File / FormData](/zh/js-api/blob) | `Blob`、`File`、`FormData` | ✅ 标准 |
-| [structuredClone](/zh/js-api/structured-clone) | `structuredClone` | ✅ 标准 |
-| [MessageChannel](/zh/js-api/message-channel) | `MessageChannel`、`MessagePort` | ✅ 标准 |
-| [navigator](/zh/js-api/navigator) | `navigator` | ✅ 标准 |
-| [WebSocket](/zh/js-api/serve#websocket-路由) | `WebSocket` | ✅ 标准 |
-| [BroadcastChannel](/zh/js-api/broadcast-channel) | `BroadcastChannel` | ✅ 标准 |
-| [EventSource](/zh/js-api/event-source) | `EventSource` | ✅ 标准 |
-| [CacheStorage](/zh/js-api/cache-storage) | `caches`、`CacheStorage`、`Cache` | qwrt 扩展 |
-| [ServiceWorker](/zh/js-api/service-worker) | `navigator.serviceWorker` | qwrt 子集 |
+| API | 全局对象 |
+|-----|--------|
+| [console](/zh/js-api/console) | `console` |
+| [performance](/zh/js-api/performance) | `performance` |
+| [timers](/zh/js-api/timers) | `setTimeout`、`setInterval`、`clearTimeout`、`clearInterval` |
+| [EventTarget](/zh/js-api/events) | `EventTarget`、`Event`、`CustomEvent`、`ErrorEvent` |
+| [AbortController](/zh/js-api/abort) | `AbortController`、`AbortSignal`、`DOMException` |
+| [URL](/zh/js-api/url) | `URL`、`URLSearchParams`、`URLPattern` |
+| [fetch](/zh/js-api/fetch) | `fetch`、`Headers`、`Request`、`Response` |
+| [crypto](/zh/js-api/crypto) | `crypto`、`crypto.subtle` |
+| [streams](/zh/js-api/streams) | `ReadableStream`、`WritableStream`、`TransformStream` |
+| [compress](/zh/js-api/compress) | `CompressionStream`、`DecompressionStream` |
+| [TextEncoder](/zh/js-api/encoding) | `TextEncoder`、`TextDecoder` |
+| [Blob / File / FormData](/zh/js-api/blob) | `Blob`、`File`、`FormData` |
+| [structuredClone](/zh/js-api/structured-clone) | `structuredClone` |
+| [MessageChannel](/zh/js-api/message-channel) | `MessageChannel`、`MessagePort` |
+| [Worker](/zh/js-api/worker) | `Worker` |
+| [navigator](/zh/js-api/navigator) | `navigator` |
 
-### 平台 API（qwrt 扩展）
+### W3C API
+
+WinterCG 核心之外的浏览器标准 API。
+
+| API | 全局对象 |
+|-----|--------|
+| [WebSocket](/zh/js-api/websocket) | `WebSocket` |
+| [BroadcastChannel](/zh/js-api/broadcast-channel) | `BroadcastChannel` |
+| [EventSource](/zh/js-api/event-source) | `EventSource` |
+| [CacheStorage](/zh/js-api/cache-storage) | `caches`、`CacheStorage`、`Cache` |
+| [Service Worker](/zh/js-api/service-worker) | `navigator.serviceWorker` |
+| [localStorage](/zh/js-api/storage#localstorage-sessionstorage) | `localStorage`、`sessionStorage` |
+
+### qwrt 平台扩展（类 Node 风格）
+
+qwrt 特有的 API，不属于任何 Web 标准。风格接近 Node.js，但不是 Node API
+（`process`、`require`、`Buffer` 缺席）。
 
 | API | 全局对象 | 备注 |
 |-----|--------|-------|
 | [fs](/zh/js-api/fs) | `qwrt.fs` | 文件系统操作 |
 | [storage](/zh/js-api/storage) | `qwrt.storage` | 键值存储 |
-| [serve](/zh/js-api/serve) | `serve()` | HTTP 服务器 |
+| [serve](/zh/js-api/serve) | `serve()` | HTTP / WebSocket / gRPC 服务器 |
 | [grpc](/zh/js-api/grpc) | `grpc` | gRPC 客户端 + 服务端（`QWRT_WITH_GRPC=ON`） |
-| [localStorage](/zh/js-api/storage#localstorage-sessionstorage) | `localStorage`、`sessionStorage` | Web Storage（持久化） |
 
 ## 标准合规性
 

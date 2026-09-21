@@ -23,45 +23,55 @@ flowchart TB
 
 ## API Categories
 
-### Core APIs
+APIs fall into three groups by the standard they come from.
 
-| API | Global | WinterTC |
-|-----|--------|----------|
-| [console](/js-api/console) | `console` | ✅ Standard |
-| [performance](/js-api/performance) | `performance` | ✅ Standard |
-| [timers](/js-api/timers) | `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval` | ✅ Standard |
-| [EventTarget](/js-api/events) | `EventTarget`, `Event`, `CustomEvent`, `ErrorEvent` | ✅ Standard |
-| [AbortController](/js-api/abort) | `AbortController`, `AbortSignal`, `DOMException` | ✅ Standard |
-| [URL](/js-api/url) | `URL`, `URLSearchParams`, `URLPattern` | ✅ Standard |
+### WinterTC (WinterCG standard)
 
-### Web APIs
+The WinterCG-compatible subset of Web APIs qwrt implements.
 
-| API | Global | WinterTC |
-|-----|--------|----------|
-| [fetch](/js-api/fetch) | `fetch`, `Headers`, `Request`, `Response` | ✅ Standard |
-| [crypto](/js-api/crypto) | `crypto.getRandomValues()`, `crypto.subtle` | ✅ Standard |
-| [streams](/js-api/streams) | `ReadableStream`, `WritableStream`, `TransformStream` | ✅ Standard |
-| [compress](/js-api/compress) | `CompressionStream`, `DecompressionStream` | ✅ Standard |
-| [TextEncoder](/js-api/encoding) | `TextEncoder`, `TextDecoder` | ✅ Standard |
-| [Blob / File / FormData](/js-api/blob) | `Blob`, `File`, `FormData` | ✅ Standard |
-| [structuredClone](/js-api/structured-clone) | `structuredClone` | ✅ Standard |
-| [Worker](/js-api/worker) | `Worker` | ✅ Standard |
-| [navigator](/js-api/navigator) | `navigator` | ✅ Standard |
-| [WebSocket](/js-api/serve#websocket-routes) | `WebSocket` | ✅ Standard |
-| [BroadcastChannel](/js-api/broadcast-channel) | `BroadcastChannel` | ✅ Standard |
-| [EventSource](/js-api/event-source) | `EventSource` | ✅ Standard |
-| [CacheStorage](/js-api/cache-storage) | `caches`, `CacheStorage`, `Cache` | qwrt 扩展 |
-| [ServiceWorker](/js-api/service-worker) | `navigator.serviceWorker` | qwrt 子集 |
+| API | Global |
+|-----|--------|
+| [console](/js-api/console) | `console` |
+| [performance](/js-api/performance) | `performance` |
+| [timers](/js-api/timers) | `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval` |
+| [EventTarget](/js-api/events) | `EventTarget`, `Event`, `CustomEvent`, `ErrorEvent` |
+| [AbortController](/js-api/abort) | `AbortController`, `AbortSignal`, `DOMException` |
+| [URL](/js-api/url) | `URL`, `URLSearchParams`, `URLPattern` |
+| [fetch](/js-api/fetch) | `fetch`, `Headers`, `Request`, `Response` |
+| [crypto](/js-api/crypto) | `crypto`, `crypto.subtle` |
+| [streams](/js-api/streams) | `ReadableStream`, `WritableStream`, `TransformStream` |
+| [compress](/js-api/compress) | `CompressionStream`, `DecompressionStream` |
+| [TextEncoder](/js-api/encoding) | `TextEncoder`, `TextDecoder` |
+| [Blob / File / FormData](/js-api/blob) | `Blob`, `File`, `FormData` |
+| [structuredClone](/js-api/structured-clone) | `structuredClone` |
+| [MessageChannel](/js-api/message-channel) | `MessageChannel`, `MessagePort` |
+| [Worker](/js-api/worker) | `Worker` |
+| [navigator](/js-api/navigator) | `navigator` |
 
-### Platform APIs (qwrt extensions)
+### W3C APIs
+
+Browser-standard APIs beyond the WinterCG core.
+
+| API | Global |
+|-----|--------|
+| [WebSocket](/js-api/websocket) | `WebSocket` |
+| [BroadcastChannel](/js-api/broadcast-channel) | `BroadcastChannel` |
+| [EventSource](/js-api/event-source) | `EventSource` |
+| [CacheStorage](/js-api/cache-storage) | `caches`, `CacheStorage`, `Cache` |
+| [Service Worker](/js-api/service-worker) | `navigator.serviceWorker` |
+| [localStorage](/js-api/storage#localstorage) | `localStorage`, `sessionStorage` |
+
+### qwrt Platform Extensions
+
+qwrt-specific APIs, not part of any Web standard. Their style is close to
+Node.js but they are not Node APIs (`process`, `require`, `Buffer` are absent).
 
 | API | Global | Notes |
 |-----|--------|-------|
 | [fs](/js-api/fs) | `qwrt.fs` | Filesystem operations |
 | [storage](/js-api/storage) | `qwrt.storage` | Key-value storage |
-| [serve](/js-api/serve) | `serve()` | HTTP server |
+| [serve](/js-api/serve) | `serve()` | HTTP / WebSocket / gRPC server |
 | [grpc](/js-api/grpc) | `grpc` | gRPC client + server (`QWRT_WITH_GRPC=ON`) |
-| [localStorage](/js-api/storage#localstorage) | `localStorage`, `sessionStorage` | Web Storage (persisted) |
 
 ## Standards Compliance
 
