@@ -47,6 +47,11 @@ flowchart TB
 | [structuredClone](/zh/js-api/structured-clone) | `structuredClone` | ✅ 标准 |
 | [MessageChannel](/zh/js-api/message-channel) | `MessageChannel`、`MessagePort` | ✅ 标准 |
 | [navigator](/zh/js-api/navigator) | `navigator` | ✅ 标准 |
+| [WebSocket](/zh/js-api/serve#websocket-路由) | `WebSocket` | ✅ 标准 |
+| [BroadcastChannel](/zh/js-api/broadcast-channel) | `BroadcastChannel` | ✅ 标准 |
+| [EventSource](/zh/js-api/event-source) | `EventSource` | ✅ 标准 |
+| [CacheStorage](/zh/js-api/cache-storage) | `caches`、`CacheStorage`、`Cache` | qwrt 扩展 |
+| [ServiceWorker](/zh/js-api/service-worker) | `navigator.serviceWorker` | qwrt 子集 |
 
 ### 平台 API（qwrt 扩展）
 
@@ -54,6 +59,9 @@ flowchart TB
 |-----|--------|-------|
 | [fs](/zh/js-api/fs) | `qwrt.fs` | 文件系统操作 |
 | [storage](/zh/js-api/storage) | `qwrt.storage` | 键值存储 |
+| [serve](/zh/js-api/serve) | `serve()` | HTTP 服务器 |
+| [grpc](/zh/js-api/grpc) | `grpc` | gRPC 客户端 + 服务端（`QWRT_WITH_GRPC=ON`） |
+| [localStorage](/zh/js-api/storage#localstorage-sessionstorage) | `localStorage`、`sessionStorage` | Web Storage（持久化） |
 
 ## 标准合规性
 
@@ -66,8 +74,8 @@ qwrt 目标是 [WinterTC](https://wintercg.org/) 兼容性 — 与 Cloudflare Wo
 - **DOM**：`document`、`window`、`HTMLElement`、全局对象上的 `addEventListener`
 - **CSS**：`CSSStyleSheet`、`getComputedStyle`、CSSOM
 - **布局**：`requestAnimationFrame`、`IntersectionObserver`、`ResizeObserver`
-- **媒体**：`WebSocket`（使用 fetch + streams）、`WebRTC`、`AudioContext`
-- **存储**：`localStorage`、`sessionStorage`、`indexedDB`（使用 `qwrt.storage`）
+- **媒体**：`WebRTC`、`AudioContext`
+- **存储**：`indexedDB`（用 `qwrt.storage`）
 
 ## 使用方式
 
