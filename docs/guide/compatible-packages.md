@@ -45,8 +45,9 @@ Then load `nanoid.bundle.js` via `qwrt_eval`.
 
 ## Checking Compatibility
 
-A CLI tool in `test/compat_check.py` pulls a package from the npm registry and
-statically scans its source for Node built-ins and globals qwrt does not provide:
+`test/compat_check.py` pulls a package from the npm registry, injects its
+source into a **qwrt runtime**, and actually loads the package's main entry
+through a minimal CommonJS loader:
 
 ```bash
 python3 test/compat_check.py lodash
@@ -54,8 +55,12 @@ python3 test/compat_check.py express uuid      # multiple packages
 python3 test/compat_check.py lodash --json    # machine-readable
 ```
 
-Output lists issues (Node built-ins, missing globals with file locations) and
-notes (npm dependencies to verify). Exit code is 1 if any hard issue is found,
-so it works as a CI gate. The scan is static — a clean report means "no obvious
-blockers in the source"; runtime behavior still has to be verified against
-qwrt itself.
+The verdict comes from **real execution**, not a static scan:
+
+- A CJS package that loads and returns its exports is **compatible**
+- A package that `require`s a Node built-in or an external npm dep **fails on
+  require**
+- An ESM-only package (`"type": "module"`) reports that it needs bundling to
+  an IIFE with esbuild (qwrt has no ESM loader)
+
+Exit code is 1 if the package fails to load, so it works as a CI gate.

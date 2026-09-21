@@ -67,7 +67,8 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
 
 ## 如何验证
 
-`test/compat_check.py` 是一个 CLI 工具：从 npm registry 拉取包，静态扫描其源码中 qwrt 不提供的 Node 内置模块与全局对象：
+`test/compat_check.py` 从 npm registry 拉取包，把源码注入 **qwrt 运行时**，通过一个
+极简 CommonJS loader 真实加载包的主入口：
 
 ```bash
 python3 test/compat_check.py lodash
@@ -75,6 +76,10 @@ python3 test/compat_check.py express uuid      # 多个包
 python3 test/compat_check.py lodash --json    # 机器可读
 ```
 
-输出列出问题（Node 内置模块、缺失全局，带所在文件）与说明（需验证的 npm
-依赖）。有硬问题时退出码为 1，可用作 CI 门控。扫描是静态的——干净只代表
-"源码里没有明显阻塞项"；运行时行为仍需在 qwrt 上实测。
+判定来自**真实执行**，不是静态扫描：
+
+- CJS 包能加载并返回导出 → **兼容**
+- 包 `require` 了 Node 内置模块或外部 npm 依赖 → 在 require 处失败
+- ESM-only 包（`"type": "module"`）→ 报告需用 esbuild 转成 IIFE（qwrt 没有 ESM loader）
+
+包加载失败时退出码为 1，可用作 CI 门控。
