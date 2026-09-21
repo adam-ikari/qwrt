@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Qwrt.js"
   text: "可嵌入 QuickJS 运行时"
-  tagline: C99 · 宿主自有线程 + libuv 循环 · JSON 消息边界 · 零系统依赖
+  tagline: 严格 C99 · 内部线程 + libuv 循环 · JSON 宿主边界
   actions:
     - theme: brand
       text: 快速开始
@@ -16,22 +16,22 @@ hero:
 features:
   - icon: 🔌
     title: 基于消息的宿主边界
-    details: 宿主 ⇄ 运行时通过 `qwrt_post_message` / `message_cb` 说 JSON。入站线程安全，出站在运行时线程触发。没有 eval，也没有 tick。
+    details: 宿主与运行时通过 `qwrt_post_message` / `message_cb` 交换 JSON。入站线程安全，出站在运行时线程触发。没有 eval，也没有 tick。
   - icon: 🧵
-    title: 自有线程 + 事件循环
-    details: qwrt 启动自己的内部线程，内嵌 libuv 循环。宿主从不泵动事件循环，也不会因 JS 阻塞。
+    title: 自有线程 + libuv 循环
+    details: qwrt 运行自己的内部线程，内嵌 libuv 循环。宿主不泵动事件循环。
   - icon: 📦
     title: 零系统依赖
-    details: QuickJS-ng、mbedTLS、miniz、libuv、WAMR — 全部通过 CMake 从源码构建。无需系统包。最小配置约 2.45 MiB（strip 后）。
+    details: QuickJS-ng、mbedTLS、miniz、libuv、WAMR 全部通过 CMake 从源码构建。最小配置 strip 后约 2.45 MiB。
   - icon: ⚡
-    title: 严格 C99 + 可嵌入
-    details: 任何 C99 代码库、任何宿主编译器。冷启动约 7.6 ms（Ryzen 级），峰值 RSS 约 3.3 MB——同样 eval 负载下比 node 轻 23 倍。
+    title: 严格 C99
+    details: 与依赖一起按 C99 编译。Release 下 `qwrt -e 'console.log(1)'` 启动不到 5 ms，峰值 RSS 约 3 MB。
   - icon: 🌐
-    title: WinterTC 兼容
-    details: WinterTC 兼容的 API 表面——fetch、crypto.subtle、streams、WebSocket、BroadcastChannel、EventSource、定时器、fs、serve() 等。预编译为字节码，作为全局可用。
+    title: WinterTC 兼容运行时
+    details: 21 个模块——fetch、crypto.subtle、streams、WebSocket、BroadcastChannel、EventSource、timers、fs、serve() 等。预编译为字节码，作为全局可用。
   - icon: 🔒
     title: 无全局状态
-    details: 零可变文件作用域状态。通过不透明的 `qwrt_t` 实现每运行时隔离——可安全地在同一进程中运行多个独立实例。
+    details: 通过不透明的 `qwrt_t` 实现每运行时隔离。同一进程可运行多个独立实例。
 ---
 
 ## 快速开始

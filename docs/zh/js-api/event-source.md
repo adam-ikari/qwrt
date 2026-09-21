@@ -5,9 +5,8 @@ description: Qwrt.js 的 EventSource API —— 带自动重连的 Server-Sent E
 
 # EventSource
 
-Server-Sent Events 客户端。打开一条到 URL 的长连接 HTTP，流式接收
-`text/event-stream` 帧，在 `EventSource` 上分发类型化事件，断线时携带
-最后事件 ID 自动重连。
+Server-Sent Events 客户端。向 URL 打开一条长连接，接收 `text/event-stream`
+流，在 `EventSource` 上派发具名事件；断线后带着最后的事件 ID 自动重连。
 
 ## 全局
 

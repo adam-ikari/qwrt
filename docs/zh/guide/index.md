@@ -9,8 +9,7 @@ qwrt 是一个用**严格 C99** 编写的**可嵌入 QuickJS-ng 运行时封装*
 QuickJS-ng 引擎之上提供精简的 C API 和 **WinterTC 兼容的运行时**，自带内部
 线程和 libuv 事件循环，通过 JSON 消息与宿主通信。
 
-如果你的 C 应用想把一部分逻辑交给 JavaScript，qwrt 帮你省掉自己搭事件循环、
-线程和依赖树的麻烦。
+C 应用想把一部分逻辑放进 JavaScript 的话，qwrt 提供运行时；宿主不用自己搭事件循环和线程。
 
 ```
    你的 C 进程
@@ -32,7 +31,7 @@ QuickJS-ng 引擎之上提供精简的 C API 和 **WinterTC 兼容的运行时**
 
 ## 宿主集成路径
 
-Guide 按宿主开发者实际走的步骤组织：
+Guide 按宿主开发者的工作顺序组织：
 
 1. **[快速开始](/zh/guide/quickstart)** — 构建 qwrt 并运行最小的 C 嵌入
 2. **[主机集成](/zh/guide/host-integration)** — 完整闭环：create → 消息通信 → 出借能力 → destroy

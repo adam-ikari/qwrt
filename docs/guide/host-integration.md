@@ -5,9 +5,9 @@ description: The host integration path for embedding qwrt in a C application —
 
 # Host Integration
 
-Here's the whole path for embedding qwrt in a C application. One thing to
-keep in mind from the start: qwrt has no `qwrt_eval` and no `qwrt_tick`. The
-host and the runtime talk over JSON messages — that's the only channel.
+Embedding qwrt in a C application goes through five steps. qwrt has no
+`qwrt_eval` and no `qwrt_tick`: the host and the runtime communicate only over
+JSON messages.
 
 ## The Five Steps
 
@@ -36,7 +36,7 @@ qwrt_t *rt = qwrt_create(&cfg);   // blocks until ready
 
 ## 2. Choose What JS Runs First
 
-Three ways to feed the runtime its initial script, from lightest to heaviest:
+Three ways to feed the runtime its initial script:
 
 - **`initial_script`** — a small string, good for bootstrap logic
 - **Compiled bytecode** — precompile with `qjsc`, ship the `.bc` (faster
@@ -46,12 +46,11 @@ Three ways to feed the runtime its initial script, from lightest to heaviest:
 
 ## 3. The Message Contract
 
-This is how the host and JS exchange data. The usual mistake: both
-directions are JSON strings, so no pointers and no shared memory objects cross
-the boundary.
+The host and JS exchange data as JSON strings in both directions: no
+pointers, no shared memory objects cross the boundary.
 
-**No eval, no ticking.** qwrt owns its thread and loop. You never call into
-JS to make it run, and it never blocks your thread.
+qwrt owns its thread and loop. The host never calls into JS to make it run,
+and the runtime never blocks the host thread.
 
 | Direction | Mechanism | Thread |
 |-----------|-----------|--------|
@@ -88,24 +87,24 @@ The reciprocal — **JS calling C** — is `postMessage` from JS (which lands in
 
 ## 4. Lend Capabilities to JS
 
-Once the boundary is up, the JS in your runtime can use the WinterTC surface
-out of the box: `fetch`, `crypto.subtle`, `ReadableStream`, timers, `fs`,
-`WebSocket`, `Worker`, `BroadcastChannel`, `serve()` (HTTP/WS/gRPC servers) —
-all available as globals, no imports. See the [JS API Reference](/js-api/).
+JS in the runtime sees the WinterTC surface as globals, with no imports:
+`fetch`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `WebSocket`,
+`Worker`, `BroadcastChannel`, `serve()` (HTTP/WS/gRPC servers). See the
+[JS API Reference](/js-api/).
 
-On top of that you can register your own C functions as JS globals, so JS can
-drive your product's actual behavior. See [Extensions](/guide/extensions).
+You can also register your own C functions as JS globals. See
+[Extensions](/guide/extensions).
 
 ## 5. Destroy
 
 [`qwrt_destroy`](/c-api/runtime) performs a graceful shutdown: it signals the
-internal thread, drains pending work, and frees the runtime. Call it on the
-host side when the runtime is no longer needed. For the full lifecycle and
-memory model, see [Runtime Lifecycle](/guide/lifecycle).
+internal thread, drains pending work, and frees the runtime. Call it from the
+host when the runtime is no longer needed. For the full lifecycle and memory
+model, see [Runtime Lifecycle](/guide/lifecycle).
 
 ---
 
-## Deep Dives
+## Related pages
 
 | Topic | Page |
 |-------|------|

@@ -7,7 +7,7 @@ description: Qwrt.js is an embeddable QuickJS-ng runtime wrapper in strict C99 �
 
 qwrt is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. It provides a small C API on top of the QuickJS-ng engine and a **WinterTC-compatible runtime**. qwrt owns its own internal thread and libuv event loop, and communicates with the host over JSON messages.
 
-If your C application wants to hand part of its logic to JavaScript, qwrt saves you from building your own event loop, thread, and dependency tree.
+For a C application that wants part of its logic in JavaScript, qwrt supplies the runtime; the host builds no event loop or thread of its own.
 
 ## How the Host Fits
 
@@ -31,7 +31,7 @@ If your C application wants to hand part of its logic to JavaScript, qwrt saves 
 
 ## The Host Integration Path
 
-The Guide is organized as the steps a host developer actually takes:
+The Guide follows the order a host developer works in:
 
 1. **[Quick Start](/guide/quickstart)** — build qwrt and run the minimal C embedding
 2. **[Host Integration](/guide/host-integration)** — the full loop: create → messaging → lending capabilities → destroy

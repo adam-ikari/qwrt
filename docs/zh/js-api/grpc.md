@@ -5,9 +5,9 @@ description: Qwrt.js 的 gRPC API —— 纯 JS 的 HTTP/2 + HPACK + protobuf �
 
 # gRPC
 
-纯 JS gRPC 栈：HTTP/2 帧层、HPACK、protobuf 编解码，以及四种 RPC 形态
-（unary / 服务端流 / 客户端流 / 双向流）。`QWRT_WITH_GRPC=ON` 时暴露为
-全局 `grpc`（该 bundle 是可选，向 polyfill 增加约 3.5k 行 JS）。
+纯 JS 的 gRPC 栈，包含 HTTP/2 帧层、HPACK、protobuf 编解码，支持四种 RPC
+形态（unary / 服务端流 / 客户端流 / 双向流）。构建时开启 `QWRT_WITH_GRPC=ON`
+后会挂上全局 `grpc`（这个 bundle 可选，会给 polyfill 增加约 3.5k 行 JS）。
 
 ## 全局
 

@@ -9,8 +9,8 @@ qwrt ships a benchmark suite that runs entirely in CI. Every push to `master`
 runs six benchmark jobs; the numbers are recorded as JSON artifacts, compared
 against a committed baseline, and printed as a per-metric Δ% table in the job
 log. None of them gate the build (record-only, `continue-on-error: true`), so a
-slow runner won't turn CI red. Catching regressions is the baseline
-comparison's job, not a hard threshold's.
+slow runner won't turn CI red. Regressions surface in the baseline comparison,
+not a hard threshold.
 
 ## The Six CI Benchmarks
 

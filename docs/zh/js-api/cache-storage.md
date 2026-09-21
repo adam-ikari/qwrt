@@ -5,9 +5,9 @@ description: Qwrt.js 的 CacheStorage API —— 支撑 Service Worker 请求拦
 
 # CacheStorage
 
-Cache API（`caches`、`CacheStorage`、`Cache`）是 Service Worker 请求拦截路径
-的存储层。以 URL 为键存储 `Response` 对象，支持跨缓存 `match`，被 SW 实现
-用来离线提供缓存响应。
+Cache API（`caches`、`CacheStorage`、`Cache`）是 Service Worker 请求拦截的
+存储层。它以 URL 为键存 `Response` 对象，支持跨缓存 `match`；SW 靠它离线
+返回缓存响应。
 
 ## 全局
 

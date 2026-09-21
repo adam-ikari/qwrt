@@ -5,8 +5,8 @@ description: 在 C 应用中嵌入 qwrt 的主机集成路径 —— create、JS
 
 # 主机集成
 
-向 C 应用里嵌 qwrt，走一遍这个闭环就行。注意 qwrt 没有 `qwrt_eval`，也没有
-`qwrt_tick`：宿主和运行时之间只有一条路，JSON 消息。
+在 C 应用里嵌入 qwrt 分五步。注意 qwrt 没有 `qwrt_eval`，也没有 `qwrt_tick`：
+宿主和运行时只通过 JSON 消息通信。
 
 ## 五步
 
@@ -34,7 +34,7 @@ qwrt_t *rt = qwrt_create(&cfg);   // 阻塞直到就绪
 
 ## 2. 选择 JS 先跑什么
 
-喂给运行时初始脚本有三种方式，按重量排：
+喂给运行时初始脚本有三种方式：
 
 - **`initial_script`** —— 小字符串，适合引导逻辑
 - **编译字节码** —— 用 `qjsc` 预编译，交付 `.bc`（启动更快、不携带源码）。见 [字节码](/zh/guide/bytecode)
@@ -42,11 +42,9 @@ qwrt_t *rt = qwrt_create(&cfg);   // 阻塞直到就绪
 
 ## 3. 消息契约
 
-主机和 JS 之间就靠这个交换数据。容易踩的坑：两边都走 JSON 字符串，不传指针、
-不共享内存对象。先把这点记住，后面都好说。
+宿主和 JS 双向都以 JSON 字符串交换数据：不传指针，不共享内存对象。
 
-没有 eval、没有 tick。qwrt 自己管线程和循环，你不需要调用 JS 去让它跑起来，
-它也不会占着你的线程不动。
+qwrt 自己管线程和循环。宿主不调用 JS 让它运行，运行时也不阻塞宿主线程。
 
 | 方向 | 机制 | 线程 |
 |-----------|-----------|--------|
@@ -77,21 +75,21 @@ qwrt_post_message(rt, "{\"cmd\":\"start\",\"n\":42}", 22);
 
 ## 4. 向 JS 出借能力
 
-边界一建起来，运行时里的 JS 直接就有整套 WinterTC 接口：`fetch`、`crypto.subtle`、
-`ReadableStream`、timers、`fs`、`WebSocket`、`Worker`、`BroadcastChannel`、
-`serve()`（HTTP/WS/gRPC 服务器）——全是全局对象，不用 import。见 [JS API 参考](/zh/js-api/)。
+运行时里的 JS 以全局对象的形式拿到 WinterTC 接口，不用 import：`fetch`、
+`crypto.subtle`、`ReadableStream`、timers、`fs`、`WebSocket`、`Worker`、
+`BroadcastChannel`、`serve()`（HTTP/WS/gRPC 服务器）。见 [JS API 参考](/zh/js-api/)。
 
-你自己的 C 函数也能注册成 JS 全局，让 JS 直接调用你产品的逻辑。见 [扩展](/zh/guide/extensions)。
+也可以把自己的 C 函数注册成 JS 全局。见 [扩展](/zh/guide/extensions)。
 
 ## 5. Destroy
 
-[`qwrt_destroy`](/zh/c-api/runtime) 执行优雅销毁：通知内部线程、排空待处理工作、
-释放运行时。运行时不再需要时，在主机侧调用它。完整生命周期与内存模型见
+[`qwrt_destroy`](/zh/c-api/runtime) 执行优雅关闭：通知内部线程、排空待处理工作、
+释放运行时。运行时不再需要时从宿主调用。完整生命周期与内存模型见
 [运行时生命周期](/zh/guide/lifecycle)。
 
 ---
 
-## 深入
+## 相关页面
 
 | 主题 | 页面 |
 |-------|------|

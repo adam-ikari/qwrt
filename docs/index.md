@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Qwrt.js"
   text: "Embeddable QuickJS Runtime"
-  tagline: C99 · Host-owned thread + libuv loop · JSON message boundary · Zero system dependencies
+  tagline: Strict C99 · Internal thread + libuv loop · JSON host boundary
   actions:
     - theme: brand
       text: Get Started
@@ -15,23 +15,24 @@ hero:
 
 features:
   - icon: 🔌
-    title: Message-Based Host Boundary
-    details: Host ⇄ runtime speak JSON over `qwrt_post_message` / `message_cb`. Thread-safe inbound, fires on the runtime thread outbound. No `eval`, no `tick`.
+    title: Message-based host boundary
+    details: Host and runtime exchange JSON over `qwrt_post_message` / `message_cb`. Inbound is thread-safe; outbound fires on the runtime thread. No `eval`, no `tick`.
   - icon: 🧵
-    title: Own Thread + Event Loop
-    details: qwrt starts its own internal thread running an embedded libuv loop. The host never pumps an event loop or blocks on JS.
+    title: Own thread + libuv loop
+    details: qwrt runs its own internal thread with an embedded libuv loop. The host never pumps an event loop.
   - icon: 📦
-    title: Zero System Dependencies
-    details: QuickJS-ng, mbedTLS, miniz, libuv, WAMR — all built from source via CMake. No system packages. ~2.45 MiB stripped (minimal profile).
+    title: Zero system dependencies
+    details: QuickJS-ng, mbedTLS, miniz, libuv, and WAMR all build from source via CMake. About 2.45 MiB stripped in the minimal profile.
   - icon: ⚡
-    title: Strict C99 + Embeddable
-    details: Any C99 codebase, any host compiler. ~7.6 ms cold start (Ryzen-class), ~3.3 MB peak RSS — 23× lighter than node for the same eval workload.
+    title: Strict C99
+    details: Builds as C99 alongside its dependencies. Release `qwrt -e 'console.log(1)'` starts in under 5 ms; peak RSS stays near 3 MB.
   - icon: 🌐
-    title: WinterTC Compatible
-    details: A WinterTC-compatible surface — fetch, crypto.subtle, streams, WebSocket, BroadcastChannel, EventSource, timers, fs, serve(), and more. Precompiled to bytecode, available as globals.
+    title: WinterTC-compatible runtime
+    details: 21 modules — fetch, crypto.subtle, streams, WebSocket, BroadcastChannel, EventSource, timers, fs, serve() and more. Precompiled to bytecode, available as globals.
   - icon: 🔒
-    title: No Global State
-    details: Zero mutable file-scope state. Per-runtime isolation via opaque `qwrt_t` — safe to run multiple independent instances in one process.
+    title: No global state
+    details: Per-runtime isolation through an opaque `qwrt_t`. Multiple independent instances run in one process.
+
 ---
 
 ## Quick Start
