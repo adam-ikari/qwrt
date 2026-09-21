@@ -7,7 +7,6 @@ description: Qwrt.js 的 Service Worker 子集 —— 注册、带 Cache API 的
 
 qwrt 实现的 Service Worker 子集：worker 跑在自己的线程上，拦截运行时的
 `fetch`，从 `CacheStorage` 返回缓存响应，超时则回退到网络（有上限）。
-代码在 `polyfill/src/service-worker.js`。
 
 ## 注册
 

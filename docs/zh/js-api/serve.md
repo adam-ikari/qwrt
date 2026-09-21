@@ -5,9 +5,8 @@ description: Qwrt.js 的 HTTP 服务器 API —— 全局 `serve()`，含 WebSoc
 
 # serve — HTTP 服务器
 
-纯 JS 的 HTTP/1.1 服务器，暴露为全局 `serve()`。传输来自 `pal.tcp*` 层
-（bind/listen/accept/read/write）；所有协议语义——请求解析、路由、WebSocket
-升级、响应序列化——都在 JavaScript 中运行。适合嵌入式测试服务器、本地工具与设备面板。
+纯 JS 的 HTTP/1.1 服务器，暴露为全局 `serve()`。请求解析、路由、WebSocket
+升级、响应序列化等协议语义都在 JavaScript 中实现。
 
 ## 全局
 
@@ -115,7 +114,7 @@ serve({
 ## gRPC 服务器
 
 传 `grpc: server` 在同一监听器上注册 [gRPC](/zh/js-api/grpc) 服务。gRPC 栈是
-纯 JS 的 h2/HPACK/protobuf 实现（`polyfill/src/grpc-stack.js`、`http2-server.js`）；
+纯 JS 的 h2/HPACK/protobuf 实现；
 与 HTTP/1.1 处理器同一 TCP 端口——监听器按 ALPN（TLS 连接为 `h2`）或
 `PRI * HTTP/2.0` 连接前导（明文 h2c）分发。
 

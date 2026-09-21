@@ -102,8 +102,8 @@ console.log(`${result.opsPerSec.toFixed(0)} 次/秒`);
 
 ## 注意事项
 
-- 如果可用，使用 `pal.hrtime()` 获取高精度时间，否则回退到 `pal.timeNow()`
-- 分辨率取决于 PAL：Linux 上为纳秒级（CLOCK_MONOTONIC），ESP32 上为毫秒级
+- 使用平台的高分辨率单调时钟
+- 分辨率：Linux 上为纳秒级（CLOCK_MONOTONIC），ESP32 上为毫秒级
 - `performance.now()` 保证单调递增（永不倒退）
 - 不支持 `PerformanceObserver` API
 - 不支持 `performance.getEntries()`、`performance.getEntriesByName()`、`performance.clearMarks()`

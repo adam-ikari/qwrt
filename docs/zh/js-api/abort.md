@@ -174,7 +174,7 @@ err.code;    // 20（AbortError）、23（TimeoutError）、19（NetworkError）
 ## 与 fetch() 集成
 
 当中止信号在 fetch 期间触发时：
-1. PAL 的 `http_abort()` 被调用（如果已实现）
+1. 触发底层中止（如果已实现）
 2. 响应体流出错，错误为 `AbortError`
 3. fetch promise 以 `AbortError` 拒绝
 

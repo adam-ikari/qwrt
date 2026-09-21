@@ -125,7 +125,7 @@ await updateConfig('theme', 'dark');
 
 ## 平台依赖
 
-文件系统操作在 qwrt 的内部线程上运行，由 libuv 的异步文件 I/O（`uv_fs_*`）支持。失败时 JS 方法以映射后的错误拒绝（例如 `NotFoundError`、`NotSupportedError`）。
+文件系统操作运行在 qwrt 的内部线程上。失败时 JS 方法以映射后的错误拒绝（例如 `NotFoundError`、`NotSupportedError`）。
 
 ## 注意事项
 
@@ -134,4 +134,3 @@ await updateConfig('theme', 'dark');
 - 不支持文件锁定或并发控制
 - 不支持流式读写——整个文件内容被加载到内存中
 - 二进制数据以字符串形式返回（使用 `TextEncoder`/`TextDecoder` 进行字节操作）
-- 在测试中，`mock_libuv` 后端将 `uv_fs_*` 调用透传到真实宿主文件系统（详见[测试](/zh/dev/testing)）

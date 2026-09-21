@@ -12,14 +12,13 @@ qwrt provides a WinterTC-compatible JavaScript API surface through its WinterTC 
 ```mermaid
 flowchart TB
     A["Your JS code"] --> B
-    subgraph B["WinterTC runtime (IIFE, precompiled to bytecode)"]
+    subgraph B["WinterTC runtime (precompiled to bytecode)"]
         direction LR
         C["fetch<br/>console<br/>URL<br/>qwrt.fs"]
         D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
         E["streams<br/>TextEncoder<br/>EventTarget<br/>navigator"]
     end
-    B --> G["Bridge — js_pal_* wrappers in C"]
-    G --> H["libuv loop on qwrt's internal thread"]
+    B --> G["libuv loop on qwrt's internal thread"]
 ```
 
 ## API Categories

@@ -12,14 +12,13 @@ qwrt 的 JS API 由一组 WinterTC 模块提供，它们在构建时预编译成
 ```mermaid
 flowchart TB
     A["你的 JS 代码"] --> B
-    subgraph B["WinterTC 运行时 (IIFE，预编译为字节码)"]
+    subgraph B["WinterTC 运行时（预编译为字节码）"]
         direction LR
         C["fetch<br/>console<br/>URL<br/>qwrt.fs"]
         D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
         E["streams<br/>TextEncoder<br/>EventTarget<br/>navigator"]
     end
-    B --> G["桥接 — C 中的 js_pal_* 包装器"]
-    G --> H["qwrt 内部线程上的 libuv 循环"]
+    B --> G["qwrt 内部线程上的 libuv 循环"]
 ```
 
 ## API 分类

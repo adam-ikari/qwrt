@@ -174,7 +174,7 @@ err.code;    // 20 (AbortError), 23 (TimeoutError), 19 (NetworkError)
 ## Integration with fetch()
 
 When an abort signal fires during a fetch:
-1. The PAL's `http_abort()` is called (if implemented)
+1. The underlying abort is triggered (if implemented)
 2. The response body stream is errored with `AbortError`
 3. The fetch promise rejects with `AbortError`
 

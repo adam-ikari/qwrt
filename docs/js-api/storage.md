@@ -106,8 +106,8 @@ should be (re)initialized during startup (e.g. in `initial_script`).
 qwrt also exposes the standard Web Storage globals `localStorage` and
 `sessionStorage` (lazy-installed on first access). Unlike `qwrt.storage`
 (in-memory, per-runtime), `localStorage` **persists across runtime
-restarts** — the PAL resolves the backing file (`pal.localStoragePath()`,
-default `~/.qwrt/localstorage.json`) and `sessionStorage` is a per-runtime
+restarts** — backed by a file on disk (default `~/.qwrt/localstorage.json`),
+and `sessionStorage` is a per-runtime
 copy.
 
 ```js

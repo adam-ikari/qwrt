@@ -8,7 +8,7 @@ description: The Service Worker subset in Qwrt.js — registration, fetch interc
 A qwrt subset of the Service Worker platform: a worker that runs in its own
 thread, intercepts `fetch` requests from the runtime, serves cached
 responses from `CacheStorage`, and falls back to the network with a bounded
-timeout. Implementation is in `polyfill/src/service-worker.js`.
+timeout.
 
 ## Registration
 

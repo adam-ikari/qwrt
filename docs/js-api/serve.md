@@ -5,7 +5,7 @@ description: The HTTP server API in Qwrt.js — serve(), request handling, WebSo
 
 # serve — HTTP Server API
 
-A pure-JS HTTP/1.1 server exposed as the global `serve()`. Transport comes from the `pal.tcp*` layer (bind/listen/accept/read/write); all protocol semantics — request parsing, routing, WebSocket upgrade, response serialization — run in JavaScript. Useful for embedded test servers, local tooling, and device dashboards.
+A pure-JS HTTP/1.1 server exposed as the global `serve()`. All protocol semantics — request parsing, routing, WebSocket upgrade, response serialization — run in JavaScript.
 
 ## Global
 
@@ -153,9 +153,9 @@ serve({
 ## gRPC Server
 
 Passing `grpc: server` registers a [gRPC](/js-api/grpc) service on the same
-listener. The gRPC stack is a pure-JS h2/HPACK/protobuf implementation
-(`polyfill/src/grpc-stack.js`, `http2-server.js`); it lives on the same TCP
-port as the HTTP/1.1 handler — the listener dispatches on ALPN (`h2` for TLS
+listener. The gRPC stack is a pure-JS h2/HPACK/protobuf implementation. It lives on
+the same TCP port as the HTTP/1.1 handler — the listener dispatches on ALPN
+(`h2` for TLS
 connections) or the `PRI * HTTP/2.0` connection preface (h2c, plaintext).
 
 ```js

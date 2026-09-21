@@ -126,8 +126,8 @@ await updateConfig('theme', 'dark');
 ## Platform Dependency
 
 Filesystem operations run on qwrt's internal thread, backed by libuv's
-asynchronous file I/O (`uv_fs_*`). On failure the JS methods reject with the
-mapped error (e.g. `NotFoundError`, `NotSupportedError`).
+asynchronous file I/O. On failure the JS methods reject with the mapped error
+(e.g. `NotFoundError`, `NotSupportedError`).
 
 ## Notes
 
@@ -136,4 +136,3 @@ mapped error (e.g. `NotFoundError`, `NotSupportedError`).
 - No file locking or concurrency control
 - No streaming read/write — entire file contents are loaded into memory
 - Binary data is returned as strings (use `TextEncoder`/`TextDecoder` for byte manipulation)
-- In tests, the `mock_libuv` backend passes `uv_fs_*` calls through to the real host filesystem (see [Testing](/dev/testing))

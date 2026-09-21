@@ -27,7 +27,7 @@ ws.onclose = (ev) => console.log('closed', ev.code, ev.reason);
 ws.onerror = () => console.log('error');
 ```
 
-客户端经 `pal.tcp*` 层在原始 TCP 上连接，不依赖 Node.js `net`/`http`。
+客户端在原始 TCP 上连接，不依赖 Node.js `net`/`http`。
 帧遵循 RFC 6455（客户端帧加掩码，服务端帧不加）。
 
 ## 服务端

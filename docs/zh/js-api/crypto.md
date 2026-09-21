@@ -36,7 +36,7 @@ let id = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
 如果请求超过 65536 字节，抛出 `QuotaExceededError`。
 
-底层 PAL 方法是同步的——随机字节来自 `/dev/urandom`（Linux）、`getentropy()`（macOS）或硬件 RNG（ESP32）。
+该操作是同步的——随机字节来自 `/dev/urandom`（Linux）、`getentropy()`（macOS）或硬件 RNG（ESP32）。
 
 ## crypto.subtle — SubtleCrypto
 

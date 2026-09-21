@@ -66,12 +66,6 @@ let decompressed = res.body.pipeThrough(new DecompressionStream('gzip'));
 let text = await new Response(decompressed).text();
 ```
 
-## Implementation
-
-- Chunks written to `.writable` are buffered; compression/decompression happens once on stream close (all-at-once, not incremental per chunk).
-- The polyfill delegates to `pal.nativeCompress` / `pal.nativeDecompress` (C, via miniz). Raw DEFLATE comes from miniz's stream API; zlib and gzip headers/trailers are written by qwrt (gzip uses a slice-by-4 CRC32).
-- The same extension also exposes `pal.deflateCreate`/`deflatePush`/`deflateFree` and `pal.inflateCreate`/`inflatePush`/`inflateFree` — the streaming primitives used for `permessage-deflate` WebSocket compression in [serve](/js-api/serve).
-
 ## Build option
 
 Compression requires `QWRT_WITH_COMPRESS=ON` (default) at build time. When disabled, the classes exist but error the readable side with `TypeError: Native compression extension not available`. See [Build Options](/guide/build-options).

@@ -36,7 +36,7 @@ Supported array types: `Int8Array`, `Uint8Array`, `Uint8ClampedArray`, `Int16Arr
 
 Throws `QuotaExceededError` if more than 65536 bytes requested.
 
-The underlying PAL method is synchronous — random bytes come from `/dev/urandom` (Linux), `getentropy()` (macOS), or hardware RNG (ESP32).
+The operation is synchronous — random bytes come from `/dev/urandom` (Linux), `getentropy()` (macOS), or hardware RNG (ESP32).
 
 ## crypto.subtle — SubtleCrypto
 

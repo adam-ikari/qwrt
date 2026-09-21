@@ -27,8 +27,7 @@ ws.onclose = (ev) => console.log('closed', ev.code, ev.reason);
 ws.onerror = () => console.log('error');
 ```
 
-The client connects over raw TCP using the `pal.tcp*` layer; no Node.js
-`net`/`http` dependency. Frames follow RFC 6455 (masked client frames,
+The client connects over raw TCP, with no Node.js `net`/`http` dependency. Frames follow RFC 6455 (masked client frames,
 unmasked server frames).
 
 ## Server

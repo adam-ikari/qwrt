@@ -102,8 +102,8 @@ console.log(`${result.opsPerSec.toFixed(0)} ops/sec`);
 
 ## Notes
 
-- Uses `pal.hrtime()` for high-resolution time if available, falls back to `pal.timeNow()`
-- Resolution depends on the PAL: nanoseconds on Linux (CLOCK_MONOTONIC), milliseconds on ESP32
+- Uses the platform's high-resolution monotonic clock
+- Resolution: nanoseconds on Linux (CLOCK_MONOTONIC), milliseconds on ESP32
 - `performance.now()` is guaranteed to be monotonically increasing (never goes backwards)
 - No `PerformanceObserver` API
 - No `performance.getEntries()`, `performance.getEntriesByName()`, `performance.clearMarks()`

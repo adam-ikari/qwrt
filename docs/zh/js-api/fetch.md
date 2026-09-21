@@ -5,7 +5,7 @@ description: Qwrt.js 中的 fetch API —— HTTP 和 HTTPS 请求、请求头�
 
 # fetch API
 
-WHATWG Fetch API，支持流式传输。使用 `pal.httpRequestStream` 进行分块传输编码，并以 `pal.httpRequest` 作为回退。
+WHATWG Fetch API，支持流式传输与分块传输解码。
 
 ## 全局对象
 
@@ -89,7 +89,7 @@ let fromPairs = new Headers([['Content-Type', 'text/plain']]);
 
 ## 流式响应
 
-当 PAL 支持流式传输 (`pal.httpRequestStream`) 时，响应体通过 `ReadableStream` 进行流式传输：
+响应体通过 `ReadableStream` 流式传输（当传输层支持流式时）：
 
 ```js
 let response = await fetch('https://example.com/large-file');
@@ -142,7 +142,7 @@ try {
 ## 注意事项
 
 - 仅支持 HTTP/HTTPS 协议（不支持 `file://`、`data://`）
-- 重定向不会自动跟随——PAL 返回服务器发送的任何内容
+- 重定向不会自动跟随——返回服务器发送的任何内容
 - 请求体始终以字符串形式发送（不支持 FormData 或 Blob 上传）
 - `response.blob()` 以文本形式返回响应体（Blob 类型尚未完全可用）
-- 请求头行最大长度为 4096 字节（PAL 实现限制）
+- 请求头行最大长度为 4096 字节（实现限制）
