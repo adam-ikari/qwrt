@@ -8,9 +8,9 @@ description: Qwrt.js performance benchmark suite — six CI-driven benchmarks co
 qwrt ships a benchmark suite that runs entirely in CI. Every push to `master`
 runs six benchmark jobs; the numbers are recorded as JSON artifacts, compared
 against a committed baseline, and printed as a per-metric Δ% table in the job
-log. No thresholds gate the build — the benchmarks are **record-only** with
-`continue-on-error: true`, so a slow runner never fails CI. The baseline +
-comparison layer is what catches regressions over time.
+log. None of them gate the build (record-only, `continue-on-error: true`), so a
+slow runner won't turn CI red. Catching regressions is the baseline
+comparison's job, not a hard threshold's.
 
 ## The Six CI Benchmarks
 

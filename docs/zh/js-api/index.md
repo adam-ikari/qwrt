@@ -5,7 +5,7 @@ description: Qwrt.js 完整的 JavaScript API 参考 — WinterTC 兼容的 Web 
 
 # JS API 参考
 
-qwrt 通过其 WinterTC 模块提供 WinterTC 兼容的 JavaScript API 接口。这些模块被预编译为字节码并在创建时注入运行时；此处列出的所有全局对象在运行时内运行的任何 JS 中均可用（`initial_script`、消息处理器，以及通过 `qwrt_post_message` 调用的代码），无需 `require()` 或 `import`。
+qwrt 的 JS API 由一组 WinterTC 模块提供，它们在构建时预编译成字节码，运行时创建时注入。下面列出的全局对象在任何跑在运行时里的 JS 中都能直接用（`initial_script`、消息处理器、`qwrt_post_message` 触发的代码），不用 `require()` 或 `import`。
 
 ## 架构
 

@@ -5,11 +5,12 @@ description: Qwrt.js 是一个严格 C99 的可嵌入 QuickJS-ng 运行时封装
 
 # 概述
 
-qwrt 是一个用**严格 C99** 编写的**可嵌入 QuickJS-ng 运行时封装**。它在 QuickJS-ng 引擎之上提供了精简的 C API 和 **WinterTC 兼容的运行时**。qwrt 拥有自己的内部线程和 libuv 事件循环，并通过 JSON 消息与宿主通信。
+qwrt 是一个用**严格 C99** 编写的**可嵌入 QuickJS-ng 运行时封装**。它在
+QuickJS-ng 引擎之上提供精简的 C API 和 **WinterTC 兼容的运行时**，自带内部
+线程和 libuv 事件循环，通过 JSON 消息与宿主通信。
 
-如果你是**宿主开发者**——正在构建一个 C 应用，想把其中一部分用 JavaScript 脚本化——qwrt 就是那层边界：它给你的 C 进程一个 JS 运行时，而不用你自己拥有事件循环、线程或依赖树。
-
-## 宿主如何嵌入
+如果你的 C 应用想把一部分逻辑交给 JavaScript，qwrt 帮你省掉自己搭事件循环、
+线程和依赖树的麻烦。
 
 ```
    你的 C 进程

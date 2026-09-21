@@ -5,10 +5,10 @@ description: Qwrt.js 性能基准套件——六个 CI 驱动的基准，覆盖 
 
 # 性能基准
 
-qwrt 内置的性能基准套件完全在 CI 中运行。每次推送到 `master` 跑六个基准 job；
-数字以 JSON artifact 记录、与提交进仓库的基线对比、并在 job 日志里打印逐指标 Δ% 表。
-没有任何阈值卡构建——基准都是 **record-only**（`continue-on-error: true`），
-慢 runner 永远不会让 CI 变红。靠基线 + 对比层在时间维度上捕捉回归。
+qwrt 的基准套件全部跑在 CI 里。每次推送到 `master` 会跑六个 benchmark job，
+把数字记进 JSON artifact、和仓库里的基线对比，在 job 日志里打出逐指标 Δ% 表。
+这些 job 都不卡阈值（record-only，`continue-on-error: true`），慢 runner 不会
+让 CI 变红。要发现回归靠的是基线对比，不是硬阈值。
 
 ## 六个 CI 基准
 

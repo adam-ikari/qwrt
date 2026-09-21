@@ -5,9 +5,9 @@ description: The BroadcastChannel API in Qwrt.js — same-origin cross-context m
 
 # BroadcastChannel
 
-A named, same-runtime messaging channel that broadcasts messages to every
-`BroadcastChannel` instance created with the same name. Useful for
-coordinating work between spawned contexts inside one qwrt runtime.
+A named messaging channel that broadcasts to every `BroadcastChannel`
+instance created with the same name. Used to coordinate work between
+spawned contexts inside one qwrt runtime.
 
 ## Global
 

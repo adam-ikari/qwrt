@@ -16,7 +16,7 @@ hero:
 features:
   - icon: 🔌
     title: Message-Based Host Boundary
-    details: Host ⇄ runtime speak JSON over `qwrt_post_message` / `message_cb`. Thread-safe inbound, fires on the runtime thread outbound. No `eval`, no `tick` — the boundary is clean.
+    details: Host ⇄ runtime speak JSON over `qwrt_post_message` / `message_cb`. Thread-safe inbound, fires on the runtime thread outbound. No `eval`, no `tick`.
   - icon: 🧵
     title: Own Thread + Event Loop
     details: qwrt starts its own internal thread running an embedded libuv loop. The host never pumps an event loop or blocks on JS.

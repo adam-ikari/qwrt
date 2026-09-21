@@ -16,7 +16,7 @@ hero:
 features:
   - icon: 🔌
     title: 基于消息的宿主边界
-    details: 宿主 ⇄ 运行时通过 `qwrt_post_message` / `message_cb` 说 JSON。入站线程安全，出站在运行时线程触发。无 `eval`、无 `tick`——边界干净。
+    details: 宿主 ⇄ 运行时通过 `qwrt_post_message` / `message_cb` 说 JSON。入站线程安全，出站在运行时线程触发。没有 eval，也没有 tick。
   - icon: 🧵
     title: 自有线程 + 事件循环
     details: qwrt 启动自己的内部线程，内嵌 libuv 循环。宿主从不泵动事件循环，也不会因 JS 阻塞。

@@ -5,12 +5,9 @@ description: The host integration path for embedding qwrt in a C application —
 
 # Host Integration
 
-This page is the spine of embedding qwrt in a C application. It walks the
-full loop a host developer goes through — from creating the runtime to tearing
-it down — and links to the deep-dive pages at each step. The single most
-important thing to internalize is the **message contract**: qwrt has no
-`qwrt_eval`, no `qwrt_tick`. The host and the runtime talk **only** over JSON
-messages.
+Here's the whole path for embedding qwrt in a C application. One thing to
+keep in mind from the start: qwrt has no `qwrt_eval` and no `qwrt_tick`. The
+host and the runtime talk over JSON messages — that's the only channel.
 
 ## The Five Steps
 
@@ -49,11 +46,12 @@ Three ways to feed the runtime its initial script, from lightest to heaviest:
 
 ## 3. The Message Contract
 
-This is qwrt's core design and the thing most hosts get wrong on the first
-try. Read it twice.
+This is how the host and JS exchange data. The usual mistake: both
+directions are JSON strings, so no pointers and no shared memory objects cross
+the boundary.
 
-**No direct eval, no ticking.** qwrt owns its thread and loop; you never call
-into JS to make it run, and it never blocks your thread.
+**No eval, no ticking.** qwrt owns its thread and loop. You never call into
+JS to make it run, and it never blocks your thread.
 
 | Direction | Mechanism | Thread |
 |-----------|-----------|--------|

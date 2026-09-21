@@ -5,8 +5,8 @@ description: Qwrt.js 的 BroadcastChannel API —— 单一运行时内跨上下
 
 # BroadcastChannel
 
-一个命名的、同运行时的消息通道，向所有同名 `BroadcastChannel` 实例广播消息。
-适合协调单个 qwrt 运行时内多个派生上下文之间的工作。
+一个带名字的消息通道，向所有同名 `BroadcastChannel` 实例广播。
+用来协调同一个 qwrt 运行时里多个派生上下文的工作。
 
 ## 全局
 

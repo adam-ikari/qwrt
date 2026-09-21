@@ -5,7 +5,7 @@ description: The WebSocket API in Qwrt.js — global `WebSocket` client and serv
 
 # WebSocket
 
-qwrt provides both sides of WebSocket:
+qwrt has both sides of WebSocket:
 
 - **Client**: the global `WebSocket` class (RFC 6455 client over raw TCP)
 - **Server**: WebSocket routes registered on a `serve()` listener (see
