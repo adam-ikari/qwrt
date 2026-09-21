@@ -1,87 +1,52 @@
 ---
-title: 多上下文
-description: Qwrt.js 中的隔离 JS 上下文 — 派生、挂起、恢复和销毁上下文，支持每个上下文独立的 PAL 和扩展状态。
+title: 多上下文与 Web Worker
+description: Qwrt.js 中的并行执行 — new Worker(url)、隔离上下文，以及 ISOLATED 与 THREAD 进程模型。
 ---
 
-# 多上下文
+# 多上下文与 Web Worker
 
-qwrt 支持在单个运行时中拥有多个隔离的 JS 上下文。每个上下文拥有自己的全局对象、PAL、WinterTC 模块和扩展状态——就像轻量级沙箱。
+qwrt 运行多个独立的 JS 执行上下文。**面向宿主**的并行方式是标准的
+`new Worker(url)` Web API。在内部，每个 worker 拥有独立的 `JSContext`
+（在默认进程模型下，还有独立进程）。
 
-## 为什么需要多上下文？
+## Web Worker
 
-- **插件隔离** — 每个插件获得自己的上下文；一个崩溃不会影响其他
-- **权限分离** — 每个上下文可以有不同的 PAL 配置（如一个有网络访问权限，另一个没有）
-- **请求作用域** — 为每个 HTTP 请求创建全新的上下文，获得干净的状态
-- **资源限制** — 单独销毁上下文以回收内存
+用标准 API 从任意脚本创建 worker：
 
-## 架构
+```js
+// 主脚本
+const w = new Worker("worker.js");   // file:// 脚本路径
+w.onmessage = (e) => console.log("from worker:", e.data);
+w.postMessage({ cmd: "start" });
 
-一个 `qwrt_t` 拥有一个 `JSRuntime`。多个 `JSContext` 实例共享该运行时。QuickJS 类 ID 是运行时作用域的，因此类定义是共享的——但每个上下文拥有独立的实例。
-
-同一时间只有**一个上下文处于活动状态**。`qwrt_eval` 和 `qwrt_tick` 始终在活动上下文上操作。
-
-## 派生上下文
-
-```c
-// 创建一个拥有自己 PAL 的新上下文（如受限权限）
-qwrt_config_t ctx_config = {
-    .pal = restricted_pal,
-    .debug = 0,
-};
-int ctx_id = qwrt_spawn(rt, &ctx_config);
-if (ctx_id < 0) {
-    // 派生失败
-}
+// worker.js
+globalThis.onmessage = (e) => postMessage("echo: " + e.data.cmd);
 ```
 
-新上下文以**挂起**状态启动。当前活动上下文保持不变。
+Worker 只通过 `postMessage`/`onmessage` 通信 — 它们与其创建者不共享全局、
+DOM 或 `JSRuntime`。这是暴露给 JS 的唯一多上下文接口。
 
-## 切换上下文
+## 进程模型
 
-```c
-// 挂起当前上下文（停用）
-qwrt_suspend(rt);
+`-DQWRT_PROCESS_MODEL` 构建选项控制 worker 如何运行：
 
-// 恢复另一个上下文（激活）
-qwrt_resume(rt, ctx_id);
+| 模型 | Worker 执行 |
+|-------|------------------|
+| `THREAD` | 同一进程内的并行线程 |
+| `ISOLATED`（默认） | 独立子进程（`qwrt-rt`，经 fork+exec 派生） |
 
-// 现在 qwrt_eval 在 ctx_id 的上下文中运行
-qwrt_eval(rt, "console.log('Hello from context!');", NULL);
-```
+`ISOLATED`（自 M-P2 里程碑起为默认）给每个 worker 一个独立进程，拥有
+独立地址空间与事件循环。`THREAD` 是单进程回退。两者对 JS 呈现相同的
+`new Worker` API。
 
-挂起会调用每个扩展的 `suspend` 钩子。恢复会调用 `resume` 钩子。
+## 隔离上下文（内部）
 
-## 销毁上下文
+在 C 层，qwrt 维护一组隔离上下文（`qwrt_ctx_t`），同一时刻只有一个活动
+上下文。上下文拥有独立的全局、PAL 与扩展状态，可软挂起/恢复到磁盘。这套
+机制是**内部的** — 没有公开的宿主 API 来派生/挂起/恢复上下文。它用于支撑
+`new Worker` 与扩展生命周期，并通过内部上下文辅助
+（`qwrt_get_active_ctx`、`qwrt_get_active_jsctx`、`qwrt_get_ctx_by_id`，
+位于 `src/context.c`）暴露给编译进 qwrt 的 C 扩展。
 
-```c
-qwrt_destroy_ctx(rt, ctx_id);
-```
-
-如果这是**唯一剩余的上下文**则会失败——你不能销毁最后一个上下文。使用 `qwrt_reset` 或 `qwrt_destroy` 来完全拆除。
-
-## 获取上下文信息
-
-```c
-// 当前活动上下文 ID，无则为 -1
-int active = qwrt_get_active_ctx_id(rt);
-
-// 活动上下文的 JSContext*，无则为 NULL
-JSContext *ctx = qwrt_get_jsctx(rt);
-```
-
-## 上下文生命周期总结
-
-```mermaid
-flowchart TB
-    A["qwrt_create()"] --> B["ctx 0 (活动)"]
-    B --> C["qwrt_spawn()"]
-    C --> D["ctx 0 (活动) + ctx 1 (挂起)"]
-    D --> E["qwrt_suspend()"]
-    E --> F["ctx 0 (挂起) + ctx 1 (挂起)"]
-    F --> G["qwrt_resume(1)"]
-    G --> H["ctx 0 (挂起) + ctx 1 (活动)"]
-    H --> I["qwrt_destroy_ctx(0)"]
-    I --> J["ctx 1 (活动) — 无法销毁最后一个上下文"]
-    J --> K["qwrt_destroy()"]
-    K --> L["全部释放"]
-```
+扩展的 `init`/`destroy`/`suspend`/`resume` 钩子会在对应的上下文生命周期
+节点触发；见[扩展](/zh/guide/extensions)。

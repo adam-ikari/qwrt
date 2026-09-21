@@ -43,6 +43,7 @@ int main(void) {
 
 ```c
 #include <quickjs.h>
+#include "qwrt_internal.h"   // qwrt_get_active_jsctx（内部辅助）
 
 static JSValue greet(JSContext *ctx, JSValue this_val,
                      int argc, JSValue *argv) {

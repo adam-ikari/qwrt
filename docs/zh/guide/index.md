@@ -15,11 +15,12 @@ C 应用想把一部分逻辑放进 JavaScript 的话，qwrt 提供运行时；�
 
 - **自有线程 + 事件循环** — qwrt 启动一个内部线程运行 libuv 循环；宿主从不泵动它
 - **基于消息的宿主边界** — `qwrt_post_message`（入）/ `message_cb`（出），双向 JSON
-- **单线程运行时** — 无锁、无原子操作；所有 JS 在 qwrt 的内部线程上运行
+- **隔离运行时模型** — 每个实例在自己的内部线程上运行 JS；内部锁与原子操作协调线程、宿主与 worker 边界，从不参与 JS 执行
 - **ECMAScript 引擎（ES2023）** — 底层基于 QuickJS-ng，启动快，内存占用低
 - **WinterTC 兼容运行时** — `fetch`、`console`、`crypto.subtle`、`ReadableStream`、定时器、`fs`、`URL`、`TextEncoder`、WebSocket 等
 - **原生扩展** — 压缩（miniz）、加密（mbedTLS）、文本编解码、WebAssembly（WAMR，可选 wasm3）
 - **零系统依赖** — 所有依赖通过 CMake 从源码构建；libuv 从 deps 子模块构建
+- **多上下文 + Web Worker** — 隔离上下文（软挂起/恢复到磁盘）；`new Worker(url)` 运行真并行线程，或在 `-DQWRT_PROCESS_MODEL=ISOLATED`（默认）下运行独立子进程（`qwrt-rt`，经 fork+exec）
 
 ## 宿主集成路径
 

@@ -1,6 +1,6 @@
 # 兼容的 npm 包
 
-以下包已在 qwrt 运行时中**实际下载并运行**。每个包通过 `qwrt_eval` 加载，并用真实函数调用进行测试。
+以下包已在 qwrt 运行时中**实际下载并运行**。每个包由 `test/compat_check.py` 通过极简 CommonJS loader 加载，并用真实调用进行测试。
 
 ## 运行时已验证 ✅
 
@@ -26,7 +26,7 @@
 var module = { exports: {} };
 var exports = module.exports;
 
-// 通过 qwrt_eval 加载包源码
+// （compat_check.py 会在真实 qwrt 运行时内执行此加载）
 
 // 访问包：
 var myPkg = module.exports;
@@ -41,7 +41,7 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
   npx esbuild --bundle --format=iife --global-name=nanoid_bundle > nanoid.bundle.js
 ```
 
-然后通过 `qwrt_eval` 加载 `nanoid.bundle.js`。
+然后把 IIFE bundle 作为 `initial_script` 或 `new Worker(url)` 脚本运行 — 没有 `qwrt_eval`。
 
 ## 选择标准
 

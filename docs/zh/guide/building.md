@@ -35,8 +35,10 @@ cmake --build build -j$(nproc)
 
 | 选项 | 默认值 | 描述 |
 |--------|---------|-------------|
-| `QWRT_BUILD_TESTS` | OFF | 构建测试套件（26 个测试目标） |
+| `QWRT_BUILD_TESTS` | OFF | 构建测试套件（25 个测试目标） |
 | `QWRT_BUILD_EXAMPLES` | OFF | 构建 `examples/` 中的示例 |
+| `QWRT_BUILD_CLI` | ON | 构建 `qwrt` CLI 以及 `qwrt-rt` worker 与 `qwrt-ctl` 控制面二进制 |
+| `QWRT_PROCESS_MODEL` | ISOLATED | `THREAD`（单进程多线程）或 `ISOLATED`（经 fork+exec 的独立子进程，自 M-P2 里程碑起为默认） |
 
 ## 示例配置
 
@@ -82,5 +84,8 @@ qwrt 及其所有依赖均在**严格 C99**（`-std=c99`）下构建。quickjs-n
 |----------|------|
 | `libqwrt.a` | `build/`（静态核心 — 刻意不链接 libuv） |
 | `libqwrt_full.a` | `build/`（CMake 链接接口聚合库：qwrt + libuv + mbedTLS + miniz + WAMR） |
-| `qwrt.pc` | `build/lib/pkgconfig/`（pkg-config — `pkg-config --cflags --libs qwrt` 列出全部 vendored 归档） |
+| `qwrt.pc` | `build/`（pkg-config — `pkg-config --cflags --libs qwrt` 列出全部 vendored 归档） |
 | 测试二进制文件 | `build/test/` |
+| `qwrt` | `build/`（CLI — `qwrt -e 'console.log(1)'`） |
+| `qwrt-rt` | `build/`（worker 进程二进制，由 `qwrt_proc_spawn` 经 fork+exec 派生） |
+| `qwrt-ctl` | `build/`（控制面端点客户端） |

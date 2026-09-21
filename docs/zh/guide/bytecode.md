@@ -1,81 +1,41 @@
 ---
 title: 字节码编译
-description: 在 Qwrt.js 中将 JavaScript 预编译为 QuickJS 字节码 — qjsc 工作流、polyfill 注入和字节码求值。
+description: Qwrt.js 如何在内部用 QuickJS 字节码（qjsc）加速启动 — 以及为什么没有公开的宿主侧字节码加载 API。
 ---
 
 # 字节码编译
 
-qwrt 可以将 JavaScript 编译为 QuickJS 字节码，以获得更快的启动速度和更小的部署体积。
+qwrt 在构建时用 QuickJS 的 `qjsc` 编译器把自己的 JavaScript（WinterTC
+polyfill 与 worker 启动脚本）**预编译为 QuickJS 字节码**。加载字节码完全
+跳过解析，从而加快启动并缩小发布体积。
 
-## 为什么使用字节码？
+## 内部用途
 
-- **更快的启动速度** — 运行时完全跳过解析阶段
-- **更小的体积** — 字节码比源代码更紧凑
-- **代码混淆** — 不发布源代码
-- **预验证** — 语法错误在编译期捕获，而非运行时
-
-## 将源代码编译为字节码
-
-```c
-const char *source = "function add(a, b) { return a + b; }";
-size_t bytecode_len = 0;
-
-uint8_t *bytecode = qwrt_compile(rt, source, strlen(source), &bytecode_len);
-if (!bytecode) {
-    // 编译失败 — 语法错误等
-    return;
-}
-
-// 将字节码保存到文件、嵌入二进制文件等
-// bytecode_len 是字节大小
-
-qwrt_free(bytecode);
-```
-
-## 编译 ES 模块
-
-```c
-const char *module_source = "export function add(a, b) { return a + b; }";
-size_t bytecode_len = 0;
-
-uint8_t *bytecode = qwrt_compile_module(rt, module_source,
-                                         strlen(module_source), &bytecode_len);
-```
-
-## 求值字节码
-
-```c
-char *result = NULL;
-int ret = qwrt_eval_bytecode(rt, bytecode, bytecode_len, &result);
-if (ret == 0) {
-    printf("Result: %s\n", result);
-    qwrt_free(result);
-}
-```
-
-## 将字节码嵌入 C
-
-你可以将字节码直接嵌入到二进制文件中：
-
-```c
-// 由以下命令生成：xxd -i polyfill.bytecode > polyfill_bytecode.h
-#include "polyfill_bytecode.h"
-
-void inject_polyfill(qwrt_t *rt) {
-    qwrt_eval_bytecode(rt, polyfill_bytecode, polyfill_bytecode_len, NULL);
-}
-```
-
-qwrt 自身的 WinterTC 模块使用此模式——它们在构建时预编译为 `src/polyfill_default.c`。
-
-## 重新构建 WinterTC 模块
-
-在编辑 JS 源文件后重新构建模块字节码：
+构建流水线把 polyfill 源码编译成字节码并嵌入二进制：
 
 ```bash
-cd polyfill
-npm install          # 仅首次（拉取 esbuild）
-npm run build        # 通过 esbuild 打包，使用 qjsc 编译
+# qwrt 的构建对 WinterTC polyfill 与 worker 启动脚本执行此操作
+qjsc -c polyfill.js -o polyfill_bytecode.c
 ```
 
-这将重新生成 `src/polyfill_default.c`——一个字节码的 C 数组，编译进 `libqwrt.a`。
+运行时在内部线程上求值嵌入的字节码，而非解析源码。这是 qwrt 内部的优化 —
+字节码由 qwrt 自己的源码生成，从不暴露给宿主。
+
+## 没有公开字节码 API
+
+`qwrt.h` 中**没有**公开的 `qwrt_compile` / `qwrt_eval_bytecode`，`qwrt` CLI
+也没有字节码选项。宿主不能把字节码 blob 交给 qwrt 执行；JS 以源码形式通过
+`initial_script`、消息或 `new Worker(url)` 脚本提供给运行时（见
+[JS 执行](/zh/guide/execution)）。
+
+唯一的字节码求值入口是内部的
+（`qwrt_eval_bytecode_internal`，位于 `src/qwrt_internal.h`），供 qwrt
+自身运行时与编译进 qwrt 的 C 扩展使用。如果你在编写这样的扩展可以使用它；
+普通宿主嵌入无法使用。
+
+## 字节码何时仍对你有帮助
+
+如果启动延迟重要，你并不需要字节码 — 在 `initial_script` 中放一个小子脚本，
+让 qwrt 预编译的 polyfill 承担成本。对于更大的应用脚本，比起手工调字节码，
+更推荐把它们打包成单个文件（或 `new Worker` 脚本），因为公开接口没有
+字节码路径。

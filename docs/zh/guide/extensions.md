@@ -39,9 +39,10 @@ typedef struct qwrt_ext_t {
 ```c
 #include <qwrt/qwrt.h>
 #include <quickjs.h>
+#include "qwrt_internal.h"   // qwrt_get_active_jsctx（内部辅助）
 
 static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+    JSContext *ctx = qwrt_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     // 添加全局函数
@@ -108,12 +109,12 @@ add_subdirectory(deps/qwrt)
 
 ## 生命周期钩子
 
-- **`init`** — 在扩展注册到上下文时调用（在 `qwrt_create` / `qwrt_spawn` / `qwrt_reset` 时）。注册 JS 全局对象，分配资源。成功返回 0，失败返回 <0。
+- **`init`** — 在扩展注册到上下文时调用（`qwrt_create` 时，或创建 worker 上下文时）。注册 JS 全局对象，分配资源。成功返回 0，失败返回 <0。
 - **`destroy`** — 在上下文销毁时调用。释放扩展资源。JSContext 清理是自动的 — 你只需要释放自己的分配。
 - **`suspend`** — 在上下文挂起时调用。保存状态、暂停定时器、关闭连接。
 - **`resume`** — 在上下文恢复时调用。恢复状态、恢复定时器、重新打开连接。
 
-所有钩子都接收扩展和运行时。通过 `qwrt_get_jsctx(rt)` 获取活跃的 `JSContext*`。
+所有钩子都接收扩展和运行时。通过 `qwrt_get_active_jsctx(rt)` 获取活跃的 `JSContext*`（内部辅助，声明于 `src/qwrt_internal.h`）。
 
 ### init 中的每运行时数据
 

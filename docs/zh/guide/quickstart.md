@@ -9,8 +9,8 @@ description: 在 5 分钟内让 Qwrt.js 跑起来 — 克隆、构建并运行�
 
 ## 前置条件
 
-- **C 编译器** — GCC 8+、Clang 10+ 或 MSVC 2019+
-- **CMake** 3.16+
+- **C 编译器** — GCC 8+ 或 Clang 10+（POSIX；Windows/MSVC 尚不支持）
+- **CMake** 3.10+
 - **Git**（用于子模块）
 
 ## 克隆与构建
@@ -72,7 +72,7 @@ cc -std=c99 -o hello hello.c $(pkg-config --cflags --libs qwrt)
 树内构建时，先把 pkg-config 指向构建目录：
 
 ```bash
-export PKG_CONFIG_PATH="$PWD/build/lib/pkgconfig"
+export PKG_CONFIG_PATH="$PWD/build"
 ```
 
 ## 带测试构建
@@ -86,9 +86,9 @@ cd build && ctest --output-on-failure
 测试带有标签，方便定向运行：
 
 ```bash
-ctest -L offline     # 本地确定性测试（CI 默认）
-ctest -L network     # 出站 HTTP/HTTPS 测试
-ctest -L benchmark   # 性能基准测试（非通过/失败）
+ctest -L offline   # 本地确定性测试（CI 默认）
+ctest -L dap       # DAP 协议测试
+ctest -L test262   # ECMA-262 一致性测试套件
 ```
 
 ## 下一步

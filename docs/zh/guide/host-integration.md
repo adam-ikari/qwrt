@@ -13,7 +13,7 @@ description: 在 C 应用中嵌入 qwrt 的主机集成路径 —— create、JS
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. create      qwrt_create(&cfg)   — 线程 + 循环 + JS 就绪    │
-│ 2. script      initial_script / bytecode — JS 先跑什么        │
+│ 2. script      initial_script            — JS 先跑什么        │
 │ 3. communicate qwrt_post_message ⇄ message_cb  — JSON 契约   │
 │ 4. lend        暴露 C 函数、serve/fs/worker/crypto 给 JS      │
 │ 5. destroy     qwrt_destroy(rt)    — 优雅销毁                 │
@@ -37,7 +37,7 @@ qwrt_t *rt = qwrt_create(&cfg);   // 阻塞直到就绪
 喂给运行时初始脚本有三种方式：
 
 - **`initial_script`** —— 小字符串，适合引导逻辑
-- **编译字节码** —— 用 `qjsc` 预编译，交付 `.bc`（启动更快、不携带源码）。见 [字节码](/zh/guide/bytecode)
+- **`initial_script`** — 一个小子串，适合引导逻辑。qwrt 在内部把自身的 WinterTC polyfill 编译为字节码；宿主以源码提供 JS，而非字节码 blob（见 [字节码](/zh/guide/bytecode)）
 - **`qwrt_post_message`** —— 创建后一切由消息驱动
 
 ## 3. 消息契约
