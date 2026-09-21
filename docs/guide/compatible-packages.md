@@ -45,9 +45,13 @@ Then load `nanoid.bundle.js` via `qwrt_eval`.
 
 ## Checking Compatibility
 
-`test/compat_check.py` pulls a package from the npm registry, injects its
-source into a **qwrt runtime**, and actually loads the package's main entry
-through a minimal CommonJS loader:
+`test/compat_check.py` combines a **static source scan** with a **real qwrt
+load**:
+
+1. **Static scan** flags Node built-ins and missing globals in the source,
+   even in branches that never run at load time.
+2. **Runtime load** injects the package into a qwrt runtime through a minimal
+   CommonJS loader and actually loads the main entry.
 
 ```bash
 python3 test/compat_check.py lodash
@@ -55,12 +59,10 @@ python3 test/compat_check.py express uuid      # multiple packages
 python3 test/compat_check.py lodash --json    # machine-readable
 ```
 
-The verdict comes from **real execution**, not a static scan:
+The runtime verdict is decisive: a CJS package that loads and returns its
+exports is compatible; one that `require`s a Node built-in or external npm dep
+fails on require; an ESM-only package (`"type": "module"`) reports that it
+needs bundling to an IIFE with esbuild (qwrt has no ESM loader). The static
+scan adds warnings for latent risks the load test cannot see.
 
-- A CJS package that loads and returns its exports is **compatible**
-- A package that `require`s a Node built-in or an external npm dep **fails on
-  require**
-- An ESM-only package (`"type": "module"`) reports that it needs bundling to
-  an IIFE with esbuild (qwrt has no ESM loader)
-
-Exit code is 1 if the package fails to load, so it works as a CI gate.
+Exit code is 1 if the package fails to load at runtime, so it works as a CI gate.

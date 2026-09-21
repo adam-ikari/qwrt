@@ -67,8 +67,12 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
 
 ## 如何验证
 
-`test/compat_check.py` 从 npm registry 拉取包，把源码注入 **qwrt 运行时**，通过一个
-极简 CommonJS loader 真实加载包的主入口：
+`test/compat_check.py` 结合**静态源码扫描**与 **qwrt 真实加载**：
+
+1. **静态扫描**：标记源码中的 Node 内置模块与缺失全局，包括加载时不会走到
+   的分支里的潜在问题。
+2. **运行时加载**：把包注入 qwrt 运行时，通过极简 CommonJS loader 真实加载
+   主入口。
 
 ```bash
 python3 test/compat_check.py lodash
@@ -76,10 +80,9 @@ python3 test/compat_check.py express uuid      # 多个包
 python3 test/compat_check.py lodash --json    # 机器可读
 ```
 
-判定来自**真实执行**，不是静态扫描：
+运行时判定是决定性的：CJS 包能加载并返回导出 → 兼容；`require` 了 Node 内置
+或外部 npm 依赖的包 → 在 require 处失败；ESM-only 包（`"type": "module"`）
+→ 报告需用 esbuild 转成 IIFE（qwrt 没有 ESM loader）。静态扫描补充加载测试
+看不到的潜在风险警告。
 
-- CJS 包能加载并返回导出 → **兼容**
-- 包 `require` 了 Node 内置模块或外部 npm 依赖 → 在 require 处失败
-- ESM-only 包（`"type": "module"`）→ 报告需用 esbuild 转成 IIFE（qwrt 没有 ESM loader）
-
-包加载失败时退出码为 1，可用作 CI 门控。
+运行时加载失败时退出码为 1，可用作 CI 门控。
