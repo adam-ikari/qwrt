@@ -14,8 +14,8 @@ crypto.subtle（digest/HMAC/PBKDF2）的功能测试采用 gtest 框架（test/t
 
 ## 已知细节（避免踩坑）
 - polyfill 的 CryptoKey.algorithm.hash 是**字符串**（'SHA-256'）而非 WebCrypto 规范的 {name:...} 对象——断言时用 `k.algorithm.hash.name || k.algorithm.hash` 兼容（与 WPT 测试 subtle-digest.any.js 一致）。
-- crypto.subtle 由 ext_crypto.c（QWRT_WITH_CRYPTO_EXT=ON）init hook 安装到全局；所有操作返回 Promise，测试用全局变量 + host_poll_until_value 轮询。
-- 测试通过 add_qwrt_gtest(test_crypto_subtle_gtest) 注册，QWRT_WITH_CRYPTO_EXT 条件守卫。
+- crypto.subtle 由 ext_crypto.c（AM_WITH_CRYPTO_EXT=ON）init hook 安装到全局；所有操作返回 Promise，测试用全局变量 + host_poll_until_value 轮询。
+- 测试通过 add_am_gtest(test_crypto_subtle_gtest) 注册，AM_WITH_CRYPTO_EXT 条件守卫。
 
 ## 验证
 ./build/test/test_crypto_subtle_gtest: 8/8 PASSED；ctest 15/15 PASSED。

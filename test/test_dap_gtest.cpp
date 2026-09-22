@@ -1,8 +1,8 @@
 // test_dap_gtest — DAP debugger end-to-end (new message model, gtest).
 //
 // The test forks a child embedding host (mock_libuv build). The child passes
-// its JS program as qwrt_config.initial_script and sets QWRT_DEBUG=1, so
-// qwrt_create auto-attaches the DAP layer and blocks in the configuration
+// its JS program as am_config.initial_script and sets AM_DEBUG=1, so
+// am_create auto-attaches the DAP layer and blocks in the configuration
 // phase (initialize/setBreakpoints/configurationDone) BEFORE eval'ing the
 // initial script. The initial script is eval'd as "<initial>", so the parent
 // sets breakpoints on source path "<initial>".
@@ -13,16 +13,16 @@
 // continues to exit.
 //
 // NOTE: async JS (fetch/setTimeout) cannot advance while paused at a
-// breakpoint in the new model (the qwrt thread is inside JS_Eval in
+// breakpoint in the new model (the amoib thread is inside JS_Eval in
 // on_stopped) — this test therefore only covers synchronous stepping.
 //
-// Build: cmake -B build -DQWRT_BUILD_DEBUGGER=ON -DQWRT_BUILD_TESTS=ON
+// Build: cmake -B build -DAM_BUILD_DEBUGGER=ON -DAM_BUILD_TESTS=ON
 // Run:   ctest -R test_dap_gtest --output-on-failure
 #define _POSIX_C_SOURCE 200809L
 
 #include <gtest/gtest.h>
 
-#include <qwrt/qwrt.h>
+#include <amoib/amoib.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -32,7 +32,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-#ifdef QWRT_DEBUG_SUPPORT
+#ifdef AM_DEBUG_SUPPORT
 
 /* The JS program the child runs as initial_script (eval'd as "<initial>").
  * Breakpoint at line 3 (the first x++). Wrapped in a function so x is a LOCAL
@@ -115,20 +115,20 @@ static char *json_get(const char *json, const char *key) {
 /* ---- child: the embedding host ---- */
 
 static int child_main(int in_fd, int out_fd) {
-    /* Redirect stdin/stdout to the pipe so qwrt_dap (which uses stdin/stdout)
+    /* Redirect stdin/stdout to the pipe so am_dap (which uses stdin/stdout)
      * talks to the parent. */
     dup2(in_fd, STDIN_FILENO);
     dup2(out_fd, STDOUT_FILENO);
     close(in_fd);
     close(out_fd);
 
-    qwrt_config_t cfg = {};
+    am_config_t cfg = {};
     cfg.initial_script = kJsProgram;
-    /* QWRT_DEBUG env is set by the parent; qwrt_create auto-attaches DAP and
+    /* AM_DEBUG env is set by the parent; am_create auto-attaches DAP and
      * blocks on the configuration phase before eval'ing initial_script. */
-    qwrt_t *rt = qwrt_create(&cfg);
+    am_t *rt = am_create(&cfg);
     if (!rt) return 1;
-    qwrt_destroy(rt);
+    am_destroy(rt);
     return 0;
 }
 
@@ -145,7 +145,7 @@ static int parent_main(int child_out_fd, int child_in_fd, pid_t pid) {
      * initialize response; order isn't guaranteed, so read up to 4 messages. */
     dap_write(child_in_fd,
         "{\"type\":\"request\",\"seq\":1,\"command\":\"initialize\","
-        "\"arguments\":{\"adapterID\":\"qwrt\",\"clientID\":\"test\"}}");
+        "\"arguments\":{\"adapterID\":\"amoib\",\"clientID\":\"test\"}}");
     int got_event = 0, got_response = 0;
     for (int tries = 0; tries < 4 && !(got_event && got_response); tries++) {
         msg = dap_read(from_child);
@@ -173,7 +173,7 @@ static int parent_main(int child_out_fd, int child_in_fd, pid_t pid) {
     free(msg);
     fprintf(stderr, "ok: setBreakpoints\n");
 
-    /* 3. configurationDone — unblocks qwrt_dap_configure; the child evals
+    /* 3. configurationDone — unblocks am_dap_configure; the child evals
      * initial_script, hits the breakpoint, sends `stopped`. */
     dap_write(child_in_fd,
         "{\"type\":\"request\",\"seq\":3,\"command\":\"configurationDone\","
@@ -308,7 +308,7 @@ static int parent_main(int child_out_fd, int child_in_fd, pid_t pid) {
 
 /* Run-mode child: keeps a setInterval alive so a DAP pause request can land
  * mid-run, then exits after a fixed sleep so the parent's pause/continue
- * sequence has time. The qwrt thread runs the uv loop on its own thread while
+ * sequence has time. The amoib thread runs the uv loop on its own thread while
  * this process sleeps — exactly the state where the periodic DAP poll timer
  * is needed (an idle uv_run would otherwise block forever and never read the
  * pause off stdin). */
@@ -319,13 +319,13 @@ static int child_run_main(int in_fd, int out_fd)
     close(in_fd);
     close(out_fd);
 
-    qwrt_config_t cfg = {};
-    /* setInterval keeps the event loop alive; the qwrt thread services it. */
+    am_config_t cfg = {};
+    /* setInterval keeps the event loop alive; the amoib thread services it. */
     cfg.initial_script = "setInterval(() => {}, 200);\n1;\n";
-    qwrt_t *rt = qwrt_create(&cfg);
+    am_t *rt = am_create(&cfg);
     if (!rt) return 1;
     usleep(3 * 1000 * 1000);   /* give the parent time to pause us mid-run */
-    qwrt_destroy(rt);
+    am_destroy(rt);
     return 0;
 }
 
@@ -338,7 +338,7 @@ static int pause_parent_main(int child_out_fd, int child_in_fd, pid_t pid)
     /* 1. initialize */
     dap_write(child_in_fd,
         "{\"type\":\"request\",\"seq\":1,\"command\":\"initialize\","
-        "\"arguments\":{\"adapterID\":\"qwrt\",\"clientID\":\"test\"}}");
+        "\"arguments\":{\"adapterID\":\"amoib\",\"clientID\":\"test\"}}");
     int got_event = 0, got_response = 0;
     for (int tries = 0; tries < 4 && !(got_event && got_response); tries++) {
         msg = dap_read(from_child);
@@ -371,7 +371,7 @@ static int pause_parent_main(int child_out_fd, int child_in_fd, pid_t pid)
     free(msg);
     fprintf(stderr, "ok: stopped at entry\n");
 
-    /* 4. continue past entry — the script finishes evaluating and the qwrt
+    /* 4. continue past entry — the script finishes evaluating and the amoib
      * thread settles into uv_run with only the setInterval + DAP poll timers. */
     dap_write(child_in_fd,
         "{\"type\":\"request\",\"seq\":3,\"command\":\"continue\","
@@ -431,8 +431,8 @@ TEST(DapDebugger, PauseWhileRunning) {
     if (pid == 0) {
         close(to_child[1]);
         close(from_child[0]);
-        setenv("QWRT_DEBUG", "1", 1);
-        const char *trace = getenv("QWRT_DAP_TRACE");
+        setenv("AM_DEBUG", "1", 1);
+        const char *trace = getenv("AM_DAP_TRACE");
         if (trace) { freopen(trace, "w", stderr); }
         int rc = child_run_main(to_child[0], from_child[1]);
         _exit(rc);
@@ -461,8 +461,8 @@ TEST(DapDebugger, BreakpointFlow) {
         /* child: read from to_child[0], write to from_child[1] */
         close(to_child[1]);
         close(from_child[0]);
-        setenv("QWRT_DEBUG", "1", 1);
-        const char *trace = getenv("QWRT_DAP_TRACE");
+        setenv("AM_DEBUG", "1", 1);
+        const char *trace = getenv("AM_DAP_TRACE");
         if (trace) { freopen(trace, "w", stderr); }
         int rc = child_main(to_child[0], from_child[1]);
         _exit(rc);
@@ -480,15 +480,15 @@ TEST(DapDebugger, BreakpointFlow) {
 }
 
 /* ---- M-R1 §13.2/§13.4：DAP stdio 单通道约束 ----
- * 同进程第二个 runtime 缺省 stdio attach（QWRT_DEBUG=1 auto-attach）必须
- * 显式失败（qwrt_dap_attach -2 → ready_err → qwrt_create NULL），不静默
+ * 同进程第二个 runtime 缺省 stdio attach（AM_DEBUG=1 auto-attach）必须
+ * 显式失败（am_dap_attach -2 → ready_err → am_create NULL），不静默
  * 共享 stdin/stdout。attach 冲突释放后（第一实例 detach）再 attach 成功。
  *
  * child 编排（单线程，阻塞点即握手点）：
- *   rt1 = qwrt_create   ← 等父 configurationDone(1)
- *   rt2 = qwrt_create   ← stdio 已被 rt1 认领 → NULL（断言！rc=2 表明守卫失效）
- *   qwrt_destroy(rt1)   ← 等父 continue(1)（rt1 停在 entry）→ detach 释放认领
- *   rt3 = qwrt_create   ← 重新认领成功 → 等父 configurationDone(2)
+ *   rt1 = am_create   ← 等父 configurationDone(1)
+ *   rt2 = am_create   ← stdio 已被 rt1 认领 → NULL（断言！rc=2 表明守卫失效）
+ *   am_destroy(rt1)   ← 等父 continue(1)（rt1 停在 entry）→ detach 释放认领
+ *   rt3 = am_create   ← 重新认领成功 → 等父 configurationDone(2)
  *   _exit(0)            ← rt3 留活（进程退出收尾）
  *
  * 父端驱动两轮 configure（rt1 / rt3），每轮 initialize → configurationDone
@@ -501,21 +501,21 @@ static int child_conflict_main(int in_fd, int out_fd) {
     close(in_fd);
     close(out_fd);
 
-    qwrt_config_t cfg = {};
+    am_config_t cfg = {};
     cfg.initial_script = kJsTrivial;
 
-    qwrt_t *rt1 = qwrt_create(&cfg);
+    am_t *rt1 = am_create(&cfg);
     if (!rt1) return 1;
 
     /* 第二实例：auto-attach 命中 stdio 认领 → attach -2 → ready_err → NULL。
      * 返回非 NULL = 守卫失效（两 runtime 抢同一 stdin/stdout）。 */
-    qwrt_t *rt2 = qwrt_create(&cfg);
+    am_t *rt2 = am_create(&cfg);
     if (rt2) return 2;
 
     /* 释放后可再认领：detach rt1（父已 continue，其线程不在 on_stopped 阻塞）
      * → rt3 缺省 attach 成功。失败 = 认领未随 detach 释放。 */
-    qwrt_destroy(rt1);
-    qwrt_t *rt3 = qwrt_create(&cfg);
+    am_destroy(rt1);
+    am_t *rt3 = am_create(&cfg);
     if (!rt3) return 3;
 
     return 0;   /* rt3 留活：进程退出收尾 */
@@ -530,7 +530,7 @@ static int drive_one_session(int child_in_fd, FILE *from_child, int seq_base) {
 
     snprintf(req, sizeof(req),
         "{\"type\":\"request\",\"seq\":%d,\"command\":\"initialize\","
-        "\"arguments\":{\"adapterID\":\"qwrt\",\"clientID\":\"test\"}}", seq_base);
+        "\"arguments\":{\"adapterID\":\"amoib\",\"clientID\":\"test\"}}", seq_base);
     dap_write(child_in_fd, req);
     for (int tries = 0; tries < 4 && !(got_event && got_response); tries++) {
         msg = dap_read(from_child);
@@ -614,7 +614,7 @@ TEST(DapDebugger, StdioConflictSecondInstanceRejected) {
     if (pid == 0) {
         close(to_child[1]);
         close(from_child[0]);
-        setenv("QWRT_DEBUG", "1", 1);
+        setenv("AM_DEBUG", "1", 1);
         int rc = child_conflict_main(to_child[0], from_child[1]);
         _exit(rc);
     }
@@ -629,10 +629,10 @@ TEST(DapDebugger, StdioConflictSecondInstanceRejected) {
     }
 }
 
-#else /* !QWRT_DEBUG_SUPPORT */
+#else /* !AM_DEBUG_SUPPORT */
 
 TEST(DapDebugger, DisabledWithoutDebuggerBuild) {
-    GTEST_SKIP() << "QWRT_BUILD_DEBUGGER=OFF — DAP tests not built";
+    GTEST_SKIP() << "AM_BUILD_DEBUGGER=OFF — DAP tests not built";
 }
 
-#endif /* QWRT_DEBUG_SUPPORT */
+#endif /* AM_DEBUG_SUPPORT */

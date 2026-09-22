@@ -1,6 +1,6 @@
 #!/bin/bash
 # M-P4 e2e — 单所有者 storage 代理（§10.2）+ 崩溃恢复/孤儿回收（§9.3/§9.4）
-# 真进程路径（缺省 ISOLATED 构建，QWRT_WORKER_BACKEND=process）：
+# 真进程路径（缺省 ISOLATED 构建，AM_WORKER_BACKEND=process）：
 #   1. 跨进程 storage：worker 内 localStorage.* 经 kind=STORAGE 信封同步 RPC 到
 #      主RT 所有者执行——跨进程一致（worker 写主RT 读、主RT 写 worker 读）、
 #      同步 API 语义（含 QuotaExceededError 异常形状）、持久化落盘
@@ -11,14 +11,14 @@
 #      + worker 连锁自杀（§9.4，无残留）
 #   5. 宿主被杀 → 主RT + worker 自杀（§6.4/§9.4 孤儿回收，无泄漏进程）
 #   6. 洪泛：2000 条跨进程往返无丢失（计数 + 校验和精确），进程干净退出
-# Usage: bash test/test_mp4_storage_crash_e2e.sh <path-to-qwrt>
+# Usage: bash test/test_mp4_storage_crash_e2e.sh <path-to-amoib>
 set -u
-QWRT="${1:-./build/qwrt}"
+AM="${1:-./build/amoib}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$DIR/.." && pwd)"
 FIX="$(mktemp -d)"
 TMPLS="$(mktemp -d)"
-export QWRT_WORKER_BACKEND=process
+export AM_WORKER_BACKEND=process
 HOSTPID=""
 
 cleanup() {
@@ -27,7 +27,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[ -x "$QWRT" ] || { echo "FAIL: qwrt binary not found at '$QWRT'"; exit 1; }
+[ -x "$AM" ] || { echo "FAIL: amoib binary not found at '$AM'"; exit 1; }
 fail() { echo "FAIL: $1"; [ -n "${2:-}" ] && { echo "--- got:"; printf '%s\n' "$2"; }; exit 1; }
 
 # fixtures 用 __ROOT__ 占位（repo 根运行时替换，CI 可移植）
@@ -40,15 +40,15 @@ cat > "$FIX/probe.js" <<EOF
 try { new Worker('file://$ROOT/test/mp4-e2e/worker_echo.js'); console.log('PROC-OK'); }
 catch (e) { console.log('PROC-ERR:' + e.message); }
 EOF
-PROBE="$(timeout 15 "$QWRT" "$FIX/probe.js" 2>&1)"
+PROBE="$(timeout 15 "$AM" "$FIX/probe.js" 2>&1)"
 case "$PROBE" in
   *PROC-OK*) ;;
   *) echo "SKIP: build has no process backend — $PROBE"; exit 0;;
 esac
 
 # ── 1: 跨进程 storage（worker 代理 → 主RT 所有者，§10.2）──
-export QWRT_LOCALSTORAGE_FILE="$TMPLS/ls.json"
-OUT="$(timeout 30 "$QWRT" "$FIX/main_storage.js" 2>&1)" || fail "1 storage run"
+export AM_LOCALSTORAGE_FILE="$TMPLS/ls.json"
+OUT="$(timeout 30 "$AM" "$FIX/main_storage.js" 2>&1)" || fail "1 storage run"
 printf '%s\n' "$OUT" | grep -q "xproc:get=v1"        || fail "1 worker reads mainRT value" "$OUT"
 printf '%s\n' "$OUT" | grep -q "|len=2|"            || fail "1 worker length" "$OUT"
 printf '%s\n' "$OUT" | grep -q "|key0=k1|"          || fail "1 worker key(n)" "$OUT"
@@ -70,14 +70,14 @@ printf '%s\n' "$OUT" | grep -q "main-ls-isolated:null"  || fail "1 mainRT localS
 grep -q '"skey"' "$TMPLS/ls.json" 2>/dev/null && fail "1 sessionStorage leaked into localStorage file" "$(cat "$TMPLS/ls.json" 2>/dev/null)"
 
 # ── 2: worker 崩溃注入（kill -9）→ 主RT onerror + 继续 + 收尸 ──
-"$QWRT" "$FIX/main_worker_crash.js" > "$FIX/crash.out" 2>&1 &
+"$AM" "$FIX/main_worker_crash.js" > "$FIX/crash.out" 2>&1 &
 HOSTPID=$!
 for _ in $(seq 1 100); do
   grep -q "WORKER-READY" "$FIX/crash.out" 2>/dev/null && break
   kill -0 "$HOSTPID" 2>/dev/null || break
   sleep 0.1
 done
-MAINPID="$(pgrep -P "$HOSTPID" -f 'qwrt-rt' 2>/dev/null | head -1)"
+MAINPID="$(pgrep -P "$HOSTPID" -f 'amoib-rt' 2>/dev/null | head -1)"
 [ -n "$MAINPID" ] || fail "2 no mainRT child of host $HOSTPID" "$(cat "$FIX/crash.out")"
 WKPID="$(pgrep -P "$MAINPID" 2>/dev/null | head -1)"
 [ -n "$WKPID" ] || fail "2 no worker child of mainRT $MAINPID" "$(cat "$FIX/crash.out")"
@@ -98,20 +98,20 @@ wait "$HOSTPID" 2>/dev/null || fail "2 host exited abnormally after worker crash
 HOSTPID=""
 
 # ── 3: worker 自愿 close() → 静默（不自报崩溃）──
-OUT="$(timeout 20 "$QWRT" "$FIX/main_selfclose.js" 2>&1)" || fail "3 selfclose run" "$OUT"
+OUT="$(timeout 20 "$AM" "$FIX/main_selfclose.js" 2>&1)" || fail "3 selfclose run" "$OUT"
 printf '%s\n' "$OUT" | grep -q "WORKER-READY" || fail "3 worker ready" "$OUT"
 printf '%s\n' "$OUT" | grep -q "SELFCLOSE-DONE" || fail "3 selfclose done" "$OUT"
 printf '%s\n' "$OUT" | grep -q "SPURIOUS-ONERROR" && fail "3 self-close must not fire onerror" "$OUT"
 
 # ── 4: 主RT 崩溃（kill -9）→ 宿主 message_cb error（§9.3）+ worker 连锁自杀 ──
-"$QWRT" "$FIX/main_mainrt_hold.js" > "$FIX/rt.out" 2>&1 &
+"$AM" "$FIX/main_mainrt_hold.js" > "$FIX/rt.out" 2>&1 &
 HOSTPID=$!
 for _ in $(seq 1 100); do
   grep -q "WORKER-READY" "$FIX/rt.out" 2>/dev/null && break
   kill -0 "$HOSTPID" 2>/dev/null || break
   sleep 0.1
 done
-MAINPID="$(pgrep -P "$HOSTPID" -f 'qwrt-rt' 2>/dev/null | head -1)"
+MAINPID="$(pgrep -P "$HOSTPID" -f 'amoib-rt' 2>/dev/null | head -1)"
 WKPID="$(pgrep -P "$MAINPID" 2>/dev/null | head -1)"
 [ -n "$MAINPID" ] && [ -n "$WKPID" ] || fail "4 PID evidence (main=$MAINPID worker=$WKPID)"
 kill -9 "$MAINPID" 2>/dev/null || fail "4 kill -9 mainRT $MAINPID failed"
@@ -129,14 +129,14 @@ kill -0 "$WKPID" 2>/dev/null && fail "4 orphan worker $WKPID survived mainRT dea
 kill -0 "$MAINPID" 2>/dev/null && fail "4 killed mainRT $MAINPID still present (zombie?)"
 
 # ── 5: 宿主被杀 → 主RT + worker 自杀（§6.4/§9.4 孤儿回收）──
-"$QWRT" "$FIX/main_mainrt_hold.js" > "$FIX/orph.out" 2>&1 &
+"$AM" "$FIX/main_mainrt_hold.js" > "$FIX/orph.out" 2>&1 &
 HOSTPID=$!
 for _ in $(seq 1 100); do
   grep -q "WORKER-READY" "$FIX/orph.out" 2>/dev/null && break
   kill -0 "$HOSTPID" 2>/dev/null || break
   sleep 0.1
 done
-MAINPID="$(pgrep -P "$HOSTPID" -f 'qwrt-rt' 2>/dev/null | head -1)"
+MAINPID="$(pgrep -P "$HOSTPID" -f 'amoib-rt' 2>/dev/null | head -1)"
 WKPID="$(pgrep -P "$MAINPID" 2>/dev/null | head -1)"
 [ -n "$MAINPID" ] && [ -n "$WKPID" ] || fail "5 PID evidence (main=$MAINPID worker=$WKPID)"
 kill -9 "$HOSTPID" 2>/dev/null || fail "5 kill -9 host $HOSTPID failed"
@@ -158,7 +158,7 @@ w.onmessage = function (e) {
 };
 for (var i = 1; i <= N; i++) w.postMessage(String(i));
 EOF
-OUT="$(timeout 90 "$QWRT" "$FIX/flood.js" 2>&1)" || fail "6 flood run" "$OUT"
+OUT="$(timeout 90 "$AM" "$FIX/flood.js" 2>&1)" || fail "6 flood run" "$OUT"
 printf '%s\n' "$OUT" | grep -q "FLOOD:2000:2001000" || fail "6 flood lossless (2000 × sum 2001000)" "$OUT"
 
 echo "PASS: M-P4 storage single-owner proxy (§10.2) + crash recovery (worker kill -9 onerror / self-close silent / mainRT kill host error + chain death / host kill orphan reclaim) + 2000-msg flood lossless"

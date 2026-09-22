@@ -1,11 +1,11 @@
 ---
 title: timers
-description: Timer APIs in Qwrt.js — setTimeout, clearTimeout, setInterval, clearInterval, and microtask scheduling.
+description: Timer APIs in Amoib.js — setTimeout, clearTimeout, setInterval, clearInterval, and microtask scheduling.
 ---
 
 # Timers API
 
-Standard `setTimeout` / `setInterval` with millisecond resolution. Backed by libuv timers (`uv_timer_*`) on qwrt's internal thread (~1ms precision).
+Standard `setTimeout` / `setInterval` with millisecond resolution. Backed by libuv timers (`uv_timer_*`) on amoib's internal thread (~1ms precision).
 
 ## Globals
 
@@ -70,24 +70,24 @@ Passing an invalid handle (already cleared, garbage value) is silently ignored.
 setTimeout(cb, 1000)
     │
     ▼
-uv_timer_start(1s, one-shot) on qwrt's internal loop
+uv_timer_start(1s, one-shot) on amoib's internal loop
     │
     ▼  (1000ms passes, loop wakes)
     │
-timer callback fires on the qwrt thread → cb() called
+timer callback fires on the amoib thread → cb() called
 ```
 
 For `setInterval`, the uv timer repeats; each fire re-runs the callback until it is cleared.
 
 ## Context Lifecycle
 
-- Timers are managed per context on qwrt's internal thread
-- Timers are automatically cancelled when the runtime shuts down (`qwrt_destroy`)
+- Timers are managed per context on amoib's internal thread
+- Timers are automatically cancelled when the runtime shuts down (`am_destroy`)
 - No timers survive a restart — create them fresh in `initial_script`
 
 ## Max Timers
 
-Each context supports up to `QWRT_MAX_HANDLES` (256) total handles across all handle types (timers + filesystem + HTTP). Creating a timer when the table is full returns `0` (invalid handle), and the callback is never called.
+Each context supports up to `AM_MAX_HANDLES` (256) total handles across all handle types (timers + filesystem + HTTP). Creating a timer when the table is full returns `0` (invalid handle), and the callback is never called.
 
 ## Notes
 

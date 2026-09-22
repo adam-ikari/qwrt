@@ -1,15 +1,15 @@
 /**
- * qwrt Polyfill - File System Extension API
+ * amoib Polyfill - File System Extension API
  *
  * Provides node:fs-style async API based on PAL primitives.
  * PAL returns strings for fsExists ("true"/"false") and fsList (JSON array),
  * which this module parses into proper JS types.
  *
- * Mounted on globalThis.qwrt.fs
+ * Mounted on globalThis.amoib.fs
  */
 
 export function setupFS(pal) {
-  if (!globalThis.qwrt) globalThis.qwrt = {};
+  if (!globalThis.amoib) globalThis.amoib = {};
 
   var fs = {
     async readFile(path, options) {
@@ -45,9 +45,9 @@ export function setupFS(pal) {
 
     // Sync-style aliases (still async under the hood)
     readFileSync(path, options) {
-      throw new Error('Synchronous fs operations not supported in qwrt');
+      throw new Error('Synchronous fs operations not supported in amoib');
     },
   };
 
-  globalThis.qwrt.fs = fs;
+  globalThis.amoib.fs = fs;
 }

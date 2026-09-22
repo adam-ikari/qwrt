@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 补齐 qwrt 在 W3C Worker（错误事件流、importScripts）、W3C WASM（Streaming API）、WinterTC/JS 全局对象（测试覆盖）三个标准领域的合规差距。
+**Goal:** 补齐 amoib 在 W3C Worker（错误事件流、importScripts）、W3C WASM（Streaming API）、WinterTC/JS 全局对象（测试覆盖）三个标准领域的合规差距。
 
 **Architecture:** 功能缺口集中在 `polyfill/src/`（JS 侧 Worker/全局对象）和 `src/`（C 侧 worker.c / ext_wamr.c）两层。补齐原则：优先在 JS polyfill 层实现（成本低、可被 WPT 验证），C 层只动必要的注入/桥接。所有新功能必须有 gtest 或 WPT 测试。
 
@@ -27,7 +27,7 @@
 - `polyfill/src/navigator.js` — globalThis.onerror 定义（改：worker 侧 dispatch error 事件）
 - `polyfill/src/message-channel.js` — MessageEvent（参考：ErrorEvent 构造）
 - `polyfill/src/error-events.js` — ErrorEvent/PromiseRejectionEvent（参考）
-- `src/worker.c` — worker 线程 boot 脚本注入（改：`QWRT_WORKER_BOOT_JS` 内 dispatch error；加 importScripts 原生实现可选）
+- `src/worker.c` — worker 线程 boot 脚本注入（改：`AM_WORKER_BOOT_JS` 内 dispatch error；加 importScripts 原生实现可选）
 - `src/ext_wamr.c` — WebAssembly 对象（改：注册 compileStreaming/instantiateStreaming）
 - `polyfill/src/index.js` — setup 模块顺序（参考）
 - `test/test_worker_gtest.cpp` — Worker 测试（增：error 事件用例）
@@ -41,18 +41,18 @@
 **目标：** worker 脚本顶层异常 → worker 侧触发 `self.onerror`，父侧触发 `w.onerror`，均收到 `ErrorEvent`（含 `message`/`filename`/`lineno`/`colno`），worker 继续存活。
 
 **现状（根因）：**
-- `src/worker.c:78` `qwrt_worker_notify_error` 构造 `{type:'error', error:&lt;msg&gt;}` 经 worker 的 `postMessage`（已被垫片换成结构化克隆）发给父 → 落到父 `w.onmessage`（worker.js:65-85 无 error 特判）。
+- `src/worker.c:78` `am_worker_notify_error` 构造 `{type:'error', error:&lt;msg&gt;}` 经 worker 的 `postMessage`（已被垫片换成结构化克隆）发给父 → 落到父 `w.onmessage`（worker.js:65-85 无 error 特判）。
 - worker 侧 `globalThis.onerror` 在 navigator.js:75 定义为 EventTarget 事件处理器，但运行时从不 dispatch `'error'` 事件，是死属性。
 
 **改动：**
 
-1. `src/worker.c` — 顶层异常时不再走 `postMessage({type:'error'})`，改为在 worker 自己的 JSRuntime 内 dispatch 一个 `'error'` Event（若 worker 侧有 `onerror`/`addEventListener('error')` 则触发），同时保持向父发通知。最小改动：保留现有 `qwrt_worker_notify_error` 的父通知，但在 `qwrt_worker_notify_error` 内先尝试 `JS_GetPropertyStr(ctx,g,"ErrorEvent")` 构造 ErrorEvent 并 `dispatchEvent`，若构造失败回退到普通 `postMessage({type:'error'})`。
+1. `src/worker.c` — 顶层异常时不再走 `postMessage({type:'error'})`，改为在 worker 自己的 JSRuntime 内 dispatch 一个 `'error'` Event（若 worker 侧有 `onerror`/`addEventListener('error')` 则触发），同时保持向父发通知。最小改动：保留现有 `am_worker_notify_error` 的父通知，但在 `am_worker_notify_error` 内先尝试 `JS_GetPropertyStr(ctx,g,"ErrorEvent")` 构造 ErrorEvent 并 `dispatchEvent`，若构造失败回退到普通 `postMessage({type:'error'})`。
 
 ```c
-/* src/worker.c — qwrt_worker_notify_error 增加本地 error 事件派发 */
-static void qwrt_worker_notify_error(qwrt_t *rt, const char *msg)
+/* src/worker.c — am_worker_notify_error 增加本地 error 事件派发 */
+static void am_worker_notify_error(am_t *rt, const char *msg)
 {
-    qwrt_ctx_t *cctx = rt->contexts[0];
+    am_ctx_t *cctx = rt->contexts[0];
     if (!cctx || !cctx->jsctx) return;
     JSContext *ctx = cctx->jsctx;
     JSValue g = JS_GetGlobalObject(ctx);
@@ -95,16 +95,16 @@ static void qwrt_worker_notify_error(qwrt_t *rt, const char *msg)
 }
 ```
 
-2. `polyfill/src/worker.js` — 父侧 `__qwrt_dispatch__`（worker id > 0 分支）识别 `{type:'error'}`：反序列化后若 `data.type === 'error'`，构造 `ErrorEvent`（或普通 Event）调 `w._onerror`（若设置），否则走 `w._onmsg`。
+2. `polyfill/src/worker.js` — 父侧 `__am_dispatch__`（worker id > 0 分支）识别 `{type:'error'}`：反序列化后若 `data.type === 'error'`，构造 `ErrorEvent`（或普通 Event）调 `w._onerror`（若设置），否则走 `w._onmsg`。
 
 ```js
 // polyfill/src/worker.js — 父侧 inbound 路由加 error 特判
-globalThis.__qwrt_dispatch__ = function (data, source) {
+globalThis.__am_dispatch__ = function (data, source) {
   if (source === 0) { hostDispatch(data, source); return; }
   var w = workers.get(source);
   if (!w) return;
   var d;
-  try { d = __qwrt_deserialize__(data); }
+  try { d = __am_deserialize__(data); }
   catch (err) { reportError(err); return; }
   var handler = (d && d.type === 'error') ? w._onerror : w._onmsg;
   if (!handler) return;
@@ -145,14 +145,14 @@ cmake --build build --target test_worker_gtest -j$(nproc)
 
 **目标：** worker 脚本内 `importScripts('file://.../x.js')` 同步加载并执行额外脚本（file:// v1 范围内，与 `new Worker` 一致）。
 
-**现状：** `QWRT_WORKER_BOOT_JS`（src/worker.c）只定义 `__qwrt_dispatch__` 与 `close`，无 importScripts。
+**现状：** `AM_WORKER_BOOT_JS`（src/worker.c）只定义 `__am_dispatch__` 与 `close`，无 importScripts。
 
 **改动：**
 
-1. `src/worker.c` — 在 `QWRT_WORKER_BOOT_JS` 宏内追加 `globalThis.importScripts` 实现。脚本字符串在当前 worker 上下文 `JS_Eval`（沿用 `qwrt_eval_internal`），文件读取走 `pal.fsReadSync`（与 Worker 构造器读取一致，含路径穿越防护）。
+1. `src/worker.c` — 在 `AM_WORKER_BOOT_JS` 宏内追加 `globalThis.importScripts` 实现。脚本字符串在当前 worker 上下文 `JS_Eval`（沿用 `am_eval_internal`），文件读取走 `pal.fsReadSync`（与 Worker 构造器读取一致，含路径穿越防护）。
 
 ```c
-/* src/worker.c — QWRT_WORKER_BOOT_JS 宏内追加（文件开头附近定义） */
+/* src/worker.c — AM_WORKER_BOOT_JS 宏内追加（文件开头附近定义） */
 "globalThis.importScripts = function () {                    \
    for (var i = 0; i < arguments.length; i++) {              \
      var url = String(arguments[i]);                         \
@@ -165,7 +165,7 @@ cmake --build build --target test_worker_gtest -j$(nproc)
 "
 ```
 
-> 注意：需先确认 worker 的 `pal` 对象在 boot 阶段可用（`pal.fsReadSync` 是否存在，参考 bridge.c pal 注册表；若 worker 侧 pal 无 fs，则改为经 `qwrt_eval_internal` 由 C 侧读文件）。实现时以实际 pal 能力为准，二选一：JS `pal.fsReadSync` 或 C 侧新增 `pal.importScripts`。
+> 注意：需先确认 worker 的 `pal` 对象在 boot 阶段可用（`pal.fsReadSync` 是否存在，参考 bridge.c pal 注册表；若 worker 侧 pal 无 fs，则改为经 `am_eval_internal` 由 C 侧读文件）。实现时以实际 pal 能力为准，二选一：JS `pal.fsReadSync` 或 C 侧新增 `pal.importScripts`。
 
 2. 若 worker 侧 pal 无 fs：在 bridge.c 的 worker pal 注册处补 `fsReadSync`（复用主 context 的实现）。
 
@@ -218,7 +218,7 @@ JS_SetPropertyStr(ctx, wasm_obj, "instantiateStreaming",
 
 > 实现说明：QuickJS 无原生 async 函数构造器时，可用 `JS_NewPromiseCapability` + `JS_Call` 处理 Promise 链，或复用 polyfill 侧已存在的 `Response`（fetch.js）做 `source.arrayBuffer()`。streaming 语义可简化为"取完整字节后交给 compile/instantiate"（不要求逐块流式编译）。
 
-**测试：** 新增 `test/test_wasm_streaming_gtest.cpp`（复用现有 WAMR 模块生成方式，参考 test 里既有 WAMR 用法或 bench_wamr_vs_node）；或在现有 gtest 内新增用例：构造 `{ arrayBuffer: () => Promise.resolve(wasmBytes) }`，`await WebAssembly.compileStreaming(src)`，断言 `instance.exports.add(1,2)===3`。在 `test/CMakeLists.txt` 用 `add_qwrt_gtest` 注册。
+**测试：** 新增 `test/test_wasm_streaming_gtest.cpp`（复用现有 WAMR 模块生成方式，参考 test 里既有 WAMR 用法或 bench_wamr_vs_node）；或在现有 gtest 内新增用例：构造 `{ arrayBuffer: () => Promise.resolve(wasmBytes) }`，`await WebAssembly.compileStreaming(src)`，断言 `instance.exports.add(1,2)===3`。在 `test/CMakeLists.txt` 用 `add_am_gtest` 注册。
 
 **验收命令：**
 ```bash

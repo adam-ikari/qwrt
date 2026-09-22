@@ -1,24 +1,24 @@
-#ifndef QWRT_INTERNAL_H
-#define QWRT_INTERNAL_H
+#ifndef AM_INTERNAL_H
+#define AM_INTERNAL_H
 
-#include "qwrt/qwrt.h"
-/* qwrt_proc_t 前置声明（ipc_process.h 全量 include 仅 worker.c 进程后端代码
+#include "amoib/amoib.h"
+/* am_proc_t 前置声明（ipc_process.h 全量 include 仅 worker.c 进程后端代码
  * 需要；这里只用指针。直接 include 会把 uv_pipe_t 拉进 mock 测试构建——
  * mock_libuv.h 无该类型。与 ipc_process.h 共用 guard：重复 typedef 在
  * -Wpedantic 下是错误。 */
-#ifndef QWRT_PROC_T_DEFINED
-#define QWRT_PROC_T_DEFINED
-typedef struct qwrt_proc_s qwrt_proc_t;
+#ifndef AM_PROC_T_DEFINED
+#define AM_PROC_T_DEFINED
+typedef struct am_proc_s am_proc_t;
 #endif
-typedef struct qwrt_ctx_s qwrt_ctx_t;   /* 前置声明：qwrt_proc_handle_t 用指针 */
+typedef struct am_ctx_s am_ctx_t;   /* 前置声明：am_proc_handle_t 用指针 */
 #include <quickjs.h>
 
-/* libuv include switch: qwrt embeds uv types (uv_loop_t etc.) BY VALUE in
- * qwrt_t, so the compiled struct layout must match the uv implementation
+/* libuv include switch: amoib embeds uv types (uv_loop_t etc.) BY VALUE in
+ * am_t, so the compiled struct layout must match the uv implementation
  * that the host links against. Test builds compile against mock_libuv.h
  * (deterministic offline scheduler); production builds use real libuv's
- * uv.h. The public qwrt.h stays uv-free — this switch is internal only. */
-#ifdef QWRT_USE_MOCK_LIBUV
+ * uv.h. The public amoib.h stays uv-free — this switch is internal only. */
+#ifdef AM_USE_MOCK_LIBUV
 #include "mock_libuv.h"
 #else
 #include <uv.h>
@@ -32,133 +32,133 @@ typedef struct qwrt_ctx_s qwrt_ctx_t;   /* 前置声明：qwrt_proc_handle_t 用
 #include <string.h>
 
 /* libuv's intrusive queue primitives (uv__queue). Used by msgq.c as the
- * lock-free MPSC container; also needed for the qwrt_msg_t layout above. */
+ * lock-free MPSC container; also needed for the am_msg_t layout above. */
 #include "queue.h"
 
 /* Maximum concurrent timer/PAL-async handles. 256 slots balances memory
- * (qwrt_t grows by ~8 KB per 128 slots) against the rare case of
+ * (am_t grows by ~8 KB per 128 slots) against the rare case of
  * hundreds of overlapping timers or I/O operations.  When the table is
  * full, timer_start returns a RangeError. */
-#define QWRT_MAX_HANDLES 256
+#define AM_MAX_HANDLES 256
 
 /* Maximum number of concurrent contexts per runtime. */
-#define QWRT_MAX_CONTEXTS 64
+#define AM_MAX_CONTEXTS 64
 
 /* Maximum concurrent Web Workers per runtime (Task 4). A worker's id is its
  * slot index + 1 (id 0 is reserved for the host source), and tags inbound
  * messages (source = worker id, so source > 0 always means "from a worker"). */
-#define QWRT_MAX_WORKERS 16
+#define AM_MAX_WORKERS 16
 
-/* Magic sentinel for qwrt_t validation — "QWRT" in ASCII */
-#define QWRT_MAGIC 0x51575254U
+/* Magic sentinel for am_t validation — "AM" in ASCII */
+#define AM_MAGIC 0x51575254U
 
-/* Polyfill embedding mode constants (QWRT_POLYFILL_MODE compile definition).
+/* Polyfill embedding mode constants (AM_POLYFILL_MODE compile definition).
  * 0 = rodata (const array in .rodata, default) | 1 = compressed (zlib array
  * → heap decompress at load) | 2 = external (external .polyfill file) |
- * 3 = host (host provides bytecode via qwrt_polyfill_load_custom()). */
-#define QWRT_POLYFILL_MODE_RODATA     0
-#define QWRT_POLYFILL_MODE_COMPRESSED 1
-#define QWRT_POLYFILL_MODE_EXTERNAL   2
-#define QWRT_POLYFILL_MODE_HOST       3
-#ifndef QWRT_POLYFILL_MODE
-#define QWRT_POLYFILL_MODE QWRT_POLYFILL_MODE_RODATA
+ * 3 = host (host provides bytecode via am_polyfill_load_custom()). */
+#define AM_POLYFILL_MODE_RODATA     0
+#define AM_POLYFILL_MODE_COMPRESSED 1
+#define AM_POLYFILL_MODE_EXTERNAL   2
+#define AM_POLYFILL_MODE_HOST       3
+#ifndef AM_POLYFILL_MODE
+#define AM_POLYFILL_MODE AM_POLYFILL_MODE_RODATA
 #endif
 
 /* Silence -Wunused-parameter for fixed-signature callbacks (e.g. QuickJS
  * JSCFunction prototypes require this_val/argc/argv even when unused). */
-#define QWRT_UNUSED(x) ((void)(x))
+#define AM_UNUSED(x) ((void)(x))
 
 
 /* ── I/O error codes (used by uv_io.c / bridge) ── */
 
 typedef enum {
-    QWRT_OK                 =  0,
-    QWRT_ERR_GENERIC        = -1,
-    QWRT_ERR_NOT_FOUND      = -2,
-    QWRT_ERR_IO             = -3,
-    QWRT_ERR_PERMISSION     = -4,
-    QWRT_ERR_NETWORK        = -5,
-    QWRT_ERR_INVALID_ARG    = -6,
-    QWRT_ERR_CANCELLED      = -7,
-    QWRT_ERR_BUSY           = -8,
-    QWRT_ERR_NOT_SUPPORTED  = -9,
-    QWRT_ERR_TIMEOUT        = -10,
-    QWRT_ERR_NO_MEMORY      = -11,
-} qwrt_err_t;
+    AM_OK                 =  0,
+    AM_ERR_GENERIC        = -1,
+    AM_ERR_NOT_FOUND      = -2,
+    AM_ERR_IO             = -3,
+    AM_ERR_PERMISSION     = -4,
+    AM_ERR_NETWORK        = -5,
+    AM_ERR_INVALID_ARG    = -6,
+    AM_ERR_CANCELLED      = -7,
+    AM_ERR_BUSY           = -8,
+    AM_ERR_NOT_SUPPORTED  = -9,
+    AM_ERR_TIMEOUT        = -10,
+    AM_ERR_NO_MEMORY      = -11,
+} am_err_t;
 
-/* Async I/O completion callback: status is 0 (OK) or a qwrt_err_t,
+/* Async I/O completion callback: status is 0 (OK) or a am_err_t,
  * result/len hold an optional JSON/C-string payload. */
-typedef void (*qwrt_io_done_t)(void *opaque, int status,
+typedef void (*am_io_done_t)(void *opaque, int status,
                                const char *result, size_t len);
 
 /* Streaming HTTP response callbacks (uv_io_http_request_stream). */
-typedef struct qwrt_io_stream_ops_s {
+typedef struct am_io_stream_ops_s {
     void (*on_headers)(void *user_data, int status, const char *headers_json);
     void (*on_data)(void *user_data, const char *data, size_t len);
     void (*on_end)(void *user_data, int error_status);
     void *user_data;
-} qwrt_io_stream_ops_t;
+} am_io_stream_ops_t;
 
 /* Forward declarations */
-struct qwrt_ext_t;
+struct am_ext_t;
 
-/* Web Worker (Task 4): worker = 独立 qwrt_t（自己的线程 + JSRuntime + loop）。
+/* Web Worker (Task 4): worker = 独立 am_t（自己的线程 + JSRuntime + loop）。
  * id = 槽位索引 + 1（0 保留给宿主 source，source>0 恒为 worker），所以
  * 入站消息用 source 标签即可区分宿主 / worker，无需额外字段。定义放这里：
- * bridge.c / qwrt.c（teardown）都要解引用 w->parent / w->id / w->thread。 */
-typedef struct qwrt_worker_s {
-    qwrt_t *parent;            /* 父 runtime（worker 的 JS 线程就是父线程） */
+ * bridge.c / amoib.c（teardown）都要解引用 w->parent / w->id / w->thread。 */
+typedef struct am_worker_s {
+    am_t *parent;            /* 父 runtime（worker 的 JS 线程就是父线程） */
     int id;                    /* 槽位索引 + 1 = 消息 source 标签 */
     uv_thread_t thread;        /* worker 线程句柄（父 teardown 时 join） */
-    qwrt_t *self;              /* worker 自己的 runtime（线程后端） */
+    am_t *self;              /* worker 自己的 runtime（线程后端） */
     char *script;              /* worker 脚本源码 */
     int shutting_down;         /* 非 0 = 已请求退出：父线程回收槽位（worker.c
-                               * qwrt_worker_reap：join→释放 runtime→清槽）的判据 */
-    /* 注：进程后端（M-P1 的 qwrt_proc_t proc / script_path 字段）已随 spawn
+                               * am_worker_reap：join→释放 runtime→清槽）的判据 */
+    /* 注：进程后端（M-P1 的 am_proc_t proc / script_path 字段）已随 spawn
      * 分层化移除（Phase C）——PROCESS worker 由 JS 层经 pal.processSpawn 封装，
-     * C 层 qwrt_worker_t 仅服务线程后端。 */
-} qwrt_worker_t;
+     * C 层 am_worker_t 仅服务线程后端。 */
+} am_worker_t;
 
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
 /* pal.processSpawn 句柄注册表（spawn 分层化, Phase B）。processSpawn 返回
  * 整数 handle id，JS 侧用它驱动 processPost / processOnMessage /
  * processTerminate；显式生命周期（terminate 释放），无需 GC finalizer。
- * 注册表内嵌在 qwrt_t（每个 runtime 至多 QWRT_MAX_PROC_HANDLES 个并发
+ * 注册表内嵌在 am_t（每个 runtime 至多 AM_MAX_PROC_HANDLES 个并发
  * 进程句柄）；mock 构建无 ipc_process.c，此类型不编入。 */
-typedef struct qwrt_proc_handle_s {
+typedef struct am_proc_handle_s {
     int          id;        /* opaque handle id (>0) */
-    qwrt_proc_t *proc;      /* IPC 通道句柄 */
-    qwrt_ctx_t  *ctx;       /* 注册回调所在 context（JS_Call 用） */
+    am_proc_t *proc;      /* IPC 通道句柄 */
+    am_ctx_t  *ctx;       /* 注册回调所在 context（JS_Call 用） */
     JSValue      onmsg;     /* JS 回调函数，未注册 = JS_UNDEFINED */
     uint8_t      live;      /* 1 = 已分配 */
-} qwrt_proc_handle_t;
-#define QWRT_MAX_PROC_HANDLES 64
+} am_proc_handle_t;
+#define AM_MAX_PROC_HANDLES 64
 #endif
 /* §8.2 path 链最大深度（rt 树层级上限；u16 元素，超出 65535 升 u32）。 */
-#define QWRT_SELF_PATH_MAX 8
+#define AM_SELF_PATH_MAX 8
 
 /* ── Polyfill bytecode source (mode-dependent) ──
- * The symbols a polyfill_load.c expects are decided by QWRT_POLYFILL_MODE.
+ * The symbols a polyfill_load.c expects are decided by AM_POLYFILL_MODE.
  * The matching definitions live in the mode's generated file
  * (src/polyfill_default.c for rodata, src/polyfill_<mode>.c otherwise). */
 
-/* C++ 测试（gtest）直接调用 qwrt_polyfill_load/_unload，须保持 C 链接，
+/* C++ 测试（gtest）直接调用 am_polyfill_load/_unload，须保持 C 链接，
  * 否则被 name-mangling 而链接失败（下方 internal helper 段同款处理）。 */
 #ifdef __cplusplus
 extern "C" {
 #endif
-#if QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_RODATA
+#if AM_POLYFILL_MODE == AM_POLYFILL_MODE_RODATA
 /* rodata: const array baked into .rodata (default) */
-extern const uint8_t qwrt_default_polyfill[];
-extern const size_t qwrt_default_polyfill_len;
-#elif QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_COMPRESSED
+extern const uint8_t am_default_polyfill[];
+extern const size_t am_default_polyfill_len;
+#elif AM_POLYFILL_MODE == AM_POLYFILL_MODE_COMPRESSED
 /* compressed: lz4-block-compressed array in .rodata; decompressed to heap at
- * load (block produced by build-time tool qwrt_lz4_compress, same vendored
+ * load (block produced by build-time tool am_lz4_compress, same vendored
  * lz4 as the LZ4_decompress_safe decoder) */
-extern const uint8_t qwrt_default_polyfill_compressed[];
-extern const size_t qwrt_default_polyfill_compressed_len;
-extern const size_t qwrt_default_polyfill_orig_len;
-#elif QWRT_POLYFILL_MODE == QWRT_POLYFILL_MODE_EXTERNAL
+extern const uint8_t am_default_polyfill_compressed[];
+extern const size_t am_default_polyfill_compressed_len;
+extern const size_t am_default_polyfill_orig_len;
+#elif AM_POLYFILL_MODE == AM_POLYFILL_MODE_EXTERNAL
 /* Mode B: no embedded bytecode — loaded from external .polyfill file. The
  * expected SHA-256 of the official bytecode is generated into
  * src/polyfill_external.c by polyfill/build.js (each mode emits its own file,
@@ -166,19 +166,19 @@ extern const size_t qwrt_default_polyfill_orig_len;
  * purpose: a weak reference would not pull polyfill_external.o out of the
  * static archive and would bind to address 0 at load. Missing definition →
  * link error that tells the builder to (re)run build.js with this mode. */
-extern const uint8_t qwrt_polyfill_external_sha256[32];
+extern const uint8_t am_polyfill_external_sha256[32];
 #endif
 
 /* Unified polyfill bytecode loader. Returns 0 on success and sets *out
  * (bytecode pointer), *out_len, *owner (opaque handle for unload;
- * NULL in mode C). Returns a negative qwrt_err_t on failure. */
-int qwrt_polyfill_load(const uint8_t **out, size_t *out_len, void **owner);
-void qwrt_polyfill_unload(void *owner);
+ * NULL in mode C). Returns a negative am_err_t on failure. */
+int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner);
+void am_polyfill_unload(void *owner);
 
 /* Mode D: weak hooks the host may override. Defaults return an error /
  * no-op, so the host must provide them. */
-int qwrt_polyfill_load_custom(const uint8_t **out, size_t *out_len, void **owner);
-void qwrt_polyfill_unload_custom(void *owner);
+int am_polyfill_load_custom(const uint8_t **out, size_t *out_len, void **owner);
+void am_polyfill_unload_custom(void *owner);
 
 /* (end polyfill decls) */
 #ifdef __cplusplus
@@ -186,51 +186,51 @@ void qwrt_polyfill_unload_custom(void *owner);
 #endif
 
 /* Worker boot shim bytecode (compiled in from worker_boot_default.c) */
-extern const uint8_t qwrt_default_worker_boot[];
-extern const size_t qwrt_default_worker_boot_len;
+extern const uint8_t am_default_worker_boot[];
+extern const size_t am_default_worker_boot_len;
 /* Inbound message source: 0 = host; >0 = worker id (Task 4). */
-typedef enum { QWRT_MSG_SRC_HOST = 0 } qwrt_msg_src_t;
+typedef enum { AM_MSG_SRC_HOST = 0 } am_msg_src_t;
 
 /* Inbound message FIFO flags — the queue-side projection of the envelope
  * `kind` (ipc_envelope.h §4.1). CONTROL is intercepted at the wake split point
  * (control_dispatch); PORT_TRANSFER still takes the application path but JS
- * receives kind as __qwrt_dispatch__'s third argument, so the port layer routes
+ * receives kind as __am_dispatch__'s third argument, so the port layer routes
  * by the PORT_TRANSFER header instead of guessing the payload shape (M-P3). */
-#define QWRT_MSG_FLAG_CONTROL       1   /* kind=CONTROL(3) */
-#define QWRT_MSG_FLAG_PORT_TRANSFER 2   /* kind=PORT_TRANSFER(1) */
+#define AM_MSG_FLAG_CONTROL       1   /* kind=CONTROL(3) */
+#define AM_MSG_FLAG_PORT_TRANSFER 2   /* kind=PORT_TRANSFER(1) */
 
 /* flags -> envelope kind for the JS dispatch boundary (control never reaches
- * __qwrt_dispatch__: the wake split point consumes it). */
-static inline int qwrt_msg_kind(uint8_t flags)
+ * __am_dispatch__: the wake split point consumes it). */
+static inline int am_msg_kind(uint8_t flags)
 {
-    return flags == QWRT_MSG_FLAG_PORT_TRANSFER ? 1 /* IPC_ENV_KIND_PORT_TRANSFER */
+    return flags == AM_MSG_FLAG_PORT_TRANSFER ? 1 /* IPC_ENV_KIND_PORT_TRANSFER */
                                                 : 0 /* IPC_ENV_KIND_MESSAGE */;
 }
 
 /* Inbound message FIFO node. The queue is lock-free MPSC built on libuv's
  * uv__queue (single-linked via q.next; see msgq.c). data points into the
  * same allocation (char array after the struct header). */
-typedef struct qwrt_msg_s {
+typedef struct am_msg_s {
     struct uv__queue q;   /* libuv intrusive queue node (q.next = lock-free link) */
     char *data;
     size_t len;
     int source;
-    uint8_t flags;        /* QWRT_MSG_FLAG_* */
-} qwrt_msg_t;
+    uint8_t flags;        /* AM_MSG_FLAG_* */
+} am_msg_t;
 
 /* Per-context state — holds JSContext*, handle tables, timer data,
  * extensions, and polyfill config for reset re-injection. */
-struct qwrt_ctx_s {
+struct am_ctx_s {
     JSContext *jsctx;
     int context_id;
     int suspended;       /* vestigial：G1 后 suspend 即销毁 ctx（槽位 NULL 即挂起态），字段保留 ABI 兼容，恒为 0 */
 
-    void *handles[QWRT_MAX_HANDLES];
-    JSValue timer_resolves[QWRT_MAX_HANDLES];
-    void *timer_cbds[QWRT_MAX_HANDLES];  /* qwrt_cb_data_t* for cleanup on timerStop */
+    void *handles[AM_MAX_HANDLES];
+    JSValue timer_resolves[AM_MAX_HANDLES];
+    void *timer_cbds[AM_MAX_HANDLES];  /* am_cb_data_t* for cleanup on timerStop */
     int handle_count;
 
-    const qwrt_ext_t * const *extensions;  /* compile-time table (QWRT_EXTENSIONS), read-only */
+    const am_ext_t * const *extensions;  /* compile-time table (AM_EXTENSIONS), read-only */
     int extensions_count;                    /* table length; iterate by count, skip NULL slots */
 
     /* Polyfill config saved for reset re-injection */
@@ -238,16 +238,16 @@ struct qwrt_ctx_s {
     size_t polyfill_len;
 };
 
-/* Callback data shared between bridge.c and qwrt.c for async operations.
- * Allocated with js_malloc, freed with js_free (or qwrt_free_cb_data). */
-typedef struct qwrt_cb_data_s {
-    struct qwrt_ctx_s *ctx;
+/* Callback data shared between bridge.c and amoib.c for async operations.
+ * Allocated with js_malloc, freed with js_free (or am_free_cb_data). */
+typedef struct am_cb_data_s {
+    struct am_ctx_s *ctx;
     JSValue resolve;
     JSValue reject;
-    qwrt_t *rt;
+    am_t *rt;
     int repeat;          /* 1 if this is a repeating timer */
     int handle_idx;      /* timer handle index */
-} qwrt_cb_data_t;
+} am_cb_data_t;
 
 /* uv_io.c in-memory storage entry (per-runtime key-value store). */
 typedef struct uv_io_store_entry_t {
@@ -256,7 +256,7 @@ typedef struct uv_io_store_entry_t {
     size_t value_len;
 } uv_io_store_entry_t;
 
-/* Forward decl: uv_io_http_op_t is defined in uv_io.c; qwrt_t only holds a
+/* Forward decl: uv_io_http_op_t is defined in uv_io.c; am_t only holds a
  * pointer to the active streaming op (see active_stream below), so only the
  * struct tag is needed here. */
 struct uv_io_http_op_t;
@@ -264,7 +264,7 @@ struct uv_io_http_op_t;
 /* ================================================================
  * M-R1 §13.2 全局状态审计表（多实例安全清单）
  *
- * 一个宿主进程内 N 个 qwrt_t 并存（各自 qwrt_create/destroy 独立生命周期）。
+ * 一个宿主进程内 N 个 am_t 并存（各自 am_create/destroy 独立生命周期）。
  * per-rt 字段以下全部按 rt 归属，多实例安全；进程级全局状态逐项裁定如下
  * （docs/plans/2026-09-04-multi-process-model.md §13.2，修改全局状态时必须
  * 回到该表复核）：
@@ -275,38 +275,38 @@ struct uv_io_http_op_t;
  * | polyfill 模式 B（外部文件）      | per-load       | 安全；各 rt 独立读 |
  * | polyfill 模式 D（weak 符号）     | 进程级符号     | 约束：多实例共用同一宿主实现，无 per-instance 分发钩子 |
  * | JSClassID 计数器（JS_NewClassID）| 进程原子计数器 | 安全；多 runtime 自动错开（ext_* 释放时清零重分配） |
- * | bridge.c g_qwrt_next_port_id    | 进程原子计数器 | 安全；__atomic_fetch_add 分配，id 全局唯一即可 |
+ * | bridge.c g_am_next_port_id    | 进程原子计数器 | 安全；__atomic_fetch_add 分配，id 全局唯一即可 |
  * | ext_wamr.c g_wamr_state         | 进程单例       | 约束：原子 CAS 首次初始化（wasm_runtime_init 只跑一次）；per-thread env 按 rt 对称 init/destroy |
  * | DAP stdio 单通道                | 进程单例       | 约束：仅一个实例可缺省 stdio attach（debugger_dap.c 原子认领，冲突 -2 显式报错）；其余实例注入独立 FILE* |
- * | env / cwd / locale / malloc     | 进程共享       | 安全：常规 C 语义（qwrt_create 只以 overwrite=0 setenv UV_USE_IO_URING） |
- * | 信号 handler                    | qwrt 不安装    | 安全：生命周期全靠 fd/loop 语义，无信号依赖（cli.c 的 SIGPIPE ignore 属宿主进程语义） |
+ * | env / cwd / locale / malloc     | 进程共享       | 安全：常规 C 语义（am_create 只以 overwrite=0 setenv UV_USE_IO_URING） |
+ * | 信号 handler                    | amoib 不安装    | 安全：生命周期全靠 fd/loop 语义，无信号依赖（cli.c 的 SIGPIPE ignore 属宿主进程语义） |
  * | storage（localStorage 文件）     | per-rt 独立    | v6 约束：多实例独立 store ≠ Web「同源共享」；单所有者收敛随 M-P4 kind=STORAGE 落地（§10.2） |
  * ================================================================ */
-struct qwrt_t {
-    uint32_t magic;      /* QWRT_MAGIC — set in qwrt_create, validates opaque ptr */
+struct am_t {
+    uint32_t magic;      /* AM_MAGIC — set in am_create, validates opaque ptr */
     JSRuntime *jsrt;
 
-    /* thread + loop (execution model A: qwrt owns a thread running the libuv loop) */
+    /* thread + loop (execution model A: amoib owns a thread running the libuv loop) */
     uv_loop_t loop;
     uv_thread_t thread;
     uv_async_t wake;         /* host post_message wakeup; data = rt */
 
-    /* inbound FIFO (lock-free MPSC: many producers push, the qwrt thread
+    /* inbound FIFO (lock-free MPSC: many producers push, the amoib thread
      * exclusively consumes). msg_tail is the atomic tail (producers exchange),
      * msg_head is consumer-only. msg_stub is the resident sentinel: after
      * init, msg_head == msg_tail == &msg_stub. */
-    qwrt_msg_t *msg_head;
-    qwrt_msg_t *msg_tail;
-    qwrt_msg_t msg_stub;
+    am_msg_t *msg_head;
+    am_msg_t *msg_tail;
+    am_msg_t msg_stub;
     int shutting_down;   /* atomic: set by destroy -> thread leaves main loop */
-    int wait_idle;       /* atomic: qwrt_wait_idle requested: auto-exit when idle */
+    int wait_idle;       /* atomic: am_wait_idle requested: auto-exit when idle */
     int thread_ready;    /* atomic: ready handshake: thread init complete */
-    int ready_err;       /* init failure code (0 ok; non-zero -> qwrt_create returns NULL) */
+    int ready_err;       /* init failure code (0 ok; non-zero -> am_create returns NULL) */
     int thread_joined;   /* atomic: uv_thread_join already done (wait_idle joins; destroy must not re-join — double pthread_join is UB) */
 
-    /* config copy (initial_script strdup'd by qwrt_create, freed by destroy) */
-    qwrt_config_t config;
-    void *host_data;     /* per-runtime opaque ptr；qwrt_get_runtime_data 读取 */
+    /* config copy (initial_script strdup'd by am_create, freed by destroy) */
+    am_config_t config;
+    void *host_data;     /* per-runtime opaque ptr；am_get_runtime_data 读取 */
     int debug;
 
     /* uv_io.c in-memory storage（storage_get/set/del 的键值区，destroy 回收） */
@@ -326,11 +326,11 @@ struct qwrt_t {
 
     /* Proxy-Authorization 缓存：同一代理 URL（含 user:pass userinfo）的
      * "Basic base64(user:pass)" 头在整个 runtime 生命周期只计算一次。
-     * qwrt.c teardown 释放。op 持有借用指针（op->proxy_auth），teardown 前
+     * amoib.c teardown 释放。op 持有借用指针（op->proxy_auth），teardown 前
      * 所有 in-flight op 已中止清理，故无悬垂。 */
     char *proxy_auth_url;    /* 已计算缓存的代理 URL（含凭据），NULL = 未缓存 */
     char *proxy_auth_value;  /* "Basic <b64>" 头值，NULL = 代理无凭据 */
-    qwrt_ctx_t *contexts[QWRT_MAX_CONTEXTS];  /* array of context pointers */
+    am_ctx_t *contexts[AM_MAX_CONTEXTS];  /* array of context pointers */
     int context_count;
     int active_ctx_id;   /* -1 if no active context */
 
@@ -341,45 +341,45 @@ struct qwrt_t {
     size_t polyfill_len;
     void *polyfill_owner;
 
-    /* Web Worker (Task 4): worker_self is set on a worker's own qwrt_t (points
-     * back to its qwrt_worker_t, non-NULL → this runtime is a worker); the
+    /* Web Worker (Task 4): worker_self is set on a worker's own am_t (points
+     * back to its am_worker_t, non-NULL → this runtime is a worker); the
      * parent runtime keeps its workers table (worker id = slot index). Both
-     * are only touched by the owning qwrt thread. */
+     * are only touched by the owning amoib thread. */
     void *worker_self;
-    qwrt_worker_t *workers[QWRT_MAX_WORKERS];
+    am_worker_t *workers[AM_MAX_WORKERS];
 
     /* §8.2 端点身份 = path 链（自 rt 树根起逐级的父槽位 id）。根（主RT/宿主
      * runtime）= 空 path；子 = 父 path ++ [父分配的槽位 id]。IPC 路由按 path
      * 前缀比较决定「上转 / 本地投递 / 下投」，LCA 中继由此自然涌现。元素 u16
      * （PROCESS worker id 现为 1000+；超出 65535 时升 u32，见 ipc_envelope.h）。 */
-    uint16_t self_path[QWRT_SELF_PATH_MAX];
+    uint16_t self_path[AM_SELF_PATH_MAX];
     uint8_t  self_path_len;
 
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
     /* §8.2/§10.2 STORAGE 中继（N-P4 + 并发关联 id）：非根 runtime 收到子树
      * 发来的 storage 请求时向上转发，登记「上行 corr → 发起子槽位 + 下行
      * corr」；owner（根 runtime）的回复沿父通道回来时按 corr 配对下投（不再
      * 靠到达序，自身同步 RPC × 子树在途请求可并发而不错配）。corr 由
      * storage_corr_seq 单调分配（0 恒无效 = 信封缺省）；表满（并发子树请求
      * 超过槽位数）→ 新请求拒绝，维持 §10.2 单飞行兜底语义。 */
-    struct qwrt_storage_relay_s {
+    struct am_storage_relay_s {
         int32_t up_corr;    /* 本节点分配、上行帧携带的关联 id（>0） */
         int32_t down_corr;  /* 发起子进程帧携带的关联 id（回复原样回传） */
         int child;          /* 发起子进程槽位 id */
-    } storage_relays[QWRT_MAX_PROC_HANDLES];
+    } storage_relays[AM_MAX_PROC_HANDLES];
     int32_t storage_corr_seq;   /* 本节点全部出站 storage 帧共用计数器 */
     /* pal.processSpawn 句柄注册表（spawn 分层化, Phase B）+ id 分配器。
      * 仅父 runtime（worker_self == NULL）使用；teardown 统一清理残留句柄。 */
-    qwrt_proc_handle_t proc_handles[QWRT_MAX_PROC_HANDLES];
+    am_proc_handle_t proc_handles[AM_MAX_PROC_HANDLES];
     uint32_t proc_handle_seq;   /* handle id 单调分配器（0 = 无效） */
 
-    /* ── M-P2 宿主↔主RT 通道（QWRT_PROCESS_MODEL=ISOLATED）──
+    /* ── M-P2 宿主↔主RT 通道（AM_PROCESS_MODEL=ISOLATED）──
      * 宿主进程：proc = 主RT 子进程通道（由宿主 loop 线程独占读写）；主RT 进程：
      * ipc_channel_pipe = parent-fd 读管道。后者恒活动（duplex 读泵），必须被
      * wait_idle 的 idle 判定豁免，否则主RT 永不判 idle（与 JS-managed worker
-     * pipe 同因，见 qwrt_proc_handle_is_pipe）。进程自身只有一个对端通道，指针
+     * pipe 同因，见 am_proc_handle_is_pipe）。进程自身只有一个对端通道，指针
      * 级判定即足够。THREAD 编译下恒为 NULL（宿主走线程后端）。 */
-    qwrt_proc_t *proc;              /* ISOLATED 宿主：主RT 通道句柄 */
+    am_proc_t *proc;              /* ISOLATED 宿主：主RT 通道句柄 */
     uv_pipe_t   *ipc_channel_pipe;  /* 主RT 进程：宿主通道读管道（idle 豁免） */
     int          idle_ack;          /* atomic: 主RT 已回 CONTROL{idle} ack */
     /* liveness ping/pong（宿主↔主RT C 层直回，检测对端 uv loop 阻塞）：
@@ -388,15 +388,15 @@ struct qwrt_t {
     int32_t      ping_seq;          /* atomic: 宿主线程写的探测序号 */
     int32_t      pong_seq;          /* atomic: 宿主读泵回填的应答序号 */
     int32_t      ping_fail;         /* atomic: 跨层 ping 转发失败回执的 seq
-                                     * （pfail corr，qwrt_ping_path 快速 -1） */
+                                     * （pfail corr，am_ping_path 快速 -1） */
 #endif
 
 
     /* Per-runtime extension state. QuickJS registers classes per-JSRuntime,
-     * and one qwrt_t owns one JSRuntime, so these live here (not per-context).
+     * and one am_t owns one JSRuntime, so these live here (not per-context).
      * void* for engine types (e.g. wasm3 IM3Environment) to keep this header
      * free of third-party includes; ext_*.c cast as needed. */
-#if QWRT_WITH_WASM3
+#if AM_WITH_WASM3
     JSClassID wasm3_module_class_id;
     JSClassID wasm3_instance_class_id;
     JSClassID wasm3_func_closure_class_id;
@@ -406,16 +406,16 @@ struct qwrt_t {
     JSClassID wasm3_global_class_id;
     void *wasm3_env;   /* IM3Environment */
 #endif
-#if QWRT_WITH_WAMR
+#if AM_WITH_WAMR
     JSClassID wamr_module_class_id;
     JSClassID wamr_instance_class_id;
     JSClassID wamr_global_class_id;
 #endif
-#if QWRT_WITH_COMPRESS
+#if AM_WITH_COMPRESS
     JSClassID compress_deflate_class_id;
     JSClassID compress_inflate_class_id;
 #endif
-#if QWRT_WITH_CRYPTO_EXT
+#if AM_WITH_CRYPTO_EXT
     /* Per-runtime EC RNG (mbedtls_entropy_context / mbedtls_ctr_drbg_context).
      * Lazy-seeded on first EC op; one DRBG per runtime so concurrent
      * runtimes (workers on their own threads) never share a CTR_DRBG
@@ -433,9 +433,9 @@ struct qwrt_t {
     /* http-server ext-level state (serve() teardown) */
     void *http_server_state;
 
-#ifdef QWRT_DEBUG_SUPPORT
+#ifdef AM_DEBUG_SUPPORT
     /* DAP debugger session (NULL when no debugger attached). Opaque here to
-     * keep this header free of qwrt_debug.h; src/debugger.c casts. Named
+     * keep this header free of am_debug.h; src/debugger.c casts. Named
      * dbg_session to avoid clashing with the legacy `int debug` log flag. */
     void *dbg_session;
     /* DAP protocol layer (NULL when no DAP attached). Opaque here; owned by
@@ -446,7 +446,7 @@ struct qwrt_t {
      * DAP messages arrive on stdin, which is NOT a libuv event source, so an
      * idle loop would otherwise block forever in poll and never service
      * pause/setBreakpoints/disconnect. The timer wakes uv_run every 50 ms; its
-     * callback (qwrt_dap_service) non-blockingly drains stdin. dap_timer_active
+     * callback (am_dap_service) non-blockingly drains stdin. dap_timer_active
      * marks it running so the wait_idle walk can exclude it from "busy". */
     uv_timer_t dap_timer;
     int dap_timer_active;
@@ -454,25 +454,25 @@ struct qwrt_t {
 
     /* ── Control plane (CTL-0) ──
      * ctl_interrupt: atomic flag read by the QuickJS interrupt handler
-     *   (JS_SetInterruptHandler, installed in qwrt_runtime_init). Set by
-     *   qwrt_control on the producer thread — §1.1 例外：单方向写、引擎
+     *   (JS_SetInterruptHandler, installed in am_runtime_init). Set by
+     *   am_control on the producer thread — §1.1 例外：单方向写、引擎
      *   线程只读，不破坏 JSRuntime 单线程所有权。
-     * ctl_lock: receipt table lock (insert = producer, remove/reap = qwrt
+     * ctl_lock: receipt table lock (insert = producer, remove/reap = amoib
      *   thread exclusive；§1.2 一把表内锁，竞争面 = 命令入队频率)。
      * ctl_pending: correl → receipt 条目链表 {correl, deadline_ns, next}。 */
     int ctl_interrupt;
     uv_mutex_t ctl_lock;
-    struct qwrt_ctl_recept_s *ctl_pending;
+    struct am_ctl_recept_s *ctl_pending;
     /* ── Control plane 本地端点（CTL-2, §2.3）──
      * ctl_listener/ctl_listener_active：LOCAL 档的 AF_UNIX 监听（loop 线程
      *   独占；active 时被 idle 判定豁免——监听是基础设施句柄，不算"忙"）。
      * ctl_conns：活跃连接链表（loop 线程独占；连接关闭时清理其名下回执条目）。
      * ctl_pipe_path：端点实际路径（strdup；teardown 时 unlink + free）。
-     * mock 构建（QWRT_USE_MOCK_LIBUV）无 uv_pipe，整块不编入。 */
-#ifndef QWRT_USE_MOCK_LIBUV
+     * mock 构建（AM_USE_MOCK_LIBUV）无 uv_pipe，整块不编入。 */
+#ifndef AM_USE_MOCK_LIBUV
     uv_pipe_t ctl_listener;
     int       ctl_listener_active;
-    struct qwrt_ctl_conn_s *ctl_conns;
+    struct am_ctl_conn_s *ctl_conns;
     char     *ctl_pipe_path;
 #endif
 };
@@ -487,189 +487,189 @@ extern "C" {
 #endif
 
 /* msgq.c — thread-safe inbound FIFO */
-int qwrt_msg_push(qwrt_t *rt, const char *data, size_t len, int source, int flags);
-qwrt_msg_t *qwrt_msg_pop(qwrt_t *rt);
-int qwrt_msg_has_pending(qwrt_t *rt);   /* 消费者线程内检查队列非空（无锁读） */
-void qwrt_msg_free(qwrt_msg_t *m);
+int am_msg_push(am_t *rt, const char *data, size_t len, int source, int flags);
+am_msg_t *am_msg_pop(am_t *rt);
+int am_msg_has_pending(am_t *rt);   /* 消费者线程内检查队列非空（无锁读） */
+void am_msg_free(am_msg_t *m);
 
-/* thread.c — the qwrt thread: uv loop + wake dispatch + microtask flush */
-void qwrt_thread_main(void *arg);
+/* thread.c — the amoib thread: uv loop + wake dispatch + microtask flush */
+void am_thread_main(void *arg);
 /* idle 判定（thread.c）：除内部 wake async / 恒活动 IPC pipe 外无活动 handle
  * 且入站队列空 → 1。thread 后端主循环与 M-P2 主RT 进程共用。 */
-int qwrt_loop_idle(qwrt_t *rt);
+int am_loop_idle(am_t *rt);
 
 /* M-P2：宿主↔主RT 进程分离路径已编入（ISOLATED 非 mock 构建）。 */
-#if defined(QWRT_PROCESS_MODEL_ISOLATED) && !defined(QWRT_USE_MOCK_LIBUV)
-#define QWRT_HOST_SPLIT 1
+#if defined(AM_PROCESS_MODEL_ISOLATED) && !defined(AM_USE_MOCK_LIBUV)
+#define AM_HOST_SPLIT 1
 /* rt_host.c — 宿主侧主RT 通道后端：spawn 主RT 进程 + 通道 I/O loop 线程。
- * qwrt_host_start 返回 0 = 主RT 已就绪（CONTROL{ready} 到）；非 0 = 显式失败
- * （不降级到线程后端，§5.3）。qwrt_host_destroy 释放 rt 本身。 */
-int  qwrt_host_start(qwrt_t *rt);
-int  qwrt_host_post(qwrt_t *rt, const char *json, size_t len);
-void qwrt_host_wait_idle(qwrt_t *rt);
-void qwrt_host_destroy(qwrt_t *rt);
+ * am_host_start 返回 0 = 主RT 已就绪（CONTROL{ready} 到）；非 0 = 显式失败
+ * （不降级到线程后端，§5.3）。am_host_destroy 释放 rt 本身。 */
+int  am_host_start(am_t *rt);
+int  am_host_post(am_t *rt, const char *json, size_t len);
+void am_host_wait_idle(am_t *rt);
+void am_host_destroy(am_t *rt);
 #endif
 
-/* qwrt.c — runtime init / eval / teardown (called from thread.c) */
-int  qwrt_runtime_init(qwrt_t *rt);
-int  qwrt_eval_internal(qwrt_t *rt, const char *script, char **err);
-int  qwrt_eval_bytecode_internal(qwrt_t *rt, const uint8_t *code, size_t len,
+/* amoib.c — runtime init / eval / teardown (called from thread.c) */
+int  am_runtime_init(am_t *rt);
+int  am_eval_internal(am_t *rt, const char *script, char **err);
+int  am_eval_bytecode_internal(am_t *rt, const uint8_t *code, size_t len,
                                  char **err);
-void qwrt_thread_teardown(qwrt_t *rt);
-#ifdef QWRT_DEBUG_SUPPORT
-/* debugger_dap.c — service the DAP stdin channel from the qwrt thread while
+void am_thread_teardown(am_t *rt);
+#ifdef AM_DEBUG_SUPPORT
+/* debugger_dap.c — service the DAP stdin channel from the amoib thread while
  * the debuggee is NOT paused (the paused pump runs inside on_stopped).
  * Called by the DAP poll timer so an idle uv_run never blocks forever on a
  * DAP pause/setBreakpoints/disconnect that arrived on stdin. */
-void qwrt_dap_service(qwrt_t *rt);
+void am_dap_service(am_t *rt);
 #endif
 
 /* thread.c — flush pending JS microtasks (worker.c calls this on its loop) */
-int qwrt_flush_microtasks(qwrt_t *rt);
+int am_flush_microtasks(am_t *rt);
 /* worker.c — worker-runtime inbound dispatch: raw cloned bytes →
- * __qwrt_dispatch__(bytes, 0, kind). Used by the worker thread loop AND by the
+ * __am_dispatch__(bytes, 0, kind). Used by the worker thread loop AND by the
  * process-backend child (rt_main.c) — same shim semantics. kind is projected
- * from the msgq flags (qwrt_msg_kind) so the port layer can tell a
+ * from the msgq flags (am_msg_kind) so the port layer can tell a
  * PORT_TRANSFER frame from a plain MESSAGE. */
-void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m);
+void am_worker_dispatch(am_t *rt, am_msg_t *m);
 
-/* worker.c — real-thread Web Workers. Parent-thread-only API (the parent qwrt
- * thread is the only one touching the workers table). qwrt_worker_create blocks
- * until the worker thread is ready; on failure sets *out_err (qwrt_err_t) and
+/* worker.c — real-thread Web Workers. Parent-thread-only API (the parent amoib
+ * thread is the only one touching the workers table). am_worker_create blocks
+ * until the worker thread is ready; on failure sets *out_err (am_err_t) and
  * returns NULL. */
-qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_err);
-void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w,
+am_worker_t *am_worker_create(am_t *parent, const char *script, int *out_err);
+void am_worker_post(am_t *parent, am_worker_t *w,
                       const uint8_t *bytes, size_t len, uint8_t flags);
-void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w);
-qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id);
-void qwrt_worker_free(qwrt_worker_t *w);
+void am_worker_terminate(am_t *parent, am_worker_t *w);
+am_worker_t *am_worker_get(am_t *parent, int id);
+void am_worker_free(am_worker_t *w);
 /* JS-managed 进程句柄（pal.processSpawn）的 IPC pipe 豁免检查 —— 替代已
- * 移除的 qwrt_worker_is_proc_handle（C 层进程 worker 分流, Phase C）。
+ * 移除的 am_worker_is_proc_handle（C 层进程 worker 分流, Phase C）。
  * ipc_process.c 定义，thread.c 在 wait_idle 豁免这些恒活动 pipe。 */
-int qwrt_proc_handle_is_pipe(qwrt_t *rt, uv_handle_t *h);
+int am_proc_handle_is_pipe(am_t *rt, uv_handle_t *h);
 
 /* context.c — context lifecycle helpers */
-qwrt_ctx_t *qwrt_get_active_ctx(qwrt_t *rt);
-JSContext *qwrt_get_active_jsctx(qwrt_t *rt);
-qwrt_ctx_t *qwrt_get_ctx_by_id(qwrt_t *rt, int context_id);
-qwrt_ctx_t *qwrt_ctx_create(qwrt_t *rt, const qwrt_config_t *config);
-void qwrt_ctx_destroy(qwrt_t *rt, qwrt_ctx_t *ctx);
+am_ctx_t *am_get_active_ctx(am_t *rt);
+JSContext *am_get_active_jsctx(am_t *rt);
+am_ctx_t *am_get_ctx_by_id(am_t *rt, int context_id);
+am_ctx_t *am_ctx_create(am_t *rt, const am_config_t *config);
+void am_ctx_destroy(am_t *rt, am_ctx_t *ctx);
 
 /* context.c — multi-context + soft suspend/resume (Task 5). 全部由父（主
  * context）线程调用；宿主只见主 context，spawn/suspend/resume/destroy 由
- * polyfill 的 qwrtContext 经 bridge 驱动。目标 ctx_id 若 == active（正在执行
- * JS 的 ctx）返回 QWRT_ERR_BUSY——不能挂起/销毁/重建自己正在运行的 context。 */
-int qwrt_ctx_spawn(qwrt_t *rt, const char *init_script);   /* 返回 ctx id 或 <0 */
-int qwrt_ctx_serialize(qwrt_t *rt, int ctx_id, const char *state_path);
-int qwrt_ctx_rebuild(qwrt_t *rt, int ctx_id, const char *script_ref, const char *state_path);
-int qwrt_ctx_destroy_id(qwrt_t *rt, int ctx_id);
+ * polyfill 的 amContext 经 bridge 驱动。目标 ctx_id 若 == active（正在执行
+ * JS 的 ctx）返回 AM_ERR_BUSY——不能挂起/销毁/重建自己正在运行的 context。 */
+int am_ctx_spawn(am_t *rt, const char *init_script);   /* 返回 ctx id 或 <0 */
+int am_ctx_serialize(am_t *rt, int ctx_id, const char *state_path);
+int am_ctx_rebuild(am_t *rt, int ctx_id, const char *script_ref, const char *state_path);
+int am_ctx_destroy_id(am_t *rt, int ctx_id);
 
-/* bridge.c — recover qwrt_t* from a JSRuntime* (finalizers get JSRuntime*).
- * Returns NULL if the runtime was not created by qwrt (magic check). */
-qwrt_t *qwrt_get_rt_from_jsrt(JSRuntime *jsrt);
+/* bridge.c — recover am_t* from a JSRuntime* (finalizers get JSRuntime*).
+ * Returns NULL if the runtime was not created by amoib (magic check). */
+am_t *am_get_rt_from_jsrt(JSRuntime *jsrt);
 
-/* bridge.c — recover qwrt_t* from a JSContext* (non-static so extensions
- * with a JSContext* can use it). Equivalent to qwrt_get_rt_from_jsrt. */
-qwrt_t *qwrt_get_rt_from_ctx(JSContext *ctx);
-void qwrt_ctx_cleanup_resources(qwrt_t *rt, qwrt_ctx_t *ctx);
+/* bridge.c — recover am_t* from a JSContext* (non-static so extensions
+ * with a JSContext* can use it). Equivalent to am_get_rt_from_jsrt. */
+am_t *am_get_rt_from_ctx(JSContext *ctx);
+void am_ctx_cleanup_resources(am_t *rt, am_ctx_t *ctx);
 
 /* extension.c — extension lifecycle hooks */
-int qwrt_ext_init_all(qwrt_t *rt, qwrt_ctx_t *ctx);
-void qwrt_ext_destroy_all(qwrt_t *rt, qwrt_ctx_t *ctx);
-int qwrt_ext_suspend_all(qwrt_t *rt, qwrt_ctx_t *ctx);
-int qwrt_ext_resume_all(qwrt_t *rt, qwrt_ctx_t *ctx);
+int am_ext_init_all(am_t *rt, am_ctx_t *ctx);
+void am_ext_destroy_all(am_t *rt, am_ctx_t *ctx);
+int am_ext_suspend_all(am_t *rt, am_ctx_t *ctx);
+int am_ext_resume_all(am_t *rt, am_ctx_t *ctx);
 
 /* bridge.c — creates the internal pal JS object (per-context version) */
-JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx);
+JSValue am_create_pal_object_ctx(am_t *rt, am_ctx_t *ctx);
 
 /* bridge.c — inject polyfill via __native_inject__ temp global (per-context version) */
-int qwrt_inject_polyfill_ctx(qwrt_t *rt, qwrt_ctx_t *ctx, const uint8_t *code, size_t code_len);
+int am_inject_polyfill_ctx(am_t *rt, am_ctx_t *ctx, const uint8_t *code, size_t code_len);
 
 /* bridge.c — dispatch an inbound message to the main context's
- * __qwrt_dispatch__ (source 0 = host JSON, parsed; >0 = worker bytes). */
-void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m);
+ * __am_dispatch__ (source 0 = host JSON, parsed; >0 = worker bytes). */
+void am_dispatch_message(am_t *rt, am_msg_t *m);
 
-/* bridge.c — free a qwrt_cb_data_t: releases resolve/reject JSValues and
+/* bridge.c — free a am_cb_data_t: releases resolve/reject JSValues and
  * calls js_free on the allocation.  Safe to call with NULL. */
-void qwrt_free_cb_data(JSContext *ctx, void *cbd);
+void am_free_cb_data(JSContext *ctx, void *cbd);
 
 /* bridge.c — cancel a live timer slot: uv_stop + uv_close (struct freed by
  * the close callback) + free resolve/cbd.  Used by js_pal_timer_stop and by
- * qwrt_ctx_cleanup_resources (context.c).  Safe when the slot is NULL. */
-void qwrt_timer_cancel(qwrt_ctx_t *cctx, int idx);
+ * am_ctx_cleanup_resources (context.c).  Safe when the slot is NULL. */
+void am_timer_cancel(am_ctx_t *cctx, int idx);
 
-/* uv_io.c — async I/O entry points.  Done callbacks fire on the qwrt
+/* uv_io.c — async I/O entry points.  Done callbacks fire on the amoib
  * thread's loop (执行模型 A), so the bridge JS_Calls resolve/reject directly.
- * rt->loop / rt->store are owned here; qwrt.c frees rt->store at teardown. */
-void uv_io_storage_get(qwrt_t *rt, const char *key,
-                       qwrt_io_done_t cb, void *cb_data);
-void uv_io_storage_set(qwrt_t *rt, const char *key,
+ * rt->loop / rt->store are owned here; amoib.c frees rt->store at teardown. */
+void uv_io_storage_get(am_t *rt, const char *key,
+                       am_io_done_t cb, void *cb_data);
+void uv_io_storage_set(am_t *rt, const char *key,
                        const char *value, size_t value_len,
-                       qwrt_io_done_t cb, void *cb_data);
-void uv_io_storage_del(qwrt_t *rt, const char *key,
-                       qwrt_io_done_t cb, void *cb_data);
-/* Zero-copy fs_read: alloc_fn runs on the qwrt loop thread right after open,
+                       am_io_done_t cb, void *cb_data);
+void uv_io_storage_del(am_t *rt, const char *key,
+                       am_io_done_t cb, void *cb_data);
+/* Zero-copy fs_read: alloc_fn runs on the amoib loop thread right after open,
  * with the file size from fstat; it returns a backing store that receives the
  * bytes directly (no intermediate copy). On success the backing is handed to
  * the done callback and NOT freed by uv_io; on read error free_fn releases it
  * before the done callback fires. If alloc_fn returns NULL (or the file grows
  * past the backing store) uv_io falls back to a plain malloc buffer and the
  * done callback must synthesize the result. */
-typedef void *(*qwrt_fs_alloc_fn)(void *ud, size_t size, void **owner);
-typedef void (*qwrt_fs_free_fn)(void *ud, void *owner);
-void uv_io_fs_read_ex(qwrt_t *rt, const char *path,
-                      qwrt_io_done_t cb, void *cb_data,
-                      qwrt_fs_alloc_fn alloc_fn, qwrt_fs_free_fn free_fn,
+typedef void *(*am_fs_alloc_fn)(void *ud, size_t size, void **owner);
+typedef void (*am_fs_free_fn)(void *ud, void *owner);
+void uv_io_fs_read_ex(am_t *rt, const char *path,
+                      am_io_done_t cb, void *cb_data,
+                      am_fs_alloc_fn alloc_fn, am_fs_free_fn free_fn,
                       void *alloc_ud);
-void uv_io_fs_read(qwrt_t *rt, const char *path,
-                   qwrt_io_done_t cb, void *cb_data);
-void uv_io_fs_write(qwrt_t *rt, const char *path,
+void uv_io_fs_read(am_t *rt, const char *path,
+                   am_io_done_t cb, void *cb_data);
+void uv_io_fs_write(am_t *rt, const char *path,
                     const char *data, size_t data_len,
-                    qwrt_io_done_t cb, void *cb_data);
-void uv_io_fs_exists(qwrt_t *rt, const char *path,
-                     qwrt_io_done_t cb, void *cb_data);
-void uv_io_http_abort(qwrt_t *rt);
+                    am_io_done_t cb, void *cb_data);
+void uv_io_fs_exists(am_t *rt, const char *path,
+                     am_io_done_t cb, void *cb_data);
+void uv_io_http_abort(am_t *rt);
 /* Abort a specific in-flight streaming HTTP op by id (pal.httpRequestAbort).
  * Safe to call with a stale/unknown id: no-op. */
-void uv_io_http_abort_by_id(qwrt_t *rt, uint64_t op_id);
-void uv_io_http_request(qwrt_t *rt, const char *url, const char *method,
+void uv_io_http_abort_by_id(am_t *rt, uint64_t op_id);
+void uv_io_http_request(am_t *rt, const char *url, const char *method,
                         const char *headers, const char *body, size_t body_len,
-                        qwrt_io_done_t cb, void *cb_data);
+                        am_io_done_t cb, void *cb_data);
 /* Returns the op id (uint64) of the started streaming request, or 0 if it
  * failed synchronously (invalid args / OOM / bad proxy URL / no TLS). */
-uint64_t uv_io_http_request_stream(qwrt_t *rt, const char *url, const char *method,
+uint64_t uv_io_http_request_stream(am_t *rt, const char *url, const char *method,
                                    const char *headers, const char *body,
-                                   size_t body_len, qwrt_io_stream_ops_t *ops);
-void uv_io_fs_remove(qwrt_t *rt, const char *path,
-                     qwrt_io_done_t cb, void *cb_data);
-void uv_io_fs_list(qwrt_t *rt, const char *path,
-                   qwrt_io_done_t cb, void *cb_data);
+                                   size_t body_len, am_io_stream_ops_t *ops);
+void uv_io_fs_remove(am_t *rt, const char *path,
+                     am_io_done_t cb, void *cb_data);
+void uv_io_fs_list(am_t *rt, const char *path,
+                   am_io_done_t cb, void *cb_data);
 
 /* uv_io.c — synchronous helpers the bridge inlines (time_now uses uv_now on
  * rt->loop; hrtime/log/random_bytes are standalone). */
 /* control.c — CTL-0 控制面：命令入队 + wake 分流点派发 + 回执表。
  * 设计：docs/plans/2026-09-04-control-plane-design.md §1-§3。 */
-struct qwrt_ctl_recept_s;
+struct am_ctl_recept_s;
 /* 入队控制命令（producer 线程）。OFF 时恒 -1。 */
-int qwrt_control(qwrt_t *rt, const char *bytes, size_t len);
-/* wake 分流点派发（qwrt 线程独占）：解析 JSON、按 op 执行、组回执。
+int am_control(am_t *rt, const char *bytes, size_t len);
+/* wake 分流点派发（amoib 线程独占）：解析 JSON、按 op 执行、组回执。
  * WAKE_SAFEPOINT 类就地执行（eval/inspect/metrics/interrupt/events.subscribe）。
  * IDLE_SAFEPOINT 类（ctx.suspend/ctx.destroy/worker.terminate/runtime.shutdown）
  * 转 wait_idle 通道——CTL-0 仅执行 WAKE 类四命令，IDLE 类返回 NOT_SUPPORTED。 */
-void qwrt_control_dispatch(qwrt_t *rt, qwrt_msg_t *m);
-/* 主循环每轮调用：扫描过期回执条目，发 TIMEOUT 回执并回收（qwrt 线程独占）。 */
-void qwrt_ctl_reap_timeouts(qwrt_t *rt);
+void am_control_dispatch(am_t *rt, am_msg_t *m);
+/* 主循环每轮调用：扫描过期回执条目，发 TIMEOUT 回执并回收（amoib 线程独占）。 */
+void am_ctl_reap_timeouts(am_t *rt);
 /* teardown 时回收所有未完成回执条目（无回执发出，发起方靠 timeout 侧超时）。 */
-void qwrt_ctl_teardown(qwrt_t *rt);
+void am_ctl_teardown(am_t *rt);
 /* interrupt handler（QuickJS 回调）：读 ctl_interrupt 原子标志。 */
-int qwrt_ctl_interrupt_handler(JSRuntime *jsrt, void *opaque);
+int am_ctl_interrupt_handler(JSRuntime *jsrt, void *opaque);
 /* 本节点在父树中的槽位 id（宿主 0 / 主RT 1 / worker --worker-id）。 */
-int32_t qwrt_ctl_local_id(qwrt_t *rt);
+int32_t am_ctl_local_id(am_t *rt);
 /* 回执表：登记 correl 条目（producer 线程，锁内插入）。reply_dir 为
  * 跨进程回程方向（CTL-1）：-1 = 本地 message_cb；>=0 = 回执信封 target
- * （命令来源地址，逐跳相对寻址语义，见 control.c qwrt_control_route）。
+ * （命令来源地址，逐跳相对寻址语义，见 control.c am_control_route）。
  * sink 为 CTL-2 端点连接（非 NULL 时回执写回该连接，优先于 reply_dir）。 */
-void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns,
+void am_ctl_register(am_t *rt, const char *correl, uint64_t deadline_ns,
                        int32_t reply_dir, void *sink);
 
 /* ── CTL-1：信封 CONTROL 命令的树路由（§2.2 / 多进程 §4.3、§7.2）──
@@ -679,53 +679,53 @@ void qwrt_ctl_register(qwrt_t *rt, const char *correl, uint64_t deadline_ns,
  * → 下行到本地子槽位 target；无对应通道 → 丢弃。source 全程保持（承载回程
  * 方向），只有 target 逐跳改写。
  *
- * local_id：本节点在父树中的槽位 id（宿主 0 / 主RT QWRT_IPC_MAIN_ID / worker
- *   --worker-id）。仅 qwrt 线程调用（信封读泵中）。 */
+ * local_id：本节点在父树中的槽位 id（宿主 0 / 主RT AM_IPC_MAIN_ID / worker
+ *   --worker-id）。仅 amoib 线程调用（信封读泵中）。 */
 typedef enum {
-    QWRT_CTL_ROUTE_LOCAL = 0,   /* 命中本地：入 msgq 交 dispatch */
-    QWRT_CTL_ROUTE_UP    = 1,   /* 上行：发父通道（改写 target 后） */
-    QWRT_CTL_ROUTE_DOWN  = 2,   /* 下行：发本地子槽位 target */
-    QWRT_CTL_ROUTE_DROP  = 3,   /* 无对应通道 */
-} qwrt_ctl_route_t;
+    AM_CTL_ROUTE_LOCAL = 0,   /* 命中本地：入 msgq 交 dispatch */
+    AM_CTL_ROUTE_UP    = 1,   /* 上行：发父通道（改写 target 后） */
+    AM_CTL_ROUTE_DOWN  = 2,   /* 下行：发本地子槽位 target */
+    AM_CTL_ROUTE_DROP  = 3,   /* 无对应通道 */
+} am_ctl_route_t;
 
 /* 纯函数：路由决策（无副作用，便于单测）。 */
-qwrt_ctl_route_t qwrt_ctl_route_decide(int32_t local_id, int32_t target);
+am_ctl_route_t am_ctl_route_decide(int32_t local_id, int32_t target);
 
 /* 路由一条 CONTROL 命令信封（读泵调用；OFF 档丢弃，§4.1）。返回 0 = 已处理。 */
-int qwrt_control_route(qwrt_t *rt, int32_t local_id, int32_t source,
+int am_control_route(am_t *rt, int32_t local_id, int32_t source,
                        int32_t target, const uint8_t *payload, uint32_t len);
 
 /* 命令 JSON 的可选 "target" 字段（C 层提取；缺省 1 = 接收方自身）。
  * 生产者/路由路径用，无需 JSContext。 */
-int32_t qwrt_ctl_cmd_target(const char *json, size_t len);
+int32_t am_ctl_cmd_target(const char *json, size_t len);
 
 /* ── CTL-2：本地端点 + 端点回执 sink（§2.3）──
  *
- * 端点只做生产者：连接上的每行 JSON 走 qwrt_control_sink 同一入口（不引入
+ * 端点只做生产者：连接上的每行 JSON 走 am_control_sink 同一入口（不引入
  * 第二执行路径），回执按条目 sink 写回该连接；无 sink 则走 message_cb/信封。
  * control_endpoint.c 仅在真实 libuv 构建编入（mock 构建无 uv_pipe）；mock 下
- * qwrt_ctl_endpoint_* 由 control.c 提供 no-op stub。 */
-int  qwrt_ctl_endpoint_init(qwrt_t *rt);    /* 0 = 已监听（bind+listen+0600） */
-void qwrt_ctl_endpoint_close(qwrt_t *rt);   /* 关监听+连接，unlink 端点文件 */
-int  qwrt_ctl_endpoint_owns(qwrt_t *rt, void *h);   /* idle 豁免判据 */
+ * am_ctl_endpoint_* 由 control.c 提供 no-op stub。 */
+int  am_ctl_endpoint_init(am_t *rt);    /* 0 = 已监听（bind+listen+0600） */
+void am_ctl_endpoint_close(am_t *rt);   /* 关监听+连接，unlink 端点文件 */
+int  am_ctl_endpoint_owns(am_t *rt, void *h);   /* idle 豁免判据 */
 /* 端点连接关闭：清理回执表里 sink 指向该连接的条目（防悬垂）。 */
-void qwrt_ctl_conn_drop(qwrt_t *rt, void *conn);
+void am_ctl_conn_drop(am_t *rt, void *conn);
 /* 端点连接回写（一行一条回执；loop 线程独占）。 */
-void qwrt_ctl_conn_write(void *conn, const char *json, size_t len);
+void am_ctl_conn_write(void *conn, const char *json, size_t len);
 /* 入站 CONTROL 回执投递（target 命中本地）：按回执表条目把回执交给端点
  * 连接 / 继续沿树上行 / message_cb，并消费条目。 */
-int qwrt_ctl_deliver_receipt(qwrt_t *rt, const uint8_t *payload, uint32_t len);
+int am_ctl_deliver_receipt(am_t *rt, const uint8_t *payload, uint32_t len);
 /* 端点命令入口：命令 JSON 的 target 决定本地执行还是树转发；回执一律写回
- * sink 连接（CTL-2 §2.3：端点只是生产者，执行路径与 qwrt_control 同一套）。 */
-int qwrt_control_endpoint_cmd(qwrt_t *rt, const char *bytes, size_t len,
+ * sink 连接（CTL-2 §2.3：端点只是生产者，执行路径与 am_control 同一套）。 */
+int am_control_endpoint_cmd(am_t *rt, const char *bytes, size_t len,
                               void *sink);
 /* 命令入队 + 指定回执 sink（NULL = 进程内 message_cb / 跨进程信封路径）。 */
-int qwrt_control_sink(qwrt_t *rt, const char *bytes, size_t len, void *sink);
+int am_control_sink(am_t *rt, const char *bytes, size_t len, void *sink);
 
 /* Monotonic clock in milliseconds. Ignores clock_gettime failure (same
  * behavior the former per-file copies had): CLOCK_MONOTONIC cannot fail with
  * EINVAL, so worst case the caller sees a stale/zero timestamp. */
-static inline int64_t qwrt_now_ms(void)
+static inline int64_t am_now_ms(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -741,7 +741,7 @@ static inline int64_t qwrt_now_ms(void)
  * compress and crypto extensions, which each had a private copy).
  * `*out_bytes` points into the JS-owned buffer — no copy — so it stays
  * valid only while `val` lives. Returns 0, or -1 if `val` is neither. */
-static inline int qwrt_js_extract_bytes(JSContext *ctx, JSValueConst val,
+static inline int am_js_extract_bytes(JSContext *ctx, JSValueConst val,
                                         const uint8_t **out_bytes,
                                         size_t *out_len)
 {
@@ -766,4 +766,4 @@ static inline int qwrt_js_extract_bytes(JSContext *ctx, JSValueConst val,
 #endif
  
 
-#endif /* QWRT_INTERNAL_H */
+#endif /* AM_INTERNAL_H */

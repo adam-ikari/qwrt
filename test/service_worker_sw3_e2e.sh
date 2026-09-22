@@ -2,15 +2,15 @@
 # SW-3 e2e — 更新机制三验证门：①同 URL 字节未变不触发 install
 # ②字节变化 → install→activate→替换 ③新 SW install 期间旧 SW 仍拦截（无控制真空）。
 # 脚本副本放在 /tmp（mktemp）并以参数传给 main-sw3.js（I3）——对工作树零污染、
-# 并行安全。期望输出逐行匹配。用法: bash test/service_worker_sw3_e2e.sh <path-to-qwrt>
+# 并行安全。期望输出逐行匹配。用法: bash test/service_worker_sw3_e2e.sh <path-to-amoib>
 set -u
-QWRT="${1:-./build_grpc2/qwrt}"
+AM="${1:-./build_grpc2/amoib}"
 DIR="$(cd "$(dirname "$0")/sw-e2e" && pwd)"
-TMP="$(mktemp --suffix=.js /tmp/qwrt-sw3-run-XXXXXX)"
+TMP="$(mktemp --suffix=.js /tmp/amoib-sw3-run-XXXXXX)"
 trap 'rm -f "$TMP"' EXIT
 cp "$DIR/sw-sw3-a.js" "$TMP"
 
-OUT="$(timeout 20 "$QWRT" "$DIR/main-sw3.js" "$TMP" "$DIR" 2>&1)"
+OUT="$(timeout 20 "$AM" "$DIR/main-sw3.js" "$TMP" "$DIR" 2>&1)"
 EXPECTED='SW3-A install
 SW3-A activate
 p1: state=activated cc=1

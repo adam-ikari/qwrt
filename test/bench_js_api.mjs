@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * qwrt JS-API performance benchmark — runs identically on qwrt / node / bun.
+ * amoib JS-API performance benchmark — runs identically on amoib / node / bun.
  *
  * Five modes (--mode streams|crypto|compress|fs|wasm|all), each printing one
  * JSON line as the last line of output:
@@ -12,9 +12,9 @@
  *   wasm      precompiled module exec: fib(38) iterations/s
  *
  * Runtime adaptation:
- *   - no static imports (qwrt runs files as plain scripts)
- *   - fs: qwrt uses qwrt.fs.*; node/bun dynamically import node:fs promises
- *   - argv: process.argv (node/bun) or globalThis.arguments (qwrt)
+ *   - no static imports (amoib runs files as plain scripts)
+ *   - fs: amoib uses amoib.fs.*; node/bun dynamically import node:fs promises
+ *   - argv: process.argv (node/bun) or globalThis.arguments (amoib)
  *
  * Usage:
  *   <runtime> test/bench_js_api.mjs --mode all [--iters N] [--dir /tmp]
@@ -46,8 +46,8 @@ const MIB = 1024 * 1024;
 const join = (dir, name) => dir.replace(/\/+$/, '') + '/' + name;
 
 async function loadFs() {
-  if (globalThis.qwrt && globalThis.qwrt.fs && globalThis.qwrt.fs.readFileBinary) {
-    return { kind: 'qwrt', fs: globalThis.qwrt.fs, join: join };
+  if (globalThis.amoib && globalThis.amoib.fs && globalThis.amoib.fs.readFileBinary) {
+    return { kind: 'amoib', fs: globalThis.amoib.fs, join: join };
   }
   const m = await import('node:fs');
   const p = await import('node:path');
@@ -183,12 +183,12 @@ async function benchCompress(iters) {
 // ---------------------------------------------------------------------------
 async function benchFs(args, iters) {
   const f = await loadFs();
-  const bigPath = f.join(args.dir, 'qwrt-bench-big.bin');
+  const bigPath = f.join(args.dir, 'amoib-bench-big.bin');
   const bigSize = Math.round(32 * MIB * iters);
   // All three runtimes' writeFile accept strings; binary writes vary
-  // (qwrt's fs layer is string-only), so the fixture is text. The read
+  // (amoib's fs layer is string-only), so the fixture is text. The read
   // path measures sequential throughput either way.
-  const blob = 'qwrt-bench-fixture;'.repeat(64 * 1024); // ~1.2 MiB text
+  const blob = 'amoib-bench-fixture;'.repeat(64 * 1024); // ~1.2 MiB text
   let written = 0;
   while (written < bigSize) {
     await f.fs.writeFile(bigPath, blob);
@@ -198,27 +198,27 @@ async function benchFs(args, iters) {
   const readBig = await timeIt(async () => {
     const t0 = performance.now();
     let ab;
-    if (f.kind === 'qwrt') ab = await f.fs.readFileBinary(bigPath);
+    if (f.kind === 'amoib') ab = await f.fs.readFileBinary(bigPath);
     else ab = await f.fs.readFile(bigPath);
     const bytes = ab.byteLength !== undefined ? ab.byteLength : ab.length;
     return bytes / ((performance.now() - t0) / 1000) / MIB;
   });
 
   // small-file batch: 256 x 4 KB files, readdir + read all.
-  // Flat layout in args.dir — qwrt's fs layer cannot create directories.
+  // Flat layout in args.dir — amoib's fs layer cannot create directories.
   const smallDir = args.dir;
   const small = new Uint8Array(4096);
   randomFill(small);
   const nFiles = 256;
   for (let i = 0; i < nFiles; i++) {
-    await f.fs.writeFile(f.join(smallDir, 'qwrt-bench-f' + i + '.bin'), small);
+    await f.fs.writeFile(f.join(smallDir, 'amoib-bench-f' + i + '.bin'), small);
   }
   const batch = await timeIt(async () => {
     const t0 = performance.now();
     // readdir + read only this bench's files (args.dir may hold thousands
     // of unrelated entries on a shared /tmp)
     const names = (await f.fs.readdir(smallDir))
-      .filter((n) => n.indexOf('qwrt-bench-f') === 0);
+      .filter((n) => n.indexOf('amoib-bench-f') === 0);
     const reads = [];
     for (let i = 0; i < names.length; i++) reads.push(f.fs.readFile(f.join(smallDir, names[i])));
     await Promise.all(reads);
@@ -230,7 +230,7 @@ async function benchFs(args, iters) {
   try {
     const names = await f.fs.readdir(smallDir);
     for (let i = 0; i < names.length; i++) {
-      if (names[i].indexOf('qwrt-bench-f') === 0) await f.fs.unlink(f.join(smallDir, names[i]));
+      if (names[i].indexOf('amoib-bench-f') === 0) await f.fs.unlink(f.join(smallDir, names[i]));
     }
   } catch (e) {}
 

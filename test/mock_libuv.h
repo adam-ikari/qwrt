@@ -1,5 +1,5 @@
-#ifndef QWRT_TEST_MOCK_LIBUV_H
-#define QWRT_TEST_MOCK_LIBUV_H
+#ifndef AM_TEST_MOCK_LIBUV_H
+#define AM_TEST_MOCK_LIBUV_H
 
 #include <pthread.h>
 #include <stddef.h>
@@ -63,7 +63,7 @@ struct uv_fs_s;
 typedef struct uv_loop_s uv_loop_t;
 typedef struct uv_buf_s { char *base; size_t len; } uv_buf_t;
 
-/* libuv-compatible intrusive queue node (matches uv.h); qwrt_msg_t embeds it. */
+/* libuv-compatible intrusive queue node (matches uv.h); am_msg_t embeds it. */
 struct uv__queue {
     struct uv__queue *next;
     struct uv__queue *prev;
@@ -73,7 +73,7 @@ typedef void (*uv_timer_cb)(struct uv_timer_s *handle);
 typedef void (*uv_async_cb)(struct uv_async_s *handle);
 typedef void (*uv_close_cb)(struct uv_handle_s *handle);
 /* walk/thread callback types match real libuv (uv_walk_cb takes uv_handle_t*,
- * uv_thread_cb returns void) so qwrt core source compiles against either header. */
+ * uv_thread_cb returns void) so amoib core source compiles against either header. */
 typedef void (*uv_walk_cb)(struct uv_handle_s *handle, void *arg);
 typedef void (*uv_thread_cb)(void *arg);
 
@@ -174,7 +174,7 @@ struct uv_loop_s {
     int active_handle_count;
     /* 活跃 request 计数（对齐真实 libuv 的 uv_loop_t.active_reqs，union 结构）。
      * mock 的 fs/tcp 请求同步完成，故 uv_loop_init 的 memset 后恒为 0；仅需
-     * 该字段与真实 libuv 对齐，供 qwrt_loop_idle 编译并保持一致语义。 */
+     * 该字段与真实 libuv 对齐，供 am_loop_idle 编译并保持一致语义。 */
     union { void *unused[2]; unsigned int count; } active_reqs;
     /* test-only: every byte handed to uv_write (HTTP request / CONNECT /
      * TLS records), NUL-terminated for convenience. Accumulated across

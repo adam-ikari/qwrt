@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: gRPC client — unary semantics over the pure-JS h2 stack.
+ * amoib polyfill: gRPC client — unary semantics over the pure-JS h2 stack.
  *
  * This is the gRPC layer of the HTTP/2 design (docs/plans/
  * 2026-09-03-grpc-http2-design.md §5.1). Transport (frames, HPACK, flow
@@ -346,7 +346,7 @@ Channel.prototype.invokeStream = function (method, req, opts) {
  * Client-streaming call: `(stream T) returns R`. The request stream is the
  * array / (async) iterable `reqs` — each item becomes one framed message and
  * is sent in order, then the request side is closed and the single reply is
- * awaited. Contrast grpc-js's event style (call.on('data')): qwrt always
+ * awaited. Contrast grpc-js's event style (call.on('data')): amoib always
  * collects the whole request stream up front and resolves with the decoded
  * reply message once it arrives.
  *
@@ -374,7 +374,7 @@ Channel.prototype.invokeClientStream = function (method, reqs, opts) {
  * once the peer ends its response stream (an empty array is a valid empty
  * stream). Like invokeStream() this is the Promise-style "send whole request
  * stream, receive whole response stream" shape — NOT grpc-js's bidirectional
- * event streams (call.write()/on('data')). Bidi handlers on the qwrt server
+ * event streams (call.write()/on('data')). Bidi handlers on the amoib server
  * receive the whole request array and return the whole response iterable.
  *
  * @returns {Promise<object[]>} the decoded response messages
@@ -465,7 +465,7 @@ Channel.prototype._once = function (call, payloads, opts, isRetry) {
         'content-type': 'application/grpc+proto',
         'te': 'trailers',
         'grpc-accept-encoding': 'identity',
-        'user-agent': 'qwrt-grpc-js/1.0',
+        'user-agent': 'amoib-grpc-js/1.0',
       };
       var timeoutMs = opts.timeoutMs;
       if (timeoutMs != null) {
@@ -669,7 +669,7 @@ function loadProto(text, opts) {
 
 export function setupGrpc(pal) {
   _pal = pal;
-  globalThis.qwrt = globalThis.qwrt || {};
+  globalThis.amoib = globalThis.amoib || {};
   globalThis.grpc = {
     Status: Status,
     StatusName: StatusName,

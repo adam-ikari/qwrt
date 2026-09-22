@@ -8,7 +8,7 @@
 // 5. 错误处理：损坏/截断/非法数据抛错或产生空输出
 //
 // 压缩同步（nativeCompress 在 writable.close() 内完成），promise 链为纯微任务；
-// 每轮 host_eval 后 qwrt 线程冲刷全部微任务，阶段间无需额外等待，最终用
+// 每轮 host_eval 后 amoib 线程冲刷全部微任务，阶段间无需额外等待，最终用
 // host_poll_until_value 轮询标志位。
 #include "test_host.h"
 #include <string>

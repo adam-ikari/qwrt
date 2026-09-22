@@ -10,12 +10,12 @@ updated: "2026-09-01T09:15:17"
 ## Why
 
 提供可嵌入的轻量级 JavaScript 运行时：C 宿主应用需要运行 JS（配置/脚本/插件），
-但不想引入 V8/JSC 的体量，也不需要 Node.js 生态依赖。qwrt 以 libuv 驱动事件循环，
+但不想引入 V8/JSC 的体量，也不需要 Node.js 生态依赖。amoib 以 libuv 驱动事件循环，
 自带内部线程，宿主只通过线程安全的 C API 收发 JSON 消息，无需宿主侧参与事件泵。
 
 ## Goals
 
-- 可嵌入：单一 qwrt_create 初始化，内部线程 + libuv 循环，宿主零轮询
+- 可嵌入：单一 am_create 初始化，内部线程 + libuv 循环，宿主零轮询
 - WinterTC 兼容：覆盖 Web 平台通用标准 API（fetch、streams、crypto、Worker、URL 等）
 - 轻量：QuickJS-ng 引擎，低启动时间、低内存占用，严格 C99
 - 确定性测试：mock_libuv 离线 gtest 全覆盖，CI 门禁（test262 + e2e）

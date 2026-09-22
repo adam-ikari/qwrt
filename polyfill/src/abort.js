@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: AbortController and AbortSignal
+ * amoib polyfill: AbortController and AbortSignal
  *
  * Standard AbortController implementation for cancelable operations.
  * Pure JS - no PAL primitives needed.

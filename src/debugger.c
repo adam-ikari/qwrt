@@ -1,9 +1,9 @@
 /*
- * qwrt — Debug core implementation (step debugger)
+ * amoib — Debug core implementation (step debugger)
  *
  * PAL-agnostic. Bridges the QuickJS-ng debugger engine patch
  * (JS_SetDebuggerHandler / JS_GetCallFrames / JS_GetFrameVariable) to the
- * stable qwrt_debug_* API. Owns the breakpoint table, step-mode state, and
+ * stable am_debug_* API. Owns the breakpoint table, step-mode state, and
  * the blocking pause logic (the on_dispatch hook).
  *
  * Threading: single-threaded. on_dispatch runs inline on the JS thread inside
@@ -11,13 +11,13 @@
  * protocol until a flow command arrives) then returns 0 to resume. It must
  * NEVER return non-zero (that would abort via JS_ThrowInterrupted).
  *
- * Compiled in only when QWRT_DEBUG_SUPPORT is defined (QWRT_BUILD_DEBUGGER=ON).
+ * Compiled in only when AM_DEBUG_SUPPORT is defined (AM_BUILD_DEBUGGER=ON).
  */
-#include "qwrt_internal.h"
+#include "am_internal.h"
 
-#ifdef QWRT_DEBUG_SUPPORT
+#ifdef AM_DEBUG_SUPPORT
 
-#include "qwrt/qwrt_debug.h"
+#include "amoib/am_debug.h"
 #include <quickjs.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,36 +26,36 @@
  * Internal state
  * ================================================================ */
 
-enum qwrt_step_mode {
+enum am_step_mode {
     STEP_NONE = 0,
     STEP_INTO,
     STEP_OVER,
     STEP_OUT,
 };
 
-typedef struct qwrt_bp {
+typedef struct am_bp {
     char *filename;   /* strdup'd; matched against JS_Eval filename atom string */
     int   line;
     char *condition;  /* strdup'd DAP condition expr; NULL = unconditional. Evaluated
-                       * in the frame's locals sandbox (qwrt_debug_evaluate style);
+                       * in the frame's locals sandbox (am_debug_evaluate style);
                        * stops only if it evaluates truthy. */
     int   hit;        /* incremented each time this bp fires (for future use) */
-} qwrt_bp_t;
+} am_bp_t;
 
-struct qwrt_debug {
-    qwrt_t *rt;
-    qwrt_debug_cbs cbs;
+struct am_debug {
+    am_t *rt;
+    am_debug_cbs cbs;
     JSDebuggerHooks hooks;          /* installed on the JSRuntime */
     /* breakpoint table */
-    qwrt_bp_t *bps;
+    am_bp_t *bps;
     int bp_count;
     int bp_cap;
     /* step / pause state */
-    int step_mode;              /* enum qwrt_step_mode */
+    int step_mode;              /* enum am_step_mode */
     int step_frame_depth;       /* frame depth at step-over/out start */
     JSAtom step_filename;       /* last filename stepped (0 = none) */
     int step_line;              /* last line stepped (-1 = none) */
-    int pause_requested;        /* set by qwrt_debug_pause / stop_on_entry */
+    int pause_requested;        /* set by am_debug_pause / stop_on_entry */
     int stopped;                /* 1 while inside on_stopped (re-entrancy guard) */
     int last_stop_line;         /* line of the last stop (to skip re-hitting the
                                  * same breakpoint on immediate continue). -1=none */
@@ -65,8 +65,8 @@ struct qwrt_debug {
     int frame_generation;       /* bumped each stop; invalidates stale ids */
 };
 
-/* Forward decl — defined below; used by qwrt_debug_attach. */
-static int qwrt_debug_on_dispatch(JSContext *ctx, struct JSStackFrame *sf,
+/* Forward decl — defined below; used by am_debug_attach. */
+static int am_debug_on_dispatch(JSContext *ctx, struct JSStackFrame *sf,
                                   const uint8_t *pc, void *opaque);
 
 /* ================================================================
@@ -76,11 +76,11 @@ static int qwrt_debug_on_dispatch(JSContext *ctx, struct JSStackFrame *sf,
 /* Filename comparison: b->filename is a strdup'd string; compared against the
  * filename string resolved from the engine atom via JS_GetCallFrames. */
 /* Find the breakpoint matching (filename, line), or NULL. */
-static qwrt_bp_t *bp_find(qwrt_debug_t *dbg, const char *filename, int line)
+static am_bp_t *bp_find(am_debug_t *dbg, const char *filename, int line)
 {
     int i;
     for (i = 0; i < dbg->bp_count; i++) {
-        qwrt_bp_t *bp = &dbg->bps[i];
+        am_bp_t *bp = &dbg->bps[i];
         if (bp->line == line && bp->filename && filename &&
             strcmp(bp->filename, filename) == 0)
             return bp;
@@ -93,11 +93,11 @@ static qwrt_bp_t *bp_find(qwrt_debug_t *dbg, const char *filename, int line)
  * (not ensure_frames, which requires dbg->stopped). Returns 1 if true
  * (NULL/unconditional → true), 0 if false, -1 on eval error (stop so user sees
  * the error). */
-static int bp_condition_true(qwrt_debug_t *dbg, qwrt_bp_t *bp)
+static int bp_condition_true(am_debug_t *dbg, am_bp_t *bp)
 {
     if (!bp->condition || bp->condition[0] == '\0')
         return 1;  /* unconditional */
-    JSContext *ctx = qwrt_get_active_jsctx(dbg->rt);
+    JSContext *ctx = am_get_active_jsctx(dbg->rt);
     if (!ctx) return -1;
 
     /* Build a `locals` object from the top frame. */
@@ -153,10 +153,10 @@ static int bp_condition_true(qwrt_debug_t *dbg, qwrt_bp_t *bp)
  * The on_dispatch hook — the heart of the debugger
  * ================================================================ */
 
-static int qwrt_debug_on_dispatch(JSContext *ctx, struct JSStackFrame *sf,
+static int am_debug_on_dispatch(JSContext *ctx, struct JSStackFrame *sf,
                                   const uint8_t *pc, void *opaque)
 {
-    qwrt_debug_t *dbg = (qwrt_debug_t *)opaque;
+    am_debug_t *dbg = (am_debug_t *)opaque;
     int col = 0;
     int line = JS_PcToLine(ctx, sf, pc, &col);
     if (line < 0)
@@ -213,7 +213,7 @@ static int qwrt_debug_on_dispatch(JSContext *ctx, struct JSStackFrame *sf,
     }
 
     if (!reason) {
-        qwrt_bp_t *bp = bp_find(dbg, filename, line);
+        am_bp_t *bp = bp_find(dbg, filename, line);
         if (bp) {
             /* skip re-hitting the same breakpoint immediately after continue */
             if (dbg->last_stop_line != line) {
@@ -255,19 +255,19 @@ static int qwrt_debug_on_dispatch(JSContext *ctx, struct JSStackFrame *sf,
  * Public API
  * ================================================================ */
 
-qwrt_debug_t *qwrt_debug_attach(qwrt_t *rt, const qwrt_debug_cbs *cbs)
+am_debug_t *am_debug_attach(am_t *rt, const am_debug_cbs *cbs)
 {
     if (!rt || !cbs) return NULL;
     JSRuntime *jsrt = rt->jsrt;
     if (!jsrt) return NULL;
 
-    struct qwrt_debug *dbg = calloc(1, sizeof(*dbg));
+    struct am_debug *dbg = calloc(1, sizeof(*dbg));
     if (!dbg) return NULL;
     dbg->rt = rt;
     dbg->cbs = *cbs;
     dbg->step_line = -1;
 
-    dbg->hooks.on_dispatch = qwrt_debug_on_dispatch;
+    dbg->hooks.on_dispatch = am_debug_on_dispatch;
     dbg->hooks.opaque = dbg;
     JS_SetDebuggerHandler(jsrt, &dbg->hooks);
 
@@ -275,12 +275,12 @@ qwrt_debug_t *qwrt_debug_attach(qwrt_t *rt, const qwrt_debug_cbs *cbs)
     return dbg;
 }
 
-qwrt_t *qwrt_debug_get_runtime(qwrt_debug_t *dbg)
+am_t *am_debug_get_runtime(am_debug_t *dbg)
 {
     return dbg ? dbg->rt : NULL;
 }
 
-void qwrt_debug_detach(qwrt_t *rt, qwrt_debug_t *dbg)
+void am_debug_detach(am_t *rt, am_debug_t *dbg)
 {
     if (!rt || !dbg) return;
     JSRuntime *jsrt = rt->jsrt;
@@ -289,9 +289,9 @@ void qwrt_debug_detach(qwrt_t *rt, qwrt_debug_t *dbg)
     if (rt->dbg_session == dbg)
         rt->dbg_session = NULL;
     /* Free any cached paused-frame snapshot. Requires a live ctx — detach must
-     * therefore run before context teardown (qwrt_thread_teardown ordering). */
+     * therefore run before context teardown (am_thread_teardown ordering). */
     if (dbg->frames) {
-        JSContext *ctx = qwrt_get_active_jsctx(rt);
+        JSContext *ctx = am_get_active_jsctx(rt);
         if (ctx)
             JS_FreeCallFrames(ctx, dbg->frames, dbg->frame_count);
         dbg->frames = NULL;
@@ -308,13 +308,13 @@ void qwrt_debug_detach(qwrt_t *rt, qwrt_debug_t *dbg)
     free(dbg);
 }
 
-int qwrt_debug_add_breakpoint(qwrt_debug_t *dbg, const char *filename,
+int am_debug_add_breakpoint(am_debug_t *dbg, const char *filename,
                               int line, const char *condition)
 {
     if (!dbg || !filename || line < 1) return -1;
     if (dbg->bp_count >= dbg->bp_cap) {
         int nc = dbg->bp_cap ? dbg->bp_cap * 2 : 8;
-        qwrt_bp_t *nb = realloc(dbg->bps, sizeof(qwrt_bp_t) * nc);
+        am_bp_t *nb = realloc(dbg->bps, sizeof(am_bp_t) * nc);
         if (!nb) return -1;
         dbg->bps = nb;
         dbg->bp_cap = nc;
@@ -327,7 +327,7 @@ int qwrt_debug_add_breakpoint(qwrt_debug_t *dbg, const char *filename,
     return 0;
 }
 
-int qwrt_debug_remove_breakpoint(qwrt_debug_t *dbg, const char *filename, int line)
+int am_debug_remove_breakpoint(am_debug_t *dbg, const char *filename, int line)
 {
     if (!dbg || !filename) return -1;
     int i;
@@ -347,7 +347,7 @@ int qwrt_debug_remove_breakpoint(qwrt_debug_t *dbg, const char *filename, int li
     return -1;  /* not found */
 }
 
-void qwrt_debug_clear_breakpoints(qwrt_debug_t *dbg)
+void am_debug_clear_breakpoints(am_debug_t *dbg)
 {
     if (!dbg) return;
     int i;
@@ -358,35 +358,35 @@ void qwrt_debug_clear_breakpoints(qwrt_debug_t *dbg)
     dbg->bp_count = 0;
 }
 
-void qwrt_debug_continue(qwrt_debug_t *dbg)
+void am_debug_continue(am_debug_t *dbg)
 {
     if (!dbg) return;
     dbg->step_mode = STEP_NONE;
     dbg->step_line = -1;
 }
 
-void qwrt_debug_pause(qwrt_debug_t *dbg)
+void am_debug_pause(am_debug_t *dbg)
 {
     if (!dbg) return;
     dbg->pause_requested = 1;
 }
 
-void qwrt_debug_step_over(qwrt_debug_t *dbg)
+void am_debug_step_over(am_debug_t *dbg)
 {
     if (!dbg) return;
     dbg->step_mode = STEP_OVER;
 }
-void qwrt_debug_step_into(qwrt_debug_t *dbg)
+void am_debug_step_into(am_debug_t *dbg)
 {
     if (!dbg) return;
     dbg->step_mode = STEP_INTO;
 }
-void qwrt_debug_step_out(qwrt_debug_t *dbg)
+void am_debug_step_out(am_debug_t *dbg)
 {
     if (!dbg) return;
     dbg->step_mode = STEP_OUT;
 }
-void qwrt_debug_stop_on_entry(qwrt_debug_t *dbg)
+void am_debug_stop_on_entry(am_debug_t *dbg)
 {
     if (!dbg) return;
     dbg->pause_requested = 1;
@@ -397,26 +397,26 @@ void qwrt_debug_stop_on_entry(qwrt_debug_t *dbg)
  * ================================================================ */
 
 /* Lazily fetch the paused-frame snapshot via the engine. */
-static int ensure_frames(qwrt_debug_t *dbg)
+static int ensure_frames(am_debug_t *dbg)
 {
     if (dbg->frames) return 0;
     if (!dbg->stopped) return -1;  /* not paused */
-    JSContext *ctx = qwrt_get_active_jsctx(dbg->rt);
+    JSContext *ctx = am_get_active_jsctx(dbg->rt);
     if (!ctx) return -1;
     dbg->frames = JS_GetCallFrames(ctx, &dbg->frame_count);
     if (!dbg->frames) return -1;
     return 0;
 }
 
-int qwrt_debug_get_call_frames(qwrt_debug_t *dbg,
-                               qwrt_debug_frame **out_frames, int *out_count)
+int am_debug_get_call_frames(am_debug_t *dbg,
+                               am_debug_frame **out_frames, int *out_count)
 {
     if (!dbg || !out_frames || !out_count) return -1;
     *out_frames = NULL;
     *out_count = 0;
     if (ensure_frames(dbg) < 0) return -1;
 
-    qwrt_debug_frame *df = calloc(dbg->frame_count, sizeof(qwrt_debug_frame));
+    am_debug_frame *df = calloc(dbg->frame_count, sizeof(am_debug_frame));
     if (!df) return -1;
     int i;
     for (i = 0; i < dbg->frame_count; i++) {
@@ -434,7 +434,7 @@ int qwrt_debug_get_call_frames(qwrt_debug_t *dbg,
     return 0;
 }
 
-void qwrt_debug_free_frames(qwrt_debug_frame *frames, int count)
+void am_debug_free_frames(am_debug_frame *frames, int count)
 {
     if (!frames) return;
     int i;
@@ -446,7 +446,7 @@ void qwrt_debug_free_frames(qwrt_debug_frame *frames, int count)
 }
 
 /* Decode a frame_id back to an engine frame index; -1 if stale/invalid. */
-static int frame_id_to_index(qwrt_debug_t *dbg, int frame_id)
+static int frame_id_to_index(am_debug_t *dbg, int frame_id)
 {
     int gen = (frame_id >> 16) & 0xffff;
     int idx = frame_id & 0xffff;
@@ -455,8 +455,8 @@ static int frame_id_to_index(qwrt_debug_t *dbg, int frame_id)
     return idx;
 }
 
-int qwrt_debug_get_scopes(qwrt_debug_t *dbg, int frame_id,
-                          qwrt_debug_scope **out_scopes, int *out_count)
+int am_debug_get_scopes(am_debug_t *dbg, int frame_id,
+                          am_debug_scope **out_scopes, int *out_count)
 {
     if (!dbg || !out_scopes || !out_count) return -1;
     *out_scopes = NULL;
@@ -467,7 +467,7 @@ int qwrt_debug_get_scopes(qwrt_debug_t *dbg, int frame_id,
 
     /* MVP: one "Locals" scope per frame. variablesReference = frame_id
      * (re-used; the get_variables path decodes it the same way). */
-    qwrt_debug_scope *s = calloc(1, sizeof(qwrt_debug_scope));
+    am_debug_scope *s = calloc(1, sizeof(am_debug_scope));
     if (!s) return -1;
     s->name = strdup("Locals");
     s->variables_reference = frame_id;
@@ -477,7 +477,7 @@ int qwrt_debug_get_scopes(qwrt_debug_t *dbg, int frame_id,
     return 0;
 }
 
-void qwrt_debug_free_scopes(qwrt_debug_scope *scopes, int count)
+void am_debug_free_scopes(am_debug_scope *scopes, int count)
 {
     if (!scopes) return;
     int i;
@@ -486,8 +486,8 @@ void qwrt_debug_free_scopes(qwrt_debug_scope *scopes, int count)
     free(scopes);
 }
 
-int qwrt_debug_get_variables(qwrt_debug_t *dbg, int variables_reference,
-                             qwrt_debug_var **out_vars, int *out_count)
+int am_debug_get_variables(am_debug_t *dbg, int variables_reference,
+                             am_debug_var **out_vars, int *out_count)
 {
     if (!dbg || !out_vars || !out_count) return -1;
     *out_vars = NULL;
@@ -496,13 +496,13 @@ int qwrt_debug_get_variables(qwrt_debug_t *dbg, int variables_reference,
     int idx = frame_id_to_index(dbg, variables_reference);
     if (idx < 0) return -1;
 
-    JSContext *ctx = qwrt_get_active_jsctx(dbg->rt);
+    JSContext *ctx = am_get_active_jsctx(dbg->rt);
     if (!ctx) return -1;
     JSDebugFrame *f = &dbg->frames[idx];
     int n = f->arg_count + f->var_count;
     if (n <= 0) return 0;
 
-    qwrt_debug_var *vars = calloc(n, sizeof(qwrt_debug_var));
+    am_debug_var *vars = calloc(n, sizeof(am_debug_var));
     if (!vars) return -1;
     int i;
     for (i = 0; i < n; i++) {
@@ -526,7 +526,7 @@ int qwrt_debug_get_variables(qwrt_debug_t *dbg, int variables_reference,
     return 0;
 }
 
-void qwrt_debug_free_vars(qwrt_debug_var *vars, int count)
+void am_debug_free_vars(am_debug_var *vars, int count)
 {
     if (!vars) return;
     int i;
@@ -538,7 +538,7 @@ void qwrt_debug_free_vars(qwrt_debug_var *vars, int count)
     free(vars);
 }
 
-int qwrt_debug_evaluate(qwrt_debug_t *dbg, int frame_id,
+int am_debug_evaluate(am_debug_t *dbg, int frame_id,
                         const char *expression,
                         char **out_value_json, char **out_error)
 {
@@ -551,7 +551,7 @@ int qwrt_debug_evaluate(qwrt_debug_t *dbg, int frame_id,
      * still visible in the Locals scope; evaluate works for globals and pure
      * expressions. As a convenience, the frame's locals are also exposed on a
      * `locals` object, so `locals.x` works in watch. */
-    JSContext *ctx = qwrt_get_active_jsctx(dbg->rt);
+    JSContext *ctx = am_get_active_jsctx(dbg->rt);
     if (!ctx) return -1;
 
     if (ensure_frames(dbg) < 0) return -1;
@@ -621,4 +621,4 @@ int qwrt_debug_evaluate(qwrt_debug_t *dbg, int frame_id,
     return 0;
 }
 
-#endif /* QWRT_DEBUG_SUPPORT */
+#endif /* AM_DEBUG_SUPPORT */

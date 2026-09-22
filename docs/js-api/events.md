@@ -1,6 +1,6 @@
 ---
 title: EventTarget / Event
-description: The EventTarget and Event APIs in Qwrt.js — addEventListener, dispatchEvent, CustomEvent, and event propagation.
+description: The EventTarget and Event APIs in Amoib.js — addEventListener, dispatchEvent, CustomEvent, and event propagation.
 ---
 
 # EventTarget / Event / CustomEvent / ErrorEvent
@@ -77,7 +77,7 @@ let event = new Event('load');
 let cancelable = new Event('submit', {
     bubbles: true,        // propagates up
     cancelable: true,     // can be cancelled
-    composed: true        // crosses shadow DOM boundaries (not relevant in qwrt)
+    composed: true        // crosses shadow DOM boundaries (not relevant in amoib)
 });
 ```
 
@@ -163,7 +163,7 @@ flowchart TB
     B --> C["3. Bubbling phase (listeners with { capture: false }, default)"]
 ```
 
-Since qwrt has no DOM tree, bubbling/capturing only matters if you build your own event hierarchy.
+Since amoib has no DOM tree, bubbling/capturing only matters if you build your own event hierarchy.
 
 ## Notes
 

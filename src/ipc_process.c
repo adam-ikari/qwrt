@@ -1,5 +1,5 @@
 /*
- * qwrt IPC Process — parent-side spawn / handshake / terminate (M-P1)
+ * amoib IPC Process — parent-side spawn / handshake / terminate (M-P1)
  *
  * Design: docs/plans/2026-09-04-multi-process-model.md §3, §5, §9.2, M-P1.
  * Linux-only (AF_UNIX socketpair, fork+exec, SIGKILL+waitpid).
@@ -11,7 +11,7 @@
  */
 
 #include "ipc_process.h"
-#include "qwrt_internal.h"
+#include "am_internal.h"
 #include <cJSON.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -24,7 +24,7 @@
 #include <sys/socket.h>
 #include <poll.h>
 #include <time.h>
-#include <sched.h>   /* sched_yield: qwrt_proc_ping 的自旋等待 */
+#include <sched.h>   /* sched_yield: am_proc_ping 的自旋等待 */
 #include <stdio.h>
 
 /* ── Helpers ── */
@@ -55,7 +55,7 @@ static int read_all_deadline(int fd, void *buf, size_t len, int64_t deadline_ms)
     char *p = (char *)buf;
     size_t off = 0;
     while (off < len) {
-        int64_t remaining = deadline_ms - qwrt_now_ms();
+        int64_t remaining = deadline_ms - am_now_ms();
         if (remaining <= 0) return -1;
         struct pollfd pfd = { .fd = fd, .events = POLLIN };
         int pr = poll(&pfd, 1, (int)remaining);
@@ -75,22 +75,22 @@ static int read_all_deadline(int fd, void *buf, size_t len, int64_t deadline_ms)
 
 /* ── Framing ── */
 
-int qwrt_ipc_write_frame(int fd, const uint8_t *data, size_t len)
+int am_ipc_write_frame(int fd, const uint8_t *data, size_t len)
 {
     if (len > 0xFFFFFFFFu) return -1;
     uint8_t hdr[4];
-    qwrt_wr32(hdr, (uint32_t)len);
+    am_wr32(hdr, (uint32_t)len);
     if (write_all(fd, hdr, 4) < 0) return -1;
     if (len > 0 && write_all(fd, data, len) < 0) return -1;
     return 0;
 }
 
-int qwrt_ipc_read_frame(int fd, uint8_t **out_frame, size_t *out_len,
+int am_ipc_read_frame(int fd, uint8_t **out_frame, size_t *out_len,
                         int64_t deadline_ms)
 {
     uint8_t hdrbuf[4];
     if (read_all_deadline(fd, hdrbuf, 4, deadline_ms) < 0) return -1;
-    uint32_t flen = qwrt_rd32(hdrbuf);
+    uint32_t flen = am_rd32(hdrbuf);
     if (flen > 16u * 1024 * 1024) return -1;
     uint8_t *frame = (uint8_t *)malloc(flen ? flen : 1);
     if (!frame) return -1;
@@ -105,30 +105,30 @@ int qwrt_ipc_read_frame(int fd, uint8_t **out_frame, size_t *out_len,
 
 /* ── Handshake JSON ── */
 
-size_t qwrt_ipc_build_handshake(char *out, size_t cap, int role, int id)
+size_t am_ipc_build_handshake(char *out, size_t cap, int role, int id)
 {
     int n = snprintf(out, cap, "{\"v\":%d,\"role\":%d,\"id\":%d}",
-                     QWRT_IPC_PROTO_VERSION, role, id);
+                     AM_IPC_PROTO_VERSION, role, id);
     return (n < 0 || (size_t)n >= cap) ? 0 : (size_t)n;
 }
 
-size_t qwrt_ipc_build_ack(char *out, size_t cap, int ok)
+size_t am_ipc_build_ack(char *out, size_t cap, int ok)
 {
     int n = snprintf(out, cap, "{\"ok\":%d,\"v\":%d}",
-                     ok ? 1 : 0, QWRT_IPC_PROTO_VERSION);
+                     ok ? 1 : 0, AM_IPC_PROTO_VERSION);
     return (n < 0 || (size_t)n >= cap) ? 0 : (size_t)n;
 }
 
 /* ── Handshake / ack parsing ──
  *
- * 为何必须在 C 层：两个调用点都在 JS 不可重入窗口——父进程 qwrt_proc_spawn
+ * 为何必须在 C 层：两个调用点都在 JS 不可重入窗口——父进程 am_proc_spawn
  * 的同步握手窗口、子进程 rt_main 的启动顺序 handshake/ack（生命周期步骤 2）
- * 先于 qwrt_t init（步骤 3），JS context 尚不存在，JS_ParseJSON 不可用
+ * 先于 am_t init（步骤 3），JS context 尚不存在，JS_ParseJSON 不可用
  * （裁决：docs/architecture/c-js-layering.md §6.6）。字段提取用 vendored
  * cJSON（用户指令：不手写）。消息由本文件 build_handshake/build_ack 生成，
  * 格式自产自销。 */
 
-int qwrt_ipc_parse_handshake(const char *json, int *out_v,
+int am_ipc_parse_handshake(const char *json, int *out_v,
                              int *out_role, int *out_id)
 {
     cJSON *j = cJSON_Parse(json);
@@ -147,7 +147,7 @@ int qwrt_ipc_parse_handshake(const char *json, int *out_v,
     return rc;
 }
 
-int qwrt_ipc_parse_ack(const char *json, int *out_ok, int *out_v)
+int am_ipc_parse_ack(const char *json, int *out_ok, int *out_v)
 {
     cJSON *j = cJSON_Parse(json);
     if (!j) return -1;
@@ -165,61 +165,61 @@ int qwrt_ipc_parse_ack(const char *json, int *out_ok, int *out_v)
 
 /* ── M-P2 主RT 通道 CONTROL 协议分类（§6.1，两侧共用） ── */
 
-qwrt_ipc_ctl_kind_t qwrt_ipc_ctl_classify(const uint8_t *payload,
+am_ipc_ctl_kind_t am_ipc_ctl_classify(const uint8_t *payload,
                                           uint32_t len, int *out_val)
 {
-    if (!payload || len == 0) return QWRT_IPC_CTL_NONE;
+    if (!payload || len == 0) return AM_IPC_CTL_NONE;
 
     /* cJSON 按 NUL 结尾扫描，payload 是零拷贝片（rbuf 内），补一份带 NUL 的
      * 副本再解析。CONTROL 消息都很小（<64B），一次性栈缓冲足够。 */
     char buf[256];
-    if (len >= sizeof(buf)) return QWRT_IPC_CTL_NONE;
+    if (len >= sizeof(buf)) return AM_IPC_CTL_NONE;
     memcpy(buf, payload, len);
     buf[len] = '\0';
 
     cJSON *j = cJSON_Parse(buf);
-    if (!j) return QWRT_IPC_CTL_NONE;
-    qwrt_ipc_ctl_kind_t kind = QWRT_IPC_CTL_NONE;
-    if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(j, "qwrt"))) {
+    if (!j) return AM_IPC_CTL_NONE;
+    am_ipc_ctl_kind_t kind = AM_IPC_CTL_NONE;
+    if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(j, "amoib"))) {
         const cJSON *ready = cJSON_GetObjectItemCaseSensitive(j, "ready");
         const cJSON *idle  = cJSON_GetObjectItemCaseSensitive(j, "idle");
         const cJSON *sd    = cJSON_GetObjectItemCaseSensitive(j, "shutdown");
         if (cJSON_IsNumber(ready)) {
-            kind = QWRT_IPC_CTL_READY;
+            kind = AM_IPC_CTL_READY;
             *out_val = ready->valueint;
         } else if (cJSON_IsNumber(idle)) {
-            kind = QWRT_IPC_CTL_IDLE;
+            kind = AM_IPC_CTL_IDLE;
             *out_val = idle->valueint;
         } else if (cJSON_IsNumber(sd)) {
-            kind = QWRT_IPC_CTL_SHUTDOWN;
+            kind = AM_IPC_CTL_SHUTDOWN;
             *out_val = sd->valueint;
         } else if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(j, "ping"))) {
             /* liveness 探测：宿主→对端。对端 C 层读泵识别后直回 PONG。 */
-            kind = QWRT_IPC_CTL_PING;
+            kind = AM_IPC_CTL_PING;
             *out_val = 1;
         } else if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(j, "pong"))) {
             /* liveness 应答：对端读泵回显 corr（= ping seq）。 */
-            kind = QWRT_IPC_CTL_PONG;
+            kind = AM_IPC_CTL_PONG;
             *out_val = 1;
         } else if (cJSON_IsNumber(
                        cJSON_GetObjectItemCaseSensitive(j, "pfail"))) {
             /* 跨层 ping 转发失败：中间节点回 corr=seq（宿主快速 -1）。 */
-            kind = QWRT_IPC_CTL_PFAIL;
+            kind = AM_IPC_CTL_PFAIL;
             *out_val = 1;
         } else {
-            /* 带 "qwrt" 标记但非 ready/idle/shutdown（M-P4 closing 等）：
+            /* 带 "amoib" 标记但非 ready/idle/shutdown（M-P4 closing 等）：
              * 通道级系统消息，交通道层消费，不被当作控制面命令路由。 */
-            kind = QWRT_IPC_CTL_SYSTEM;
+            kind = AM_IPC_CTL_SYSTEM;
         }
     }
     cJSON_Delete(j);
     return kind;
 }
 
-/* 跨层 ping 的 "tp" 数组提取（{"qwrt":1,"ping":N,"tp":[...]} / PONG 回显同
+/* 跨层 ping 的 "tp" 数组提取（{"amoib":1,"ping":N,"tp":[...]} / PONG 回显同
  * 字段）。返回元素数（0 = 无 tp = 单跳形态）。栈缓冲 + cJSON（与 classify
  * 同裁决：不手写解析）；读泵/主RT g_rx 两侧共用。 */
-int qwrt_ipc_ping_tp(const uint8_t *payload, uint32_t len,
+int am_ipc_ping_tp(const uint8_t *payload, uint32_t len,
                      int32_t *out, int cap)
 {
     if (!payload || len == 0 || len > 256) return 0;
@@ -243,7 +243,7 @@ int qwrt_ipc_ping_tp(const uint8_t *payload, uint32_t len,
 
 /* ── Binary path detection ── */
 
-/* Resolve the qwrt-rt binary path. On success returns a malloc'd string;
+/* Resolve the amoib-rt binary path. On success returns a malloc'd string;
  * on failure returns NULL and sets *oom to 1 iff an allocation failed (so
  * the caller can distinguish NO_MEMORY from NOT_FOUND — a plain strdup OOM
  * used to be misreported as "binary not found"). */
@@ -255,14 +255,14 @@ static char *resolve_binary(const char *binary_path, int *oom)
         return r;
     }
 
-    const char *env = getenv("QWRT_RT_SERVER");
+    const char *env = getenv("AM_RT_SERVER");
     if (env && env[0]) {
         char *r = strdup(env);
         if (!r) *oom = 1;
         return r;
     }
 
-    /* Try /proc/self/exe directory + "/qwrt-rt" */
+    /* Try /proc/self/exe directory + "/amoib-rt" */
     char self[4096];
     ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
     if (n > 0) {
@@ -270,13 +270,13 @@ static char *resolve_binary(const char *binary_path, int *oom)
         char *slash = strrchr(self, '/');
         if (slash) {
             size_t dlen = (size_t)(slash - self) + 1;
-            char *path = (char *)malloc(dlen + 8);
+            char *path = (char *)malloc(dlen + sizeof("amoib-rt") + 1);
             if (!path) {
                 *oom = 1;
             } else {
                 memcpy(path, self, dlen);
-                memcpy(path + dlen, "qwrt-rt", 7);
-                path[dlen + 7] = '\0';
+                memcpy(path + dlen, "amoib-rt", sizeof("amoib-rt") - 1);
+                path[dlen + sizeof("amoib-rt") - 1] = '\0';
                 if (access(path, X_OK) == 0)
                     return path;
                 free(path);
@@ -284,9 +284,9 @@ static char *resolve_binary(const char *binary_path, int *oom)
         }
     }
 
-#ifdef QWRT_RT_PATH
-    if (access(QWRT_RT_PATH, X_OK) == 0) {
-        char *r = strdup(QWRT_RT_PATH);
+#ifdef AM_RT_PATH
+    if (access(AM_RT_PATH, X_OK) == 0) {
+        char *r = strdup(AM_RT_PATH);
         if (!r) *oom = 1;
         return r;
     }
@@ -307,29 +307,29 @@ static void proc_reap_blocking(pid_t pid)
 
 /* ── Parent side: spawn ── */
 
-int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
+int am_proc_spawn(am_t *parent, am_proc_t *proc,
                     const char *exe,
                     char *const argv[],
                     int role, int id,
                     int require_handshake)
 {
-    if (!proc || !argv) return QWRT_ERR_INVALID_ARG;
+    if (!proc || !argv) return AM_ERR_INVALID_ARG;
     memset(proc, 0, sizeof(*proc));
     proc->pid = -1;
     proc->id = id;
     proc->role = role;
-    proc->state = QWRT_PROC_BUILD;
+    proc->state = AM_PROC_BUILD;
     proc->parent_rt = parent;
-    int kill_err = QWRT_ERR_GENERIC;   /* refined per failure cause below */
+    int kill_err = AM_ERR_GENERIC;   /* refined per failure cause below */
 
     int oom = 0;
     char *path = resolve_binary(exe, &oom);
-    if (!path) return oom ? QWRT_ERR_NO_MEMORY : QWRT_ERR_NOT_FOUND;
+    if (!path) return oom ? AM_ERR_NO_MEMORY : AM_ERR_NOT_FOUND;
 
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) < 0) {
         free(path);
-        return QWRT_ERR_IO;
+        return AM_ERR_IO;
     }
 
     /* Clear CLOEXEC on child end so it survives execv */
@@ -341,18 +341,18 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
     if (pid < 0) {
         close(sv[0]); close(sv[1]);
         free(path);
-        return QWRT_ERR_IO;
+        return AM_ERR_IO;
     }
 
     if (pid == 0) {
         /* ── Child ── */
         close(sv[0]);
         /* 固定子端通道 fd：调用方拼的 argv 里 --parent-fd 写的是
-         * QWRT_IPC_CHANNEL_FD（3），故 exec 前必须把 socketpair 子端搬到该
+         * AM_IPC_CHANNEL_FD（3），故 exec 前必须把 socketpair 子端搬到该
          * fd。dup2 无条件覆盖（child 拥有自己的 fd 表）并自动清除 CLOEXEC；
          * sv[1] 恰为固定 fd 时已在上方清过 CLOEXEC，直接保留。 */
-        if (sv[1] != QWRT_IPC_CHANNEL_FD) {
-            dup2(sv[1], QWRT_IPC_CHANNEL_FD);
+        if (sv[1] != AM_IPC_CHANNEL_FD) {
+            dup2(sv[1], AM_IPC_CHANNEL_FD);
             close(sv[1]);
         }
         execv(path, argv);
@@ -372,7 +372,7 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
     }
     proc->pipe_inited = 1;   /* init 过即标记：free 时须 uv_close 该 handle */
     /* Outbound spill-buffer flush timer (lossless backpressure). 紧随 pipe
-     * init：qwrt_proc_free 以 pipe_inited 为"pipe 与 tx timer 均已 init"的
+     * init：am_proc_free 以 pipe_inited 为"pipe 与 tx timer 均已 init"的
      * 不变量（两者都要 uv_close，proc 内存在最后一个 close 回调里释放）。
      * 若排在 pipe_open 之后，pipe_open 失败走 kill_fail → free 会对未 init
      * 的 timer 调 uv_close → UB。 */
@@ -384,7 +384,7 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
     }
 
     /* ── Handshake (§3.3): child sends first, parent validates, replies ack.
-     * 仅当 require_handshake 且 role>=0（调用方要求 qwrt 信封协议握手）；
+     * 仅当 require_handshake 且 role>=0（调用方要求 amoib 信封协议握手）；
      * 任意可执行文件（不 speak 信封协议）以 require_handshake=0 直接 RUN。 */
     if (require_handshake && role >= 0) {
         uv_os_fd_t osfd;
@@ -396,11 +396,11 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
         }
 
         /* Read child's handshake (5s deadline) */
-        int64_t deadline = qwrt_now_ms() + QWRT_IPC_HANDSHAKE_TIMEOUT_MS;
+        int64_t deadline = am_now_ms() + AM_IPC_HANDSHAKE_TIMEOUT_MS;
         uint8_t *hs_frame = NULL;
         size_t hs_flen = 0;
-        if (qwrt_ipc_read_frame(pfd, &hs_frame, &hs_flen, deadline) < 0) {
-            kill_err = QWRT_ERR_TIMEOUT;   /* handshake never arrived in 5s */
+        if (am_ipc_read_frame(pfd, &hs_frame, &hs_flen, deadline) < 0) {
+            kill_err = AM_ERR_TIMEOUT;   /* handshake never arrived in 5s */
             goto kill_fail;
         }
 
@@ -420,14 +420,14 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
         free(hs_frame);
 
         int hsv = 0, hsrole = 0, hsid = 0;
-        if (qwrt_ipc_parse_handshake(hs_json, &hsv, &hsrole, &hsid) < 0 ||
-            hsv != QWRT_IPC_PROTO_VERSION ||
+        if (am_ipc_parse_handshake(hs_json, &hsv, &hsrole, &hsid) < 0 ||
+            hsv != AM_IPC_PROTO_VERSION ||
             hsrole != role || hsid != id)
             goto kill_fail;
 
         /* Build + send ack */
         char ack_json[24];
-        size_t ack_jlen = qwrt_ipc_build_ack(ack_json, sizeof ack_json, 1);
+        size_t ack_jlen = am_ipc_build_ack(ack_json, sizeof ack_json, 1);
         if (ack_jlen == 0) goto kill_fail;
 
         size_t env_cap = IPC_ENVELOPE_ENCODED_SIZE(ack_jlen);
@@ -441,14 +441,14 @@ int qwrt_proc_spawn(qwrt_t *parent, qwrt_proc_t *proc,
                                             (uint32_t)ack_jlen);
         if (env_len == 0) { free(env_buf); goto kill_fail; }
 
-        if (qwrt_ipc_write_frame(pfd, env_buf, env_len) < 0) {
+        if (am_ipc_write_frame(pfd, env_buf, env_len) < 0) {
             free(env_buf);
             goto kill_fail;
         }
         free(env_buf);
     }
 
-    proc->state = QWRT_PROC_RUN;
+    proc->state = AM_PROC_RUN;
     return 0;
 
 kill_fail:
@@ -460,7 +460,7 @@ kill_fail:
         if (kr == 0 || errno == ESRCH) proc_reap_blocking(proc->pid);
         proc->pid = -1;
     }
-    /* 不在此 uv_close：pipe 已在 loop 上，调用方随后 qwrt_proc_free 会统一
+    /* 不在此 uv_close：pipe 已在 loop 上，调用方随后 am_proc_free 会统一
      * uv_close(proc_on_closed) 异步回收 proc 内存。二次 close 会 assert。 */
     return kill_err;
 }
@@ -469,7 +469,7 @@ kill_fail:
  *
  * KNOWN LIMITATION (I5, design §9.2 deviation, documented): tiers 2 and 3
  * block the CALLING thread — the parent loop thread when invoked from
- * workerTerminate, or the teardown thread at qwrt_thread_teardown — for up to
+ * workerTerminate, or the teardown thread at am_thread_teardown — for up to
  * timeout_ms (default 2s) per hung worker. A worker that ignores
  * CONTROL{shutdown} (deadloop / stuck syscall) therefore freezes the parent
  * loop for up to 2s instead of the design's "one hung worker must not block
@@ -477,7 +477,7 @@ kill_fail:
  *   - the graceful path (worker exits on shutdown) completes in ~1ms — the
  *     freeze only materializes for already-broken workers;
  *   - an async tier-2 (uv_timer-driven WNOHANG polling + escalation) reworks
- *     the synchronous terminate contract that qwrt_worker_terminate and the
+ *     the synchronous terminate contract that am_worker_terminate and the
  *     teardown loop both rely on, with real lifecycle risk (teardown ordering,
  *     handle close, pid ownership).
  * Revisit in M-P4 if a 2s worst-case freeze is unacceptable for a host.
@@ -485,14 +485,14 @@ kill_fail:
  * ~1ms; only already-broken workers freeze, and the tree-close bound is
  * 2s × hung-workers. Making tier-2 async (uv_timer WNOHANG + escalation)
  * would move pid ownership and proc lifetime across loop ticks while
- * qwrt_worker_terminate, the teardown chain and qwrt_proc_free (proc memory
+ * am_worker_terminate, the teardown chain and am_proc_free (proc memory
  * freed in the last uv_close callback) all assume "pid reaped when terminate
  * returns" — re-entrancy/double-free risk outweighs the saving. See plan §9.2. */
 
-int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
+int am_proc_terminate(am_proc_t *proc, int timeout_ms)
 {
     if (!proc || proc->pid <= 0) return -1;
-    if (timeout_ms <= 0) timeout_ms = QWRT_IPC_TERMINATE_TIMEOUT_MS;
+    if (timeout_ms <= 0) timeout_ms = AM_IPC_TERMINATE_TIMEOUT_MS;
 
     /* Tier 1: CONTROL{shutdown} */
     const char *shutdown_json = "{\"cmd\":\"shutdown\"}";
@@ -509,13 +509,13 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
         if (env_len > 0) {
             uv_os_fd_t osfd;
             if (uv_fileno((uv_handle_t *)&proc->pipe, &osfd) == 0)
-                qwrt_ipc_write_frame((int)(intptr_t)osfd, env_buf, env_len);
+                am_ipc_write_frame((int)(intptr_t)osfd, env_buf, env_len);
         }
         free(env_buf);
     }
 
     /* Tier 2: poll for exit */
-    int64_t deadline = qwrt_now_ms() + timeout_ms;
+    int64_t deadline = am_now_ms() + timeout_ms;
     for (;;) {
         int status;
         pid_t r;
@@ -523,11 +523,11 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
         while (r < 0 && errno == EINTR);
         if (r == proc->pid) {
             proc->pid = -1;
-            proc->state = QWRT_PROC_DEAD;
+            proc->state = AM_PROC_DEAD;
             return 0;
         }
         if (r < 0) break;
-        if (qwrt_now_ms() >= deadline) break;
+        if (am_now_ms() >= deadline) break;
         struct timespec ts = { .tv_sec = 0, .tv_nsec = 10 * 1000000 };
         nanosleep(&ts, NULL);
     }
@@ -538,7 +538,7 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
         if (kr == 0 || errno == ESRCH) proc_reap_blocking(proc->pid);
     }
     proc->pid = -1;
-    proc->state = QWRT_PROC_DEAD;
+    proc->state = AM_PROC_DEAD;
     return 0;
 }
 
@@ -556,7 +556,7 @@ int qwrt_proc_terminate(qwrt_proc_t *proc, int timeout_ms)
  * wrong (uv_write's request/buffer must outlive the completion callback; a
  * per-message malloc'd buffer freed in write_cb corrupts under load).
  */
-static void qwrt_tx_flush(qwrt_tx_t *tx)
+static void am_tx_flush(am_tx_t *tx)
 {
     if (tx->fd < 0 || tx->len == 0) return;
     size_t off = 0;
@@ -587,13 +587,13 @@ static void qwrt_tx_flush(qwrt_tx_t *tx)
     }
 }
 
-static void qwrt_tx_timer_cb(uv_timer_t *t)
+static void am_tx_timer_cb(uv_timer_t *t)
 {
-    qwrt_tx_t *tx = (qwrt_tx_t *)t->data;
-    qwrt_tx_flush(tx);
+    am_tx_t *tx = (am_tx_t *)t->data;
+    am_tx_flush(tx);
 }
 
-static int qwrt_tx_send(qwrt_tx_t *tx, const uint8_t *frame, size_t flen)
+static int am_tx_send(am_tx_t *tx, const uint8_t *frame, size_t flen)
 {
     if (tx->len + flen > tx->cap) {
         size_t ncap = tx->cap ? tx->cap : 4096;
@@ -605,16 +605,16 @@ static int qwrt_tx_send(qwrt_tx_t *tx, const uint8_t *frame, size_t flen)
     }
     memcpy(tx->buf + tx->len, frame, flen);
     tx->len += flen;
-    qwrt_tx_flush(tx);
+    am_tx_flush(tx);
     if (tx->len > 0 && !tx->timer_active) {
         tx->timer.data = tx;
-        if (uv_timer_start(&tx->timer, qwrt_tx_timer_cb, 1, 1) == 0)
+        if (uv_timer_start(&tx->timer, am_tx_timer_cb, 1, 1) == 0)
             tx->timer_active = 1;
     }
     return 0;
 }
 /* Encode [4-byte LE len][envelope] and hand to the spill-buffer queue. */
-static int proc_frame_send(qwrt_tx_t *tx,
+static int proc_frame_send(am_tx_t *tx,
                            int32_t source, int32_t target, int8_t kind,
                            int32_t corr,
                            const uint8_t *payload, uint32_t payload_len)
@@ -633,20 +633,20 @@ static int proc_frame_send(qwrt_tx_t *tx,
     uint32_t flen = (uint32_t)env_len + 4u;
     uint8_t *frame = (uint8_t *)malloc(flen);
     if (!frame) { free(env_buf); return -1; }
-    qwrt_wr32(frame, (uint32_t)env_len);
+    am_wr32(frame, (uint32_t)env_len);
     memcpy(frame + 4, env_buf, env_len);
     free(env_buf);
-    int rc = qwrt_tx_send(tx, frame, flen);
+    int rc = am_tx_send(tx, frame, flen);
     free(frame);
     return rc;
 }
 
-int qwrt_proc_post(qwrt_proc_t *proc,
+int am_proc_post(am_proc_t *proc,
                    int32_t source, int32_t target, int8_t kind,
                    int32_t corr,
                    const uint8_t *payload, uint32_t payload_len)
 {
-    if (!proc || proc->state != QWRT_PROC_RUN) return -1;
+    if (!proc || proc->state != AM_PROC_RUN) return -1;
     if (proc->tx.fd < 0) {
         uv_os_fd_t osfd;
         if (uv_fileno((uv_handle_t *)&proc->pipe, &osfd) < 0) return -1;
@@ -658,10 +658,10 @@ int qwrt_proc_post(qwrt_proc_t *proc,
 }
 
 /* 宿主侧：M-P2 CONTROL 协议消息（source=宿主 0, target=主RT 1）。 */
-int qwrt_proc_post_ctl(qwrt_proc_t *proc, const char *json)
+int am_proc_post_ctl(am_proc_t *proc, const char *json)
 {
     if (!json) return -1;
-    return qwrt_proc_post(proc, QWRT_IPC_HOST_ID, QWRT_IPC_MAIN_ID,
+    return am_proc_post(proc, AM_IPC_HOST_ID, AM_IPC_MAIN_ID,
                           IPC_ENV_KIND_CONTROL,
                           0,
                           (const uint8_t *)json, (uint32_t)strlen(json));
@@ -669,12 +669,12 @@ int qwrt_proc_post_ctl(qwrt_proc_t *proc, const char *json)
 
 /* ── Destroy & Free (libuv-idiomatic self-reclaim) ── */
 
-/* proc 内嵌两个 handle（pipe + tx flush timer），qwrt_proc_free 对两者都
+/* proc 内嵌两个 handle（pipe + tx flush timer），am_proc_free 对两者都
  * uv_close；close_pending 归零（最后一个 close 回调）才释放 proc 内存。
  * 若只关 pipe 就 free，tx timer 的 handle_queue 节点残留成悬垂 → uv_walk
  * （wait_idle 的 idle 检测）遍历到已释放内存 SIGSEGV —— PROCESS 后端高负载
  * 崩溃根因。 */
-static void proc_reclaim(qwrt_proc_t *proc)
+static void proc_reclaim(am_proc_t *proc)
 {
     if (proc && --proc->close_pending == 0) {
         free(proc->rbuf);
@@ -684,17 +684,17 @@ static void proc_reclaim(qwrt_proc_t *proc)
 
 static void proc_on_closed(uv_handle_t *h)   /* pipe 的 close cb */
 {
-    proc_reclaim((qwrt_proc_t *)h->data);
+    proc_reclaim((am_proc_t *)h->data);
 }
 
 static void proc_tx_timer_on_closed(uv_handle_t *h)  /* tx flush timer 的 close cb */
 {
-    /* timer.data 归 qwrt_tx_timer_cb 用（qwrt_tx_t*），不能复用——用
+    /* timer.data 归 am_tx_timer_cb 用（am_tx_t*），不能复用——用
      * container_of 从内嵌地址回推 proc。 */
-    proc_reclaim((qwrt_proc_t *)((char *)h - offsetof(qwrt_proc_t, tx.timer)));
+    proc_reclaim((am_proc_t *)((char *)h - offsetof(am_proc_t, tx.timer)));
 }
 
-void qwrt_proc_destroy(qwrt_proc_t *proc)
+void am_proc_destroy(am_proc_t *proc)
 {
     if (!proc) return;
     if (proc->pid > 0) {
@@ -702,14 +702,14 @@ void qwrt_proc_destroy(qwrt_proc_t *proc)
         if (kr == 0 || errno == ESRCH) proc_reap_blocking(proc->pid);
         proc->pid = -1;
     }
-    proc->state = QWRT_PROC_DEAD;
+    proc->state = AM_PROC_DEAD;
 }
 
-void qwrt_proc_free(qwrt_proc_t *proc)
+void am_proc_free(am_proc_t *proc)
 {
     if (!proc || proc->freed) return;   /* 幂等：防重复 free / 二次 uv_close */
     proc->freed = 1;
-    qwrt_proc_destroy(proc);
+    am_proc_destroy(proc);
     if (proc->tx.timer_active)
         uv_timer_stop(&proc->tx.timer);
     free(proc->tx.buf);
@@ -732,19 +732,19 @@ void qwrt_proc_free(qwrt_proc_t *proc)
 /* ── Child-side emit channel (single per process) ── */
 
 static int g_child_fd = -1;
-static qwrt_tx_t g_child_tx;
+static am_tx_t g_child_tx;
 
-void qwrt_ipc_child_set_channel(int fd)
+void am_ipc_child_set_channel(int fd)
 {
     g_child_fd = fd;
 }
 
-int qwrt_ipc_child_channel(void)
+int am_ipc_child_channel(void)
 {
     return g_child_fd;
 }
 
-void qwrt_ipc_child_tx_init(uv_loop_t *loop, int fd)
+void am_ipc_child_tx_init(uv_loop_t *loop, int fd)
 {
     g_child_fd = fd;
     memset(&g_child_tx, 0, sizeof(g_child_tx));
@@ -753,7 +753,7 @@ void qwrt_ipc_child_tx_init(uv_loop_t *loop, int fd)
         g_child_tx.fd = -1;
 }
 
-int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
+int am_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
                         int32_t corr,
                         const uint8_t *payload, uint32_t payload_len)
 {
@@ -764,16 +764,16 @@ int qwrt_ipc_child_emit(int32_t source, int32_t target, int8_t kind,
 }
 
 /* ── M-P4 同步 storage RPC（§10.2）：实现驻留 rt_main.c（独占子进程管道
- * 读状态），libqwrt 侧经函数指针调度——CLI/宿主进程不注册，调用即 -1
+ * 读状态），libamoib 侧经函数指针调度——CLI/宿主进程不注册，调用即 -1
  * （worker 进程之外不可达，与 set_channel 同构）。 */
-static qwrt_ipc_storage_sync_fn g_storage_sync = NULL;
+static am_ipc_storage_sync_fn g_storage_sync = NULL;
 
-void qwrt_ipc_child_set_storage_sync(qwrt_ipc_storage_sync_fn fn)
+void am_ipc_child_set_storage_sync(am_ipc_storage_sync_fn fn)
 {
     g_storage_sync = fn;
 }
 
-int qwrt_ipc_child_storage_sync(qwrt_t *rt, const uint8_t *payload,
+int am_ipc_child_storage_sync(am_t *rt, const uint8_t *payload,
                                 uint32_t payload_len,
                                 uint8_t **out_reply, uint32_t *out_reply_len)
 {
@@ -782,10 +782,10 @@ int qwrt_ipc_child_storage_sync(qwrt_t *rt, const uint8_t *payload,
 }
 
 /* 主RT 进程侧：M-P2 CONTROL 协议消息（source=主RT 1, target=宿主 0）。 */
-int qwrt_ipc_child_emit_ctl(const char *json)
+int am_ipc_child_emit_ctl(const char *json)
 {
     if (!json) return -1;
-    return qwrt_ipc_child_emit(QWRT_IPC_MAIN_ID, QWRT_IPC_HOST_ID,
+    return am_ipc_child_emit(AM_IPC_MAIN_ID, AM_IPC_HOST_ID,
                                IPC_ENV_KIND_CONTROL,
                                0,
                                (const uint8_t *)json, (uint32_t)strlen(json));
@@ -795,23 +795,23 @@ int qwrt_ipc_child_emit_ctl(const char *json)
  * child_storage_sync 在等待期间不跑 uv_run（flush timer 回调只在 loop 里
  * 触发），请求帧若落进 spill buffer 就必须当场排空；仍背压则快速失败
  * （等 timer 会死锁）。 */
-void qwrt_ipc_child_tx_flush(void)
+void am_ipc_child_tx_flush(void)
 {
-    qwrt_tx_flush(&g_child_tx);
+    am_tx_flush(&g_child_tx);
 }
 
-int qwrt_ipc_child_tx_pending(void)
+int am_ipc_child_tx_pending(void)
 {
     return g_child_tx.len > 0;
 }
 /* ── M-P4 同步 storage RPC 用：阻塞整帧发送 ──
- * 异步 emit（qwrt_tx_send）把 EAGAIN 帧塞进 spill buffer，由 1ms timer 在
+ * 异步 emit（am_tx_send）把 EAGAIN 帧塞进 spill buffer，由 1ms timer 在
  * uv_run 里排空——但同步 RPC 的等待循环不跑 uv_run（否则 JS timer 重入），
  * 大 payload（quota 内可达 ~5MB，远超 socket 缓冲）会永久滞留在 buffer 里。
  * 本函数：先 poll(POLLOUT) 排空 spill buffer（保持 FIFO 顺序），再直接
  * poll+send 循环发完整帧，父进程死亡（POLLHUP/EOF）→ 返回 -1（§9.4 孤儿
  * 自杀路径由调用方触发）。 */
-int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
+int am_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
                              int32_t corr,
                              const uint8_t *payload, uint32_t payload_len)
 {
@@ -828,7 +828,7 @@ int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
         }
         if (pr == 0) continue;
         if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) return -1;
-        qwrt_tx_flush(&g_child_tx);
+        am_tx_flush(&g_child_tx);
         if (g_child_tx.len == 0) break;
     }
 
@@ -846,7 +846,7 @@ int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
     uint32_t flen = (uint32_t)env_len + 4u;
     uint8_t *frame = (uint8_t *)malloc(flen);
     if (!frame) { free(env_buf); return -1; }
-    qwrt_wr32(frame, (uint32_t)env_len);
+    am_wr32(frame, (uint32_t)env_len);
     memcpy(frame + 4, env_buf, env_len);
     free(env_buf);
 
@@ -875,9 +875,9 @@ int qwrt_ipc_child_emit_sync(int32_t source, int32_t target, int8_t kind,
     return rc;
 }
 
-qwrt_proc_t *qwrt_proc_new(void)
+am_proc_t *am_proc_new(void)
 {
-    return (qwrt_proc_t *)calloc(1, sizeof(qwrt_proc_t));
+    return (am_proc_t *)calloc(1, sizeof(am_proc_t));
 }
 
 /* ── Async read pump: inbound envelopes → parent msgq ── */
@@ -885,13 +885,13 @@ qwrt_proc_t *qwrt_proc_new(void)
 static void proc_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *buf)
 {
     (void)h; (void)suggested;
-    buf->base = (char *)malloc(QWRT_IPC_READ_BUF_SIZE);
-    buf->len = buf->base ? QWRT_IPC_READ_BUF_SIZE : 0;
+    buf->base = (char *)malloc(AM_IPC_READ_BUF_SIZE);
+    buf->len = buf->base ? AM_IPC_READ_BUF_SIZE : 0;
 }
 
-static void proc_peer_dead(qwrt_proc_t *proc)
+static void proc_peer_dead(am_proc_t *proc)
 {
-    proc->state = QWRT_PROC_DEAD;
+    proc->state = AM_PROC_DEAD;
     if (proc->pid > 0) {
         int status;
         pid_t r;
@@ -909,13 +909,13 @@ static void proc_peer_dead(qwrt_proc_t *proc)
         proc->msg_cb(proc->msg_user, 0, 0, 0, NULL, 0);  /* EOF 通知（JS-managed） */
 }
 
-static void proc_process_rx(qwrt_proc_t *proc)
+static void proc_process_rx(am_proc_t *proc)
 {
-    qwrt_t *parent = (qwrt_t *)proc->parent_rt;
+    am_t *parent = (am_t *)proc->parent_rt;
     for (;;) {
         if (proc->frame_len == 0) {
             if (proc->rbuf_len < 4) return;
-            proc->frame_len = qwrt_rd32(proc->rbuf);
+            proc->frame_len = am_rd32(proc->rbuf);
             proc->rbuf_len -= 4;
             if (proc->rbuf_len > 0)
                 memmove(proc->rbuf, proc->rbuf + 4, proc->rbuf_len);
@@ -937,34 +937,34 @@ static void proc_process_rx(qwrt_proc_t *proc)
                 if (view.kind == IPC_ENV_KIND_CONTROL &&
                     view.payload_len > 0) {
                     int cval = 0;
-                    qwrt_ipc_ctl_kind_t ck =
-                        qwrt_ipc_ctl_classify(view.payload, view.payload_len,
+                    am_ipc_ctl_kind_t ck =
+                        am_ipc_ctl_classify(view.payload, view.payload_len,
                                               &cval);
-                    if (ck == QWRT_IPC_CTL_PONG || ck == QWRT_IPC_CTL_PFAIL) {
-                        /* 跨层帧（qwrt_ping_path 家族）：PONG 带 tp = 过境
+                    if (ck == AM_IPC_CTL_PONG || ck == AM_IPC_CTL_PFAIL) {
+                        /* 跨层帧（am_ping_path 家族）：PONG 带 tp = 过境
                          * 标记 → 沿本节点父通道上行转发（corr/payload 保持，
                          * 信封 source = 本节点槽位）；pfail（中间节点转发
                          * 失败回执）同理直接上行。无 tp 的 PONG = 单跳
-                         * qwrt_proc_ping 的直回应答 → 拦截回填 proc->pong_seq
+                         * am_proc_ping 的直回应答 → 拦截回填 proc->pong_seq
                          * （c734194d：宿主主RT 通道 ctl_route_id==0 的 PONG
                          * 必须走 msg_cb，否则劫走宿主 PONG 致其永远超时）。 */
-                        int32_t tp[QWRT_SELF_PATH_MAX];
-                        int tpn = (ck == QWRT_IPC_CTL_PONG)
-                                      ? qwrt_ipc_ping_tp(view.payload,
+                        int32_t tp[AM_SELF_PATH_MAX];
+                        int tpn = (ck == AM_IPC_CTL_PONG)
+                                      ? am_ipc_ping_tp(view.payload,
                                                          view.payload_len,
                                                          tp,
-                                                         QWRT_SELF_PATH_MAX)
+                                                         AM_SELF_PATH_MAX)
                                       : 1;
                         if (proc->ctl_route_id > 0 &&
-                            (ck == QWRT_IPC_CTL_PFAIL || tpn > 0)) {
-                            qwrt_ipc_child_emit(proc->ctl_route_id, 0,
+                            (ck == AM_IPC_CTL_PFAIL || tpn > 0)) {
+                            am_ipc_child_emit(proc->ctl_route_id, 0,
                                                 IPC_ENV_KIND_CONTROL,
                                                 view.corr,
                                                 view.payload,
                                                 view.payload_len);
                             ctl_routed = 1;
                         } else if (proc->ctl_route_id > 0 &&
-                                   ck == QWRT_IPC_CTL_PONG) {
+                                   ck == AM_IPC_CTL_PONG) {
                             __atomic_store_n(&proc->pong_seq,
                                              (int32_t)view.corr,
                                              __ATOMIC_RELEASE);
@@ -974,8 +974,8 @@ static void proc_process_rx(qwrt_proc_t *proc)
                          * 不拦截 → 交 msg_cb（host_proc_msg_cb 回填
                          * rt->pong_seq/ping_fail）——守卫回归 3e733e12。 */
                     } else if (proc->ctl_route_id > 0 &&
-                               ck == QWRT_IPC_CTL_NONE) {
-                        qwrt_control_route((qwrt_t *)proc->parent_rt,
+                               ck == AM_IPC_CTL_NONE) {
+                        am_control_route((am_t *)proc->parent_rt,
                                            proc->ctl_route_id, view.source,
                                            view.target, view.payload,
                                            view.payload_len);
@@ -992,11 +992,11 @@ static void proc_process_rx(qwrt_proc_t *proc)
                 } else if (!ctl_routed) {
                     int flags =
                         view.kind == IPC_ENV_KIND_CONTROL
-                            ? QWRT_MSG_FLAG_CONTROL
+                            ? AM_MSG_FLAG_CONTROL
                             : (view.kind == IPC_ENV_KIND_PORT_TRANSFER
-                                   ? QWRT_MSG_FLAG_PORT_TRANSFER : 0);
-                    if (parent && parent->magic == QWRT_MAGIC) {
-                        qwrt_msg_push(parent, (const char *)view.payload,
+                                   ? AM_MSG_FLAG_PORT_TRANSFER : 0);
+                    if (parent && parent->magic == AM_MAGIC) {
+                        am_msg_push(parent, (const char *)view.payload,
                                       view.payload_len, proc->id, flags);
                         uv_async_send(&parent->wake);
                     }
@@ -1012,7 +1012,7 @@ static void proc_process_rx(qwrt_proc_t *proc)
 
 static void proc_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
 {
-    qwrt_proc_t *proc = (qwrt_proc_t *)s->data;
+    am_proc_t *proc = (am_proc_t *)s->data;
     if (!proc) return;
 
     if (nread < 0) {
@@ -1043,17 +1043,17 @@ static void proc_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
     proc_process_rx(proc);
 }
 
-void qwrt_proc_start_read(qwrt_proc_t *proc)
+void am_proc_start_read(am_proc_t *proc)
 {
-    if (!proc || proc->state != QWRT_PROC_RUN) return;
+    if (!proc || proc->state != AM_PROC_RUN) return;
     proc->pipe.data = proc;
     uv_read_start((uv_stream_t *)&proc->pipe, proc_alloc_cb, proc_read_cb);
 }
 
-void qwrt_proc_start_read_cb(qwrt_proc_t *proc, qwrt_proc_msg_cb_t cb,
+void am_proc_start_read_cb(am_proc_t *proc, am_proc_msg_cb_t cb,
                              void *user_data)
 {
-    if (!proc || proc->state != QWRT_PROC_RUN) return;
+    if (!proc || proc->state != AM_PROC_RUN) return;
     proc->msg_cb = cb;
     proc->msg_user = user_data;
     proc->pipe.data = proc;
@@ -1065,48 +1065,48 @@ void qwrt_proc_start_read_cb(qwrt_proc_t *proc, qwrt_proc_msg_cb_t cb,
  *     保持打开 —— 宿主脚本在进程 worker 存活时仍须能判 idle 退出；
  *   - M-P2 主RT 进程的宿主通道读管道（parent-fd）同样恒活动 —— 不豁免则主RT
  *     在自己事件循环里永不判 idle，CONTROL{idle} 永远不会到达。
- * 替代已随 C 层进程 worker 分流移除的 qwrt_worker_is_proc_handle。 */
-int qwrt_proc_handle_is_pipe(qwrt_t *rt, uv_handle_t *h)
+ * 替代已随 C 层进程 worker 分流移除的 am_worker_is_proc_handle。 */
+int am_proc_handle_is_pipe(am_t *rt, uv_handle_t *h)
 {
     if (!rt || !h) return 0;
     if (rt->ipc_channel_pipe && (uv_handle_t *)rt->ipc_channel_pipe == h)
         return 1;
-    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
-        qwrt_proc_handle_t *ph = &rt->proc_handles[i];
+    for (int i = 0; i < AM_MAX_PROC_HANDLES; i++) {
+        am_proc_handle_t *ph = &rt->proc_handles[i];
         if (ph->live && ph->proc && (uv_handle_t *)&ph->proc->pipe == h)
             return 1;
     }
     return 0;
 }
 
-/* ── Liveness ping（worker 进程→sub worker，镜像 rt_host.c 的 qwrt_ping）──
- * 发 CONTROL{"qwrt":1,"ping":seq}（corr = seq，schema 零破坏）→ 阻塞等待
+/* ── Liveness ping（worker 进程→sub worker，镜像 rt_host.c 的 am_ping）──
+ * 发 CONTROL{"amoib":1,"ping":seq}（corr = seq，schema 零破坏）→ 阻塞等待
  * sub worker C 层读泵直回的 PONG（不经 JS/msgq——pong 延迟反映对端 uv loop
  * 健康度）。等待期间 uv 读泵不跑（JS 同步调用栈内），本函数自 poll+recv
  * 驱动：收到的字节进 rbuf 累加器逐帧解析，PONG 按 corr 配对（pong_seq 回
  * 填），非 PONG 帧留在 rbuf 原样待读泵下次活动正常消费（无 JS 重入、零丢
  * 帧）。POLLHUP/read==0 = 对端死 → -1（EOF 路径）。单飞行：同一 proc 同
  * 时至多一个 ping（JS 同步调用无并发，无需加锁）。 */
-int qwrt_proc_ping(qwrt_proc_t *proc, int32_t timeout_ms)
+int am_proc_ping(am_proc_t *proc, int32_t timeout_ms)
 {
-    if (!proc || proc->state != QWRT_PROC_RUN) return -1;
+    if (!proc || proc->state != AM_PROC_RUN) return -1;
     uv_os_fd_t osfd;
     if (uv_fileno((uv_handle_t *)&proc->pipe, &osfd) < 0) return -1;
     int fd = (int)(intptr_t)osfd;
 
     int32_t seq = __atomic_add_fetch(&proc->ping_seq, 1, __ATOMIC_ACQ_REL);
-    if (qwrt_proc_post(proc, 0, (int32_t)proc->id, IPC_ENV_KIND_CONTROL,
+    if (am_proc_post(proc, 0, (int32_t)proc->id, IPC_ENV_KIND_CONTROL,
                        seq,
-                       (const uint8_t *)QWRT_IPC_CTL_PING_MSG,
-                       (uint32_t)(sizeof QWRT_IPC_CTL_PING_MSG - 1)) < 0)
+                       (const uint8_t *)AM_IPC_CTL_PING_MSG,
+                       (uint32_t)(sizeof AM_IPC_CTL_PING_MSG - 1)) < 0)
         return -1;
 
-    int64_t deadline = qwrt_now_ms() + timeout_ms;
+    int64_t deadline = am_now_ms() + timeout_ms;
     uint8_t chunk[4096];
     for (;;) {
         if (__atomic_load_n(&proc->pong_seq, __ATOMIC_ACQUIRE) >= seq)
             return 0;   /* deadline 内 PONG 命中 = 对端 loop 通畅 */
-        int64_t remain = deadline - qwrt_now_ms();
+        int64_t remain = deadline - am_now_ms();
         if (remain <= 0) return 1;   /* 超时 = 对端 loop 阻塞 */
         struct pollfd pfd = { .fd = fd, .events = POLLIN };
         int pr = poll(&pfd, 1, (int)(remain > 100 ? 100 : remain));
@@ -1141,7 +1141,7 @@ int qwrt_proc_ping(qwrt_proc_t *proc, int32_t timeout_ms)
             for (;;) {
                 if (proc->frame_len == 0) {
                     if (proc->rbuf_len < 4) break;
-                    proc->frame_len = qwrt_rd32(proc->rbuf);
+                    proc->frame_len = am_rd32(proc->rbuf);
                     proc->rbuf_len -= 4;
                     if (proc->rbuf_len > 0)
                         memmove(proc->rbuf, proc->rbuf + 4, proc->rbuf_len);
@@ -1160,8 +1160,8 @@ int qwrt_proc_ping(qwrt_proc_t *proc, int32_t timeout_ms)
                                             &v) == 0 &&
                         v.kind == IPC_ENV_KIND_CONTROL && v.payload_len > 0) {
                         int pv = 0;
-                        if (qwrt_ipc_ctl_classify(v.payload, v.payload_len,
-                                                  &pv) == QWRT_IPC_CTL_PONG)
+                        if (am_ipc_ctl_classify(v.payload, v.payload_len,
+                                                  &pv) == AM_IPC_CTL_PONG)
                             is_pong = 1;
                     }
                     if (!is_pong) {

@@ -32,15 +32,15 @@ updated: "2026-09-09T01:01:11"
 - R6 eval：int 52.0 / closure 27.7 / str 13.6 M ops/s（仅单后端采样）
 - 来源：run #34255495676 / HEAD ccb3de18，job "runtime perf (workers)" success，artifact runtime-perf-json。前置失败两连（无 artifact）：#34253382900（esbuild 缺 npm ci）、#34254235073（polyfill rebuild 先于 CMake build → qjsc not found）；本轮 ccb3de18 修顺序后成功。
 
-## 跨运行时对比（qwrt vs Node/Bun/Txiki）——**历史参考**（2026-09-09 本机 Ryzen 5800H / build_rel Release，一次性测量；权威跨运行时基线见 CI cross-runtime job（node/bun））
-- 驱动：test/bench_cross_runtime.py（新增）+ test/bench/runtime/bench-eval-cross.js（同一 JS 代码 qwrt/node/bun/tjs 四运行时共用）；指标 R1 冷启动 / R6 eval 吞吐（1M iter）/ R5 进程峰值 VmHWM。设计文档 §8。
+## 跨运行时对比（amoib vs Node/Bun/Txiki）——**历史参考**（2026-09-09 本机 Ryzen 5800H / build_rel Release，一次性测量；权威跨运行时基线见 CI cross-runtime job（node/bun））
+- 驱动：test/bench_cross_runtime.py（新增）+ test/bench/runtime/bench-eval-cross.js（同一 JS 代码 amoib/node/bun/tjs 四运行时共用）；指标 R1 冷启动 / R6 eval 吞吐（1M iter）/ R5 进程峰值 VmHWM。设计文档 §8。
 - 数值表（R1 ms / R6 M ops/s / R5 KB）：
-  - qwrt：15.88 / int 28.2 · closure 12.9 · str 8.7 / 14,580
+  - amoib：15.88 / int 28.2 · closure 12.9 · str 8.7 / 14,580
   - node v22.22.2：31.98 / 1,042 · 1,038 · 23.4 / 183,236
   - bun 1.3.14：15.84 / 1,468 · 917 · 54.1 / 163,536
   - tjs v26.6.0：15.87 / 36.6 · 17.2 · 9.9 / 10,696
-- 比值 vs qwrt：启动 node 2.01×（bun/tjs ~1.00×）；int/closure 吞吐 node 37/81×、bun 52/71×（str 仅 2.7/6.2×）；RSS node 12.6×、bun 11.2×；tjs 全轴 ~1×（同 QuickJS 引擎族，RSS 0.73× 反而更小）。两轮完整复跑一致（±10% 内；bun R1 双峰 15.8~32ms，复跑中位数落 15.8ms）
-- 结论：**启动** qwrt≈tjs≈bun（15.8~15.9ms），node 2× 慢；**内存是最大差异化优势**（qwrt 14.6MB vs node/bun 160-183MB，11-13×）；**吞吐** JIT 快 37-81×，str 差距最小 2.7-6.2×；tjs 同引擎互证（1.15-1.34×）。qwrt/Txiki 定位「够用吞吐 + 极小内存/快启动」。
+- 比值 vs amoib：启动 node 2.01×（bun/tjs ~1.00×）；int/closure 吞吐 node 37/81×、bun 52/71×（str 仅 2.7/6.2×）；RSS node 12.6×、bun 11.2×；tjs 全轴 ~1×（同 QuickJS 引擎族，RSS 0.73× 反而更小）。两轮完整复跑一致（±10% 内；bun R1 双峰 15.8~32ms，复跑中位数落 15.8ms）
+- 结论：**启动** amoib≈tjs≈bun（15.8~15.9ms），node 2× 慢；**内存是最大差异化优势**（amoib 14.6MB vs node/bun 160-183MB，11-13×）；**吞吐** JIT 快 37-81×，str 差距最小 2.7-6.2×；tjs 同引擎互证（1.15-1.34×）。amoib/Txiki 定位「够用吞吐 + 极小内存/快启动」。
 - Txiki 构建注记：官方 release 无 linux 预编译包（仅 macOS/Windows）；源码构建需 gcc-12（GCC 11 编 ada.h 的 constexpr std::string_view 失败）+ mbedtls framework submodule + patch `-Wno-unknown-pragmas`；tjs v26.6.0 改子命令 `tjs eval 'expr'` / `tjs run script.js [args]`，脚本参数经 `tjs.args`。**tjs 因构建成本暂不入 CI；node/bun 已入 CI cross-runtime job。**
 
 
@@ -90,13 +90,13 @@ updated: "2026-09-09T01:01:11"
 
 - time: 2026-09-09T00:14:44
   kind: decision
-  summary: "追加跨运行时对比段（qwrt vs Node/Bun/Txiki，2026-09-09 本机实测）"
+  summary: "追加跨运行时对比段（amoib vs Node/Bun/Txiki，2026-09-09 本机实测）"
   source: "cross-runtime-bench session (bench_cross_runtime.py)"
   affects: [runtime-perf-baseline]
 
 - time: 2026-09-09T00:14:59
   kind: decision
-  summary: "跨运行时首测落档（2026-09-09 本机 Ryzen 5800H，qwrt build_rel Release）：R1 15.88ms / node 31.98（2.01×）、bun 15.84、tjs 15.87；R6 int qwrt 28.2 vs node 1042（37×）bun 1468（52×）tjs 36.6（1.3×）；R5 qwrt 14.6MB vs node 183MB（12.6×）bun 164MB（11.2×）tjs 10.7MB（0.73×）——内存最大差异化优势，启动三系并列，吞吐 JIT 快 37-81×（str 仅 2.7-6.2×）。Txiki 需 gcc-12 源码构建，暂不入 CI"
+  summary: "跨运行时首测落档（2026-09-09 本机 Ryzen 5800H，amoib build_rel Release）：R1 15.88ms / node 31.98（2.01×）、bun 15.84、tjs 15.87；R6 int amoib 28.2 vs node 1042（37×）bun 1468（52×）tjs 36.6（1.3×）；R5 amoib 14.6MB vs node 183MB（12.6×）bun 164MB（11.2×）tjs 10.7MB（0.73×）——内存最大差异化优势，启动三系并列，吞吐 JIT 快 37-81×（str 仅 2.7-6.2×）。Txiki 需 gcc-12 源码构建，暂不入 CI"
   source: "cross-runtime-bench session (test/bench_cross_runtime.py)"
   affects: [runtime-perf-baseline]
 

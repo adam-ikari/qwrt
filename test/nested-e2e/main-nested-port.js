@@ -2,7 +2,7 @@
  * 消息 main↔孙 跨两级（中继 = worker，改指转发），期望 G2M:echo:hello。 */
 var keep = setInterval(function () {}, 50);
 var ch = new MessageChannel();
-var w = new Worker('file:///home/gem/project/qwrt/test/nested-e2e/worker_port_relay.js');
+var w = new Worker('file:///home/gem/project/amoib/test/nested-e2e/worker_port_relay.js');
 ch.port2.onmessage = function (e) {
   console.log('G2M:' + e.data);
   if (String(e.data).indexOf('echo:') === 0) {

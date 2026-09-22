@@ -1,6 +1,6 @@
 ---
 title: TextEncoder / TextDecoder
-description: Qwrt.js 中的编码 API —— TextEncoder、TextDecoder、UTF-8 编码/解码、流式解码与致命错误模式。
+description: Amoib.js 中的编码 API —— TextEncoder、TextDecoder、UTF-8 编码/解码、流式解码与致命错误模式。
 ---
 
 # TextEncoder / TextDecoder

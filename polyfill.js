@@ -1792,7 +1792,7 @@
       },
       // Sync-style aliases (still async under the hood)
       readFileSync(path, options) {
-        throw new Error("Synchronous fs operations not supported in qwrt");
+        throw new Error("Synchronous fs operations not supported in amoib");
       }
     };
     globalThis.fs = fs;
@@ -3233,7 +3233,7 @@
   // src/navigator.js
   function setupNavigatorReportError() {
     var navigator = {
-      userAgent: "qwrt/1.0 (WinterTC)",
+      userAgent: "amoib/1.0 (WinterTC)",
       language: "en-US",
       platform: "wintercg",
       hardwareConcurrency: 1,

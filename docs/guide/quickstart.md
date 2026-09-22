@@ -1,11 +1,11 @@
 ---
 title: Quick Start
-description: Get Qwrt.js running in under 5 minutes — clone, build, and run your first JavaScript program on the embedded QuickJS-ng runtime.
+description: Get Amoib.js running in under 5 minutes — clone, build, and run your first JavaScript program on the embedded QuickJS-ng runtime.
 ---
 
 # Quick Start
 
-Get qwrt running in under 5 minutes.
+Get amoib running in under 5 minutes.
 
 ## Prerequisites
 
@@ -17,48 +17,48 @@ Get qwrt running in under 5 minutes.
 
 ```bash
 # Clone with all submodules
-git clone --recursive https://github.com/adam-ikari/qwrt.git
-cd qwrt
+git clone --recursive https://github.com/adam-ikari/amoib.git
+cd amoib
 
 # Configure and build (Release mode)
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-Size-sensitive builds: add `-DQWRT_PROFILE=minimal` (keeps WinterTC
+Size-sensitive builds: add `-DAM_PROFILE=minimal` (keeps WinterTC
 compatibility, 2.45 MiB stripped). See [Build Options](/guide/build-options).
 
-The build produces `libqwrt.a` (static core) and `libqwrt_full.a` (link-interface aggregator for CMake consumers) in `build/`, plus `build/qwrt.pc` for pkg-config.
+The build produces `libamoib.a` (static core) and `libam_full.a` (link-interface aggregator for CMake consumers) in `build/`, plus `build/amoib.pc` for pkg-config.
 
 ## Your First Program
 
 Create `hello.c`:
 
 ```c
-#include <qwrt/qwrt.h>
+#include <amoib/amoib.h>
 #include <stdio.h>
 
-static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+static void on_message(am_t *rt, const char *json, size_t len, void *data) {
     (void)rt; (void)data;
     printf("received: %.*s\n", (int)len, json);
 }
 
 int main(void) {
-    // Create the runtime — qwrt starts its own internal thread and loop
-    qwrt_config_t cfg = {0};
+    // Create the runtime — amoib starts its own internal thread and loop
+    am_config_t cfg = {0};
     cfg.initial_script = "console.log('Hello from QuickJS!'); postMessage(1 + 1);";
     cfg.message_cb = on_message;
-    qwrt_t *rt = qwrt_create(&cfg);
+    am_t *rt = am_create(&cfg);
     if (!rt) {
         fprintf(stderr, "Failed to create runtime\n");
         return 1;
     }
 
     // Drive the runtime by posting JSON messages
-    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
+    am_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
 
     // Clean up — graceful shutdown
-    qwrt_destroy(rt);
+    am_destroy(rt);
     return 0;
 }
 ```
@@ -66,7 +66,7 @@ int main(void) {
 Compile and link with pkg-config (pulls the full static link line — all vendored archives):
 
 ```bash
-cc -std=c99 -o hello hello.c $(pkg-config --cflags --libs qwrt)
+cc -std=c99 -o hello hello.c $(pkg-config --cflags --libs amoib)
 ```
 
 For an in-tree build, point pkg-config at the build directory first:
@@ -78,7 +78,7 @@ export PKG_CONFIG_PATH="$PWD/build"
 ## Build with Tests
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQWRT_BUILD_TESTS=ON
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DAM_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```

@@ -1,11 +1,11 @@
-#ifndef QWRT_EXT_TEXTCODEC_H
-#define QWRT_EXT_TEXTCODEC_H
+#ifndef AM_EXT_TEXTCODEC_H
+#define AM_EXT_TEXTCODEC_H
 
-#include "qwrt/qwrt.h"
+#include "amoib/amoib.h"
 
 /* TextCodec extension — native UTF-8 encode/decode and Base64.
  *
- * When compiled with QWRT_WITH_TEXTCODEC, registers pal.nativeEncodeUtf8,
+ * When compiled with AM_WITH_TEXTCODEC, registers pal.nativeEncodeUtf8,
  * pal.nativeBtoa, and pal.nativeAtob on the JS pal
  * object, enabling TextEncoder/TextDecoder and atob/btoa to use native
  * implementations instead of pure JS.
@@ -14,6 +14,6 @@
  * are used instead.
  */
 
-extern const qwrt_ext_t qwrt_textcodec_ext;
+extern const am_ext_t am_textcodec_ext;
 
-#endif /* QWRT_EXT_TEXTCODEC_H */
+#endif /* AM_EXT_TEXTCODEC_H */

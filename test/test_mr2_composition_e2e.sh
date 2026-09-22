@@ -6,30 +6,30 @@
 #
 # THREAD 基线（mock 离线确定性）见 test/test_context_worker_composition_gtest.cpp；
 # 本脚本是 §14.3「M-P1 合入后同场景以进程后端回归」的落地。
-# Usage: bash test/test_mr2_composition_e2e.sh <path-to-qwrt>
+# Usage: bash test/test_mr2_composition_e2e.sh <path-to-amoib>
 set -u
-QWRT="${1:-./build_e2e/qwrt}"
+AM="${1:-./build_e2e/amoib}"
 DIR="$(cd "$(dirname "$0")/mr2-e2e" && pwd)"
-export QWRT_WORKER_BACKEND=process
+export AM_WORKER_BACKEND=process
 
 # fixture 内的 worker URL 是同仓绝对路径（与 mp1-e2e 同约定）——CI checkout 不在
 # 该路径下，故按本仓根替换到临时副本再跑（fixture 本身不动）。
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIX="$(mktemp -d)"
-STATE=/tmp/qwrt-mr2-state.bin
+STATE=/tmp/amoib-mr2-state.bin
 trap 'rm -rf "$FIX"; rm -f "$STATE"' EXIT
-sed "s#file:///home/gem/project/qwrt#file://$ROOT#g" \
+sed "s#file:///home/gem/project/amoib#file://$ROOT#g" \
     "$DIR/main-mr2-composition.js" > "$FIX/main-mr2-composition.js"
 grep -q "file://$ROOT/test/mr2-e2e/" "$FIX/main-mr2-composition.js" \
   || { echo "FAIL: fixture path rewrite"; exit 1; }
 
-if [ ! -x "$QWRT" ]; then
-  echo "FAIL: qwrt binary not found at '$QWRT'"
+if [ ! -x "$AM" ]; then
+  echo "FAIL: amoib binary not found at '$AM'"
   exit 1
 fi
 
 rm -f "$STATE"
-OUT="$(timeout 30 "$QWRT" "$FIX/main-mr2-composition.js" 2>&1)"
+OUT="$(timeout 30 "$AM" "$FIX/main-mr2-composition.js" 2>&1)"
 RC=$?
 EXP=$'echoes:6\nDONE'
 if [ "$OUT" != "$EXP" ]; then
@@ -46,12 +46,12 @@ fi
 
 # 无残留进程 worker：两个 worker 都已 terminate 并被回收（给优雅退出留 2s）
 for _ in $(seq 1 20); do
-  pgrep -f -- '--qwrt-worker' >/dev/null || break
+  pgrep -f -- '--amoib-worker' >/dev/null || break
   sleep 0.1
 done
-if pgrep -f -- '--qwrt-worker' >/dev/null; then
+if pgrep -f -- '--amoib-worker' >/dev/null; then
   echo "FAIL: leftover process worker (not reaped)"
-  pgrep -af -- '--qwrt-worker'
+  pgrep -af -- '--amoib-worker'
   exit 1
 fi
 

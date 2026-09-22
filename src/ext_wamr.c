@@ -1,37 +1,37 @@
 /*
- * qwrt WAMR Extension
+ * amoib WAMR Extension
  *
  * WASM runtime using WAMR (WebAssembly Micro Runtime) engine.
  * Pure sandbox model — WASM modules have NO access to system APIs:
  * no filesystem, no network, no host functions. Only pure
  * computation + linear memory.
- * When QWRT_WITH_WAMR is enabled, uses real WAMR engine.
+ * When AM_WITH_WAMR is enabled, uses real WAMR engine.
  * Otherwise, provides stub JS API surface that throws on use.
  */
 
-#include "qwrt_internal.h"
+#include "am_internal.h"
 #include <string.h>
 #include <stdlib.h>
 #include <sched.h>   /* sched_yield: WAMR singleton init spin */
-#if QWRT_WITH_WAMR
+#if AM_WITH_WAMR
 #include "wasm_export.h"
 
 /* Suppress cast-function-type warnings for QuickJS getter/setter CFunctions.
  * ext_wasm3.c uses the same pattern — QuickJS dispatches by JSCFunctionEnum,
  * so the function signatures align at runtime despite the cast. */
 #if defined(__GNUC__) || defined(__clang__)
-#define _QWRT_WAMR_DIAG_PUSH _Pragma("GCC diagnostic push")
-#define _QWRT_WAMR_DIAG_IGNORE_CAST _Pragma("GCC diagnostic ignored \"-Wcast-function-type\"")
+#define _AM_WAMR_DIAG_PUSH _Pragma("GCC diagnostic push")
+#define _AM_WAMR_DIAG_IGNORE_CAST _Pragma("GCC diagnostic ignored \"-Wcast-function-type\"")
 /* WAMR's NativeSymbol.func_ptr is `void *`, so registering a raw native means
  * storing a function address in an object pointer. ISO C forbids that
  * conversion; it is nevertheless the documented WAMR ABI. */
-#define _QWRT_WAMR_DIAG_IGNORE_PEDANTIC _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
-#define _QWRT_WAMR_DIAG_POP _Pragma("GCC diagnostic pop")
+#define _AM_WAMR_DIAG_IGNORE_PEDANTIC _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
+#define _AM_WAMR_DIAG_POP _Pragma("GCC diagnostic pop")
 #else
-#define _QWRT_WAMR_DIAG_PUSH
-#define _QWRT_WAMR_DIAG_IGNORE_CAST
-#define _QWRT_WAMR_DIAG_IGNORE_PEDANTIC
-#define _QWRT_WAMR_DIAG_POP
+#define _AM_WAMR_DIAG_PUSH
+#define _AM_WAMR_DIAG_IGNORE_CAST
+#define _AM_WAMR_DIAG_IGNORE_PEDANTIC
+#define _AM_WAMR_DIAG_POP
 #endif
 
 /* ================================================================
@@ -57,7 +57,7 @@ static wamr_state_t g_wamr_state;   /* process singleton, M-R1 §13.2: see CAS s
  *   1 = 已初始化 / 初始化完成 → 直接通过
  *   2 = 初始化进行中（非报主者 spin 等待；报主者失败回滚到 0）
  * 项目严格 -std=c99（无 _Atomic）：uint32_t + __atomic 内建，与
- * bridge.c g_qwrt_next_port_id 同款。 */
+ * bridge.c g_am_next_port_id 同款。 */
 static int wamr_ensure_runtime(void)
 {
     {
@@ -78,7 +78,7 @@ static int wamr_ensure_runtime(void)
         }
     }
 
-    /* Per-thread signal env: 每个 qwrt 实例跑在自己的 worker 线程上，而
+    /* Per-thread signal env: 每个 amoib 实例跑在自己的 worker 线程上，而
      * WAMR 的 thread signal env（thread_signal_inited）是线程局部状态，
      * 仅在首次 runtime init 的线程里被设置。不初始化的话，第二个及以后
      * 的实例（新线程）调用 wasm 函数会报
@@ -191,7 +191,7 @@ static void wamr_free_module_imports(JSRuntime *jsrt, wamr_module_wrap_t *wrap)
 
 static void wamr_module_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    am_t *rt = am_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wamr_module_wrap_t *wrap = (wamr_module_wrap_t *)JS_GetOpaque(val, rt->wamr_module_class_id);
     if (wrap) {
@@ -230,7 +230,7 @@ static void wamr_free_instance_imports(JSRuntime *jsrt, wamr_instance_wrap_t *wr
 
 static void wamr_instance_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    am_t *rt = am_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wamr_instance_wrap_t *wrap = (wamr_instance_wrap_t *)JS_GetOpaque(val, rt->wamr_instance_class_id);
     if (wrap) {
@@ -253,7 +253,7 @@ static void wamr_instance_finalizer(JSRuntime *jsrt, JSValue val)
 
 static void wamr_global_class_finalizer(JSRuntime *jsrt, JSValue val);
 
-static void wamr_register_classes(qwrt_t *rt, JSContext *ctx)
+static void wamr_register_classes(am_t *rt, JSContext *ctx)
 {
     JSRuntime *jsrt = JS_GetRuntime(ctx);
 
@@ -326,7 +326,7 @@ static void *wamr_mem_owner_realloc(JSRuntime *jsrt, void *opaque, void *ptr, si
 
 static void wamr_global_class_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    am_t *rt = am_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wamr_global_closure_t *gc = (wamr_global_closure_t *)
         JS_GetOpaque(val, rt->wamr_global_class_id);
@@ -336,13 +336,13 @@ static void wamr_global_class_finalizer(JSRuntime *jsrt, JSValue val)
     }
 }
 
-_QWRT_WAMR_DIAG_PUSH
-_QWRT_WAMR_DIAG_IGNORE_CAST
+_AM_WAMR_DIAG_PUSH
+_AM_WAMR_DIAG_IGNORE_CAST
 
 static JSValue wamr_global_value_get(JSContext *ctx, JSValueConst this_val)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_UNDEFINED;
     wamr_global_closure_t *gc = (wamr_global_closure_t *)
         JS_GetOpaque(this_val, rt->wamr_global_class_id);
@@ -361,8 +361,8 @@ static JSValue wamr_global_value_get(JSContext *ctx, JSValueConst this_val)
 static JSValue wamr_global_value_set(JSContext *ctx, JSValueConst this_val,
                                       JSValueConst val)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_UNDEFINED;
     wamr_global_closure_t *gc = (wamr_global_closure_t *)
         JS_GetOpaque(this_val, rt->wamr_global_class_id);
@@ -387,7 +387,7 @@ static JSValue wamr_global_value_set(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
-_QWRT_WAMR_DIAG_POP
+_AM_WAMR_DIAG_POP
 
 /* ================================================================
  * Helper: extract byte buffer from ArrayBuffer or TypedArray
@@ -515,7 +515,7 @@ static JSValue wamr_wasm_compile(JSContext *ctx, JSValueConst this_val,
 static JSValue wamr_wasm_instantiate(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) {
@@ -641,7 +641,7 @@ static int wamr_register_module_imports(JSContext *ctx, wamr_module_wrap_t *wrap
 static JSValue wamr_module_constructor(JSContext *ctx, JSValueConst new_target,
                                        int argc, JSValueConst *argv)
 {
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
@@ -1059,10 +1059,10 @@ static int wamr_register_module_imports(JSContext *ctx, wamr_module_wrap_t *wrap
         m->symbols = sym;
         NativeSymbol *entry = &m->symbols[m->count++];
         entry->symbol = slot->field_name;
-        _QWRT_WAMR_DIAG_PUSH
-        _QWRT_WAMR_DIAG_IGNORE_PEDANTIC
+        _AM_WAMR_DIAG_PUSH
+        _AM_WAMR_DIAG_IGNORE_PEDANTIC
         entry->func_ptr = (void *)wamr_import_dispatch;
-        _QWRT_WAMR_DIAG_POP
+        _AM_WAMR_DIAG_POP
         entry->signature = slot->signature;
         entry->attachment = slot;
     }
@@ -1342,7 +1342,7 @@ static JSValue wamr_call_exported_func(JSContext *ctx, JSValueConst this_val,
 static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target,
                                          int argc, JSValueConst *argv)
 {
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
@@ -1540,8 +1540,8 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
                 JS_SetOpaque(global_obj, gc);
 
                 JSAtom value_atom = JS_NewAtom(ctx, "value");
-                _QWRT_WAMR_DIAG_PUSH
-                _QWRT_WAMR_DIAG_IGNORE_CAST
+                _AM_WAMR_DIAG_PUSH
+                _AM_WAMR_DIAG_IGNORE_CAST
                 JS_DefinePropertyGetSet(ctx, global_obj,
                     value_atom,
                     JS_NewCFunction2(ctx, (JSCFunction *)wamr_global_value_get,
@@ -1549,7 +1549,7 @@ static JSValue wamr_instance_constructor(JSContext *ctx, JSValueConst new_target
                     JS_NewCFunction2(ctx, (JSCFunction *)wamr_global_value_set,
                         "set value", 1, JS_CFUNC_setter, 0),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
-                _QWRT_WAMR_DIAG_POP
+                _AM_WAMR_DIAG_POP
                 JS_FreeAtom(ctx, value_atom);
             } else {
                 /* Immutable: plain object with snapshot value */
@@ -1764,9 +1764,9 @@ static const char k_wamr_aot_shim[] =
  * Extension hooks
  * ================================================================ */
 
-static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
+static int wamr_ext_init(am_ext_t *ext, am_t *rt)
 {
-    JSContext *ctx = qwrt_get_active_jsctx(rt);
+    JSContext *ctx = am_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     /* Register JS classes for Module/Instance */
@@ -1853,14 +1853,14 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
     return 0;
 }
 
-static void wamr_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
+static void wamr_ext_destroy(am_ext_t *ext, am_t *rt)
 {
     (void)ext;
     /* 卸载本线程安装的 WAMR signal 环境（SIGSEGV/SIGBUS handler、栈 guard
      * pages、sigaltstack）。WAMR 的 guard pages 与 signal handler 都是进程
      * 级副作用：不清理的话，下一个实例（新 worker 线程）在 os_thread_signal_init
      * 里 touch_pages 会撞上遗留的 PROT_NONE 页而 SIGSEGV。销毁发生在 worker
-     * 线程内（qwrt_thread_teardown → qwrt_ctx_destroy），与本线程的
+     * 线程内（am_thread_teardown → am_ctx_destroy），与本线程的
      * wasm_runtime_init_thread_env 对称。 */
     wasm_runtime_destroy_thread_env();
     /* Reset class IDs so JS_NewClassID allocates fresh ones for the next runtime */
@@ -1869,20 +1869,20 @@ static void wamr_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
     rt->wamr_global_class_id = 0;
 }
 
-static int wamr_ext_suspend(qwrt_ext_t *ext, qwrt_t *rt)
+static int wamr_ext_suspend(am_ext_t *ext, am_t *rt)
 {
     (void)ext;
     (void)rt;
     return 0;
 }
 
-static int wamr_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
+static int wamr_ext_resume(am_ext_t *ext, am_t *rt)
 {
     (void)ext;
     (void)rt;
     return 0;
 }
-#else /* !QWRT_WITH_WAMR — stub implementation */
+#else /* !AM_WITH_WAMR — stub implementation */
 
 /* ================================================================
  * Stub WebAssembly implementation — throws "engine not linked"
@@ -1912,9 +1912,9 @@ static JSValue wamr_stub_constructor(JSContext *ctx, JSValueConst new_target,
     return JS_ThrowTypeError(ctx, "WebAssembly: WAMR engine not linked");
 }
 
-static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
+static int wamr_ext_init(am_ext_t *ext, am_t *rt)
 {
-    JSContext *ctx = qwrt_get_active_jsctx(rt);
+    JSContext *ctx = am_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);
@@ -1971,33 +1971,33 @@ static int wamr_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
     return 0;
 }
 
-static void wamr_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
+static void wamr_ext_destroy(am_ext_t *ext, am_t *rt)
 {
     (void)ext;
     (void)rt;
 }
 
-static int wamr_ext_suspend(qwrt_ext_t *ext, qwrt_t *rt)
-{
-    (void)ext;
-    (void)rt;
-    return 0;
-}
-
-static int wamr_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
+static int wamr_ext_suspend(am_ext_t *ext, am_t *rt)
 {
     (void)ext;
     (void)rt;
     return 0;
 }
 
-#endif /* QWRT_WITH_WAMR */
+static int wamr_ext_resume(am_ext_t *ext, am_t *rt)
+{
+    (void)ext;
+    (void)rt;
+    return 0;
+}
+
+#endif /* AM_WITH_WAMR */
 
 /* ================================================================
  * Extension definition
  * ================================================================ */
 
-const qwrt_ext_t qwrt_wamr_ext = {
+const am_ext_t am_wamr_ext = {
     .name = "wamr",
     .init = wamr_ext_init,
     .destroy = wamr_ext_destroy,

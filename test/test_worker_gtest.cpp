@@ -39,7 +39,7 @@ TEST(worker_, terminate) {
 }
 
 // 回归：terminate 后槽位必须在 worker 线程真正结束后回收。槽位 id = 槽位索引
-// +1，不回收则宿主反复 spawn/terminate 会累积到 QWRT_MAX_WORKERS(16)，第 17 次
+// +1，不回收则宿主反复 spawn/terminate 会累积到 AM_MAX_WORKERS(16)，第 17 次
 // spawn 抛 "spawnWorker failed (err -8)"(BUSY)。20 轮全在一个 eval 里完成：
 // 轮次之间父 loop 没有派发机会，槽位只能靠下一次 spawn 时回收复用。
 TEST(worker_, terminate_recycles_slot) {
@@ -304,7 +304,7 @@ TEST(worker_, transfer_messageport_multi_worker) {
 }
 
 // transferable: worker 转移 port 给父后，terminate worker。父侧代理 port 再
-// 发消息不应抛错/崩溃——qwrt_worker_post 检查 worker shutting_down 后静默丢弃，
+// 发消息不应抛错/崩溃——am_worker_post 检查 worker shutting_down 后静默丢弃，
 // 消息不投递（优雅失败）。
 TEST(worker_, transfer_messageport_terminate_worker) {
     HostCtx *h = host_create();
@@ -338,7 +338,7 @@ TEST(worker_, transfer_messageport_terminate_worker) {
 // event.ports[0] 收到经多跳回来的 port，应与其本地 port2 重建同线程纠缠（_peerThread
 // === 'local'），可同线程 echo 通信。v1 只支持单次跨线程转移（父→worker 或 worker→父），
 // 多跳（父→worker→父）依赖纠缠关系重建——boot shim 的转移 ref 必须保留原 port 的对端
-// 线程信息（而非硬编码 pal.workerId()），接收侧 __qwrt_port_from_ref__ 须重建本地纠缠。
+// 线程信息（而非硬编码 pal.workerId()），接收侧 __am_port_from_ref__ 须重建本地纠缠。
 TEST(worker_, transfer_messageport_multihop) {
     HostCtx *h = host_create();
     ASSERT_NE(nullptr, h);
@@ -382,7 +382,7 @@ TEST(worker_, transfer_messageport_multihop) {
 }
 
 // worker 自关（脚本内 close()）：请求终止自身线程（pal.workerClose →
-// qwrt_worker_terminate），父 runtime 不受影响；自关后父侧 w.terminate()
+// am_worker_terminate），父 runtime 不受影响；自关后父侧 w.terminate()
 //（对已退出的 worker）静默安全，父 teardown join 不崩溃/不双重释放。
 TEST(worker_, self_close) {
     HostCtx *h = host_create();
@@ -483,7 +483,7 @@ TEST(worker_, constructor_bad_url_then_recovery) {
     ASSERT_TRUE(host_value(h,
         "var e1 = ''; var e2 = '';\n"
         "try { new Worker('http://x/y.js'); } catch (err) { e1 = err.name; }\n"
-        "try { new Worker('file:///nonexistent-qwrt-a2.js'); } catch (err) { e2 = err.name; }\n"
+        "try { new Worker('file:///nonexistent-amoib-a2.js'); } catch (err) { e2 = err.name; }\n"
         "JSON.stringify([e1, e2])", &out));
     /* http:// 非法 URL → Error（loadScript 校验）；不存在的文件 → TypeError
        （fsReadSync 底层错误透传）。两者都中断构造、不占槽位。 */

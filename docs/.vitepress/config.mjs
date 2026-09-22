@@ -4,7 +4,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 
 // Sitemap generation — called after each page build
-const SITE_URL = 'https://adam-ikari.github.io/qwrt'
+const SITE_URL = 'https://adam-ikari.github.io/amoib'
 const sitemapUrls = new Set()
 
 function generateSitemap(outDir) {
@@ -36,14 +36,14 @@ ${sorted.map(url => {
 const SCHEMA_LD = JSON.stringify({
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Qwrt.js',
+  name: 'Amoib.js',
   applicationCategory: 'DeveloperApplication',
   description: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native',
   url: SITE_URL,
   license: 'https://opensource.org/licenses/MIT',
   operatingSystem: 'Linux, macOS',
   programmingLanguage: 'C99, JavaScript (ES2023)',
-  author: { '@type': 'Organization', name: 'Qwrt.js' },
+  author: { '@type': 'Organization', name: 'Amoib.js' },
 })
 
 // Navigation structure
@@ -153,7 +153,7 @@ const sidebar = {
 const nav = [
   { text: 'Guide', link: '/guide/' },
   { text: 'JS API', link: '/js-api/' },
-  { text: 'GitHub', link: 'https://github.com/adam-ikari/qwrt' },
+  { text: 'GitHub', link: 'https://github.com/adam-ikari/amoib' },
 ]
 
 // Chinese sidebar with translated labels
@@ -258,30 +258,30 @@ const zhSidebar = {
 const zhNav = [
   { text: '指南', link: '/zh/guide/' },
   { text: 'JS API', link: '/zh/js-api/' },
-  { text: 'GitHub', link: 'https://github.com/adam-ikari/qwrt' },
+  { text: 'GitHub', link: 'https://github.com/adam-ikari/amoib' },
 ]
 
 export default withMermaid(
 defineConfig({
-  title: 'Qwrt.js',
+  title: 'Amoib.js',
   description: 'Embeddable QuickJS-ng Runtime — C99, WinterCG-compatible, libuv-native',
-  base: '/qwrt/',
+  base: '/amoib/',
   lastUpdated: true,
   cleanUrls: true,
 
   head: [
-    ['link', { rel: 'icon', href: '/qwrt/favicon.ico' }],
+    ['link', { rel: 'icon', href: '/amoib/favicon.ico' }],
     ['meta', { name: 'theme-color', content: '#58a6ff' }],
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'Qwrt.js — Embeddable QuickJS Runtime' }],
+    ['meta', { property: 'og:title', content: 'Amoib.js — Embeddable QuickJS Runtime' }],
     ['meta', { property: 'og:description', content: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native' }],
     ['meta', { property: 'og:url', content: SITE_URL }],
     ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:locale:alternate', content: 'zh_CN' }],
     // Twitter Card
     ['meta', { name: 'twitter:card', content: 'summary' }],
-    ['meta', { name: 'twitter:title', content: 'Qwrt.js — Embeddable QuickJS Runtime' }],
+    ['meta', { name: 'twitter:title', content: 'Amoib.js — Embeddable QuickJS Runtime' }],
     ['meta', { name: 'twitter:description', content: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native' }],
   ],
 
@@ -309,11 +309,11 @@ defineConfig({
         },
         outline: { level: [2, 3], label: 'On this page' },
         editLink: {
-          pattern: 'https://github.com/adam-ikari/qwrt/edit/master/docs/:path',
+          pattern: 'https://github.com/adam-ikari/amoib/edit/master/docs/:path',
         },
         footer: {
           message: 'MIT Licensed',
-          copyright: 'Qwrt.js — Embeddable QuickJS-ng Runtime',
+          copyright: 'Amoib.js — Embeddable QuickJS-ng Runtime',
         },
       },
     },
@@ -330,11 +330,11 @@ defineConfig({
         },
         outline: { level: [2, 3], label: '本页目录' },
         editLink: {
-          pattern: 'https://github.com/adam-ikari/qwrt/edit/master/docs/:path',
+          pattern: 'https://github.com/adam-ikari/amoib/edit/master/docs/:path',
         },
         footer: {
           message: 'MIT 许可证',
-          copyright: 'Qwrt.js — 可嵌入的 QuickJS-ng 运行时',
+          copyright: 'Amoib.js — 可嵌入的 QuickJS-ng 运行时',
         },
         lastUpdatedText: '最后更新',
         docFooter: { prev: '上一页', next: '下一页' },
@@ -348,9 +348,9 @@ defineConfig({
 
   themeConfig: {
     logo: false,
-    siteTitle: 'Qwrt.js',
+    siteTitle: 'Amoib.js',
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/adam-ikari/qwrt' },
+      { icon: 'github', link: 'https://github.com/adam-ikari/amoib' },
     ],
     search: {
       provider: 'local',

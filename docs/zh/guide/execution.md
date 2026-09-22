@@ -1,32 +1,32 @@
 ---
 title: JS 执行
-description: Qwrt.js 如何执行 JavaScript — initial_script、消息驱动求值、Web Worker 以及扩展注入的全局对象。宿主从不直接求值 JS。
+description: Amoib.js 如何执行 JavaScript — initial_script、消息驱动求值、Web Worker 以及扩展注入的全局对象。宿主从不直接求值 JS。
 ---
 
 # JS 执行
 
-所有 JavaScript 都在 qwrt 的内部线程上运行。宿主从不直接求值或调用 JS —
-公开 API **没有** `qwrt_eval`、没有 `qwrt_call`、也没有 `qwrt_tick`。代码
+所有 JavaScript 都在 amoib 的内部线程上运行。宿主从不直接求值或调用 JS —
+公开 API **没有** `am_eval`、没有 `am_call`、也没有 `am_tick`。代码
 通过以下四种方式执行：
 
 1. **`initial_script`** — 运行时启动时求值一次的脚本
 2. **消息驱动** — 宿主投递的 JSON 消息触发 JS 中的处理器
 3. **Web Worker** — `new Worker(url)` 并行运行独立脚本
-4. **扩展全局对象** — 编译进 qwrt 的 C 扩展向 JS 暴露原生函数
+4. **扩展全局对象** — 编译进 amoib 的 C 扩展向 JS 暴露原生函数
 
 ## 1. 初始脚本
 
-`qwrt_create` 在返回前于内部线程上求值 `config.initial_script`。抛错会使
-`qwrt_create` 返回 `NULL`：
+`am_create` 在返回前于内部线程上求值 `config.initial_script`。抛错会使
+`am_create` 返回 `NULL`：
 
 ```c
-qwrt_config_t cfg = {
+am_config_t cfg = {
     .initial_script =
-        "console.log('hello from qwrt');"
+        "console.log('hello from amoib');"
         "globalThis.onmessage = function (e) { postMessage('got: ' + e.data); };",
     .message_cb = on_message,
 };
-qwrt_t *rt = qwrt_create(&cfg);   // initial_script 抛错时为 NULL
+am_t *rt = am_create(&cfg);   // initial_script 抛错时为 NULL
 ```
 
 在这里安装消息处理器与顶层状态，然后宿主才开始驱动运行时。
@@ -36,13 +36,13 @@ qwrt_t *rt = qwrt_create(&cfg);   // initial_script 抛错时为 NULL
 宿主通过投递 JSON 消息驱动 JS；JS 用 `postMessage` 回复：
 
 ```
-host  ── qwrt_post_message(json) ──▶  JS: globalThis.onmessage(e)
+host  ── am_post_message(json) ──▶  JS: globalThis.onmessage(e)
 host  ◀── message_cb(json)       ───  JS: postMessage(value)
 ```
 
-- `qwrt_post_message` **线程安全**（JSON 被拷贝），可从任意宿主线程调用。
+- `am_post_message` **线程安全**（JSON 被拷贝），可从任意宿主线程调用。
 - 消息以 JS 对象/字符串经 `onmessage` 到达；`e.data` 是解析后的负载。
-- `message_cb` 在 qwrt 线程上触发，携带从 `postMessage` 序列化的 JSON，
+- `message_cb` 在 amoib 线程上触发，携带从 `postMessage` 序列化的 JSON，
   因此回调必须线程安全。
 
 这是宿主 ↔ JS 的唯一数据通道。**没有同步返回值** — 结果总是经
@@ -64,20 +64,20 @@ w.postMessage("start");
 globalThis.onmessage = (e) => postMessage("echo: " + e.data.cmd);
 ```
 
-在 `-DQWRT_PROCESS_MODEL=THREAD` 下 worker 运行于并行线程；在默认的
-`ISOLATED` 模型下运行于独立子进程（`qwrt-rt`，经 fork+exec 派生）。见
+在 `-DAM_PROCESS_MODEL=THREAD` 下 worker 运行于并行线程；在默认的
+`ISOLATED` 模型下运行于独立子进程（`amoib-rt`，经 fork+exec 派生）。见
 [多上下文](/zh/guide/multi-context)。
 
 ## 4. 扩展全局对象
 
-原生 C 函数通过把扩展编译进 qwrt（编译期 `QWRT_EXTENSIONS` 表）暴露给 JS，
+原生 C 函数通过把扩展编译进 amoib（编译期 `AM_EXTENSIONS` 表）暴露给 JS，
 而非由宿主调用 JS。扩展的 `init` 钩子在上下文创建时运行，可用 QuickJS API
 注册全局对象：
 
 ```c
-#include <qwrt/qwrt.h>
+#include <amoib/amoib.h>
 #include <quickjs.h>
-#include "qwrt_internal.h"   // qwrt_get_active_jsctx（内部辅助）
+#include "am_internal.h"   // am_get_active_jsctx（内部辅助）
 
 static JSValue js_greet(JSContext *ctx, JSValueConst this_val,
                         int argc, JSValueConst *argv) {
@@ -87,8 +87,8 @@ static JSValue js_greet(JSContext *ctx, JSValueConst this_val,
     return v;
 }
 
-static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
-    JSContext *ctx = qwrt_get_active_jsctx(rt);   // 内部辅助
+static int my_ext_init(am_ext_t *ext, am_t *rt) {
+    JSContext *ctx = am_get_active_jsctx(rt);   // 内部辅助
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "greet",
                       JS_NewCFunction(ctx, js_greet, "greet", 1));

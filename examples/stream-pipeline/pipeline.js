@@ -1,4 +1,4 @@
-/* qwrt example: 流式管道（Web Streams）
+/* amoib example: 流式管道（Web Streams）
  *
  * 演示用标准 Web Streams 把数据处理串成一条管道：
  *
@@ -12,9 +12,9 @@
  *   4. for await        — 用 async iterator 消费最终流
  *
  * 运行（仓库根）：
- *   ./build-ws/qwrt examples/stream-pipeline/pipeline.js
+ *   ./build-ws/amoib examples/stream-pipeline/pipeline.js
  *
- * 依赖的能力（qwrt 内置）：
+ * 依赖的能力（amoib 内置）：
  *   ReadableStream / TransformStream / pipeThrough / Symbol.asyncIterator
  */
 

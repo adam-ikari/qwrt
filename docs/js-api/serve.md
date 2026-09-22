@@ -1,6 +1,6 @@
 ---
 title: serve
-description: The HTTP server API in Qwrt.js — serve(), request handling, WebSocket server routes, TLS, and lifecycle.
+description: The HTTP server API in Amoib.js — serve(), request handling, WebSocket server routes, TLS, and lifecycle.
 ---
 
 # serve — HTTP Server API
@@ -32,7 +32,7 @@ let server = serve({ port: 8080 }, (req) => {
 | `hostname` | `'0.0.0.0'` | Address to bind. |
 | `idleTimeout` | `30000` | ms of connection inactivity before close; `0` disables. |
 | `ws` | `{}` | Route table for WebSocket upgrades, keyed by request path. |
-| `tls` | `undefined` | `{ cert, key }` PEM strings to enable HTTPS (requires `QWRT_WITH_TLS`). |
+| `tls` | `undefined` | `{ cert, key }` PEM strings to enable HTTPS (requires `AM_WITH_TLS`). |
 
 ### Request object
 
@@ -133,15 +133,15 @@ Connection object:
 
 `permessage-deflate` (RFC 7692) compression is negotiated automatically when the client offers it and the native streaming deflate primitives are available (see [compress](/js-api/compress)).
 
-The WebSocket handshake requires `QWRT_WITH_TEXTCODEC=ON` and
-`QWRT_WITH_CRYPTO_EXT=ON` at build time (SHA-1 accept key via `crypto.subtle`);
+The WebSocket handshake requires `AM_WITH_TEXTCODEC=ON` and
+`AM_WITH_CRYPTO_EXT=ON` at build time (SHA-1 accept key via `crypto.subtle`);
 otherwise upgrades throw `WebSocket accept unavailable`.
 
 Requests without a matching `ws` route get a `404`; an upgrade missing `Sec-WebSocket-Key` gets a `400`.
 
 ## TLS
 
-Passing `tls: { cert, key }` enables HTTPS on the listener. Requires `QWRT_WITH_TLS=ON` at build time (see [Build Options](/guide/build-options)).
+Passing `tls: { cert, key }` enables HTTPS on the listener. Requires `AM_WITH_TLS=ON` at build time (see [Build Options](/guide/build-options)).
 
 ```js
 serve({
@@ -164,11 +164,11 @@ server.addService(reg, { Echo: (call) => ({ text: call.request.text }) });
 serve({ port: 50051, grpc: server }, () => 'not-grpc');
 ```
 
-Requires `QWRT_WITH_GRPC=ON` at build time (the gRPC bundle is opt-in because
+Requires `AM_WITH_GRPC=ON` at build time (the gRPC bundle is opt-in because
 it adds ~3.5k lines to the polyfill; see [Build Options](/guide/build-options)).
 
 For a complete unary/streaming walkthrough, see the
-[grpc-hello example](https://github.com/adam-ikari/qwrt/tree/master/examples/grpc-hello)
+[grpc-hello example](https://github.com/adam-ikari/amoib/tree/master/examples/grpc-hello)
 and the [gRPC API reference](/js-api/grpc).
 
 ## Notes

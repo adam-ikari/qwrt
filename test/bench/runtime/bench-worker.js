@@ -1,11 +1,11 @@
-/* qwrt runtime-perf harness — worker subsystem metrics (R2/R2b/R3/R4/R5).
+/* amoib runtime-perf harness — worker subsystem metrics (R2/R2b/R3/R4/R5).
  *
  * Driven by test/bench_runtime.py (single JSON line on stdout as the last
  * output line — the bench_httpserver.py CI convention). Worker fixture URLs
- * are built from env QWRT_BENCH_DIR (set by the driver, default
+ * are built from env AM_BENCH_DIR (set by the driver, default
  * 'test/bench/runtime') so the harness is cwd-independent.
  *
- * Usage:  qwrt test/bench/runtime/bench-worker.js <mode> [params...]
+ * Usage:  amoib test/bench/runtime/bench-worker.js <mode> [params...]
  *   r2 [warmup] [samples]        — spawn (R2) + terminate (R2b) latency, µs
  *   r3 [warmup] [samples] [payloadBytes] — postMessage echo round-trip, µs
  *   r4 [runs] [n] [payloadBytes] — N-message echo throughput, msg/s
@@ -15,14 +15,14 @@
  * Sample policy per design §3.3: warmup (discarded) → sample → median (+p95
  * for R3/R4).
  *
- * NOTE on slot reuse: QWRT_MAX_WORKERS=16. The THREAD backend never releases
- * a worker slot until runtime teardown (qwrt_worker_terminate is fire-and-
+ * NOTE on slot reuse: AM_MAX_WORKERS=16. The THREAD backend never releases
+ * a worker slot until runtime teardown (am_worker_terminate is fire-and-
  * forget; only the PROCESS backend reaps on pipe EOF, asynchronously). Hence
  * R2 must keep warmup+samples <= 16, and every R2 iteration yields to the
  * event loop after terminate() so PROCESS reap callbacks can run. This is a
  * documented deviation from design §2's "warmup 5 + sample 20".
  */
-var BENCH_DIR = (globalThis.env && globalThis.env.QWRT_BENCH_DIR) || 'test/bench/runtime';
+var BENCH_DIR = (globalThis.env && globalThis.env.AM_BENCH_DIR) || 'test/bench/runtime';
 var keepalive = setInterval(function () {}, 50);
 
 function workerUrl(name) { return 'file://' + BENCH_DIR + '/' + name; }

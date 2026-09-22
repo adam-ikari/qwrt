@@ -1,13 +1,13 @@
 /*
- * qwrt libuv I/O（执行模型 A）
+ * amoib libuv I/O（执行模型 A）
  *
- * 直接调 libuv：I/O 回调在 qwrt 自持线程的 loop 上触发、直接进入 JS（无 deferred
+ * 直接调 libuv：I/O 回调在 amoib 自持线程的 loop 上触发、直接进入 JS（无 deferred
  * 队列中转）。保留既有修复：chunked 解码、destroy 泄漏、double-free、UAF。
  */
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "qwrt_internal.h"
+#include "am_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,7 +18,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 #include <mbedtls/ssl.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/entropy.h>
@@ -51,10 +51,10 @@ enum {
 
 /* Generic fs operation wrapper */
 typedef struct uv_io_fs_op_t {
-    qwrt_io_done_t cb;
+    am_io_done_t cb;
     void *cb_data;
     uv_fs_t fs_req;
-    qwrt_t *rt;
+    am_t *rt;
     /* For fs_read/fs_write: buffer (original malloc pointer, never advanced) */
     char *buf;
     size_t buf_len;
@@ -64,8 +64,8 @@ typedef struct uv_io_fs_op_t {
      * hands it to the done callback instead of free(). err records a read
      * failure so close_cb releases the backing before the (already-fired)
      * error callback's cleanup. */
-    qwrt_fs_alloc_fn alloc_fn;
-    qwrt_fs_free_fn free_fn;
+    am_fs_alloc_fn alloc_fn;
+    am_fs_free_fn free_fn;
     void *alloc_ud;
     void *owner;
     int err;
@@ -86,9 +86,9 @@ typedef struct uv_io_fs_op_t {
 
 /* HTTP operation wrapper */
 typedef struct uv_io_http_op_t {
-    qwrt_io_done_t cb;
+    am_io_done_t cb;
     void *cb_data;
-    qwrt_t *rt;
+    am_t *rt;
     uv_tcp_t tcp;
     uv_connect_t connect_req;
     uv_write_t write_req;
@@ -126,7 +126,7 @@ typedef struct uv_io_http_op_t {
      * NOT owned by the op — freed by rt teardown after all ops are gone. */
     char *proxy_auth;
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config ssl_conf;
     mbedtls_x509_crt ca_certs;
@@ -175,7 +175,7 @@ typedef struct uv_io_http_op_t {
 
     /* Streaming mode */
     int streaming;              /* 1 = streaming response via stream_ops */
-    qwrt_io_stream_ops_t stream_ops;
+    am_io_stream_ops_t stream_ops;
 
     /* Streaming header parsing state */
     int headers_parsed;         /* 1 = headers already delivered via on_headers */
@@ -228,7 +228,7 @@ typedef struct uv_io_http_op_t {
  * TLS helpers (mbedTLS)
  * ================================================================ */
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 static int tls_init_op(uv_io_http_op_t *op) {
     int ret;
     mbedtls_ssl_init(&op->ssl);
@@ -972,7 +972,7 @@ static char *uv_io_http_proxy_request_target(uv_io_http_op_t *op)
 
 /* Build and send "CONNECT host[:port] HTTP/1.1" to the proxy. Returns 0 and
  * has consumed the write on success; -1 fills err and the caller must fail. */
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 static void uv_io_http_connect_write_cb(uv_write_t *req, int status);
 static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
                                              const uv_buf_t *buf);
@@ -1022,17 +1022,17 @@ static int uv_io_http_send_connect(uv_io_http_op_t *op, const char **err)
     }
     return 0;
 }
-#endif /* QWRT_WITH_TLS */
+#endif /* AM_WITH_TLS */
 /* ================================================================
  * Storage operations (in-memory, synchronous callback)
  * ================================================================ */
-void uv_io_storage_get(qwrt_t *rt, const char *key,
-                               qwrt_io_done_t cb, void *cb_data)
+void uv_io_storage_get(am_t *rt, const char *key,
+                               am_io_done_t cb, void *cb_data)
 {
     int i;
 
     if (!key) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
@@ -1043,20 +1043,20 @@ void uv_io_storage_get(qwrt_t *rt, const char *key,
         }
     }
 
-    cb(cb_data, QWRT_ERR_NOT_FOUND, "not found", 9);
+    cb(cb_data, AM_ERR_NOT_FOUND, "not found", 9);
 }
 
-static void uv_io_storage_init(qwrt_t *rt); /* defined in fs section below */
+static void uv_io_storage_init(am_t *rt); /* defined in fs section below */
 
-void uv_io_storage_set(qwrt_t *rt, const char *key,
+void uv_io_storage_set(am_t *rt, const char *key,
                                const char *value, size_t value_len,
-                               qwrt_io_done_t cb, void *cb_data)
+                               am_io_done_t cb, void *cb_data)
 {
     uv_io_storage_init(rt);
     int i;
 
     if (!key) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
@@ -1066,7 +1066,7 @@ void uv_io_storage_set(qwrt_t *rt, const char *key,
             free(rt->store[i].value);
             rt->store[i].value = (char *)malloc(value_len + 1);
             if (!rt->store[i].value) {
-                cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+                cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
                 return;
             }
             memcpy(rt->store[i].value, value, value_len);
@@ -1079,7 +1079,7 @@ void uv_io_storage_set(qwrt_t *rt, const char *key,
 
     /* Insert new */
     if (rt->store_count >= rt->storage_max) {
-        cb(cb_data, QWRT_ERR_GENERIC, "storage full", 12);
+        cb(cb_data, AM_ERR_GENERIC, "storage full", 12);
         return;
     }
 
@@ -1089,7 +1089,7 @@ void uv_io_storage_set(qwrt_t *rt, const char *key,
         !rt->store[rt->store_count].value) {
         free(rt->store[rt->store_count].key);
         free(rt->store[rt->store_count].value);
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
     memcpy(rt->store[rt->store_count].value, value, value_len);
@@ -1100,13 +1100,13 @@ void uv_io_storage_set(qwrt_t *rt, const char *key,
     cb(cb_data, 0, "ok", 2);
 }
 
-void uv_io_storage_del(qwrt_t *rt, const char *key,
-                               qwrt_io_done_t cb, void *cb_data)
+void uv_io_storage_del(am_t *rt, const char *key,
+                               am_io_done_t cb, void *cb_data)
 {
     int i;
 
     if (!key) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid key", 11);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid key", 11);
         return;
     }
 
@@ -1125,7 +1125,7 @@ void uv_io_storage_del(qwrt_t *rt, const char *key,
         }
     }
 
-    cb(cb_data, QWRT_ERR_NOT_FOUND, "not found", 9);
+    cb(cb_data, AM_ERR_NOT_FOUND, "not found", 9);
 }
 
 /* ================================================================
@@ -1133,9 +1133,9 @@ void uv_io_storage_del(qwrt_t *rt, const char *key,
  * ================================================================ */
 
 /* Lazily allocate the per-runtime storage area. uv_io owns rt->store
- * directly (previously uv_io_create_with_config allocated it); qwrt.c
+ * directly (previously uv_io_create_with_config allocated it); amoib.c
  * frees rt->store at teardown. */
-static void uv_io_storage_init(qwrt_t *rt)
+static void uv_io_storage_init(am_t *rt)
 {
     if (rt->store) return;
     rt->storage_max = PAL_UV_STORAGE_DEFAULT;
@@ -1206,7 +1206,7 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
          * double-callback, then do error callback from close_cb.
          * Actually, we need to deliver the error. Let's do it here
          * and clean up in close_cb without calling cb again. */
-        qwrt_io_done_t cb = op->cb;
+        am_io_done_t cb = op->cb;
         void *cb_data = op->cb_data;
         op->err = 1;
         /* Release the zero-copy backing BEFORE the error callback fires:
@@ -1218,7 +1218,7 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
             op->buf = NULL;
         }
         op->cb = NULL;
-        cb(cb_data, QWRT_ERR_GENERIC, "read error", 10);
+        cb(cb_data, AM_ERR_GENERIC, "read error", 10);
         return;
     }
 
@@ -1237,12 +1237,12 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
         size_t new_cap = op->buf_cap + PAL_UV_FS_BUF_INIT;
         char *new_buf = uv_io_fs_read_grow(op, new_cap);
         if (!new_buf) {
-            qwrt_io_done_t cb = op->cb;
+            am_io_done_t cb = op->cb;
             void *cb_data = op->cb_data;
             op->cb = NULL;
             uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                          uv_io_fs_read_close_cb);
-            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+            cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
             return;
         }
         op->buf = new_buf;
@@ -1254,7 +1254,7 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
         iov.base = op->buf + op->buf_len;
         iov.len = op->buf_cap - op->buf_len;
         uv_fs_read(&op->rt->loop, &op->fs_req, op->fd, &iov, 1,
-                   QWRT_ERR_GENERIC, uv_io_fs_read_cb);
+                   AM_ERR_GENERIC, uv_io_fs_read_cb);
         return;
     }
     if (result == 0) {
@@ -1274,12 +1274,12 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
         if (new_cap < new_len) new_cap = new_len;
         char *new_buf = uv_io_fs_read_grow(op, new_cap);
         if (!new_buf) {
-            qwrt_io_done_t cb = op->cb;
+            am_io_done_t cb = op->cb;
             void *cb_data = op->cb_data;
             op->cb = NULL;
             uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                          uv_io_fs_read_close_cb);
-            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+            cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
             return;
         }
         op->buf = new_buf;
@@ -1300,7 +1300,7 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
             op->probing = 1;
             uv_buf_t p = { op->probe, 1 };
             uv_fs_read(&op->rt->loop, &op->fs_req, op->fd, &p, 1,
-                       QWRT_ERR_GENERIC, uv_io_fs_read_cb);
+                       AM_ERR_GENERIC, uv_io_fs_read_cb);
             return;
         }
         iov.len = PAL_UV_FS_BUF_INIT;
@@ -1308,12 +1308,12 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
         size_t new_cap = op->buf_cap + PAL_UV_FS_BUF_INIT;
         char *new_buf = uv_io_fs_read_grow(op, new_cap);
         if (!new_buf) {
-            qwrt_io_done_t cb = op->cb;
+            am_io_done_t cb = op->cb;
             void *cb_data = op->cb_data;
             op->cb = NULL;
             uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                          uv_io_fs_read_close_cb);
-            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+            cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
             return;
         }
         op->buf = new_buf;
@@ -1321,7 +1321,7 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
         iov.base = op->buf + op->buf_len;
         iov.len = op->buf_cap - op->buf_len;
     }
-    uv_fs_read(&op->rt->loop, &op->fs_req, op->fd, &iov, 1, QWRT_ERR_GENERIC,
+    uv_fs_read(&op->rt->loop, &op->fs_req, op->fd, &iov, 1, AM_ERR_GENERIC,
                uv_io_fs_read_cb);
 }
 
@@ -1334,7 +1334,7 @@ static void uv_io_fs_read_open_cb(uv_fs_t *req)
     if (result < 0) {
         /* Open failed */
         const char *msg = "file not found";
-        op->cb(op->cb_data, QWRT_ERR_NOT_FOUND, msg, (size_t)strlen(msg));
+        op->cb(op->cb_data, AM_ERR_NOT_FOUND, msg, (size_t)strlen(msg));
         free(op->buf);
         free(op);
         return;
@@ -1365,11 +1365,11 @@ static void uv_io_fs_read_open_cb(uv_fs_t *req)
                 /* 先置 op->cb = NULL 再调 cb：否则 uv_fs_close 后 close_cb
                  * （uv_io_fs_read_close_cb）会二次回调同一 cb（double-free/
                  * UAF）。仿 fs_read_cb 的错误路径（cb = NULL → close → cb）。 */
-                qwrt_io_done_t cb = op->cb;
+                am_io_done_t cb = op->cb;
                 op->cb = NULL;
                 uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                              uv_io_fs_read_close_cb);
-                cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+                cb(op->cb_data, AM_ERR_GENERIC, "out of memory", 13);
                 return;
             }
         }
@@ -1379,23 +1379,23 @@ static void uv_io_fs_read_open_cb(uv_fs_t *req)
     uv_buf_t iov;
     iov.base = op->buf;
     iov.len = op->buf_cap;
-    uv_fs_read(&op->rt->loop, &op->fs_req, op->fd, &iov, 1, QWRT_ERR_GENERIC,
+    uv_fs_read(&op->rt->loop, &op->fs_req, op->fd, &iov, 1, AM_ERR_GENERIC,
                uv_io_fs_read_cb);
 }
 
-void uv_io_fs_read_ex(qwrt_t *rt, const char *path,
-                      qwrt_io_done_t cb, void *cb_data,
-                      qwrt_fs_alloc_fn alloc_fn, qwrt_fs_free_fn free_fn,
+void uv_io_fs_read_ex(am_t *rt, const char *path,
+                      am_io_done_t cb, void *cb_data,
+                      am_fs_alloc_fn alloc_fn, am_fs_free_fn free_fn,
                       void *alloc_ud)
 {
     if (!path) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     uv_io_fs_op_t *op = (uv_io_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1411,7 +1411,7 @@ void uv_io_fs_read_ex(qwrt_t *rt, const char *path,
         op->buf = (char *)malloc(op->buf_cap);
         if (!op->buf) {
             free(op);
-            cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+            cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
             return;
         }
     }
@@ -1420,8 +1420,8 @@ void uv_io_fs_read_ex(qwrt_t *rt, const char *path,
                uv_io_fs_read_open_cb);
 }
 
-void uv_io_fs_read(qwrt_t *rt, const char *path,
-                   qwrt_io_done_t cb, void *cb_data)
+void uv_io_fs_read(am_t *rt, const char *path,
+                   am_io_done_t cb, void *cb_data)
 {
     uv_io_fs_read_ex(rt, path, cb, cb_data, NULL, NULL, NULL);
 }
@@ -1448,12 +1448,12 @@ static void uv_io_fs_write_cb(uv_fs_t *req)
     uv_fs_req_cleanup(req);
 
     if (result < 0) {
-        qwrt_io_done_t cb = op->cb;
+        am_io_done_t cb = op->cb;
         void *cb_data = op->cb_data;
         op->cb = NULL;
         uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                      uv_io_fs_write_close_cb);
-        cb(cb_data, QWRT_ERR_GENERIC, "write error", 11);
+        cb(cb_data, AM_ERR_GENERIC, "write error", 11);
         return;
     }
 
@@ -1465,7 +1465,7 @@ static void uv_io_fs_write_cb(uv_fs_t *req)
         uv_buf_t iov;
         iov.base = op->buf + op->buf_offset;
         iov.len = op->buf_len;
-        uv_fs_write(&op->rt->loop, &op->fs_req, op->fd, &iov, 1, QWRT_ERR_GENERIC,
+        uv_fs_write(&op->rt->loop, &op->fs_req, op->fd, &iov, 1, AM_ERR_GENERIC,
                      uv_io_fs_write_cb);
         return;
     }
@@ -1482,7 +1482,7 @@ static void uv_io_fs_write_open_cb(uv_fs_t *req)
     uv_fs_req_cleanup(req);
 
     if (result < 0) {
-        op->cb(op->cb_data, QWRT_ERR_GENERIC, "cannot open file for writing", 28);
+        op->cb(op->cb_data, AM_ERR_GENERIC, "cannot open file for writing", 28);
         free(op->buf);
         free(op);
         return;
@@ -1493,23 +1493,23 @@ static void uv_io_fs_write_open_cb(uv_fs_t *req)
     uv_buf_t iov;
     iov.base = op->buf + op->buf_offset;
     iov.len = op->buf_len;
-    uv_fs_write(&op->rt->loop, &op->fs_req, op->fd, &iov, 1, QWRT_ERR_GENERIC,
+    uv_fs_write(&op->rt->loop, &op->fs_req, op->fd, &iov, 1, AM_ERR_GENERIC,
                  uv_io_fs_write_cb);
 }
 
-void uv_io_fs_write(qwrt_t *rt, const char *path,
+void uv_io_fs_write(am_t *rt, const char *path,
                             const char *data, size_t data_len,
-                            qwrt_io_done_t cb, void *cb_data)
+                            am_io_done_t cb, void *cb_data)
 {
 
     if (!path) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     uv_io_fs_op_t *op = (uv_io_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1522,7 +1522,7 @@ void uv_io_fs_write(qwrt_t *rt, const char *path,
     op->buf = (char *)malloc(data_len);
     if (!op->buf) {
         free(op);
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
     memcpy(op->buf, data, data_len);
@@ -1548,18 +1548,18 @@ static void uv_io_fs_exists_cb(uv_fs_t *req)
     free(op);
 }
 
-void uv_io_fs_exists(qwrt_t *rt, const char *path,
-                             qwrt_io_done_t cb, void *cb_data)
+void uv_io_fs_exists(am_t *rt, const char *path,
+                             am_io_done_t cb, void *cb_data)
 {
 
     if (!path) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     uv_io_fs_op_t *op = (uv_io_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1590,18 +1590,18 @@ static void uv_io_fs_remove_cb(uv_fs_t *req)
     free(op);
 }
 
-void uv_io_fs_remove(qwrt_t *rt, const char *path,
-                             qwrt_io_done_t cb, void *cb_data)
+void uv_io_fs_remove(am_t *rt, const char *path,
+                             am_io_done_t cb, void *cb_data)
 {
 
     if (!path) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     uv_io_fs_op_t *op = (uv_io_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1621,7 +1621,7 @@ static void uv_io_fs_list_cb(uv_fs_t *req)
 
     if (req->result < 0) {
         uv_fs_req_cleanup(req);
-        op->cb(op->cb_data, QWRT_ERR_GENERIC, "scandir error", 13);
+        op->cb(op->cb_data, AM_ERR_GENERIC, "scandir error", 13);
         free(op);
         return;
     }
@@ -1632,7 +1632,7 @@ static void uv_io_fs_list_cb(uv_fs_t *req)
     char **names = (char **)malloc(sizeof(char *) * (size_t)cap);
     if (!names) {
         uv_fs_req_cleanup(req);
-        op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        op->cb(op->cb_data, AM_ERR_GENERIC, "out of memory", 13);
         free(op);
         return;
     }
@@ -1652,7 +1652,7 @@ static void uv_io_fs_list_cb(uv_fs_t *req)
                 for (j = 0; j < count; j++) free(names[j]);
                 free(names);
                 uv_fs_req_cleanup(req);
-                op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+                op->cb(op->cb_data, AM_ERR_GENERIC, "out of memory", 13);
                 free(op);
                 return;
             }
@@ -1665,7 +1665,7 @@ static void uv_io_fs_list_cb(uv_fs_t *req)
             for (j = 0; j < count; j++) free(names[j]);
             free(names);
             uv_fs_req_cleanup(req);
-            op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+            op->cb(op->cb_data, AM_ERR_GENERIC, "out of memory", 13);
             free(op);
             return;
         }
@@ -1686,7 +1686,7 @@ static void uv_io_fs_list_cb(uv_fs_t *req)
     free(names);
 
     if (!json) {
-        op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        op->cb(op->cb_data, AM_ERR_GENERIC, "out of memory", 13);
         free(op);
         return;
     }
@@ -1696,18 +1696,18 @@ static void uv_io_fs_list_cb(uv_fs_t *req)
     free(op);
 }
 
-void uv_io_fs_list(qwrt_t *rt, const char *path,
-                           qwrt_io_done_t cb, void *cb_data)
+void uv_io_fs_list(am_t *rt, const char *path,
+                           am_io_done_t cb, void *cb_data)
 {
 
     if (!path) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid path", 12);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid path", 12);
         return;
     }
 
     uv_io_fs_op_t *op = (uv_io_fs_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -1726,7 +1726,7 @@ void uv_io_fs_list(qwrt_t *rt, const char *path,
  * Response is parsed to extract status code, headers, and body.
  * Supports DNS resolution via uv_getaddrinfo.
  * Supports Content-Length and chunked transfer-encoding.
- * HTTPS URLs are detected but require QWRT_WITH_TLS compile flag.
+ * HTTPS URLs are detected but require AM_WITH_TLS compile flag.
  * Connect timeout of 30 seconds via uv_timer_t.
  * Callback receives JSON: {"status":NNN,"headers":{...},"body":"..."}
  * ================================================================ */
@@ -1873,7 +1873,7 @@ static void uv_io_http_cleanup(uv_io_http_op_t *op)
         if (op->tcp_init) {
         }
     }
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     if (op->use_tls) {
         tls_free_op(op);
     }
@@ -2035,7 +2035,7 @@ static void uv_io_http_finish_success(uv_io_http_op_t *op)
         op->cb(op->cb_data, 0, json, json_len);
         free(json);
     } else {
-        op->cb(op->cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        op->cb(op->cb_data, AM_ERR_GENERIC, "out of memory", 13);
     }
 
     if (!uv_is_closing((uv_handle_t *)&op->tcp)) {
@@ -2193,7 +2193,7 @@ static void uv_io_http_connect_timer_cb(uv_timer_t *handle)
 {
     uv_io_http_op_t *op = (uv_io_http_op_t *)handle->data;
     if (op->aborted) return;  /* teardown already in progress */
-    uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "connection timeout");
+    uv_io_http_finish_error(op, AM_ERR_NETWORK, "connection timeout");
 }
 
 static void uv_io_http_stream_cleanup(uv_io_http_op_t *op);
@@ -2204,7 +2204,7 @@ static void uv_io_http_idle_timer_cb(uv_timer_t *handle)
     uv_io_http_op_t *op = (uv_io_http_op_t *)handle->data;
     if (op->aborted) return;  /* teardown already in progress */
     if (op->stream_ops.on_end) {
-        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+        op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
     }
     uv_io_http_stream_cleanup(op);
 }
@@ -2225,14 +2225,14 @@ static void uv_io_http_alloc_cb(uv_handle_t *handle, size_t suggested_size,
 }
 
 static void uv_io_http_write_cb(uv_write_t *req, int status);
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 static void uv_io_http_connect_write_cb(uv_write_t *req, int status);
 static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
                                              const uv_buf_t *buf);
 #endif
 static void uv_io_http_start_tls(uv_io_http_op_t *op);
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
                          const uv_buf_t *buf);
 static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
@@ -2257,7 +2257,7 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     if (op->proxy_active && !op->use_tls) {
         proxy_target = uv_io_http_proxy_request_target(op);
         if (!proxy_target) {
-            uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
+            uv_io_http_finish_error(op, AM_ERR_GENERIC, "out of memory");
             return;
         }
         path = proxy_target;
@@ -2273,7 +2273,7 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     if (!req_buf) {
         free(host_hdr);
         free(proxy_target);
-        uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
+        uv_io_http_finish_error(op, AM_ERR_GENERIC, "out of memory");
         return;
     }
 
@@ -2374,14 +2374,14 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
     op->req_buf = req_buf;
     op->req_buf_len = pos;
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     if (op->use_tls) {
         /* Encrypt and send through TLS */
         int ret = mbedtls_ssl_write(&op->ssl, (const unsigned char *)req_buf, pos);
         if (ret < 0) {
             /* op->req_buf owns req_buf (set above); let uv_io_http_cleanup free
              * it via op->req_buf. Freeing it here too would double-free. */
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS write failed");
+            uv_io_http_finish_error(op, AM_ERR_NETWORK, "TLS write failed");
             return;
         }
         free(req_buf);
@@ -2418,7 +2418,7 @@ static void uv_io_http_send_request(uv_io_http_op_t *op)
 
 req_too_large:
     free(req_buf);
-    uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "request too large");
+    uv_io_http_finish_error(op, AM_ERR_GENERIC, "request too large");
 }
 
 /* ================================================================
@@ -2426,7 +2426,7 @@ req_too_large:
  * On handshake completion, proceeds to send the HTTP request.
  * ================================================================ */
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 static void tls_handshake_read_cb(uv_stream_t *stream, ssize_t nread,
                                    const uv_buf_t *buf)
 {
@@ -2437,7 +2437,7 @@ static void tls_handshake_read_cb(uv_stream_t *stream, ssize_t nread,
     }
     if (nread < 0) {
         free(buf->base);
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS handshake read error");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "TLS handshake read error");
         return;
     }
 
@@ -2459,7 +2459,7 @@ static void tls_handshake_read_cb(uv_stream_t *stream, ssize_t nread,
             op->tls_read_buf = NULL;
             op->tls_read_buf_len = 0;
             op->tls_read_consumed = 0;
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+            uv_io_http_finish_error(op, AM_ERR_NETWORK,
                                     "TLS certificate verification failed");
             return;
         }
@@ -2471,7 +2471,7 @@ static void tls_handshake_read_cb(uv_stream_t *stream, ssize_t nread,
         free(op->tls_read_buf);
         op->tls_read_buf = NULL;
         op->tls_read_buf_len = 0;
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, err);
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, err);
     }
     /* On WANT_READ/WANT_WRITE, keep buffer for next recv_cb call */
 }
@@ -2508,24 +2508,24 @@ static void uv_io_http_connect_cb(uv_connect_t *req, int status)
     }
 
     if (status < 0) {
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "connection failed");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "connection failed");
         return;
     }
 
     /* https via proxy: tunnel first (CONNECT), TLS starts after the proxy's
      * 2xx, TLS hostname verification still targets the origin. */
     if (op->proxy_active && op->use_tls) {
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
         const char *err = NULL;
         if (uv_io_http_send_connect(op, &err) != 0) {
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, err);
+            uv_io_http_finish_error(op, AM_ERR_NETWORK, err);
             return;
         }
         uv_read_start((uv_stream_t *)&op->tcp, uv_io_http_alloc_cb,
                       uv_io_http_proxy_connect_read_cb);
         return;
 #else
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS not supported: compile with QWRT_WITH_TLS");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "TLS not supported: compile with AM_WITH_TLS");
         return;
 #endif
     }
@@ -2543,9 +2543,9 @@ static void uv_io_http_connect_cb(uv_connect_t *req, int status)
  * continuation. */
 static void uv_io_http_start_tls(uv_io_http_op_t *op)
 {
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     if (tls_init_op(op) != 0) {
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS init failed");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "TLS init failed");
         return;
     }
     mbedtls_ssl_set_bio(&op->ssl, op, tls_send_cb, tls_recv_cb, NULL);
@@ -2559,7 +2559,7 @@ static void uv_io_http_start_tls(uv_io_http_op_t *op)
         if (ret == 0) {
             /* 纵深防御:同步握手成功后同样校验证书/主机名验证结果。 */
             if (mbedtls_ssl_get_verify_result(&op->ssl) != 0) {
-                uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+                uv_io_http_finish_error(op, AM_ERR_NETWORK,
                                         "TLS certificate verification failed");
                 return;
             }
@@ -2571,13 +2571,13 @@ static void uv_io_http_start_tls(uv_io_http_op_t *op)
                    ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
             char err[128];
             mbedtls_strerror(ret, err, sizeof(err));
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, err);
+            uv_io_http_finish_error(op, AM_ERR_NETWORK, err);
         }
         /* WANT_READ/WANT_WRITE: wait for tls_handshake_read_cb */
     }
     return;
 #else
-    uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS not supported: compile with QWRT_WITH_TLS");
+    uv_io_http_finish_error(op, AM_ERR_NETWORK, "TLS not supported: compile with AM_WITH_TLS");
 #endif
 }
 
@@ -2588,7 +2588,7 @@ static void uv_io_http_write_cb(uv_write_t *req, int status)
     if (op->aborted) return;  /* teardown in progress — don't start reads */
 
     if (status < 0) {
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "write error");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "write error");
         return;
     }
 
@@ -2610,7 +2610,7 @@ static void uv_io_http_write_cb(uv_write_t *req, int status)
     }
 }
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 /* CONNECT request flushed → start reading the proxy's response. */
 static void uv_io_http_connect_write_cb(uv_write_t *req, int status)
 {
@@ -2618,7 +2618,7 @@ static void uv_io_http_connect_write_cb(uv_write_t *req, int status)
 
     if (op->aborted) return;
     if (status < 0) {
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "proxy connect write error");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "proxy connect write error");
         return;
     }
     /* Reading was already started in connect_cb; nothing else to do here. */
@@ -2641,7 +2641,7 @@ static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
     }
     if (nread < 0) {
         free(buf->base);
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "proxy CONNECT failed");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "proxy CONNECT failed");
         return;
     }
     if (nread == 0) {
@@ -2652,7 +2652,7 @@ static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
     new_buf = (char *)realloc(op->proxy_buf, op->proxy_buf_len + (size_t)nread);
     if (!new_buf) {
         free(buf->base);
-        uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
+        uv_io_http_finish_error(op, AM_ERR_GENERIC, "out of memory");
         return;
     }
     op->proxy_buf = new_buf;
@@ -2696,7 +2696,7 @@ static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
                      "proxy CONNECT refused (HTTP %d)", proxy_status);
             uv_io_http_finish_error(op, proxy_status, msg);
         } else {
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+            uv_io_http_finish_error(op, AM_ERR_NETWORK,
                                     "proxy CONNECT refused or malformed response");
         }
         return;
@@ -2709,10 +2709,10 @@ static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
         size_t hdr_end = i + 4;
         size_t leftover = op->proxy_buf_len - hdr_end;
         if (leftover > 0) {
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
             op->tls_read_buf = (unsigned char *)malloc(leftover);
             if (!op->tls_read_buf) {
-                uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
+                uv_io_http_finish_error(op, AM_ERR_GENERIC, "out of memory");
                 return;
             }
             memcpy(op->tls_read_buf, op->proxy_buf + hdr_end, leftover);
@@ -2727,7 +2727,7 @@ static void uv_io_http_proxy_connect_read_cb(uv_stream_t *stream, ssize_t nread,
 
     uv_io_http_start_tls(op);
 }
-#endif /* QWRT_WITH_TLS */
+#endif /* AM_WITH_TLS */
 
 /* ================================================================
  * HTTP response data processor — appends data to response buffer
@@ -2747,7 +2747,7 @@ static int uv_io_http_process_data(uv_io_http_op_t *op, const char *data,
         if (new_cap < new_len) new_cap = new_len;
         char *new_buf = (char *)realloc(op->resp_buf, new_cap);
         if (!new_buf) {
-            uv_io_http_finish_error(op, QWRT_ERR_GENERIC, "out of memory");
+            uv_io_http_finish_error(op, AM_ERR_GENERIC, "out of memory");
             return 1;
         }
         op->resp_buf = new_buf;
@@ -2771,7 +2771,7 @@ static int uv_io_http_process_data(uv_io_http_op_t *op, const char *data,
                     uv_io_http_finish_success(op);
                     return 1;
                 } else if (result < 0) {
-                    uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "chunked encoding parse error");
+                    uv_io_http_finish_error(op, AM_ERR_NETWORK, "chunked encoding parse error");
                     return 1;
                 }
                 /* else: need more data, keep reading */
@@ -2799,7 +2799,7 @@ static int uv_io_http_process_data(uv_io_http_op_t *op, const char *data,
             uv_io_http_finish_success(op);
             return 1;
         } else if (result < 0) {
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "chunked encoding parse error");
+            uv_io_http_finish_error(op, AM_ERR_NETWORK, "chunked encoding parse error");
             return 1;
         }
         /* else: need more data, keep reading */
@@ -2821,7 +2821,7 @@ static int uv_io_http_process_data(uv_io_http_op_t *op, const char *data,
  * and feeds it to the HTTP response parser.
  * ================================================================ */
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
                          const uv_buf_t *buf)
 {
@@ -2833,17 +2833,17 @@ static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
             /* Connection closed — finish with what we have */
             if (op->headers_done) {
                 if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
-                    uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+                    uv_io_http_finish_error(op, AM_ERR_NETWORK,
                         "connection closed before chunked body complete");
                 } else {
                     uv_io_http_finish_success(op);
                 }
             } else {
-                uv_io_http_finish_error(op, QWRT_ERR_NETWORK,
+                uv_io_http_finish_error(op, AM_ERR_NETWORK,
                     "connection closed before headers");
             }
         } else {
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS read error");
+            uv_io_http_finish_error(op, AM_ERR_NETWORK, "TLS read error");
         }
         return;
     }
@@ -2893,7 +2893,7 @@ static void tls_read_cb(uv_stream_t *stream, ssize_t nread,
         } else if (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
             uv_io_http_finish_success(op);
         } else {
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "TLS decrypt error");
+            uv_io_http_finish_error(op, AM_ERR_NETWORK, "TLS decrypt error");
         }
     }
     /* On WANT_READ, keep reading — more encrypted data needed */
@@ -2918,15 +2918,15 @@ static void uv_io_http_read_cb(uv_stream_t *stream, ssize_t nread,
             if (op->headers_done) {
                 /* For chunked, EOF before complete is an error unless done */
                 if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
-                    uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "connection closed before chunked body complete");
+                    uv_io_http_finish_error(op, AM_ERR_NETWORK, "connection closed before chunked body complete");
                 } else {
                     uv_io_http_finish_success(op);
                 }
             } else {
-                uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "connection closed before headers");
+                uv_io_http_finish_error(op, AM_ERR_NETWORK, "connection closed before headers");
             }
         } else {
-            uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "read error");
+            uv_io_http_finish_error(op, AM_ERR_NETWORK, "read error");
         }
         free(buf->base);
         return;
@@ -3022,7 +3022,7 @@ static void uv_io_http_abort_op(uv_io_http_op_t *op)
      * the fetch Promise rejects rather than hanging. Use -7 (CANCELLED)
      * to mirror error codes. */
     if (op->stream_ops.on_end) {
-        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_CANCELLED);
+        op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_CANCELLED);
     }
 
     /* Tear down handles (clears active_stream, closes TCP/timers, frees op
@@ -3035,7 +3035,7 @@ static void uv_io_http_abort_op(uv_io_http_op_t *op)
  * unknown/stale id (the op already finished and unlinked itself). Must be
  * called on the loop thread (pal.httpRequestAbort runs there via JS).
  */
-void uv_io_http_abort_by_id(qwrt_t *rt, uint64_t op_id)
+void uv_io_http_abort_by_id(am_t *rt, uint64_t op_id)
 {
     uv_io_http_op_t *op = rt->http_ops;
     while (op && op->op_id != op_id) op = op->next;
@@ -3049,9 +3049,9 @@ void uv_io_http_abort_by_id(qwrt_t *rt, uint64_t op_id)
  * the registry so concurrent fetches are all torn down, not just the most
  * recent one. Delivers an on_end error to each stream consumer and tears down
  * the TCP connections + timers. Must be called on the loop thread (host calls
- * it from qwrt teardown, which runs on the owner thread).
+ * it from amoib teardown, which runs on the owner thread).
  */
-void uv_io_http_abort(qwrt_t *rt)
+void uv_io_http_abort(am_t *rt)
 {
     uv_io_http_op_t *op = rt->http_ops;
     /* Each abort unlinks the op from the registry (via cleanup), so walk and
@@ -3188,7 +3188,7 @@ static int uv_io_http_stream_process_data(uv_io_http_op_t *op,
                 return 1;
             } else if (result < 0) {
                 if (op->stream_ops.on_end) {
-                    op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                    op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
                 }
                 uv_io_http_stream_cleanup(op);
                 return 1;
@@ -3221,7 +3221,7 @@ static int uv_io_http_stream_process_data(uv_io_http_op_t *op,
     char *new_buf = (char *)realloc(op->resp_headers, new_len + 1);
     if (!new_buf) {
         if (op->stream_ops.on_end) {
-            op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+            op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
         }
         uv_io_http_stream_cleanup(op);
         return 1;
@@ -3367,22 +3367,22 @@ static void uv_io_http_stream_read_cb(uv_stream_t *stream, ssize_t nread,
             if (op->stream_ops.on_end) {
                 if (op->headers_parsed) {
                     if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
-                        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                        op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
                     } else if (op->body_expected > 0 &&
                                op->body_received < op->body_expected) {
                         /* Content-Length promised more bytes than arrived —
                          * truncated body must not resolve as success. */
-                        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                        op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
                     } else {
                         op->stream_ops.on_end(op->stream_ops.user_data, 0);
                     }
                 } else {
-                    op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                    op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
                 }
             }
         } else {
             if (op->stream_ops.on_end) {
-                op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
             }
         }
         uv_io_http_stream_cleanup(op);
@@ -3408,7 +3408,7 @@ static void uv_io_http_stream_read_cb(uv_stream_t *stream, ssize_t nread,
  * mbedTLS and feeds it to the streaming response processor.
  * ================================================================ */
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
                                 const uv_buf_t *buf)
 {
@@ -3427,22 +3427,22 @@ static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
             if (op->stream_ops.on_end) {
                 if (op->headers_parsed) {
                     if (op->chunked && op->chunk_state != CHUNK_STATE_DONE) {
-                        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                        op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
                     } else if (op->body_expected > 0 &&
                                op->body_received < op->body_expected) {
                         /* Content-Length promised more bytes than arrived —
                          * truncated body must not resolve as success. */
-                        op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                        op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
                     } else {
                         op->stream_ops.on_end(op->stream_ops.user_data, 0);
                     }
                 } else {
-                    op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                    op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
                 }
             }
         } else {
             if (op->stream_ops.on_end) {
-                op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
             }
         }
         uv_io_http_stream_cleanup(op);
@@ -3498,13 +3498,13 @@ static void tls_stream_read_cb(uv_stream_t *stream, ssize_t nread,
                 if (op->headers_parsed) {
                     op->stream_ops.on_end(op->stream_ops.user_data, 0);
                 } else {
-                    op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                    op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
                 }
             }
             uv_io_http_stream_cleanup(op);
         } else {
             if (op->stream_ops.on_end) {
-                op->stream_ops.on_end(op->stream_ops.user_data, QWRT_ERR_NETWORK);
+                op->stream_ops.on_end(op->stream_ops.user_data, AM_ERR_NETWORK);
             }
             uv_io_http_stream_cleanup(op);
         }
@@ -3524,13 +3524,13 @@ static void uv_io_http_getaddrinfo_cb(uv_getaddrinfo_t *req,
     uv_io_http_op_t *op = (uv_io_http_op_t *)req->data;
 
     if (status < 0) {
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "DNS resolution failed");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "DNS resolution failed");
         uv_freeaddrinfo(res);
         return;
     }
 
     if (!res) {
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "DNS resolution returned no addresses");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "DNS resolution returned no addresses");
         return;
     }
 
@@ -3538,7 +3538,7 @@ static void uv_io_http_getaddrinfo_cb(uv_getaddrinfo_t *req,
     int rc = uv_tcp_init(&op->rt->loop, &op->tcp);
     if (rc < 0) {
         uv_freeaddrinfo(res);
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "tcp init failed");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "tcp init failed");
         return;
     }
     op->tcp_init = 1;
@@ -3551,7 +3551,7 @@ static void uv_io_http_getaddrinfo_cb(uv_getaddrinfo_t *req,
     uv_freeaddrinfo(res);
 
     if (rc < 0) {
-        uv_io_http_finish_error(op, QWRT_ERR_NETWORK, "connect failed");
+        uv_io_http_finish_error(op, AM_ERR_NETWORK, "connect failed");
         return;
     }
 
@@ -3576,21 +3576,21 @@ static void uv_io_http_getaddrinfo_cb(uv_getaddrinfo_t *req,
  * HTTP request entry point
  * ================================================================ */
 
-void uv_io_http_request(qwrt_t *rt,
+void uv_io_http_request(am_t *rt,
                                 const char *url, const char *method,
                                 const char *headers, const char *body,
                                 size_t body_len,
-                                qwrt_io_done_t cb, void *cb_data)
+                                am_io_done_t cb, void *cb_data)
 {
 
     if (!url) {
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid url", 11);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid url", 11);
         return;
     }
 
     uv_io_http_op_t *op = (uv_io_http_op_t *)calloc(1, sizeof(*op));
     if (!op) {
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -3603,7 +3603,7 @@ void uv_io_http_request(qwrt_t *rt,
     {
         uv_io_url_t parts = {0};
         if (uv_io_parse_url(url, &parts) < 0) {
-            cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid url format", 18);
+            cb(cb_data, AM_ERR_INVALID_ARG, "invalid url format", 18);
             free(op);
             return;
         }
@@ -3618,18 +3618,18 @@ void uv_io_http_request(qwrt_t *rt,
      * A malformed proxy URL fails the request — failing closed. */
     if (uv_io_http_apply_proxy(op) < 0) {
         uv_io_http_finalize(op);
-        cb(cb_data, QWRT_ERR_INVALID_ARG, "invalid proxy URL", 18);
+        cb(cb_data, AM_ERR_INVALID_ARG, "invalid proxy URL", 18);
         return;
     }
 
     /* If TLS is requested, check compile-time support */
     if (op->use_tls) {
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
         /* TLS handshake will be initiated after connect */
 #else
         /* Error out early before doing any network I/O */
         uv_io_http_finalize(op);
-        cb(cb_data, QWRT_ERR_NETWORK, "TLS not supported: compile with QWRT_WITH_TLS", 45);
+        cb(cb_data, AM_ERR_NETWORK, "TLS not supported: compile with AM_WITH_TLS", 45);
         return;
 #endif
     }
@@ -3653,7 +3653,7 @@ void uv_io_http_request(qwrt_t *rt,
     op->resp_buf = (char *)malloc(op->resp_buf_cap);
     if (!op->resp_buf) {
         uv_io_http_finalize(op);
-        cb(cb_data, QWRT_ERR_GENERIC, "out of memory", 13);
+        cb(cb_data, AM_ERR_GENERIC, "out of memory", 13);
         return;
     }
 
@@ -3674,7 +3674,7 @@ void uv_io_http_request(qwrt_t *rt,
                             uv_io_http_connect_host(op), port_str, &hints);
     if (rc < 0) {
         uv_io_http_finalize(op);
-        cb(cb_data, QWRT_ERR_NETWORK, "DNS resolution request failed", 29);
+        cb(cb_data, AM_ERR_NETWORK, "DNS resolution request failed", 29);
         return;
     }
 }
@@ -3737,13 +3737,13 @@ static void uv_io_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
     }
 
     if (status < 0) {
-        uv_io_http_stream_finish_error(op, QWRT_ERR_NETWORK);
+        uv_io_http_stream_finish_error(op, AM_ERR_NETWORK);
         uv_freeaddrinfo(res);
         return;
     }
 
     if (!res) {
-        uv_io_http_stream_finish_error(op, QWRT_ERR_NETWORK);
+        uv_io_http_stream_finish_error(op, AM_ERR_NETWORK);
         return;
     }
 
@@ -3751,7 +3751,7 @@ static void uv_io_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
     int rc = uv_tcp_init(&op->rt->loop, &op->tcp);
     if (rc < 0) {
         uv_freeaddrinfo(res);
-        uv_io_http_stream_finish_error(op, QWRT_ERR_NETWORK);
+        uv_io_http_stream_finish_error(op, AM_ERR_NETWORK);
         return;
     }
     op->tcp_init = 1;
@@ -3764,7 +3764,7 @@ static void uv_io_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
     uv_freeaddrinfo(res);
 
     if (rc < 0) {
-        uv_io_http_stream_finish_error(op, QWRT_ERR_NETWORK);
+        uv_io_http_stream_finish_error(op, AM_ERR_NETWORK);
         return;
     }
 
@@ -3783,18 +3783,18 @@ static void uv_io_http_stream_getaddrinfo_cb(uv_getaddrinfo_t *req,
     }
 }
 
-uint64_t uv_io_http_request_stream(qwrt_t *rt,
+uint64_t uv_io_http_request_stream(am_t *rt,
                                     const char *url, const char *method,
                                     const char *headers, const char *body,
                                     size_t body_len,
-                                    qwrt_io_stream_ops_t *ops)
+                                    am_io_stream_ops_t *ops)
 {
     /* Returns the op id (uint64) handed to JS as the abort handle, or 0 on a
      * synchronous failure (JS treats 0 as "no op to abort"). */
 
     if (!url || !ops) {
         if (ops && ops->on_end) {
-            ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
+            ops->on_end(ops->user_data, AM_ERR_INVALID_ARG);
         }
         return 0;
     }
@@ -3802,7 +3802,7 @@ uint64_t uv_io_http_request_stream(qwrt_t *rt,
     uv_io_http_op_t *op = (uv_io_http_op_t *)calloc(1, sizeof(*op));
     if (!op) {
         if (ops->on_end) {
-            ops->on_end(ops->user_data, QWRT_ERR_GENERIC);
+            ops->on_end(ops->user_data, AM_ERR_GENERIC);
         }
         return 0;
     }
@@ -3819,7 +3819,7 @@ uint64_t uv_io_http_request_stream(qwrt_t *rt,
         uv_io_url_t parts = {0};
         if (uv_io_parse_url(url, &parts) < 0) {
             if (ops->on_end) {
-                ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
+                ops->on_end(ops->user_data, AM_ERR_INVALID_ARG);
             }
             free(op);
             return 0;
@@ -3836,19 +3836,19 @@ uint64_t uv_io_http_request_stream(qwrt_t *rt,
     if (uv_io_http_apply_proxy(op) < 0) {
         uv_io_http_finalize(op);
         if (ops->on_end) {
-            ops->on_end(ops->user_data, QWRT_ERR_INVALID_ARG);
+            ops->on_end(ops->user_data, AM_ERR_INVALID_ARG);
         }
         return 0;
     }
 
     /* If TLS is requested, check compile-time support */
     if (op->use_tls) {
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
         /* TLS handshake will be initiated after connect */
 #else
         uv_io_http_finalize(op);
         if (ops->on_end) {
-            ops->on_end(ops->user_data, QWRT_ERR_NETWORK);
+            ops->on_end(ops->user_data, AM_ERR_NETWORK);
         }
         return 0;
 #endif
@@ -3886,7 +3886,7 @@ uint64_t uv_io_http_request_stream(qwrt_t *rt,
     if (rc < 0) {
         uv_io_http_finalize(op);
         if (ops->on_end) {
-            ops->on_end(ops->user_data, QWRT_ERR_NETWORK);
+            ops->on_end(ops->user_data, AM_ERR_NETWORK);
         }
         return 0;
     }

@@ -10,7 +10,7 @@
  *
  * A trailing "-" reads the hex argument from stdin (avoids E2BIG for
  * >100 KiB payload vectors in cross-verification case 3). Pure C99 +
- * ipc_envelope.c — no libuv, no qwrt.
+ * ipc_envelope.c — no libuv, no amoib.
  */
 #include "ipc_envelope.h"
 

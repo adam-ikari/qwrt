@@ -1,26 +1,26 @@
 ---
 title: storage
-description: The storage API in Qwrt.js — key-value persistence with getItem, setItem, removeItem, and clear.
+description: The storage API in Amoib.js — key-value persistence with getItem, setItem, removeItem, and clear.
 ---
 
 # storage — Key-Value Storage API
 
-qwrt extension API for persistent key-value storage. Exposed as methods on `qwrt.storage`.
+amoib extension API for persistent key-value storage. Exposed as methods on `amoib.storage`.
 
 ## Global
 
 | Global | Description |
 |--------|-------------|
-| `qwrt.storage` | Key-value storage namespace |
+| `amoib.storage` | Key-value storage namespace |
 
 ## Methods
 
-### `qwrt.storage.get(key)`
+### `amoib.storage.get(key)`
 
 Retrieve a value by key.
 
 ```js
-let token = await qwrt.storage.get('auth_token');
+let token = await amoib.storage.get('auth_token');
 if (token) {
     console.log('Token:', token);
 } else {
@@ -30,24 +30,24 @@ if (token) {
 
 Returns: `Promise<string | null>`. `null` if the key doesn't exist.
 
-### `qwrt.storage.set(key, value)`
+### `amoib.storage.set(key, value)`
 
 Store a value by key. Overwrites if the key already exists.
 
 ```js
-await qwrt.storage.set('auth_token', 'eyJhbGci...');
-await qwrt.storage.set('last_login', new Date().toISOString());
-await qwrt.storage.set('settings', JSON.stringify({ theme: 'dark' }));
+await amoib.storage.set('auth_token', 'eyJhbGci...');
+await amoib.storage.set('last_login', new Date().toISOString());
+await amoib.storage.set('settings', JSON.stringify({ theme: 'dark' }));
 ```
 
 Returns: `Promise<void>`.
 
-### `qwrt.storage.delete(key)`
+### `amoib.storage.delete(key)`
 
 Remove a key-value pair.
 
 ```js
-await qwrt.storage.delete('auth_token');
+await amoib.storage.delete('auth_token');
 ```
 
 Returns: `Promise<void>`. No error if the key doesn't exist.
@@ -64,19 +64,19 @@ async function login(username, password) {
     });
     let data = await response.json();
 
-    await qwrt.storage.set('auth_token', data.token);
-    await qwrt.storage.set('user', JSON.stringify(data.user));
+    await amoib.storage.set('auth_token', data.token);
+    await amoib.storage.set('user', JSON.stringify(data.user));
 
     return data.user;
 }
 
 async function logout() {
-    await qwrt.storage.delete('auth_token');
-    await qwrt.storage.delete('user');
+    await amoib.storage.delete('auth_token');
+    await amoib.storage.delete('user');
 }
 
 async function getUser() {
-    let userData = await qwrt.storage.get('user');
+    let userData = await amoib.storage.get('user');
     return userData ? JSON.parse(userData) : null;
 }
 ```
@@ -85,7 +85,7 @@ async function getUser() {
 
 Use **storage** for small, frequently accessed key-value pairs (config, tokens, user prefs). Use **fs** for larger documents, scripts, or structured data files.
 
-| Feature | qwrt.storage | qwrt.fs |
+| Feature | amoib.storage | amoib.fs |
 |---------|-------------|---------|
 | Data model | Key-value | File paths |
 | Value size | Small (< 4KB typical) | Up to available memory |
@@ -95,7 +95,7 @@ Use **storage** for small, frequently accessed key-value pairs (config, tokens, 
 
 ## Storage Backend
 
-`qwrt.storage.*` resolves against the runtime's per-runtime in-memory key-value
+`amoib.storage.*` resolves against the runtime's per-runtime in-memory key-value
 map (implemented in `uv_io.c`, lazily allocated on first use, default capacity
 128 entries). There is a single implementation and no persistence — the store
 lives only as long as the runtime and is lost on restart. Keys you depend on
@@ -103,10 +103,10 @@ should be (re)initialized during startup (e.g. in `initial_script`).
 
 ## localStorage / sessionStorage
 
-qwrt also exposes the standard Web Storage globals `localStorage` and
-`sessionStorage` (lazy-installed on first access). Unlike `qwrt.storage`
+amoib also exposes the standard Web Storage globals `localStorage` and
+`sessionStorage` (lazy-installed on first access). Unlike `amoib.storage`
 (in-memory, per-runtime), `localStorage` **persists across runtime
-restarts** — backed by a file on disk (default `~/.qwrt/localstorage.json`),
+restarts** — backed by a file on disk (default `~/.amoib/localstorage.json`),
 and `sessionStorage` is a per-runtime
 copy.
 
@@ -119,7 +119,7 @@ sessionStorage.setItem('temp', 'x');        // gone after runtime destroy
 
 Both support the standard `getItem` / `setItem` / `removeItem` / `clear`
 methods and `length` / `key(i)` enumeration. Use `localStorage` for state
-that should outlive the runtime; use `qwrt.storage` for ephemeral,
+that should outlive the runtime; use `amoib.storage` for ephemeral,
 in-process key-value pairs.
 
 ## Notes

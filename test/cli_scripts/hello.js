@@ -1,1 +1,1 @@
-console.log("hello from qwrt")
+console.log("hello from amoib")

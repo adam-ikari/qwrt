@@ -1,5 +1,5 @@
 /**
- * qwrt TCP socket PAL — raw libuv TCP for JS-level protocol implementations
+ * amoib TCP socket PAL — raw libuv TCP for JS-level protocol implementations
  *
  * Provides pal.tcpConnect/tcpWrite/tcpClose so the JS polyfill can implement
  * application-layer protocols (e.g. RFC 6455 WebSocket) on top of raw TCP,
@@ -11,13 +11,13 @@
  * provides protocol semantics.
  */
 
-#include "qwrt_internal.h"
+#include "am_internal.h"
 #include <uv.h>
 #include <string.h>
 #include <strings.h>
 #include <stdlib.h>
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 #include <mbedtls/ssl.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/entropy.h>
@@ -28,31 +28,31 @@
 #endif
 
 /* TLS server context (shared across connections from one listener) */
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 
 /* One certificate (+key). The first entry with name[0]=='\0' is the
  * default; others are selected by SNI hostname (exact or "*.suffix"). */
-typedef struct qwrt_tls_cert_entry {
-    struct qwrt_tls_cert_entry *next;
+typedef struct am_tls_cert_entry {
+    struct am_tls_cert_entry *next;
     mbedtls_x509_crt cert;
     mbedtls_pk_context key;
     char name[256];
-} qwrt_tls_cert_entry_t;
+} am_tls_cert_entry_t;
 
 typedef struct {
     mbedtls_ssl_config ssl_conf;
-    qwrt_tls_cert_entry_t *certs;    /* live list (default first) */
-    qwrt_tls_cert_entry_t *retired;  /* old list awaiting last unref */
+    am_tls_cert_entry_t *certs;    /* live list (default first) */
+    am_tls_cert_entry_t *retired;  /* old list awaiting last unref */
     mbedtls_entropy_context entropy;
     mbedtls_ctr_drbg_context ctr_drbg;
     int refs;                        /* listener + in-flight connections */
     const char *alpn_protos[8];      /* server ALPN list (NULL-terminated) */
     char alpn_buf[160];              /* storage for alpn_protos strings */
-} qwrt_tls_server_ctx_t;
+} am_tls_server_ctx_t;
 
-static void tls_cert_entries_free(qwrt_tls_cert_entry_t *list) {
+static void tls_cert_entries_free(am_tls_cert_entry_t *list) {
     while (list) {
-        qwrt_tls_cert_entry_t *n = list->next;
+        am_tls_cert_entry_t *n = list->next;
         mbedtls_x509_crt_free(&list->cert);
         mbedtls_pk_free(&list->key);
         free(list);
@@ -63,7 +63,7 @@ static void tls_cert_entries_free(qwrt_tls_cert_entry_t *list) {
 /* Drop one reference. Retired certificates are only freed once the
  * listener is the sole remaining reference (no connection can still be
  * mid-handshake against them). */
-static void tls_server_ctx_unref(qwrt_tls_server_ctx_t *tc) {
+static void tls_server_ctx_unref(am_tls_server_ctx_t *tc) {
     if (!tc || --tc->refs > 0) return;
     mbedtls_ssl_config_free(&tc->ssl_conf);
     tls_cert_entries_free(tc->certs);
@@ -86,14 +86,14 @@ static int tls_host_match(const char *pattern, const char *host) {
 /* SNI callback: pick the matching cert, fall back to the default entry. */
 static int tls_sni_cb(void *p, mbedtls_ssl_context *ssl,
                       const unsigned char *name, size_t len) {
-    qwrt_tls_server_ctx_t *tc = (qwrt_tls_server_ctx_t *)p;
+    am_tls_server_ctx_t *tc = (am_tls_server_ctx_t *)p;
     char host[256];
     if (len >= sizeof(host)) return MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
     memcpy(host, name, len);
     host[len] = '\0';
 
-    qwrt_tls_cert_entry_t *def = NULL;
-    for (qwrt_tls_cert_entry_t *e = tc->certs; e; e = e->next) {
+    am_tls_cert_entry_t *def = NULL;
+    for (am_tls_cert_entry_t *e = tc->certs; e; e = e->next) {
         if (e->name[0] && tls_host_match(e->name, host))
             return mbedtls_ssl_set_hs_own_cert(ssl, &e->cert, &e->key);
         if (!e->name[0]) def = e;
@@ -104,11 +104,11 @@ static int tls_sni_cb(void *p, mbedtls_ssl_context *ssl,
 }
 
 /* Parse one {cert, key, name?} into a new entry; NULL on failure. */
-static qwrt_tls_cert_entry_t *tls_cert_entry_new(mbedtls_ctr_drbg_context *drbg,
+static am_tls_cert_entry_t *tls_cert_entry_new(mbedtls_ctr_drbg_context *drbg,
                                                  const char *cert_path,
                                                  const char *key_path,
                                                  const char *name) {
-    qwrt_tls_cert_entry_t *e = calloc(1, sizeof(*e));
+    am_tls_cert_entry_t *e = calloc(1, sizeof(*e));
     if (!e) return NULL;
     mbedtls_x509_crt_init(&e->cert);
     mbedtls_pk_init(&e->key);
@@ -126,11 +126,11 @@ static qwrt_tls_cert_entry_t *tls_cert_entry_new(mbedtls_ctr_drbg_context *drbg,
 
 /* Build cert list from JS tls object {cert, key, sni: {host: {cert,key}}}.
  * Returns list (default first) or NULL; *ok set to 0 on parse failure. */
-static qwrt_tls_cert_entry_t *tls_certs_from_js(JSContext *ctx,
+static am_tls_cert_entry_t *tls_certs_from_js(JSContext *ctx,
                                                 JSValueConst tls_obj,
                                                 mbedtls_ctr_drbg_context *drbg,
                                                 int *ok) {
-    qwrt_tls_cert_entry_t *head = NULL, **tail = &head;
+    am_tls_cert_entry_t *head = NULL, **tail = &head;
     *ok = 1;
 
     JSValue cv = JS_GetPropertyStr(ctx, tls_obj, "cert");
@@ -138,7 +138,7 @@ static qwrt_tls_cert_entry_t *tls_certs_from_js(JSContext *ctx,
     const char *cert_path = JS_ToCString(ctx, cv);
     const char *key_path = JS_ToCString(ctx, kv);
     if (cert_path && key_path) {
-        qwrt_tls_cert_entry_t *e = tls_cert_entry_new(drbg, cert_path, key_path, NULL);
+        am_tls_cert_entry_t *e = tls_cert_entry_new(drbg, cert_path, key_path, NULL);
         if (!e) { *ok = 0; }
         else { *tail = e; tail = &e->next; }
     }
@@ -162,7 +162,7 @@ static qwrt_tls_cert_entry_t *tls_certs_from_js(JSContext *ctx,
                     const char *ecert = JS_ToCString(ctx, ecv);
                     const char *ekey = JS_ToCString(ctx, ekv);
                     if (ecert && ekey) {
-                        qwrt_tls_cert_entry_t *e = tls_cert_entry_new(drbg, ecert, ekey, host);
+                        am_tls_cert_entry_t *e = tls_cert_entry_new(drbg, ecert, ekey, host);
                         if (!e) *ok = 0;
                         else { *tail = e; tail = &e->next; }
                     } else {
@@ -194,9 +194,9 @@ static qwrt_tls_cert_entry_t *tls_certs_from_js(JSContext *ctx,
 }
 
 /* Shared setup: init ctx, build cert list, config defaults + SNI callback. */
-static qwrt_tls_server_ctx_t *tls_server_ctx_new(JSContext *ctx,
+static am_tls_server_ctx_t *tls_server_ctx_new(JSContext *ctx,
                                                  JSValueConst tls_obj) {
-    qwrt_tls_server_ctx_t *tc = calloc(1, sizeof(*tc));
+    am_tls_server_ctx_t *tc = calloc(1, sizeof(*tc));
     if (!tc) {
         JS_ThrowOutOfMemory(ctx);
         return NULL;
@@ -272,18 +272,18 @@ static qwrt_tls_server_ctx_t *tls_server_ctx_new(JSContext *ctx,
 #endif
 
 /* ── Per-connection state ── */
-typedef struct qwrt_tcp_client qwrt_tcp_client_t;
+typedef struct am_tcp_client am_tcp_client_t;
 
 /* Wrapper for uv_write requests: embeds the data pointer so the write
  * callback can free both the request and the buffer after the write completes. */
 typedef struct {
     uv_write_t req;
-    qwrt_tcp_client_t *client;
+    am_tcp_client_t *client;
     void *data;
 } tcp_write_req_t;
 
-struct qwrt_tcp_client {
-    qwrt_t *rt;
+struct am_tcp_client {
+    am_t *rt;
     uv_tcp_t tcp;            /* embedded; closed async, freed in close_cb */
     int tcp_active;          /* 1 once uv_tcp_init succeeded */
     int freed;               /* tcp_client_free idempotency guard */
@@ -298,8 +298,8 @@ struct qwrt_tcp_client {
     uv_connect_t connect_req;   /* TCP connect */
     char host[256];
     int port;
-    struct qwrt_tcp_client *next;
-#if QWRT_WITH_TLS
+    struct am_tcp_client *next;
+#if AM_WITH_TLS
     int use_tls;
     int tls_is_client;           /* 1 = tcpConnect client, 0 = accepted server conn */
     mbedtls_ssl_context ssl;
@@ -313,7 +313,7 @@ struct qwrt_tcp_client {
     size_t tls_read_buf_len;
     size_t tls_read_consumed;
     int tls_handshake_done;
-    qwrt_tls_server_ctx_t *tls_server_ctx;
+    am_tls_server_ctx_t *tls_server_ctx;
 #endif
 };
 
@@ -322,12 +322,12 @@ struct qwrt_tcp_client {
  * down, client is set to NULL so stale JS handles (tcpWrite/tcpClose after
  * close) become no-ops instead of dereferencing freed memory. */
 typedef struct {
-    qwrt_tcp_client_t *client;
+    am_tcp_client_t *client;
 } tcp_client_handle_t;
 
 static void tcp_client_handle_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    am_t *rt = am_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     tcp_client_handle_t *h = JS_GetOpaque(val, rt->tcp_client_class_id);
     if (h) js_free_rt(jsrt, h);
@@ -340,9 +340,9 @@ static void tcp_connect_cb(uv_connect_t *req, int status);
 static void tcp_dns_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *res);
 static void tcp_write_cb(uv_write_t *req, int status);
 static void tcp_close_cb(uv_handle_t *handle);
-static void tcp_error(qwrt_tcp_client_t *c, const char *msg);
+static void tcp_error(am_tcp_client_t *c, const char *msg);
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 /* mbedTLS bio callbacks (defined with the listener path) — needed by the
  * TLS client setup below, which runs before them in this file. */
 static int tls_send_cb(void *ctx, const unsigned char *buf, size_t len);
@@ -350,7 +350,7 @@ static int tls_recv_cb(void *ctx, unsigned char *buf, size_t len);
 #endif
 
 /* ── Teardown ── */
-static void tcp_client_free(qwrt_tcp_client_t *c) {
+static void tcp_client_free(am_tcp_client_t *c) {
     if (!c || c->freed) return;
     c->freed = 1;
     c->closed = 1;
@@ -368,7 +368,7 @@ static void tcp_client_free(qwrt_tcp_client_t *c) {
         JS_FreeValue(c->jsctx, c->onclose);
         JS_FreeValue(c->jsctx, c->onconnect);
     }
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     if (c->use_tls) {
         mbedtls_ssl_free(&c->ssl);
         free(c->tls_read_buf);
@@ -397,13 +397,13 @@ static void tcp_client_free(qwrt_tcp_client_t *c) {
 
 /* Run after uv_close completes — safe to free the struct. */
 static void tcp_close_cb(uv_handle_t *handle) {
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)handle->data;
+    am_tcp_client_t *c = (am_tcp_client_t *)handle->data;
     if (c && c->jsctx)
         js_free(c->jsctx, c);
 }
 
 /* Fire the JS onerror callback, then teardown. */
-static void tcp_error(qwrt_tcp_client_t *c, const char *msg) {
+static void tcp_error(am_tcp_client_t *c, const char *msg) {
     if (c->closed) return;
     c->closed = 1;
     if (c->jsctx && JS_IsFunction(c->jsctx, c->onerror)) {
@@ -416,7 +416,7 @@ static void tcp_error(qwrt_tcp_client_t *c, const char *msg) {
 
 /* ── Alloc callback ── */
 static void tcp_alloc_cb(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)handle->data;
+    am_tcp_client_t *c = (am_tcp_client_t *)handle->data;
     if (!c || c->freed) { buf->base = NULL; buf->len = 0; return; }
     buf->base = (char *)js_malloc(c->jsctx, suggested_size);
     buf->len = buf->base ? suggested_size : 0;
@@ -424,7 +424,7 @@ static void tcp_alloc_cb(uv_handle_t *handle, size_t suggested_size, uv_buf_t *b
 
 /* ── Read callback ── */
 static void tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)(((uv_tcp_t *)stream)->data);
+    am_tcp_client_t *c = (am_tcp_client_t *)(((uv_tcp_t *)stream)->data);
     if (!c) {
         if (buf->base) free(buf->base);
         return;
@@ -449,7 +449,7 @@ static void tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
         return;
     }
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     if (c->use_tls) {
         if (nread > 0) {
             unsigned char *nb = realloc(c->tls_read_buf, c->tls_read_buf_len + (size_t)nread);
@@ -554,7 +554,7 @@ static void tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
 static void tcp_write_cb(uv_write_t *req, int status) {
     (void)status;
     tcp_write_req_t *wr = (tcp_write_req_t *)req;
-    qwrt_tcp_client_t *c = wr->client;
+    am_tcp_client_t *c = wr->client;
     if (c && c->jsctx) {
         js_free(c->jsctx, wr->data);
         js_free(c->jsctx, wr);
@@ -566,7 +566,7 @@ static void tcp_write_cb(uv_write_t *req, int status) {
 
 /* ── Connect callback ── */
 static void tcp_connect_cb(uv_connect_t *req, int status) {
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)req->data;
+    am_tcp_client_t *c = (am_tcp_client_t *)req->data;
 
     if (!c || c->freed) return;
 
@@ -577,7 +577,7 @@ static void tcp_connect_cb(uv_connect_t *req, int status) {
         return;
     }
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     if (c->use_tls && c->tls_is_client) {
         /* TLS 客户端:onconnect 必须等握手完成(见 tcp_read_cb),否则 JS
          * 写出的协议前导会被当成明文发到 TLS 端口。先起读,再踢一次握手
@@ -611,7 +611,7 @@ static void tcp_connect_cb(uv_connect_t *req, int status) {
 
 /* ── DNS callback ── */
 static void tcp_dns_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *res) {
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)req->data;
+    am_tcp_client_t *c = (am_tcp_client_t *)req->data;
     if (!c || c->freed) {
         if (res) uv_freeaddrinfo(res);
         return;
@@ -632,10 +632,10 @@ static void tcp_dns_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *res) 
     uv_freeaddrinfo(res);
 }
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 /* Append one protocol id to the connection's ALPN list (storage lives in the
  * client struct because mbedtls only keeps a pointer to the list). */
-static int tls_alpn_add(qwrt_tcp_client_t *c, int *n, size_t *off, const char *proto) {
+static int tls_alpn_add(am_tcp_client_t *c, int *n, size_t *off, const char *proto) {
     size_t len = strlen(proto);
     if (!len || *n >= 7 || *off + len + 1 > sizeof(c->alpn_buf)) return -1;
     memcpy(c->alpn_buf + *off, proto, len + 1);
@@ -648,7 +648,7 @@ static int tls_alpn_add(qwrt_tcp_client_t *c, int *n, size_t *off, const char *p
  * `tls_src` carries {servername?, alpn?[], ca?} — either the flat opts object
  * or opts.tls itself when that is an object. Returns 0, or -1 with a pending
  * JS exception (caller just tears the client down). */
-static int tls_client_setup(JSContext *ctx, qwrt_tcp_client_t *c,
+static int tls_client_setup(JSContext *ctx, am_tcp_client_t *c,
                             JSValueConst tls_src, const char *host) {
     /* Mark TLS first: the struct is js_mallocz'd and every mbedtls free is a
      * no-op on a zeroed context, so tcp_client_free cleans up a partial setup. */
@@ -808,10 +808,10 @@ JSValue js_pal_tcp_connect(JSContext *ctx, JSValueConst this_val,
         return JS_ThrowTypeError(ctx, "tcpConnect: invalid port %d", (int)port);
     }
 
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) { JS_FreeCString(ctx, host); return JS_ThrowTypeError(ctx, "tcpConnect: no runtime"); }
 
-    qwrt_tcp_client_t *c = js_mallocz(ctx, sizeof(*c));
+    am_tcp_client_t *c = js_mallocz(ctx, sizeof(*c));
     if (!c) { JS_FreeCString(ctx, host); return JS_ThrowTypeError(ctx, "tcpConnect: OOM"); }
 
     c->rt = rt;
@@ -881,7 +881,7 @@ JSValue js_pal_tcp_connect(JSContext *ctx, JSValueConst this_val,
         }
     }
     if (want_tls) {
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
         if (tls_client_setup(ctx, c, tls_src, host) != 0) {
             JS_FreeValue(ctx, tls_src);
             tcp_client_free(c);
@@ -946,11 +946,11 @@ JSValue js_pal_tcp_write(JSContext *ctx, JSValueConst this_val,
     if (argc < 2 || !JS_IsObject(argv[0]))
         return JS_ThrowTypeError(ctx, "tcpWrite(handle, data) required");
 
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_UNDEFINED;
     tcp_client_handle_t *h = JS_GetOpaque(argv[0], rt->tcp_client_class_id);
     if (!h || !h->client) return JS_UNDEFINED;  /* stale/invalid handle */
-    qwrt_tcp_client_t *c = h->client;
+    am_tcp_client_t *c = h->client;
     if (c->closed || c->freed || !c->tcp_active)
         return JS_UNDEFINED;
 
@@ -994,7 +994,7 @@ JSValue js_pal_tcp_write(JSContext *ctx, JSValueConst this_val,
     wr->client = c;
     wr->data = data;
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     if (c->use_tls) {
         /* TLS path: encrypt via mbedtls_ssl_write → tls_send_cb → uv_write */
         js_free(ctx, wr);  /* not needed — mbedTLS handles I/O */
@@ -1031,11 +1031,11 @@ JSValue js_pal_tcp_close(JSContext *ctx, JSValueConst this_val,
     if (argc < 1 || !JS_IsObject(argv[0]))
         return JS_ThrowTypeError(ctx, "tcpClose(handle) required");
 
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_UNDEFINED;
     tcp_client_handle_t *h = JS_GetOpaque(argv[0], rt->tcp_client_class_id);
     if (!h || !h->client) return JS_UNDEFINED;  /* stale/invalid handle */
-    qwrt_tcp_client_t *c = h->client;
+    am_tcp_client_t *c = h->client;
     if (c->closed || c->freed)
         return JS_UNDEFINED;
 
@@ -1047,29 +1047,29 @@ JSValue js_pal_tcp_close(JSContext *ctx, JSValueConst this_val,
 }
 
 /* ── TCP listener state ── */
-typedef struct qwrt_tcp_listener qwrt_tcp_listener_t;
+typedef struct am_tcp_listener am_tcp_listener_t;
 
-struct qwrt_tcp_listener {
-    qwrt_t *rt;
+struct am_tcp_listener {
+    am_t *rt;
     JSContext *jsctx;
     uv_tcp_t tcp;               /* listening socket; closed async */
     int closed;
     JSValue handle_obj;          /* rooted JS handle */
     JSValue onconnection;        /* JS callback: onconnection(conn_handle) */
-#if QWRT_WITH_TLS
-    qwrt_tls_server_ctx_t *tls_ctx;  /* NULL for plain TCP */
+#if AM_WITH_TLS
+    am_tls_server_ctx_t *tls_ctx;  /* NULL for plain TCP */
 #endif
 };
 
 /* JS-visible handle wrapper for a TCP listener (same stale-handle UAF
  * protection as the client handle). */
 typedef struct {
-    qwrt_tcp_listener_t *listener;
+    am_tcp_listener_t *listener;
 } tcp_listener_handle_t;
 
 static void tcp_listener_handle_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    am_t *rt = am_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     tcp_listener_handle_t *h = JS_GetOpaque(val, rt->tcp_listener_class_id);
     if (h) js_free_rt(jsrt, h);
@@ -1077,7 +1077,7 @@ static void tcp_listener_handle_finalizer(JSRuntime *jsrt, JSValue val)
 
 /* ── Listener close callback (libuv) ── */
 static void tcp_listener_close_cb(uv_handle_t *handle) {
-    qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)handle->data;
+    am_tcp_listener_t *l = (am_tcp_listener_t *)handle->data;
     if (l) {
         /* Detach the JS handle wrapper so a stale handle (tcpCloseListener
          * after close) cannot dereference the freed listener. */
@@ -1089,7 +1089,7 @@ static void tcp_listener_close_cb(uv_handle_t *handle) {
             JS_FreeValue(l->jsctx, l->handle_obj);
             JS_FreeValue(l->jsctx, l->onconnection);
         }
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
         if (l->tls_ctx) {
             tls_server_ctx_unref(l->tls_ctx);
             l->tls_ctx = NULL;
@@ -1099,7 +1099,7 @@ static void tcp_listener_close_cb(uv_handle_t *handle) {
     }
 }
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
 /* ── TLS write callback: free the copied buffer ── */
 static void tls_write_cb(uv_write_t *req, int status) {
     (void)status;
@@ -1109,7 +1109,7 @@ static void tls_write_cb(uv_write_t *req, int status) {
 
 /* ── TLS send callback: mbedTLS writes encrypted data to the TCP socket ── */
 static int tls_send_cb(void *ctx, const unsigned char *buf, size_t len) {
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)ctx;
+    am_tcp_client_t *c = (am_tcp_client_t *)ctx;
     char *copy = malloc(len);
     if (!copy) return MBEDTLS_ERR_NET_SEND_FAILED;
     memcpy(copy, buf, len);
@@ -1124,7 +1124,7 @@ static int tls_send_cb(void *ctx, const unsigned char *buf, size_t len) {
 
 /* ── TLS recv callback: mbedTLS reads from the pre-buffered data ── */
 static int tls_recv_cb(void *ctx, unsigned char *buf, size_t len) {
-    qwrt_tcp_client_t *c = (qwrt_tcp_client_t *)ctx;
+    am_tcp_client_t *c = (am_tcp_client_t *)ctx;
     size_t avail = c->tls_read_buf_len - c->tls_read_consumed;
     if (avail == 0) return MBEDTLS_ERR_SSL_WANT_READ;
     size_t n = len < avail ? len : avail;
@@ -1137,13 +1137,13 @@ static int tls_recv_cb(void *ctx, unsigned char *buf, size_t len) {
 /* ── Accept callback: new connection arrived ── */
 static void tcp_listen_on_connection(uv_stream_t *server, int status) {
     if (status < 0) return;
-    qwrt_tcp_listener_t *l = (qwrt_tcp_listener_t *)server->data;
+    am_tcp_listener_t *l = (am_tcp_listener_t *)server->data;
     if (!l || l->closed) return;
 
-    qwrt_t *rt = l->rt;
+    am_t *rt = l->rt;
 
     /* Create client for the accepted connection */
-    qwrt_tcp_client_t *c = js_mallocz(l->jsctx, sizeof(*c));
+    am_tcp_client_t *c = js_mallocz(l->jsctx, sizeof(*c));
     if (!c) return;
 
     c->rt = rt;
@@ -1162,7 +1162,7 @@ static void tcp_listen_on_connection(uv_stream_t *server, int status) {
         return;
     }
 
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     if (l->tls_ctx) {
         c->use_tls = 1;
         c->tls_server_ctx = l->tls_ctx;
@@ -1233,16 +1233,16 @@ JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
     JS_ToUint32(ctx, &backlog, argv[2]);
     if (backlog == 0) backlog = 128;
 
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) { JS_FreeCString(ctx, hostname); return JS_ThrowTypeError(ctx, "tcpListen: no runtime"); }
 
-    qwrt_tcp_listener_t *l = js_mallocz(ctx, sizeof(*l));
+    am_tcp_listener_t *l = js_mallocz(ctx, sizeof(*l));
     if (!l) { JS_FreeCString(ctx, hostname); return JS_ThrowTypeError(ctx, "tcpListen: OOM"); }
 
     l->rt = rt;
     l->jsctx = ctx;
     l->onconnection = JS_DupValue(ctx, argv[3]);
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
     /* Optional 5th arg: tls = { cert, key, sni: { host: {cert, key} } } */
     if (argc >= 5 && !JS_IsUndefined(argv[4]) && !JS_IsNull(argv[4]) && JS_IsObject(argv[4])) {
         l->tls_ctx = tls_server_ctx_new(ctx, argv[4]);
@@ -1261,7 +1261,7 @@ JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
     if (!h) {
         JS_FreeCString(ctx, hostname);
         JS_FreeValue(ctx, l->onconnection);
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
         if (l->tls_ctx) { tls_server_ctx_unref(l->tls_ctx); l->tls_ctx = NULL; }
 #endif
         js_free(ctx, l);
@@ -1273,7 +1273,7 @@ JSValue js_pal_tcp_listen(JSContext *ctx, JSValueConst this_val,
         js_free(ctx, h);
         JS_FreeCString(ctx, hostname);
         JS_FreeValue(ctx, l->onconnection);
-#if QWRT_WITH_TLS
+#if AM_WITH_TLS
         if (l->tls_ctx) { tls_server_ctx_unref(l->tls_ctx); l->tls_ctx = NULL; }
 #endif
         js_free(ctx, l);
@@ -1311,11 +1311,11 @@ JSValue js_pal_tcp_close_listener(JSContext *ctx, JSValueConst this_val,
     if (argc < 1 || !JS_IsObject(argv[0]))
         return JS_ThrowTypeError(ctx, "tcpCloseListener(handle) required");
 
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_UNDEFINED;
     tcp_listener_handle_t *h = JS_GetOpaque(argv[0], rt->tcp_listener_class_id);
     if (!h || !h->listener) return JS_UNDEFINED;
-    qwrt_tcp_listener_t *l = h->listener;
+    am_tcp_listener_t *l = h->listener;
     if (l->closed) return JS_UNDEFINED;
 
     l->closed = 1;
@@ -1324,10 +1324,10 @@ JSValue js_pal_tcp_close_listener(JSContext *ctx, JSValueConst this_val,
 }
 
 /* ── Module init ── */
-void qwrt_tcp_io_init(JSContext *ctx, JSValue pal) {
+void am_tcp_io_init(JSContext *ctx, JSValue pal) {
     /* Register the handle classes once per runtime (guarded by class_id == 0;
-     * qwrt_tcp_io_init can be re-invoked per context). */
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+     * am_tcp_io_init can be re-invoked per context). */
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (rt && rt->tcp_client_class_id == 0) {
         JSRuntime *jsrt = JS_GetRuntime(ctx);
         JS_NewClassID(jsrt, &rt->tcp_client_class_id);

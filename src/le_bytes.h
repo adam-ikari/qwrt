@@ -4,29 +4,29 @@
  * buildable without libuv/quickjs for the ipc_envelope_cli test helper).
  * On LE hosts direct byte assembly is cheapest; a BE port would swap these.
  */
-#ifndef QWRT_LE_BYTES_H
-#define QWRT_LE_BYTES_H
+#ifndef AM_LE_BYTES_H
+#define AM_LE_BYTES_H
 
 #include <stdint.h>
 
-static inline uint16_t qwrt_rd16(const uint8_t *p)
+static inline uint16_t am_rd16(const uint8_t *p)
 {
     return (uint16_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8));
 }
 
-static inline uint32_t qwrt_rd32(const uint8_t *p)
+static inline uint32_t am_rd32(const uint8_t *p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-static inline void qwrt_wr16(uint8_t *p, uint16_t v)
+static inline void am_wr16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)v;
     p[1] = (uint8_t)(v >> 8);
 }
 
-static inline void qwrt_wr32(uint8_t *p, uint32_t v)
+static inline void am_wr32(uint8_t *p, uint32_t v)
 {
     p[0] = (uint8_t)v;
     p[1] = (uint8_t)(v >> 8);
@@ -34,4 +34,4 @@ static inline void qwrt_wr32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v >> 24);
 }
 
-#endif /* QWRT_LE_BYTES_H */
+#endif /* AM_LE_BYTES_H */

@@ -1,48 +1,48 @@
 ---
 title: Architecture Design
-description: Qwrt.js architecture design document — C99 runtime layering, component relationships, data flow, and extension model (Chinese).
+description: Amoib.js architecture design document — C99 runtime layering, component relationships, data flow, and extension model (Chinese).
 ---
 
-# qwrt 架构设计文档 (Architecture Design — 中文)
+# amoib 架构设计文档 (Architecture Design — 中文)
 
 > **Note**: This document is in Chinese. For English documentation, see the [Guide](/guide/) section.
 >
 > **状态**：已废弃（2026-08-12 libuv-native 迁移后）
 >
-> **本文件描述的是 2026-08-12 迁移前的 PAL 架构（0.1.0），已过时。** 迁移后 qwrt
-> 放弃 PAL，仅基于 libuv（Linux/macOS）：qwrt 自建内部线程运行 libuv 事件循环，
-> 公开 API 精简为 6 个函数（`qwrt_create`/`qwrt_destroy`/`qwrt_post_message`/
-> `qwrt_get_runtime_data`/`qwrt_set_runtime_data`/`qwrt_free`），宿主与运行时通过
-> JSON 消息通信；`platform/` 树、`qwrt_pal.h`、`QWRT_PAL_*` 选项与
-> `qwrt_eval`/`qwrt_tick` 等旧 API 全部删除。当前设计见
-> `docs/archive/superpowers/specs/2026-08-12-qwrt-libuv-native-design.md`，测试用 mock_libuv。
+> **本文件描述的是 2026-08-12 迁移前的 PAL 架构（0.1.0），已过时。** 迁移后 amoib
+> 放弃 PAL，仅基于 libuv（Linux/macOS）：amoib 自建内部线程运行 libuv 事件循环，
+> 公开 API 精简为 6 个函数（`am_create`/`am_destroy`/`am_post_message`/
+> `am_get_runtime_data`/`am_set_runtime_data`/`am_free`），宿主与运行时通过
+> JSON 消息通信；`platform/` 树、`am_pal.h`、`AM_PAL_*` 选项与
+> `am_eval`/`am_tick` 等旧 API 全部删除。当前设计见
+> `docs/archive/superpowers/specs/2026-08-12-amoib-libuv-native-design.md`，测试用 mock_libuv。
 > 下文 §3、§4、§7、§8、§9、§12 均为旧架构内容，仅作历史参考。
 
 ## 1. 概述
 
-qwrt 是一个轻量级 QuickJS-ng 运行时封装，提供平台抽象层（PAL）和 WinterTC 兼容的 JS polyfill，用于在 C 应用中嵌入 JavaScript 运行时。
+amoib 是一个轻量级 QuickJS-ng 运行时封装，提供平台抽象层（PAL）和 WinterTC 兼容的 JS polyfill，用于在 C 应用中嵌入 JavaScript 运行时。
 
 ### 设计目标
 
 - **最小依赖**：核心只依赖 QuickJS-ng + C11；PAL 和扩展按需启用
 - **平台可移植**：通过 PAL 接口抽象 I/O，支持 libuv（Linux/macOS）、FreeRTOS（ESP32）、mock（测试）
 - **WinterTC 兼容**：JS polyfill 提供 fetch、console、crypto、streams、timers 等 Web API
-- **可扩展**：通过 qwrt_ext_t 钩子注册原生扩展（压缩、加密、WASM 等）
+- **可扩展**：通过 am_ext_t 钩子注册原生扩展（压缩、加密、WASM 等）
 - **单线程模型**：JSContext 绑定创建线程，事件循环通过 PAL `run_cycle` 驱动
 
 ### 不包含
 
 - LLM/Agent 逻辑
-- 上层应用框架（qwrt 只提供运行时，不提供业务逻辑）
+- 上层应用框架（amoib 只提供运行时，不提供业务逻辑）
 
 ## 2. 架构
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    qwrt                              │
+│                    amoib                              │
 │                                                      │
 │  ┌─────────────┐  ┌───────────┐  ┌───────────────┐ │
-│  │  qwrt.c     │  │ context.c │  │ extension.c   │ │
+│  │  amoib.c     │  │ context.c │  │ extension.c   │ │
 │  │  (核心 API) │  │ (多上下文)│  │ (扩展注册)    │ │
 │  └──────┬──────┘  └─────┬─────┘  └───────┬───────┘ │
 │         │               │                │          │
@@ -51,7 +51,7 @@ qwrt 是一个轻量级 QuickJS-ng 运行时封装，提供平台抽象层（PAL
 │  └──────────────────────┬────────────────────────┘  │
 │                         │                            │
 │  ┌──────────────────────┴────────────────────────┐  │
-│  │              qwrt_pal_t (PAL 接口)             │  │
+│  │              am_pal_t (PAL 接口)             │  │
 │  │  http | fs | storage | timer | time | run_cycle│  │
 │  └──────────────────────┬────────────────────────┘  │
 │                         │                            │
@@ -67,7 +67,7 @@ qwrt 是一个轻量级 QuickJS-ng 运行时封装，提供平台抽象层（PAL
 │  └──────────────────────────────────────────────┘   │
 │                                                      │
 │  ┌──────────────────────────────────────────────┐   │
-│  │  扩展 (qwrt_ext_t)                           │   │
+│  │  扩展 (am_ext_t)                           │   │
 │  │  compress | crypto | textcodec | WAMR  │   │
 │  └──────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
@@ -84,131 +84,131 @@ qwrt 是一个轻量级 QuickJS-ng 运行时封装，提供平台抽象层（PAL
 
 ```c
 // 配置
-typedef struct qwrt_config_t {
-    const qwrt_pal_t *pal;          // PAL 实例（必须）
+typedef struct am_config_t {
+    const am_pal_t *pal;          // PAL 实例（必须）
     int debug;                       // 调试输出
-    const qwrt_ext_t **extensions;  // 扩展数组（NULL 结尾，可为 NULL）
-} qwrt_config_t;
+    const am_ext_t **extensions;  // 扩展数组（NULL 结尾，可为 NULL）
+} am_config_t;
 
 // 创建/销毁
-qwrt_t *qwrt_create(const qwrt_config_t *config);
-void qwrt_destroy(qwrt_t *rt);
+am_t *am_create(const am_config_t *config);
+void am_destroy(am_t *rt);
 
 // 重置（保留 PAL，重建 JS 运行时）
-int qwrt_reset(qwrt_t *rt, const qwrt_config_t *config);
+int am_reset(am_t *rt, const am_config_t *config);
 ```
 
 ### 3.2 JS 执行
 
 ```c
-// 执行 JS 代码，返回结果字符串（caller 用 qwrt_free 释放）
-int qwrt_eval(qwrt_t *rt, const char *code, char **result);
+// 执行 JS 代码，返回结果字符串（caller 用 am_free 释放）
+int am_eval(am_t *rt, const char *code, char **result);
 
 // 执行 QuickJS 字节码（用于预编译的 bundle）
-int qwrt_eval_bytecode(qwrt_t *rt, const uint8_t *bytecode, size_t len, char **result);
+int am_eval_bytecode(am_t *rt, const uint8_t *bytecode, size_t len, char **result);
 
 // 调用全局函数
-int qwrt_call(qwrt_t *rt, const char *func, const char *args_json, char **result);
+int am_call(am_t *rt, const char *func, const char *args_json, char **result);
 
 // 处理待处理的 JS 微任务（Promise 回调等）
-int qwrt_tick(qwrt_t *rt);
+int am_tick(am_t *rt);
 
-// 释放 qwrt_eval/qwrt_call 返回的内存
-void qwrt_free(void *ptr);
+// 释放 am_eval/am_call 返回的内存
+void am_free(void *ptr);
 ```
 
 ### 3.3 多上下文
 
-qwrt 支持在一个运行时中创建多个 JS 上下文，用于隔离执行环境：
+amoib 支持在一个运行时中创建多个 JS 上下文，用于隔离执行环境：
 
 ```c
 // 从当前上下文派生新上下文，返回 context_id
-int qwrt_spawn(qwrt_t *rt, const qwrt_config_t *config);
+int am_spawn(am_t *rt, const am_config_t *config);
 
 // 挂起当前上下文，切换到指定上下文
-int qwrt_suspend(qwrt_t *rt);
-int qwrt_resume(qwrt_t *rt, int context_id);
+int am_suspend(am_t *rt);
+int am_resume(am_t *rt, int context_id);
 
 // 销毁指定上下文
-int qwrt_destroy_ctx(qwrt_t *rt, int context_id);
+int am_destroy_ctx(am_t *rt, int context_id);
 
 // 获取当前活跃上下文 ID
-int qwrt_get_active_ctx_id(qwrt_t *rt);
+int am_get_active_ctx_id(am_t *rt);
 ```
 
 ### 3.4 扩展注册
 
 ```c
 // 运行时注册扩展（在已创建的运行时上）
-int qwrt_register_ext(qwrt_t *rt, const qwrt_ext_t *ext);
+int am_register_ext(am_t *rt, const am_ext_t *ext);
 ```
 
 ## 4. PAL 接口
 
-PAL（Platform Abstraction Layer）是 qwrt 与平台 I/O 之间的抽象层。所有异步操作通过回调通知。
+PAL（Platform Abstraction Layer）是 amoib 与平台 I/O 之间的抽象层。所有异步操作通过回调通知。
 
 ### 4.1 PAL vtable
 
 ```c
-struct qwrt_pal_t {
+struct am_pal_t {
     void *user_data;
 
     // HTTP
-    void (*http_request)(qwrt_pal_t*, const char *url, const char *method,
+    void (*http_request)(am_pal_t*, const char *url, const char *method,
                          const char *headers, const char *body, size_t body_len,
-                         qwrt_pal_cb_t cb, void *cb_data);
-    void (*http_request_stream)(qwrt_pal_t*, const char *url, const char *method,
+                         am_pal_cb_t cb, void *cb_data);
+    void (*http_request_stream)(am_pal_t*, const char *url, const char *method,
                                 const char *headers, const char *body, size_t body_len,
-                                qwrt_pal_stream_ops_t *ops);
-    void (*http_abort)(qwrt_pal_t*);                    // 可选：取消活跃流
+                                am_pal_stream_ops_t *ops);
+    void (*http_abort)(am_pal_t*);                    // 可选：取消活跃流
 
     // 文件系统
-    void (*fs_read)(qwrt_pal_t*, const char *path, qwrt_pal_cb_t, void*);
-    void (*fs_write)(qwrt_pal_t*, const char *path, const char *data, size_t, qwrt_pal_cb_t, void*);
-    void (*fs_exists)(qwrt_pal_t*, const char *path, qwrt_pal_cb_t, void*);
-    void (*fs_remove)(qwrt_pal_t*, const char *path, qwrt_pal_cb_t, void*);
-    void (*fs_list)(qwrt_pal_t*, const char *path, qwrt_pal_cb_t, void*);
+    void (*fs_read)(am_pal_t*, const char *path, am_pal_cb_t, void*);
+    void (*fs_write)(am_pal_t*, const char *path, const char *data, size_t, am_pal_cb_t, void*);
+    void (*fs_exists)(am_pal_t*, const char *path, am_pal_cb_t, void*);
+    void (*fs_remove)(am_pal_t*, const char *path, am_pal_cb_t, void*);
+    void (*fs_list)(am_pal_t*, const char *path, am_pal_cb_t, void*);
 
     // 键值存储
-    void (*storage_get)(qwrt_pal_t*, const char *key, qwrt_pal_cb_t, void*);
-    void (*storage_set)(qwrt_pal_t*, const char *key, const char *value, size_t, qwrt_pal_cb_t, void*);
-    void (*storage_del)(qwrt_pal_t*, const char *key, qwrt_pal_cb_t, void*);
+    void (*storage_get)(am_pal_t*, const char *key, am_pal_cb_t, void*);
+    void (*storage_set)(am_pal_t*, const char *key, const char *value, size_t, am_pal_cb_t, void*);
+    void (*storage_del)(am_pal_t*, const char *key, am_pal_cb_t, void*);
 
     // 定时器
-    void *(*timer_start)(qwrt_pal_t*, uint64_t delay_ms, int repeat, qwrt_pal_cb_t, void*);
-    void (*timer_stop)(qwrt_pal_t*, void *handle);
+    void *(*timer_start)(am_pal_t*, uint64_t delay_ms, int repeat, am_pal_cb_t, void*);
+    void (*timer_stop)(am_pal_t*, void *handle);
 
     // 时间
-    uint64_t (*time_now)(qwrt_pal_t*);    // 毫秒
-    uint64_t (*hrtime)(qwrt_pal_t*);       // 纳秒
+    uint64_t (*time_now)(am_pal_t*);    // 毫秒
+    uint64_t (*hrtime)(am_pal_t*);       // 纳秒
 
     // 日志/内存/随机
-    void (*log)(qwrt_pal_t*, int level, const char *msg);
-    void *(*mem_alloc)(qwrt_pal_t*, size_t);
-    void (*mem_free)(qwrt_pal_t*, void*);
-    void (*random_bytes)(qwrt_pal_t*, uint8_t *buf, size_t len);
+    void (*log)(am_pal_t*, int level, const char *msg);
+    void *(*mem_alloc)(am_pal_t*, size_t);
+    void (*mem_free)(am_pal_t*, void*);
+    void (*random_bytes)(am_pal_t*, uint8_t *buf, size_t len);
 
     // 事件循环驱动（可选，NULL = 无事件循环）
-    int (*run_cycle)(qwrt_pal_t*, int timeout_ms);
+    int (*run_cycle)(am_pal_t*, int timeout_ms);
 };
 ```
 
 ### 4.2 流式 HTTP 回调
 
 ```c
-typedef struct qwrt_pal_stream_ops {
+typedef struct am_pal_stream_ops {
     void (*on_headers)(void *user_data, int status, const char *headers_json);
     void (*on_data)(void *user_data, const char *data, size_t len);
     void (*on_end)(void *user_data, int error_status);  // 0=成功, 负值=错误
     void *user_data;
-} qwrt_pal_stream_ops_t;
+} am_pal_stream_ops_t;
 ```
 
 ### 4.3 PAL 回调约定
 
 - 所有回调在 PAL 的事件循环线程上触发
-- `qwrt_pal_cb_t` 签名：`void (*)(void *user_data, int status, const char *data, size_t data_len)`
-- 回调中可以安全调用 `qwrt_defer_callback` 将工作投递到 JS 线程
+- `am_pal_cb_t` 签名：`void (*)(void *user_data, int status, const char *data, size_t data_len)`
+- 回调中可以安全调用 `am_defer_callback` 将工作投递到 JS 线程
 - `run_cycle` 驱动事件循环：`timeout_ms < 0` 阻塞到事件，`0` 非阻塞，`> 0` 最多阻塞 N 毫秒
 
 ### 4.4 PAL 实现
@@ -224,25 +224,25 @@ typedef struct qwrt_pal_stream_ops {
 ### 5.1 扩展接口
 
 ```c
-typedef struct qwrt_ext_t {
+typedef struct am_ext_t {
     const char *name;
     int version;
-    int (*init)(qwrt_ext_t *ext, qwrt_t *rt);     // 注册 JS 全局函数
-    void (*destroy)(qwrt_ext_t *ext, qwrt_t *rt);
-    int (*suspend)(qwrt_ext_t *ext, qwrt_t *rt);   // 上下文挂起时
-    int (*resume)(qwrt_ext_t *ext, qwrt_t *rt);    // 上下文恢复时
+    int (*init)(am_ext_t *ext, am_t *rt);     // 注册 JS 全局函数
+    void (*destroy)(am_ext_t *ext, am_t *rt);
+    int (*suspend)(am_ext_t *ext, am_t *rt);   // 上下文挂起时
+    int (*resume)(am_ext_t *ext, am_t *rt);    // 上下文恢复时
     void *user_data;
-} qwrt_ext_t;
+} am_ext_t;
 ```
 
 ### 5.2 内置扩展
 
 | 扩展 | 编译选项 | 功能 |
 |------|---------|------|
-| ext_compress | QWRT_WITH_COMPRESS | DEFLATE/gzip 压缩解压（miniz） |
-| ext_crypto | QWRT_WITH_CRYPTO_EXT | crypto.subtle（mbedTLS：AES-GCM、PBKDF2、SHA、HMAC） |
-| ext_textcodec | QWRT_WITH_TEXTCODEC | UTF-8/Base64 编解码 |
-| ext_WAMR | QWRT_WITH_WAMR | WebAssembly 执行（WAMR 引擎） |
+| ext_compress | AM_WITH_COMPRESS | DEFLATE/gzip 压缩解压（miniz） |
+| ext_crypto | AM_WITH_CRYPTO_EXT | crypto.subtle（mbedTLS：AES-GCM、PBKDF2、SHA、HMAC） |
+| ext_textcodec | AM_WITH_TEXTCODEC | UTF-8/Base64 编解码 |
+| ext_WAMR | AM_WITH_WAMR | WebAssembly 执行（WAMR 引擎） |
 
 ## 6. JS Polyfill
 
@@ -272,7 +272,7 @@ polyfill 提供 WinterTC 兼容的 Web API，编译为 QuickJS 字节码后嵌�
 
 ### 6.2 构建方式
 
-polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild 打包为单个 `polyfill.js`，再用 `qjsc -C` 编译为 C 字节数组（`polyfill_default.c`），链接进 qwrt 二进制。
+polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild 打包为单个 `polyfill.js`，再用 `qjsc -C` 编译为 C 字节数组（`polyfill_default.c`），链接进 amoib 二进制。
 
 ## 7. 构建系统
 
@@ -280,15 +280,15 @@ polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild �
 
 | 选项 | 默认 | 说明 |
 |------|------|------|
-| QWRT_WITH_LIBUV | ON | libuv PAL（Linux/macOS） |
-| QWRT_WITH_TLS | ON | mbedTLS（HTTPS + crypto 扩展） |
-| QWRT_WITH_COMPRESS | ON | miniz 压缩扩展 |
-| QWRT_WITH_CRYPTO_EXT | ON | crypto.subtle 扩展 |
-| QWRT_WITH_TEXTCODEC | ON | UTF-8/Base64 扩展 |
-| QWRT_WITH_WAMR | ON | WAMR WASM 引擎 |
-| QWRT_WITH_GRPC | OFF | polyfill 内嵌 gRPC/HTTP2 栈（h2 + HPACK + protobuf + grpc，需 polyfill rebuild 工具链） |
-| QWRT_BUILD_TESTS | OFF | 构建测试 |
-| QWRT_BUILD_EXAMPLES | OFF | 构建示例 |
+| AM_WITH_LIBUV | ON | libuv PAL（Linux/macOS） |
+| AM_WITH_TLS | ON | mbedTLS（HTTPS + crypto 扩展） |
+| AM_WITH_COMPRESS | ON | miniz 压缩扩展 |
+| AM_WITH_CRYPTO_EXT | ON | crypto.subtle 扩展 |
+| AM_WITH_TEXTCODEC | ON | UTF-8/Base64 扩展 |
+| AM_WITH_WAMR | ON | WAMR WASM 引擎 |
+| AM_WITH_GRPC | OFF | polyfill 内嵌 gRPC/HTTP2 栈（h2 + HPACK + protobuf + grpc，需 polyfill rebuild 工具链） |
+| AM_BUILD_TESTS | OFF | 构建测试 |
+| AM_BUILD_EXAMPLES | OFF | 构建示例 |
 
 ### 7.2 依赖
 
@@ -304,16 +304,16 @@ polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild �
 
 | 目标 | 类型 | 说明 |
 |------|------|------|
-| qwrt | 静态库 | 核心 + 默认扩展 |
-| qwrt_uv | 静态库 | pal_uv |
-| qwrt_mock | 静态库 | pal_mock（测试用） |
-| qwrt_full | 静态库 | 全部合并（单库链接） |
+| amoib | 静态库 | 核心 + 默认扩展 |
+| am_uv | 静态库 | pal_uv |
+| am_mock | 静态库 | pal_mock（测试用） |
+| am_full | 静态库 | 全部合并（单库链接） |
 
 ## 8. 线程模型
 
-- **JSContext 线程绑定**：QuickJS 的 JSContext 不是线程安全的。qwrt_create 在哪个线程调用，后续所有 qwrt_eval/qwrt_tick/qwrt_destroy 必须在同一线程。
-- **事件循环驱动**：调用方通过 `pal->run_cycle(timeout_ms)` 驱动 PAL 的事件循环。PAL 在事件循环线程上触发回调，回调通过 `qwrt_defer_callback` 投递到 JS 线程。
-- **单线程简单模型**：大多数嵌入方在单线程中交替调用 `qwrt_tick` + `pal->run_cycle(0)`。
+- **JSContext 线程绑定**：QuickJS 的 JSContext 不是线程安全的。am_create 在哪个线程调用，后续所有 am_eval/am_tick/am_destroy 必须在同一线程。
+- **事件循环驱动**：调用方通过 `pal->run_cycle(timeout_ms)` 驱动 PAL 的事件循环。PAL 在事件循环线程上触发回调，回调通过 `am_defer_callback` 投递到 JS 线程。
+- **单线程简单模型**：大多数嵌入方在单线程中交替调用 `am_tick` + `pal->run_cycle(0)`。
 - **Worker 线程模型**：嵌入方可在独立 pthread 中运行事件循环，实现非阻塞调用。
 
 ## 9. 现有文档完善
@@ -323,11 +323,11 @@ polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild �
 需补充：
 - `run_cycle` 接口（新增，用于解耦事件循环与特定库）
 - `http_abort` 接口（取消活跃 HTTP 流）
-- `qwrt_pal_stream_ops_t` 流式回调（on_headers/on_data/on_end）
+- `am_pal_stream_ops_t` 流式回调（on_headers/on_data/on_end）
 - pal_freertos 的流式 HTTP + TLS 实现状态
 - pal_uv 的 teardown_started 幂等保护
 
-### 9.2 ESP32 移植文档（2026-06-29-qwrt-esp32s3-design.md，492 行）
+### 9.2 ESP32 移植文档（2026-06-29-amoib-esp32s3-design.md，492 行）
 
 需补充：
 - ESP32-S3 移植完成状态（PAL 解耦、ESP-IDF 构建、流式 HTTP + TLS）
@@ -341,7 +341,7 @@ polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild �
 
 - **WASM 引擎统一**：评估 WAMR vs WAMR，选定默认引擎，移除非默认的编译路径
 - **Windows PAL**：基于 IOCP 的 pal_win，支持 Windows 嵌入
-- **独立版本号**：CMake `project(qwrt VERSION 0.2.0)`，独立版本管理
+- **独立版本号**：CMake `project(amoib VERSION 0.2.0)`，独立版本管理
 - **install 目标**：`cmake --install` 安装头文件 + 静态库 + pkg-config 文件
 
 ### 10.2 中期（0.3.0）
@@ -356,7 +356,7 @@ polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild �
 - **多线程支持**：跟踪 QuickJS-ng 的 thread 支持进展，评估多上下文并发执行
 - **JS 模块系统**：原生 ES module 支持（import/export），无需 bundle
 - **调试器集成**：QuickJS 调试器协议支持，远程断点/步进
-- **ABI 稳定**：qwrt_pal_t 和 qwrt_ext_t 的 ABI 冻结保证
+- **ABI 稳定**：am_pal_t 和 am_ext_t 的 ABI 冻结保证
 
 ## 11. 测试策略
 
@@ -364,7 +364,7 @@ polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild �
 
 | 测试 | 覆盖 |
 |------|------|
-| test_qwrt | 核心 API、eval、工具、定时器、存储、FS、内存 |
+| test_am | 核心 API、eval、工具、定时器、存储、FS、内存 |
 | test_context_gtest | 多上下文生命周期、spawn/suspend/resume |
 | test_extension_gtest | 扩展注册/销毁、compress、crypto |
 | test_robustness_gtest | 错误处理、OOM、边界条件 |
@@ -381,20 +381,20 @@ polyfill 源码（`polyfill/src/*.js`）通过 `polyfill/build.js` 用 esbuild �
 ## 12. 文件结构
 
 ```
-qwrt/
+amoib/
 ├── CMakeLists.txt          # 顶层 CMake
 ├── README.md
 ├── .gitignore
-├── include/qwrt/
-│   ├── qwrt.h              # 公共 API
+├── include/amoib/
+│   ├── amoib.h              # 公共 API
 │   ├── ext_compress.h
 │   ├── ext_crypto.h
 │   ├── ext_textcodec.h
 │   ├── ext_WAMR.h
 │   
 ├── src/
-│   ├── qwrt.c              # 核心 API 实现
-│   ├── qwrt_internal.h     # 内部头文件
+│   ├── amoib.c              # 核心 API 实现
+│   ├── am_internal.h     # 内部头文件
 │   ├── bridge.c            # JS↔PAL 桥接
 │   ├── context.c           # 多上下文
 │   ├── extension.c         # 扩展管理
@@ -420,7 +420,7 @@ qwrt/
 │   └── package.json
 ├── test/
 │   ├── CMakeLists.txt
-│   ├── test_qwrt.c
+│   ├── test_am.c
 │   ├── test_context_gtest.cpp
 │   ├── test_extension_gtest.cpp
 │   ├── test_robustness_gtest.cpp
@@ -433,4 +433,4 @@ qwrt/
     └── ... (设计文档)
 ```
 
-**注意**：上层工具扩展 和 上层应用的测试文件 属于上层应用框架，不在 qwrt 仓库中。
+**注意**：上层工具扩展 和 上层应用的测试文件 属于上层应用框架，不在 amoib 仓库中。

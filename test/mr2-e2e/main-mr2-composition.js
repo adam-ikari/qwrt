@@ -1,5 +1,5 @@
 /* M-R2 多 RT 组合模型 e2e（PROCESS 后端）—— §14.3 场景在真实进程 worker 上回归：
- *   · contexts ×2（qwrtContext.spawn）与 workers ×2（进程后端）正交并存
+ *   · contexts ×2（amContext.spawn）与 workers ×2（进程后端）正交并存
  *   · ctx suspend/resume 与 worker postMessage 交错：挂起期间照常收发，恢复后
  *     两轴结果都对（无死锁：脚本跑到底；消息一条不丢）
  *   · ctx destroy 后 worker 消息照常派发
@@ -9,8 +9,8 @@
  *   DONE
  * 任一断言失败 → FAIL:<原因> 且不打印 DONE。
  */
-var DIR = 'file:///home/gem/project/qwrt/test/mr2-e2e/';
-var STATE = '/tmp/qwrt-mr2-state.bin';
+var DIR = 'file:///home/gem/project/amoib/test/mr2-e2e/';
+var STATE = '/tmp/amoib-mr2-state.bin';
 var keepalive = setInterval(function () {}, 50);
 var seen = Object.create(null);
 var order = Object.create(null);   /* 各 worker 的到达顺序（FIFO 复核） */
@@ -38,8 +38,8 @@ w1.onerror = function (e) { fail('w1 error ' + JSON.stringify(e.data)); };
 w2.onmessage = function (e) { note('w2', e.data); };
 w2.onerror = function (e) { fail('w2 error ' + JSON.stringify(e.data)); };
 
-var c1 = qwrtContext.spawn("globalThis.tag = 'c1';");
-var c2 = qwrtContext.spawn("globalThis.tag = 'c2';");
+var c1 = amContext.spawn("globalThis.tag = 'c1';");
+var c2 = amContext.spawn("globalThis.tag = 'c2';");
 if (c1 !== 1 || c2 !== 2) fail('spawn ids ' + c1 + ',' + c2);
 
 /* 交错：worker 消息与 ctx 挂起/恢复/销毁穿插（同一同步段内完成）
@@ -49,11 +49,11 @@ if (c1 !== 1 || c2 !== 2) fail('spawn ids ' + c1 + ',' + c2);
  *   destroy(c2) 后的 a3/b3 — ctx 销毁后 worker 消息照常派发（§14.3） */
 w1.postMessage('a1');
 w2.postMessage('b1');
-qwrtContext.suspend(c1, STATE);
+amContext.suspend(c1, STATE);
 w1.postMessage('a2');
-qwrtContext.resume(c1, '', STATE);
+amContext.resume(c1, '', STATE);
 w2.postMessage('b2');
-qwrtContext.destroy(c2);
+amContext.destroy(c2);
 w1.postMessage('a3');
 w2.postMessage('b3');
 

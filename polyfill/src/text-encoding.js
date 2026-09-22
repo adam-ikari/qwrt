@@ -1,5 +1,5 @@
 /**
- * qwrt Polyfill - TextEncoder + TextDecoder
+ * amoib Polyfill - TextEncoder + TextDecoder
  *
  * Pure JS implementation of the Web Encoding API with native acceleration.
  * Handles UTF-8 encoding/decoding including surrogate pairs.
@@ -115,14 +115,14 @@ export function setupTextEncoding(pal) {
 
     /* Resolve encoding label to canonical name per WHATWG Encoding Standard.
      * Only UTF-8 is always supported; Latin-1 and replacement require the
-     * compile-time QWRT_WITH_NONUTF_ENCODINGS option. */
+     * compile-time AM_WITH_NONUTF_ENCODINGS option. */
     if (label === 'unicode-1-1-utf-8' || label === 'utf-8' || label === 'utf8') {
       this.encoding = 'utf-8';
       this._decoder = 'utf8';
     } else if (label === 'replacement') {
         /* 'replacement' is a fatal-only encoding per WHATWG spec */
         throw new RangeError('The "replacement" label is not a valid encoding label');
-      } else if (QWRT_WITH_NONUTF_ENCODINGS) {
+      } else if (AM_WITH_NONUTF_ENCODINGS) {
       if (label === 'iso-8859-1' || label === 'iso_8859-1' || label === 'latin1' ||
           label === 'l1' || label === 'ibm819' || label === 'cp819' ||
           label === 'csisolatin1' || label === 'iso-ir-100' || label === 'windows-28591') {

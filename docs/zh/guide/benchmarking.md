@@ -1,11 +1,11 @@
 ---
 title: 性能基准
-description: Qwrt.js 性能基准套件——六个 CI 驱动的基准，覆盖 HTTP 服务器、HTTP/2 客户端、worker 运行时、跨运行时对照、JS API 原语与 TLS/WS/gRPC 服务器，配合提交进仓库的基线与逐指标 Δ% 漂移报告。
+description: Amoib.js 性能基准套件——六个 CI 驱动的基准，覆盖 HTTP 服务器、HTTP/2 客户端、worker 运行时、跨运行时对照、JS API 原语与 TLS/WS/gRPC 服务器，配合提交进仓库的基线与逐指标 Δ% 漂移报告。
 ---
 
 # 性能基准
 
-qwrt 的基准套件全部跑在 CI 里。每次推送到 `master` 会跑六个 benchmark job，
+amoib 的基准套件全部跑在 CI 里。每次推送到 `master` 会跑六个 benchmark job，
 把数字记进 JSON artifact、和仓库里的基线对比，在 job 日志里打出逐指标 Δ% 表。
 这些 job 都不卡阈值（record-only，`continue-on-error: true`），慢 runner 不会
 让 CI 变红。要发现回归靠的是基线对比，不是硬阈值。
@@ -17,24 +17,24 @@ qwrt 的基准套件全部跑在 CI 里。每次推送到 `master` 会跑六个 
 | `httpserver-perf` | `test/bench_httpserver.py` | 纯 JS `serve()` HTTP/1.1 rps（`wrk` 驱动，tiny / small / medium 16 KiB / POST）。带阈值，基线 50%。 |
 | `h2-client-perf` | `test/bench_h2_client.mjs` | 纯 JS HTTP/2 客户端栈 rps（tiny / small / medium / 8 流并发）。带阈值。 |
 | `runtime-perf` | `test/bench_runtime.py` | R1 冷启动、R2 spawn ready、R4 IPC 吞吐、R5 峰值 RSS、R6 eval M ops/s。Record-only。 |
-| `cross-runtime` | `test/bench_cross_runtime.py` | qwrt vs node vs bun：启动 / eval / RSS，加 `--js-api` 扩展在三运行时上跑 `bench_js_api.mjs`。Record-only。 |
-| `js-api-perf` | `test/bench_js_api.mjs` | 五个 JS-API 模式（streams / crypto / compress / fs / wasm）× qwrt/node/bun。Record-only。 |
-| `tls-ws-grpc-perf` | `test/bench_tls_server.py` + `bench_ws_server.mjs` + `bench_grpc_unary.py` | TLS 服务器（wrk）、WebSocket echo、gRPC unary。qwrt 原生。Record-only。 |
+| `cross-runtime` | `test/bench_cross_runtime.py` | amoib vs node vs bun：启动 / eval / RSS，加 `--js-api` 扩展在三运行时上跑 `bench_js_api.mjs`。Record-only。 |
+| `js-api-perf` | `test/bench_js_api.mjs` | 五个 JS-API 模式（streams / crypto / compress / fs / wasm）× amoib/node/bun。Record-only。 |
+| `tls-ws-grpc-perf` | `test/bench_tls_server.py` + `bench_ws_server.mjs` + `bench_grpc_unary.py` | TLS 服务器（wrk）、WebSocket echo、gRPC unary。amoib 原生。Record-only。 |
 
 前两个（`httpserver-perf`、`h2-client-perf`）带显式阈值（基线 50%）——捕捉明显回归。
 其余四个是 record-only：JSON 数字上传为 artifact 并与基线对比，但永远不 fail。
 
 ## 基线 + 漂移对比
 
-基线放在 [`test/perf_baselines/`](https://github.com/adam-ikari/qwrt/tree/master/test/perf_baselines)：
+基线放在 [`test/perf_baselines/`](https://github.com/adam-ikari/amoib/tree/master/test/perf_baselines)：
 
 ```
 test/perf_baselines/
-├── js-api.json          # qwrt/node/bun × 5 模式，全指标
+├── js-api.json          # amoib/node/bun × 5 模式，全指标
 └── tls-ws-grpc.json     # tls / ws / ws-8 / grpc，全指标
 ```
 
-[`test/compare_perf.py`](https://github.com/adam-ikari/qwrt/blob/master/test/compare_perf.py)
+[`test/compare_perf.py`](https://github.com/adam-ikari/amoib/blob/master/test/compare_perf.py)
 读取 bench 输出最后一行 JSON，扁平化每个数值叶子，打印逐指标表：
 
 ```
@@ -67,7 +67,7 @@ gh run download <run-id> -n js-api-perf-json -D /tmp/ja
 python3 - <<'PY'
 import json, os
 out = {}
-for rt in ('qwrt', 'node', 'bun'):
+for rt in ('amoib', 'node', 'bun'):
     line = [l for l in open(f'/tmp/ja/js-api-{rt}.out').read().splitlines() if l.strip()][-1]
     d = json.loads(line); d.pop('js_api_bench', None); d.pop('date', None)
     out[rt] = d
@@ -82,38 +82,38 @@ git add test/perf_baselines/js-api.json && git commit -m "chore(perf): refresh j
 
 ```bash
 # 先构建 CLI（real-libuv，Release）
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DQWRT_BUILD_TESTS=OFF
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAM_BUILD_TESTS=OFF
 cmake --build build --parallel
 
 # HTTP 服务器（需 `wrk`）
-python3 test/bench_httpserver.py --qwrt-bin ./build/qwrt --duration 5
+python3 test/bench_httpserver.py --amoib-bin ./build/amoib --duration 5
 
 # HTTP/2 客户端（需 node）
 node test/bench_h2_client.mjs --duration 5
 
 # 运行时（worker spawn / IPC / eval / RSS）
-python3 test/bench_runtime.py --qwrt-bin ./build/qwrt --quick
+python3 test/bench_runtime.py --amoib-bin ./build/amoib --quick
 
 # 跨运行时（需 node + bun）
 python3 test/bench_cross_runtime.py \
-  --bins "qwrt=./build/qwrt,node=$(which node),bun=$(which bun)" --quick --js-api
+  --bins "amoib=./build/amoib,node=$(which node),bun=$(which bun)" --quick --js-api
 
 # JS API 原语（streams / crypto / compress / fs / wasm）
-./build/qwrt test/bench_js_api.mjs --mode all --iters 0.25   # 解释器
+./build/amoib test/bench_js_api.mjs --mode all --iters 0.25   # 解释器
 node    test/bench_js_api.mjs --mode all --iters 1.0         # JIT
 bun     test/bench_js_api.mjs --mode all --iters 1.0
 
 # TLS 服务器（需 `wrk` + `openssl`）
-python3 test/bench_tls_server.py --backend qwrt --qwrt-bin ./build/qwrt --duration 5
+python3 test/bench_tls_server.py --backend amoib --amoib-bin ./build/amoib --duration 5
 
 # WebSocket echo（需 node 22+ 全局 WebSocket）
-node test/bench_ws_server.mjs --qwrt-bin ./build/qwrt --messages 1000 --connections 1
+node test/bench_ws_server.mjs --amoib-bin ./build/amoib --messages 1000 --connections 1
 
-# gRPC unary（需 QWRT_WITH_GRPC=ON 构建）
-python3 test/bench_grpc_unary.py --qwrt-bin ./build/qwrt --calls 2000
+# gRPC unary（需 AM_WITH_GRPC=ON 构建）
+python3 test/bench_grpc_unary.py --amoib-bin ./build/amoib --calls 2000
 ```
 
-`--iters` 标志缩放内部 workload。qwrt（解释器，无 JIT）用 `0.25`；node/bun 用 `1.0`。
+`--iters` 标志缩放内部 workload。amoib（解释器，无 JIT）用 `0.25`；node/bun 用 `1.0`。
 wasm 模式自动校准到 ~1s 墙钟。
 
 ## CI Artifact
@@ -122,7 +122,7 @@ wasm 模式自动校准到 ~1s 墙钟。
 
 | Job | artifact 名 |
 |-----|-------------|
-| `js-api-perf` | `js-api-perf-json`（`js-api-{qwrt,node,bun}.out`） |
+| `js-api-perf` | `js-api-perf-json`（`js-api-{amoib,node,bun}.out`） |
 | `tls-ws-grpc-perf` | `tls-ws-grpc-perf-json`（`tls.out`、`ws.out`、`ws-8.out`、`grpc.out`） |
 | `runtime-perf` | `runtime-perf-json` |
 | `cross-runtime` | `cross-runtime-json` |

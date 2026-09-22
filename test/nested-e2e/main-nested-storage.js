@@ -2,7 +2,7 @@
 var keep = setInterval(function () {}, 50);
 localStorage.clear();
 localStorage.setItem('gk1', 'gv1');
-var w = new Worker('file:///home/gem/project/qwrt/test/nested-e2e/worker_spawn_child_storage.js');
+var w = new Worker('file:///home/gem/project/amoib/test/nested-e2e/worker_spawn_child_storage.js');
 w.onmessage = function (e) {
   console.log(e.data);
   console.log('main-sees-gkey:' + localStorage.getItem('gkey'));

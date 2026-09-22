@@ -1,21 +1,21 @@
 /**
- * qwrt worker boot shim — 独立 IIFE,由 build.js 用 qjsc 编译成字节码,
+ * amoib worker boot shim — 独立 IIFE,由 build.js 用 qjsc 编译成字节码,
  * 注入到每个 worker 线程执行(不再用 C 内嵌源码字符串 eval)。
  *
- * 依赖:worker 线程已注入完整 polyfill(上下文提供 __qwrt_serialize__ /
- * __qwrt_deserialize__ / __qwrt_lookup_port__ / __qwrt_port_from_ref__ /
- * __qwrt_deliver_port_msg__ / MessageEvent / MessagePort / dispatchEvent),
+ * 依赖:worker 线程已注入完整 polyfill(上下文提供 __am_serialize__ /
+ * __am_deserialize__ / __am_lookup_port__ / __am_port_from_ref__ /
+ * __am_deliver_port_msg__ / MessageEvent / MessagePort / dispatchEvent),
  * 且 __native__(worker 侧 pal)已由 polyfill 注入路径保留。
  *
- * 作用:覆盖 postMessage / __qwrt_dispatch__ / close / importScripts,
+ * 作用:覆盖 postMessage / __am_dispatch__ / close / importScripts,
  * 使 worker 脚本里的 postMessage()/onmessage/close() 按 worker 语义工作。
  *
  * Service Worker 模式(SW-1,见 service-worker.js):父线程首条消息
- * {__qwrt_sw__:'enter',url,scope} 进入 SW 模式——注入 self.registration /
- * self.skipWaiting / self.clients;后续 {__qwrt_sw_lifecycle__:'install'|
+ * {__am_sw__:'enter',url,scope} 进入 SW 模式——注入 self.registration /
+ * self.skipWaiting / self.clients;后续 {__am_sw_lifecycle__:'install'|
  * 'activate'} 触发 ExtendableEvent,waitUntil 的 promise 全部 settle 后回发
  * {__sw_event__:true,phase:'install_done'|'activate_done'}。SW 侧控制消息
- * SW-1 fetch 拦截：父线程 {__qwrt_sw_fetch__:{fetchId,request:{url,method,
+ * SW-1 fetch 拦截：父线程 {__am_sw_fetch__:{fetchId,request:{url,method,
  * headers,body}}} → FetchEvent（Request 由扁平字段重建）→ fetch 监听器；
  * respondWith(promise<Response>) settle 后回发 {__sw_event__,phase:
  * 'fetch_response'|'fetch_fallback',fetchId, response:{status,statusText,
@@ -25,7 +25,7 @@
 
   /* SW 控制通道：直发序列化控制消息给父线程（不经用户 postMessage） */
   function swEmit(obj){
-    pal.postMessage(__qwrt_serialize__(obj));
+    pal.postMessage(__am_serialize__(obj));
   }
 
   /* ExtendableEvent：install/activate 事件基类，waitUntil 延迟生命周期 */
@@ -81,10 +81,10 @@
     });
   }
   /* 进入 SW 模式：注入 ServiceWorkerGlobalScope 专属全局。
-   * __qwrt_sw_mode__ 标志让 SW 线程内的 fetch() 绕过拦截（防自我递归，
-   * 设计 §7.2）；qwrt 单客户端（主线程），clients 按设计 §3.2 返回常量。 */
+   * __am_sw_mode__ 标志让 SW 线程内的 fetch() 绕过拦截（防自我递归，
+   * 设计 §7.2）；amoib 单客户端（主线程），clients 按设计 §3.2 返回常量。 */
   function swEnter(msg){
-    globalThis.__qwrt_sw_mode__ = true;
+    globalThis.__am_sw_mode__ = true;
     self.registration = {
       scope: msg.scope != null ? msg.scope : '/',
       scriptURL: msg.url,
@@ -105,7 +105,7 @@
   }
 
   /* ---- SW-1：FetchEvent 派发 ----
-   * 父线程 {__qwrt_sw_fetch__:{fetchId,request:{url,method,headers,body}}}：
+   * 父线程 {__am_sw_fetch__:{fetchId,request:{url,method,headers,body}}}：
    * 重建 Request → FetchEvent → fetch 监听器。respondWith(promise<Response>)
    * settle 后回发 fetch_response；reject / 非序列化 / 未调用 respondWith →
    * fetch_fallback（主线程回退网络）。无浏览器端 30s 超时——超时在主线程侧。 */
@@ -184,56 +184,56 @@
                        peerThread: (t._peerThread === 'local' ? sp : t._peerThread) });
           t._detached = true;
           /* §8.2 路由表：该 port 已从本 worker 移到父端点。 */
-          if (globalThis.__qwrt_port_moved__)
-            globalThis.__qwrt_port_moved__(t._owner, t._id, sp.slice(0, sp.length - 1));
-          var peer = globalThis.__qwrt_lookup_port__(t._peerId, t._owner);
+          if (globalThis.__am_port_moved__)
+            globalThis.__am_port_moved__(t._owner, t._id, sp.slice(0, sp.length - 1));
+          var peer = globalThis.__am_lookup_port__(t._peerId, t._owner);
           /* 对端现在在父端点 = 本 worker path 去掉末元素。 */
           if (peer) peer._peerThread = sp.slice(0, sp.length - 1);
         } else { abT.push(t); }
       }
       if (!abT.length) abT = undefined;
     }
-    var db = __qwrt_serialize__(v, abT);
+    var db = __am_serialize__(v, abT);
     if (ports.length) {
-      /* PORT_TRANSFER 帧 op=2：16B 头 + SC({__qwrt_ports, __qwrt_payload}) */
+      /* PORT_TRANSFER 帧 op=2：16B 头 + SC({__am_ports, __am_payload}) */
       pal.postMessage(
-        globalThis.__qwrt_port_xfer_frame__(
-          __qwrt_serialize__({ __qwrt_ports: ports, __qwrt_payload: db })), 1);
+        globalThis.__am_port_xfer_frame__(
+          __am_serialize__({ __am_ports: ports, __am_payload: db })), 1);
     } else {
       pal.postMessage(db);
     }
   };
-  globalThis.__qwrt_dispatch__ = function(data, source, kind){
+  globalThis.__am_dispatch__ = function(data, source, kind){
     /* kind=1（PORT_TRANSFER）：先按帧头分流，不走 SW/普通消息路径 */
-    if (kind === 1 && globalThis.__qwrt_port_frame_op__) {
-      var op = globalThis.__qwrt_port_frame_op__(data);
+    if (kind === 1 && globalThis.__am_port_frame_op__) {
+      var op = globalThis.__am_port_frame_op__(data);
       if (op === 1) {                       /* port 消息：投本 runtime port 或接力 */
-        globalThis.__qwrt_route_port_message__(data);
+        globalThis.__am_route_port_message__(data);
         return;
       }
       if (op !== 2) return;                  /* 未知 op：丢弃 */
-      data = globalThis.__qwrt_port_frame_body__(data);   /* 剥路由头 */
+      data = globalThis.__am_port_frame_body__(data);   /* 剥路由头 */
     }
-    var o = __qwrt_deserialize__(data);
+    var o = __am_deserialize__(data);
     /* SW 控制消息（父线程 → SW 线程），不进用户消息流 */
-    if (o && typeof o === 'object' && o.__qwrt_sw__ === 'enter') {
+    if (o && typeof o === 'object' && o.__am_sw__ === 'enter') {
       swEnter(o);
       return;
     }
-    if (o && typeof o === 'object' && o.__qwrt_sw_lifecycle__) {
-      swDispatchLifecycle(String(o.__qwrt_sw_lifecycle__));
+    if (o && typeof o === 'object' && o.__am_sw_lifecycle__) {
+      swDispatchLifecycle(String(o.__am_sw_lifecycle__));
       return;
     }
-    if (o && typeof o === 'object' && o.__qwrt_sw_fetch__) {
-      swDispatchFetch(o.__qwrt_sw_fetch__);
+    if (o && typeof o === 'object' && o.__am_sw_fetch__) {
+      swDispatchFetch(o.__am_sw_fetch__);
       return;
     }
-    if (o && typeof o === 'object' && o.__qwrt_ports) {
+    if (o && typeof o === 'object' && o.__am_ports) {
       var ports = [];
-      for (var i = 0; i < o.__qwrt_ports.length; i++) {
-        ports.push(globalThis.__qwrt_port_from_ref__(o.__qwrt_ports[i]));
+      for (var i = 0; i < o.__am_ports.length; i++) {
+        ports.push(globalThis.__am_port_from_ref__(o.__am_ports[i]));
       }
-      var inner = __qwrt_deserialize__(o.__qwrt_payload);
+      var inner = __am_deserialize__(o.__am_payload);
       globalThis.dispatchEvent(new MessageEvent('message', {data: inner, ports: ports}));
     } else {
       globalThis.dispatchEvent(new MessageEvent('message', {data: o}));

@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: EventSource
+ * amoib polyfill: EventSource
  *
  * WHATWG EventSource API for server-sent events.
  * Uses pal.httpRequestStream for HTTP streaming.

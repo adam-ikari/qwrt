@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""qwrt TLS/HTTPS server performance benchmark (wrk-based).
+"""amoib TLS/HTTPS server performance benchmark (wrk-based).
 
 Starts a TLS server on localhost, drives it with wrk, prints one JSON line.
 Supports two backends for cross-checking:
-  qwrt  : real qwrt CLI hosting serve({port, tls}) — pure-JS HTTP over mbedTLS
+  amoib  : real amoib CLI hosting serve({port, tls}) — pure-JS HTTP over mbedTLS
   node  : node --tls-min-v1.0 https server (reference point)
 
 Scenarios (same shape as bench_httpserver.py):
@@ -12,7 +12,7 @@ Scenarios (same shape as bench_httpserver.py):
   hs    : fresh connection per request  — full TLS handshake cost
 
 Usage:
-  python3 test/bench_tls_server.py --backend qwrt --qwrt-bin ./build/qwrt \
+  python3 test/bench_tls_server.py --backend amoib --amoib-bin ./build/amoib \
       [--duration 5]
   python3 test/bench_tls_server.py --backend node [--duration 5]
 
@@ -26,10 +26,10 @@ import subprocess
 import sys
 import time
 
-CERT = '/tmp/qwrt-bench-tls.crt'
-KEY = '/tmp/qwrt-bench-tls.key'
+CERT = '/tmp/amoib-bench-tls.crt'
+KEY = '/tmp/amoib-bench-tls.key'
 
-QWRT_TLS_SERVER_JS = """
+AM_TLS_SERVER_JS = """
 function main() {
   serve({ port: %PORT%, tls: { cert: %CERT%, key: %KEY% } }, function (req) {
     if (req.url === '/small') {
@@ -73,22 +73,22 @@ def ensure_cert():
                            r.stderr.decode()[:200])
 
 
-def start_server(backend, qwrt_bin):
+def start_server(backend, am_bin):
     port = free_port()
     ensure_cert()
-    if backend == 'qwrt':
-        js = QWRT_TLS_SERVER_JS.replace('%PORT%', str(port))
+    if backend == 'amoib':
+        js = AM_TLS_SERVER_JS.replace('%PORT%', str(port))
         js = js.replace('%CERT%', json.dumps(CERT)).replace('%KEY%', json.dumps(KEY))
-        path = '/tmp/qwrt-bench-tls-server.js'
+        path = '/tmp/amoib-bench-tls-server.js'
         with open(path, 'w') as f:
             f.write(js)
-        proc = subprocess.Popen([qwrt_bin, path],
+        proc = subprocess.Popen([am_bin, path],
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
     elif backend == 'node':
         js = NODE_TLS_SERVER_JS.replace('%PORT%', str(port))
         js = js.replace('%CERT%', json.dumps(CERT)).replace('%KEY%', json.dumps(KEY))
-        path = '/tmp/qwrt-bench-tls-server-node.js'
+        path = '/tmp/amoib-bench-tls-server-node.js'
         with open(path, 'w') as f:
             f.write(js)
         proc = subprocess.Popen(['node', path],
@@ -153,12 +153,12 @@ def run_wrk(port, path, duration, new_conn):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--backend', choices=['qwrt', 'node'], default='qwrt')
-    ap.add_argument('--qwrt-bin', default='./build/qwrt')
+    ap.add_argument('--backend', choices=['amoib', 'node'], default='amoib')
+    ap.add_argument('--amoib-bin', default='./build/amoib')
     ap.add_argument('--duration', type=int, default=5)
     args = ap.parse_args()
 
-    proc, port = start_server(args.backend, args.qwrt_bin)
+    proc, port = start_server(args.backend, args.am_bin)
     try:
         out = {}
         out['tiny'] = run_wrk(port, '/tiny', args.duration, new_conn=False)

@@ -1,6 +1,6 @@
 ---
 title: serve — HTTP 服务器
-description: Qwrt.js 的 HTTP 服务器 API —— 全局 `serve()`，含 WebSocket 路由、TLS 与 gRPC 服务器。
+description: Amoib.js 的 HTTP 服务器 API —— 全局 `serve()`，含 WebSocket 路由、TLS 与 gRPC 服务器。
 ---
 
 # serve — HTTP 服务器
@@ -34,7 +34,7 @@ let server = serve({ port: 8080 }, (req) => {
 | `hostname` | `'0.0.0.0'` | 绑定地址。 |
 | `idleTimeout` | `30000` | 连接空闲多少 ms 后关闭；`0` 禁用。 |
 | `ws` | `{}` | WebSocket 升级路由表，以请求路径为 key。 |
-| `tls` | `undefined` | `{ cert, key }` PEM 字符串启用 HTTPS（需 `QWRT_WITH_TLS`）。 |
+| `tls` | `undefined` | `{ cert, key }` PEM 字符串启用 HTTPS（需 `AM_WITH_TLS`）。 |
 
 ### 请求对象
 
@@ -94,14 +94,14 @@ ws: {
 当客户端提供且可用原生流式 deflate 原语时（见 [compress](/zh/js-api/compress)），
 `permessage-deflate`（RFC 7692）压缩自动协商。
 
-WebSocket 握手在构建时需 `QWRT_WITH_TEXTCODEC=ON` 与 `QWRT_WITH_CRYPTO_EXT=ON`
+WebSocket 握手在构建时需 `AM_WITH_TEXTCODEC=ON` 与 `AM_WITH_CRYPTO_EXT=ON`
 （经 `crypto.subtle` 计算 SHA-1 accept key）；否则升级抛 `WebSocket accept unavailable`。
 
 无匹配 `ws` 路由的请求得 `404`；缺 `Sec-WebSocket-Key` 的升级得 `400`。
 
 ## TLS
 
-传 `tls: { cert, key }` 在监听器上启用 HTTPS。构建时需 `QWRT_WITH_TLS=ON`
+传 `tls: { cert, key }` 在监听器上启用 HTTPS。构建时需 `AM_WITH_TLS=ON`
 （见 [构建选项](/zh/guide/build-options)）。
 
 ```js
@@ -124,11 +124,11 @@ server.addService(reg, { Echo: (call) => ({ text: call.request.text }) });
 serve({ port: 50051, grpc: server }, () => 'not-grpc');
 ```
 
-构建时需 `QWRT_WITH_GRPC=ON`（gRPC bundle 为可选，因为它向 polyfill 增加约
+构建时需 `AM_WITH_GRPC=ON`（gRPC bundle 为可选，因为它向 polyfill 增加约
 3.5k 行；见 [构建选项](/zh/guide/build-options)）。
 
 完整 unary/流式走查见
-[grpc-hello 示例](https://github.com/adam-ikari/qwrt/tree/master/examples/grpc-hello)
+[grpc-hello 示例](https://github.com/adam-ikari/amoib/tree/master/examples/grpc-hello)
 与 [gRPC API 参考](/zh/js-api/grpc)。
 
 ## 说明

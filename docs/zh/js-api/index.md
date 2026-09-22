@@ -1,11 +1,11 @@
 ---
 title: JS API 参考
-description: Qwrt.js 完整的 JavaScript API 参考 — WinterTC 兼容的 Web API，包括 fetch、crypto、streams、timers、URL 等。
+description: Amoib.js 完整的 JavaScript API 参考 — WinterTC 兼容的 Web API，包括 fetch、crypto、streams、timers、URL 等。
 ---
 
 # JS API 参考
 
-qwrt 提供一组 WinterTC 兼容的 JS API。下面列出的全局对象在任何跑在运行时里的 JS 中都能直接用（`initial_script`、消息处理器、`qwrt_post_message` 触发的代码），不用 `require()` 或 `import`。
+amoib 提供一组 WinterTC 兼容的 JS API。下面列出的全局对象在任何跑在运行时里的 JS 中都能直接用（`initial_script`、消息处理器、`am_post_message` 触发的代码），不用 `require()` 或 `import`。
 
 ## 架构
 
@@ -14,11 +14,11 @@ flowchart TB
     A["你的 JS 代码"] --> B
     subgraph B["WinterTC 运行时"]
         direction LR
-        C["fetch<br/>console<br/>URL<br/>qwrt.fs"]
-        D["crypto<br/>timers<br/>Blob<br/>qwrt.store"]
+        C["fetch<br/>console<br/>URL<br/>amoib.fs"]
+        D["crypto<br/>timers<br/>Blob<br/>amoib.store"]
         E["streams<br/>TextEncoder<br/>EventTarget<br/>navigator"]
     end
-    B --> G["qwrt 内部线程上的 libuv 循环"]
+    B --> G["amoib 内部线程上的 libuv 循环"]
 ```
 
 ## API 分类
@@ -27,7 +27,7 @@ API 按来源标准分三类。
 
 ### WinterTC（WinterCG 标准）
 
-qwrt 实现的 WinterCG 兼容 Web API 子集。
+amoib 实现的 WinterCG 兼容 Web API 子集。
 
 | API | 全局对象 |
 |-----|--------|
@@ -61,21 +61,21 @@ WinterCG 核心之外的浏览器标准 API。
 | [Service Worker](/zh/js-api/service-worker) | `navigator.serviceWorker` |
 | [localStorage](/zh/js-api/storage#localstorage-sessionstorage) | `localStorage`、`sessionStorage` |
 
-### qwrt 平台扩展（类 Node 风格）
+### amoib 平台扩展（类 Node 风格）
 
-qwrt 特有的 API，不属于任何 Web 标准。风格接近 Node.js，但不是 Node API
+amoib 特有的 API，不属于任何 Web 标准。风格接近 Node.js，但不是 Node API
 （`process`、`require`、`Buffer` 缺席）。
 
 | API | 全局对象 | 备注 |
 |-----|--------|-------|
-| [fs](/zh/js-api/fs) | `qwrt.fs` | 文件系统操作 |
-| [storage](/zh/js-api/storage) | `qwrt.storage` | 键值存储 |
+| [fs](/zh/js-api/fs) | `amoib.fs` | 文件系统操作 |
+| [storage](/zh/js-api/storage) | `amoib.storage` | 键值存储 |
 | [serve](/zh/js-api/serve) | `serve()` | HTTP / WebSocket / gRPC 服务器 |
-| [grpc](/zh/js-api/grpc) | `grpc` | gRPC 客户端 + 服务端（`QWRT_WITH_GRPC=ON`） |
+| [grpc](/zh/js-api/grpc) | `grpc` | gRPC 客户端 + 服务端（`AM_WITH_GRPC=ON`） |
 
 ## 标准合规性
 
-qwrt 目标是 [WinterTC](https://wintercg.org/) 兼容性 — 与 Cloudflare Workers、Deno 和其他服务端运行时使用的 Web API 子集相同。DOM 专用 API（`document`、`window`、`HTMLElement`）被有意排除。
+amoib 目标是 [WinterTC](https://wintercg.org/) 兼容性 — 与 Cloudflare Workers、Deno 和其他服务端运行时使用的 Web API 子集相同。DOM 专用 API（`document`、`window`、`HTMLElement`）被有意排除。
 
 ### 不包含的内容
 
@@ -85,7 +85,7 @@ qwrt 目标是 [WinterTC](https://wintercg.org/) 兼容性 — 与 Cloudflare Wo
 - **CSS**：`CSSStyleSheet`、`getComputedStyle`、CSSOM
 - **布局**：`requestAnimationFrame`、`IntersectionObserver`、`ResizeObserver`
 - **媒体**：`WebRTC`、`AudioContext`
-- **存储**：`indexedDB`（用 `qwrt.storage`）
+- **存储**：`indexedDB`（用 `amoib.storage`）
 
 ## 使用方式
 
@@ -93,7 +93,7 @@ qwrt 目标是 [WinterTC](https://wintercg.org/) 兼容性 — 与 Cloudflare Wo
 
 ```js
 // 核心 API
-console.log('Hello from qwrt');
+console.log('Hello from amoib');
 setTimeout(() => console.log('tick'), 1000);
 
 // 带流式传输的 fetch
@@ -109,8 +109,8 @@ let url = new URL('https://example.com/path?key=value');
 console.log(url.searchParams.get('key')); // "value"
 
 // 文件系统（平台扩展）
-let content = await qwrt.fs.read('/app/config.json');
+let content = await amoib.fs.read('/app/config.json');
 
 // 存储（平台扩展）
-await qwrt.storage.set('session_token', 'abc123');
+await amoib.storage.set('session_token', 'abc123');
 ```

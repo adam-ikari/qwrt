@@ -1,11 +1,11 @@
 /**
- * qwrt polyfill: host messaging boundary (postMessage / onmessage /
- * __qwrt_dispatch__)
+ * amoib polyfill: host messaging boundary (postMessage / onmessage /
+ * __am_dispatch__)
  *
- * W3C worker-style messaging between the host and the qwrt context:
+ * W3C worker-style messaging between the host and the amoib context:
  *   - postMessage(data)      — JS → host. Bridge JSON-serializes data and
  *                              delivers it to the host's message_cb.
- *   - __qwrt_dispatch__(data, source) — host → JS. Bridge invokes this with
+ *   - __am_dispatch__(data, source) — host → JS. Bridge invokes this with
  *                              the parsed JSON (source 0 = host) or raw bytes
  *                              (source > 0 = worker). Dispatches a MessageEvent.
  *   - onmessage              — EventTarget-style handler property.
@@ -24,7 +24,7 @@ export function setupHostMessaging(pal) {
   };
 
   // host → JS: bridge dispatches inbound messages here; source 0 = host.
-  globalThis.__qwrt_dispatch__ = function (data, source) {
+  globalThis.__am_dispatch__ = function (data, source) {
     self.dispatchEvent(new MessageEvent('message', { data: data }));
   };
 

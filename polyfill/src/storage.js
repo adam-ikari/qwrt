@@ -1,14 +1,14 @@
 /**
- * qwrt Polyfill - Key-Value Storage Extension API
+ * amoib Polyfill - Key-Value Storage Extension API
  *
  * Provides a simple async key-value storage API based on PAL primitives.
  * PAL storageGet returns null when a key is not found (status=-2).
  *
- * Mounted on globalThis.qwrt.storage
+ * Mounted on globalThis.amoib.storage
  */
 
 export function setupStorage(pal) {
-  if (!globalThis.qwrt) globalThis.qwrt = {};
+  if (!globalThis.amoib) globalThis.amoib = {};
 
   var storage = {
     async get(key) {
@@ -25,5 +25,5 @@ export function setupStorage(pal) {
     },
   };
 
-  globalThis.qwrt.storage = storage;
+  globalThis.amoib.storage = storage;
 }

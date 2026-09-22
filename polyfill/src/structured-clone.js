@@ -1,13 +1,13 @@
 /**
- * qwrt polyfill: structuredClone (enhanced)
+ * amoib polyfill: structuredClone (enhanced)
  *
  * 深拷贝委托 @ungap/structured-clone（StructuredSerialize/Deserialize 算法），
- * qwrt 扩展语义保留自研分支：
- *   - MessagePort：仅可 transfer（列表内 → __qwrt_port_from_ref__ 重建纠缠端口）
+ * amoib 扩展语义保留自研分支：
+ *   - MessagePort：仅可 transfer（列表内 → __am_port_from_ref__ 重建纠缠端口）
  *   - ArrayBuffer：transfer → 立即 detach；非 transfer → 复制内容
  *   - DataView：保留 byteOffset/byteLength（@ungap 委托会丢失两者）
- *   - Blob / File：qwrt 自定义类型（@ungap 无感知）
- *   - DOMException：qwrt 构造签名 (message, name)，与 @ungap ERROR 分支
+ *   - Blob / File：amoib 自定义类型（@ungap 无感知）
+ *   - DOMException：amoib 构造签名 (message, name)，与 @ungap ERROR 分支
  *     (name, message) 参数序错位
  *   - function / symbol → DataCloneError（@ungap 抛 TypeError）
  *   - 自定义原型对象 → DataCloneError（@ungap 会降级为普通对象）
@@ -17,7 +17,7 @@
  * 一致性契约：委托发生在整棵子树上，外部 seen 只记录子树根映射；子树内部的
  * 共享/循环由 @ungap 引用表保持，跨委托子树的共享由外部 seen 保持。
  *
- * 字节序列化（__qwrt_serialize__ / __qwrt_deserialize__）为 worker 跨线程
+ * 字节序列化（__am_serialize__ / __am_deserialize__）为 worker 跨线程
  * 传输与挂起恢复共用的自有 ABI，原样保留，不在替换范围。
  */
 
@@ -54,9 +54,9 @@ export function setupStructuredClone() {
     }
     /* 把 transferSet 挂到私有字段，随 clone 递归自动传递（不改用户对象） */
     if (options && typeof options === 'object') {
-      options = { transfer: options.transfer, _qwrtTransfer: transferSet };
+      options = { transfer: options.transfer, _amTransfer: transferSet };
     } else {
-      options = { _qwrtTransfer: transferSet };
+      options = { _amTransfer: transferSet };
     }
     var seen = new Map();
     var result = clone(value, seen, options);
@@ -77,11 +77,11 @@ export function setupStructuredClone() {
   /* ================================================================
    * 深拷贝：委托 @ungap/structured-clone
    *
-   * 委托判定：子树不含 qwrt 扩展（见文件头清单）→ 整树委托 @ungap。
+   * 委托判定：子树不含 amoib 扩展（见文件头清单）→ 整树委托 @ungap。
    * 含扩展 → 逐键递归（容器：Object/Array/Map/Set）。
    * ================================================================ */
 
-  /* 子树是否含 qwrt 扩展（不可整体委托给 @ungap） */
+  /* 子树是否含 amoib 扩展（不可整体委托给 @ungap） */
   function containsExtended(value, scan) {
     if (value === null) return false;
     var type = typeof value;
@@ -146,15 +146,15 @@ export function setupStructuredClone() {
     // MessagePort：只可转移（transfer 列表），不可克隆。
     if (typeof globalThis.MessagePort === 'function' &&
         value instanceof globalThis.MessagePort) {
-      var ts = options && options._qwrtTransfer;
+      var ts = options && options._amTransfer;
       if (ts && ts.has(value)) {
         ts.delete(value);
         /* 转移：原 port detached；返回一个新的可用代理（同线程下与原
-         * 对端纠缠）。复用 message-channel 的 __qwrt_port_from_ref__。 */
-        if (globalThis.__qwrt_port_from_ref__) {
+         * 对端纠缠）。复用 message-channel 的 __am_port_from_ref__。 */
+        if (globalThis.__am_port_from_ref__) {
           var peer = value._entangledPort;
           value._detached = true;
-          var pr = globalThis.__qwrt_port_from_ref__(
+          var pr = globalThis.__am_port_from_ref__(
             { id: value._id, peerId: value._peerId, owner: value._owner,
               peerThread: 'local' });
           if (peer && pr) pr._entangledPort = peer;
@@ -169,7 +169,7 @@ export function setupStructuredClone() {
 
     // ArrayBuffer：transfer → 内容转移到新 buffer，原 buffer detached；否则复制
     if (value instanceof ArrayBuffer) {
-      var ts2 = options && options._qwrtTransfer;
+      var ts2 = options && options._amTransfer;
       var result;
       if (ts2 && ts2.has(value)) {
         ts2.delete(value);
@@ -187,7 +187,7 @@ export function setupStructuredClone() {
       return new DataView(buf, value.byteOffset, value.byteLength);
     }
 
-    // Blob / File：qwrt 自定义类型，@ungap 无感知
+    // Blob / File：amoib 自定义类型，@ungap 无感知
     if (typeof Blob !== 'undefined' && value instanceof Blob) {
       if (typeof File !== 'undefined' && value instanceof File) {
         return new File([value], value.name, { type: value.type, lastModified: value.lastModified });
@@ -259,7 +259,7 @@ export function setupStructuredClone() {
    * serializeToBytes(value) -> ArrayBuffer，deserializeFromBytes(buf) -> value。
    * 自定 tag 流（LE 字节序），支持循环引用与 TypedArray/ArrayBuffer/Blob 等；
    * 函数/符号 → DataCloneError。v1 无 transferables。
-   * 挂为 globalThis.__qwrt_serialize__ / __qwrt_deserialize__。
+   * 挂为 globalThis.__am_serialize__ / __am_deserialize__。
    * ================================================================ */
 
   var TA_CTORS = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array,
@@ -462,7 +462,7 @@ export function setupStructuredClone() {
         v.forEach(function (val) { w(val); });
         return;
       }
-      /* MessagePort：transfer 列表中的 → 编码为 __qwrt_port_ref；否则不可克隆 */
+      /* MessagePort：transfer 列表中的 → 编码为 __am_port_ref；否则不可克隆 */
       if (typeof globalThis.MessagePort === 'function' &&
           v instanceof globalThis.MessagePort) {
         if (!transferSet || !transferSet.has(v))
@@ -663,11 +663,11 @@ export function setupStructuredClone() {
             catch (e) { throw new DOMException('Bad serialized data', 'DataCloneError'); }
           }
           if (tag === 0x20) {
-            /* MessagePort 引用：__qwrt_port_from_ref__ 创建/复用本地代理 */
+            /* MessagePort 引用：__am_port_from_ref__ 创建/复用本地代理 */
             var pid = r.u32(), ppeer = r.u32(), powner = readPath(r), pth = readPeerThread(r);
             var portRef;
-            if (globalThis.__qwrt_port_from_ref__) {
-              portRef = globalThis.__qwrt_port_from_ref__(
+            if (globalThis.__am_port_from_ref__) {
+              portRef = globalThis.__am_port_from_ref__(
                 { id: pid, peerId: ppeer, owner: powner, peerThread: pth });
             } else {
               throw new DOMException('MessagePort reference requires message-channel', 'DataCloneError');
@@ -683,6 +683,6 @@ export function setupStructuredClone() {
     return rd();
   }
 
-  globalThis.__qwrt_serialize__ = serializeToBytes;
-  globalThis.__qwrt_deserialize__ = deserializeFromBytes;
+  globalThis.__am_serialize__ = serializeToBytes;
+  globalThis.__am_deserialize__ = deserializeFromBytes;
 }

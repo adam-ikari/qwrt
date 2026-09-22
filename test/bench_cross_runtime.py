@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""qwrt cross-runtime performance benchmark (cold start / eval / peak RSS).
+"""amoib cross-runtime performance benchmark (cold start / eval / peak RSS).
 
-Compares qwrt against other JS runtimes on the metrics that define its
+Compares amoib against other JS runtimes on the metrics that define its
 positioning — startup latency, eval throughput, peak memory. Every runtime
 loads the same JS (bench-eval-cross.js) with the same workload; differences
 are the positioning claim (embedded QuickJS vs full-featured V8/JSC).
@@ -14,16 +14,16 @@ Metrics:
   R5  peak RSS     /proc/<pid>/status VmHWM polled during the eval run (KB)
 
 No worker/IPC comparison: worker semantics differ too much across runtimes
-(Node worker_threads, Bun Worker, qwrt dual-backend) — that axis stays
-qwrt-internal (bench_runtime.py).
+(Node worker_threads, Bun Worker, amoib dual-backend) — that axis stays
+amoib-internal (bench_runtime.py).
 
 Usage:
   python3 test/bench_cross_runtime.py \
-      --bins qwrt=./build/qwrt,node=$(which node),bun=$(which bun) \
+      --bins amoib=./build/amoib,node=$(which node),bun=$(which bun) \
       [--quick] [--json out.json]
 
 --bins entries whose binary is missing on the host are skipped. Ratios in
-the JSON summary are computed vs qwrt when qwrt is present. The JSON
+the JSON summary are computed vs amoib when amoib is present. The JSON
 summary is the last stdout line (bench_httpserver.py / bench_runtime.py
 convention).
 
@@ -42,9 +42,9 @@ DEFAULT = {'r1_n': 5, 'r6_iters': 1000000, 'r6_samples': 5}
 QUICK = {'r1_n': 3, 'r6_iters': 200000, 'r6_samples': 3}
 
 # Cross-runtime comparison intent: node/bun ships its own engine (V8/JSC);
-# tjs/qjs share the QuickJS lineage with qwrt.
-ORDER = ['qwrt', 'node', 'bun', 'tjs']
-ALIAS = {'qwrt': 'qwrt', 'node': 'node', 'bun': 'bun', 'tjs': 'txiki'}
+# tjs/qjs share the QuickJS lineage with amoib.
+ORDER = ['amoib', 'node', 'bun', 'tjs']
+ALIAS = {'amoib': 'amoib', 'node': 'node', 'bun': 'bun', 'tjs': 'txiki'}
 
 
 def bench_dir():
@@ -63,7 +63,7 @@ def parse_json(out):
 
 def eval_cmd(name, bin_path, script, iters, samples):
     """Build the eval-benchmark command for a runtime. txiki.js (v26+) uses
-    subcommands (`tjs run script.js`); qwrt/node/bun take the script
+    subcommands (`tjs run script.js`); amoib/node/bun take the script
     positionally."""
     args = [str(iters), str(samples)]
     if name == 'tjs':
@@ -130,7 +130,7 @@ def version(bin_path):
 
 def run_js_api(bins, progress):
     """Run test/bench_js_api.mjs on each runtime; return {runtime: modes}.
-    qwrt needs --iters 0.25 (interpreter — the JIT runtimes use 1.0).
+    amoib needs --iters 0.25 (interpreter — the JIT runtimes use 1.0).
     Any runtime that fails or times out yields no entry (record-only)."""
     script = os.path.join(bench_dir(), 'bench_js_api.mjs')
     if not os.path.exists(script):
@@ -138,8 +138,8 @@ def run_js_api(bins, progress):
         return None
     out = {}
     for name, bin_path in bins.items():
-        iters = '0.25' if name == 'qwrt' else '1.0'
-        timeout = 900 if name == 'qwrt' else 300
+        iters = '0.25' if name == 'amoib' else '1.0'
+        timeout = 900 if name == 'amoib' else 300
         cmd = [bin_path, script, '--mode', 'all', '--iters', iters]
         progress('js_api[%s] iters=%s ...' % (name, iters))
         try:
@@ -164,7 +164,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--bins', required=True,
                     help='comma-separated runtime=path entries '
-                         '(qwrt,node,bun,tjs); missing ones skipped')
+                         '(amoib,node,bun,tjs); missing ones skipped')
     ap.add_argument('--quick', action='store_true',
                     help='reduced sample counts')
     ap.add_argument('--json', metavar='PATH',
@@ -229,16 +229,16 @@ def main():
                     eval_res['int_mops'], eval_res['closure_mops'],
                     eval_res['str_mops'], peak))
 
-    if 'qwrt' not in res:
-        print('FAIL: no qwrt numbers (required for ratios)', file=sys.stderr)
+    if 'amoib' not in res:
+        print('FAIL: no amoib numbers (required for ratios)', file=sys.stderr)
         return 1
 
-    # Ratios vs qwrt: >1 means "slower/larger" for latency/memory, "faster"
+    # Ratios vs amoib: >1 means "slower/larger" for latency/memory, "faster"
     # for throughput.
     vs = {}
-    q = res['qwrt']
+    q = res['amoib']
     for name, r in res.items():
-        if name == 'qwrt':
+        if name == 'amoib':
             continue
         vs[name] = {
             'r1_x': ratio(r['r1']['median_ms'], q['r1']['median_ms']),
@@ -264,11 +264,11 @@ def main():
     if args.js_api:
         js_api = run_js_api(bins, progress)
         if js_api:
-            # per-metric ratio table: runtime / qwrt (>1 = "more")
-            q = js_api.get('qwrt', {})
+            # per-metric ratio table: runtime / amoib (>1 = "more")
+            q = js_api.get('amoib', {})
             js_api_ratios = {}
             for name, modes in js_api.items():
-                if name == 'qwrt':
+                if name == 'amoib':
                     continue
                 row = {}
                 for mode, metrics in modes.items():
@@ -291,9 +291,9 @@ def main():
                 'machine': 'local',
                 'uname': ' '.join(os.uname())[:120]},
         'runtimes': res,
-        'vs_qwrt': vs,
+        'vs_amoib': vs,
         'js_api': js_api,
-        'js_api_vs_qwrt': summary_js_api,
+        'js_api_vs_amoib': summary_js_api,
         'meta': {'bins': {k: ALIAS[k] for k in bins},
                  'versions': {k: version(v) for k, v in bins.items()},
                  'iters': params['r6_iters'],

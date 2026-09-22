@@ -1,85 +1,85 @@
 ---
 title: fs（文件系统）
-description: Qwrt.js 中的文件系统 API —— readFile、writeFile、stat、目录操作以及 libuv 支持的文件 I/O。
+description: Amoib.js 中的文件系统 API —— readFile、writeFile、stat、目录操作以及 libuv 支持的文件 I/O。
 ---
 
 # fs — 文件系统 API
 
-qwrt 扩展 API，用于读写文件。作为 `qwrt.fs` 上的方法暴露。
+amoib 扩展 API，用于读写文件。作为 `amoib.fs` 上的方法暴露。
 
 ## 全局对象
 
 | 全局对象 | 描述 |
 |--------|-------------|
-| `qwrt.fs` | 文件系统操作命名空间 |
+| `amoib.fs` | 文件系统操作命名空间 |
 
 ## 方法
 
-### `qwrt.fs.read(path)`
+### `amoib.fs.read(path)`
 
 以字符串形式读取文件内容。
 
 ```js
-let content = await qwrt.fs.read('/app/config.json');
+let content = await amoib.fs.read('/app/config.json');
 let config = JSON.parse(content);
 ```
 
 返回：`Promise<string>`，包含文件内容。
 
 错误：
-- `QWRT_ERR_NOT_FOUND` 如果文件不存在
-- `QWRT_ERR_PERMISSION` 如果访问被拒绝
-- `QWRT_ERR_IO` 读取失败时
+- `AM_ERR_NOT_FOUND` 如果文件不存在
+- `AM_ERR_PERMISSION` 如果访问被拒绝
+- `AM_ERR_IO` 读取失败时
 
-### `qwrt.fs.write(path, data)`
+### `amoib.fs.write(path, data)`
 
 将数据写入文件。如果文件不存在则创建，如果存在则覆盖。
 
 ```js
-await qwrt.fs.write('/data/log.txt', '日志条目: ' + new Date().toISOString());
-await qwrt.fs.write('/app/state.json', JSON.stringify({ step: 5, done: false }));
+await amoib.fs.write('/data/log.txt', '日志条目: ' + new Date().toISOString());
+await amoib.fs.write('/app/state.json', JSON.stringify({ step: 5, done: false }));
 ```
 
 返回：`Promise<void>`。
 
 错误：
-- `QWRT_ERR_PERMISSION` 如果写入访问被拒绝
-- `QWRT_ERR_IO` 写入失败时
-- `QWRT_ERR_NO_MEMORY` 如果运行时无法分配缓冲区
+- `AM_ERR_PERMISSION` 如果写入访问被拒绝
+- `AM_ERR_IO` 写入失败时
+- `AM_ERR_NO_MEMORY` 如果运行时无法分配缓冲区
 
-### `qwrt.fs.exists(path)`
+### `amoib.fs.exists(path)`
 
 检查文件或目录是否存在。
 
 ```js
-if (await qwrt.fs.exists('/app/init.js')) {
-    let script = await qwrt.fs.read('/app/init.js');
+if (await amoib.fs.exists('/app/init.js')) {
+    let script = await amoib.fs.read('/app/init.js');
     // ...
 }
 ```
 
 返回：`Promise<boolean>`。
 
-### `qwrt.fs.remove(path)`
+### `amoib.fs.remove(path)`
 
 删除一个文件。
 
 ```js
-await qwrt.fs.remove('/tmp/temp.dat');
+await amoib.fs.remove('/tmp/temp.dat');
 ```
 
 返回：`Promise<void>`。
 
 错误：
-- `QWRT_ERR_NOT_FOUND` 如果文件不存在
-- `QWRT_ERR_PERMISSION` 如果不允许删除
+- `AM_ERR_NOT_FOUND` 如果文件不存在
+- `AM_ERR_PERMISSION` 如果不允许删除
 
-### `qwrt.fs.list(path)`
+### `amoib.fs.list(path)`
 
 列出目录内容。
 
 ```js
-let entries = await qwrt.fs.list('/app');
+let entries = await amoib.fs.list('/app');
 // entries: [{ name: "main.js", type: "file" }, { name: "lib", type: "dir" }]
 
 for (let entry of entries) {
@@ -92,8 +92,8 @@ for (let entry of entries) {
 返回：`Promise<Array<{name: string, type: "file"|"dir"}>>`。
 
 错误：
-- `QWRT_ERR_NOT_FOUND` 如果目录不存在
-- `QWRT_ERR_IO` 读取失败时
+- `AM_ERR_NOT_FOUND` 如果目录不存在
+- `AM_ERR_IO` 读取失败时
 
 ## 完整示例
 
@@ -102,14 +102,14 @@ for (let entry of entries) {
 async function updateConfig(key, value) {
     let config = {};
 
-    if (await qwrt.fs.exists('/app/config.json')) {
-        let raw = await qwrt.fs.read('/app/config.json');
+    if (await amoib.fs.exists('/app/config.json')) {
+        let raw = await amoib.fs.read('/app/config.json');
         config = JSON.parse(raw);
     }
 
     config[key] = value;
 
-    await qwrt.fs.write('/app/config.json', JSON.stringify(config, null, 2));
+    await amoib.fs.write('/app/config.json', JSON.stringify(config, null, 2));
 }
 
 await updateConfig('theme', 'dark');
@@ -125,7 +125,7 @@ await updateConfig('theme', 'dark');
 
 ## 平台依赖
 
-文件系统操作运行在 qwrt 的内部线程上。失败时 JS 方法以映射后的错误拒绝（例如 `NotFoundError`、`NotSupportedError`）。
+文件系统操作运行在 amoib 的内部线程上。失败时 JS 方法以映射后的错误拒绝（例如 `NotFoundError`、`NotSupportedError`）。
 
 ## 注意事项
 

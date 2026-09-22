@@ -1,6 +1,6 @@
 ---
 title: performance
-description: The performance API in Qwrt.js — performance.now() for high-resolution timestamps and performance measurement.
+description: The performance API in Amoib.js — performance.now() for high-resolution timestamps and performance measurement.
 ---
 
 # performance
@@ -30,7 +30,7 @@ The returned value is a `DOMHighResTimeStamp` (double-precision float). It's rel
 
 ## performance.timeOrigin
 
-The Unix timestamp (ms) when the qwrt runtime was created.
+The Unix timestamp (ms) when the amoib runtime was created.
 
 ```js
 let now = performance.timeOrigin + performance.now();

@@ -1,6 +1,6 @@
 # 测试
 
-Qwrt.js 拥有全面的多层测试套件。
+Amoib.js 拥有全面的多层测试套件。
 
 ## 测试层次
 
@@ -17,7 +17,7 @@ Qwrt.js 拥有全面的多层测试套件。
 
 ```bash
 # 带测试配置
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQWRT_BUILD_TESTS=ON
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DAM_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 
 # 所有离线测试
@@ -59,10 +59,10 @@ ctest -L test262
 
 ## 编写测试
 
-测试使用 GoogleTest（C++），链接 `qwrt` + `mock_libuv` —— 一个确定性的进程内 libuv API 假实现（见 `test/mock_libuv.{c,h}`）——并使用 `-DQWRT_USE_MOCK_LIBUV` 构建。测试通过 `test/test_host.h` 中的 `HostCtx` 测试桩驱动运行时：`host_create` 启动一个 qwrt 运行时并安装引导 `onmessage` 命令通道（`{cmd:'eval'}`、`{cmd:'echo'}`）；`host_eval`/`host_value` 求值 JS 并返回结果；`host_poll_until_value` 轮询直到异步条件（定时器、promise、存储）满足。
+测试使用 GoogleTest（C++），链接 `amoib` + `mock_libuv` —— 一个确定性的进程内 libuv API 假实现（见 `test/mock_libuv.{c,h}`）——并使用 `-DAM_USE_MOCK_LIBUV` 构建。测试通过 `test/test_host.h` 中的 `HostCtx` 测试桩驱动运行时：`host_create` 启动一个 amoib 运行时并安装引导 `onmessage` 命令通道（`{cmd:'eval'}`、`{cmd:'echo'}`）；`host_eval`/`host_value` 求值 JS 并返回结果；`host_poll_until_value` 轮询直到异步条件（定时器、promise、存储）满足。
 
 ```cpp
-#include <qwrt/qwrt.h>
+#include <amoib/amoib.h>
 #include "test_host.h"   // HostCtx 测试桩 + mock_libuv
 #include <gtest/gtest.h>
 

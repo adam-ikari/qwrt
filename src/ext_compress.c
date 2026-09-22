@@ -1,5 +1,5 @@
 /*
- * qwrt Compression Extension
+ * amoib Compression Extension
  *
  * Native DEFLATE/gzip compression and decompression using miniz.
  * Registers pal.nativeCompress and pal.nativeDecompress on the JS pal object.
@@ -17,14 +17,14 @@
  *     within the final buffer (no intermediate memcpy of compressed data)
  *   - stream.adler used for zlib Adler-32 (no separate input scan)
  *
- * When QWRT_WITH_COMPRESS is not defined, the extension compiles but does
+ * When AM_WITH_COMPRESS is not defined, the extension compiles but does
  * nothing — CompressionStream/DecompressionStream will throw
  * "Native compression extension not available".
  */
 
-#include "qwrt_internal.h"
+#include "am_internal.h"
 
-#if QWRT_WITH_COMPRESS
+#if AM_WITH_COMPRESS
 
 #include <miniz.h>
 #include <string.h>
@@ -174,7 +174,7 @@ static JSValue js_pal_native_compress(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *in_bytes;
     size_t in_len;
-    if (qwrt_js_extract_bytes(ctx, argv[0], &in_bytes, &in_len) < 0) {
+    if (am_js_extract_bytes(ctx, argv[0], &in_bytes, &in_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeCompress: data must be ArrayBuffer or Uint8Array");
     }
 
@@ -240,7 +240,7 @@ static JSValue js_pal_native_compress(JSContext *ctx, JSValueConst this_val,
         buf[1] = 0x8B;  /* ID2 */
         buf[2] = 0x08;  /* CM = deflate */
         buf[3] = 0x00;  /* FLG = no extra fields */
-        qwrt_wr32(buf + 4, 0);  /* MTIME = 0 */
+        am_wr32(buf + 4, 0);  /* MTIME = 0 */
         buf[8] = 0x00;  /* XFL */
         buf[9] = 0xFF;  /* OS = unknown */
     }
@@ -265,11 +265,11 @@ static JSValue js_pal_native_compress(JSContext *ctx, JSValueConst this_val,
 
     /* Write trailer */
     if (fmt == FORMAT_DEFLATE) {
-        qwrt_wr32(buf + hdr_size + raw_len, (uint32_t)adler);
+        am_wr32(buf + hdr_size + raw_len, (uint32_t)adler);
     } else {
         uint32_t crc = (uint32_t)mz_crc32(MZ_CRC32_INIT, in_bytes, in_len);
-        qwrt_wr32(buf + hdr_size + raw_len, crc);
-        qwrt_wr32(buf + hdr_size + raw_len + 4, (uint32_t)(in_len & 0xFFFFFFFFu));
+        am_wr32(buf + hdr_size + raw_len, crc);
+        am_wr32(buf + hdr_size + raw_len + 4, (uint32_t)(in_len & 0xFFFFFFFFu));
     }
 
     size_t total_len = hdr_size + raw_len + trl_size;
@@ -299,7 +299,7 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *in_bytes;
     size_t in_len;
-    if (qwrt_js_extract_bytes(ctx, argv[0], &in_bytes, &in_len) < 0) {
+    if (am_js_extract_bytes(ctx, argv[0], &in_bytes, &in_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeDecompress: data must be ArrayBuffer or Uint8Array");
     }
 
@@ -350,7 +350,7 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 
         if (flg & 0x04) {  /* FEXTRA */
             if (offset + 2 > in_len) return JS_ThrowTypeError(ctx, "nativeDecompress: truncated gzip extra");
-            uint16_t xlen = qwrt_rd16(in_bytes + offset);
+            uint16_t xlen = am_rd16(in_bytes + offset);
             if (offset + 2 + xlen > in_len) return JS_ThrowTypeError(ctx, "nativeDecompress: truncated gzip extra field");
             offset += 2 + xlen;
         }
@@ -392,15 +392,15 @@ static JSValue js_pal_native_decompress(JSContext *ctx, JSValueConst this_val,
 
     /* Verify checksums */
     if (fmt == FORMAT_DEFLATE) {
-        uint32_t expected_adler = qwrt_rd32(in_bytes + in_len - 4);
+        uint32_t expected_adler = am_rd32(in_bytes + in_len - 4);
         uint32_t actual_adler = (uint32_t)mz_adler32(1, out, out_len);
         if (actual_adler != expected_adler) {
             js_free(ctx, out);
             return JS_ThrowTypeError(ctx, "nativeDecompress: zlib Adler-32 checksum mismatch");
         }
     } else if (fmt == FORMAT_GZIP) {
-        uint32_t expected_crc = qwrt_rd32(in_bytes + in_len - 8);
-        uint32_t expected_size = qwrt_rd32(in_bytes + in_len - 4);
+        uint32_t expected_crc = am_rd32(in_bytes + in_len - 8);
+        uint32_t expected_size = am_rd32(in_bytes + in_len - 4);
         if ((out_len & 0xFFFFFFFFu) != expected_size) {
             js_free(ctx, out);
             return JS_ThrowTypeError(ctx, "nativeDecompress: gzip ISIZE mismatch");
@@ -437,8 +437,8 @@ static JSValue js_pal_native_bytes_equal(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *a_bytes, *b_bytes;
     size_t a_len, b_len;
-    if (qwrt_js_extract_bytes(ctx, argv[0], &a_bytes, &a_len) < 0 ||
-        qwrt_js_extract_bytes(ctx, argv[1], &b_bytes, &b_len) < 0) {
+    if (am_js_extract_bytes(ctx, argv[0], &a_bytes, &a_len) < 0 ||
+        am_js_extract_bytes(ctx, argv[1], &b_bytes, &b_len) < 0) {
         return JS_ThrowTypeError(ctx, "nativeBytesEqual: arguments must be ArrayBuffer or Uint8Array");
     }
 
@@ -466,7 +466,7 @@ typedef struct {
 
 static void compress_deflate_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    am_t *rt = am_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     compress_stream_ctx *c = JS_GetOpaque(val, rt->compress_deflate_class_id);
     if (c) {
@@ -477,7 +477,7 @@ static void compress_deflate_finalizer(JSRuntime *jsrt, JSValue val)
 
 static void compress_inflate_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    qwrt_t *rt = qwrt_get_rt_from_jsrt(jsrt);
+    am_t *rt = am_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     compress_stream_ctx *c = JS_GetOpaque(val, rt->compress_inflate_class_id);
     if (c) {
@@ -486,7 +486,7 @@ static void compress_inflate_finalizer(JSRuntime *jsrt, JSValue val)
     }
 }
 
-static void compress_register_classes(qwrt_t *rt, JSContext *ctx)
+static void compress_register_classes(am_t *rt, JSContext *ctx)
 {
     JSRuntime *jsrt = JS_GetRuntime(ctx);
 
@@ -508,7 +508,7 @@ static void compress_register_classes(qwrt_t *rt, JSContext *ctx)
 static int compress_get_handle(JSContext *ctx, JSValueConst val, JSClassID cid,
                                compress_stream_ctx **out)
 {
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return -1;
     compress_stream_ctx *c = JS_GetOpaque(val, cid);
     if (!c || !c->inited) return -1;
@@ -520,7 +520,7 @@ static JSValue js_pal_deflate_create(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
     (void)this_val; (void)argc; (void)argv;
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     compress_stream_ctx *c = js_malloc(ctx, sizeof(*c));
     if (!c) return JS_ThrowOutOfMemory(ctx);
@@ -546,7 +546,7 @@ static JSValue js_pal_deflate_push(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
     (void)this_val;
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     compress_stream_ctx *c = NULL;
     if (argc < 2 || compress_get_handle(ctx, argv[0], rt->compress_deflate_class_id, &c) < 0)
@@ -554,7 +554,7 @@ static JSValue js_pal_deflate_push(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *in;
     size_t in_len;
-    if (qwrt_js_extract_bytes(ctx, argv[1], &in, &in_len) < 0)
+    if (am_js_extract_bytes(ctx, argv[1], &in, &in_len) < 0)
         return JS_ThrowTypeError(ctx, "deflatePush: data must be ArrayBuffer or Uint8Array");
     if (in_len > UINT_MAX)
         return JS_ThrowRangeError(ctx, "deflatePush: input too large (max 4GB)");
@@ -615,7 +615,7 @@ static JSValue js_pal_deflate_free(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
     (void)this_val;
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 1) return JS_UNDEFINED;
     compress_stream_ctx *c = JS_GetOpaque(argv[0], rt->compress_deflate_class_id);
@@ -632,7 +632,7 @@ static JSValue js_pal_inflate_create(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
     (void)this_val; (void)argc; (void)argv;
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     compress_stream_ctx *c = js_malloc(ctx, sizeof(*c));
     if (!c) return JS_ThrowOutOfMemory(ctx);
@@ -657,7 +657,7 @@ static JSValue js_pal_inflate_push(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
     (void)this_val;
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     compress_stream_ctx *c = NULL;
     if (argc < 2 || compress_get_handle(ctx, argv[0], rt->compress_inflate_class_id, &c) < 0)
@@ -665,7 +665,7 @@ static JSValue js_pal_inflate_push(JSContext *ctx, JSValueConst this_val,
 
     const uint8_t *in;
     size_t in_len;
-    if (qwrt_js_extract_bytes(ctx, argv[1], &in, &in_len) < 0)
+    if (am_js_extract_bytes(ctx, argv[1], &in, &in_len) < 0)
         return JS_ThrowTypeError(ctx, "inflatePush: data must be ArrayBuffer or Uint8Array");
     if (in_len > UINT_MAX)
         return JS_ThrowRangeError(ctx, "inflatePush: input too large (max 4GB)");
@@ -718,7 +718,7 @@ static JSValue js_pal_inflate_free(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
     (void)this_val;
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 1) return JS_UNDEFINED;
     compress_stream_ctx *c = JS_GetOpaque(argv[0], rt->compress_inflate_class_id);
@@ -735,9 +735,9 @@ static JSValue js_pal_inflate_free(JSContext *ctx, JSValueConst this_val,
  * Extension hooks
  * ================================================================ */
 
-static int compress_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
+static int compress_ext_init(am_ext_t *ext, am_t *rt)
 {
-    JSContext *ctx = qwrt_get_active_jsctx(rt);
+    JSContext *ctx = am_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);
@@ -782,15 +782,15 @@ static int compress_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
     return 0;
 }
 
-#endif /* QWRT_WITH_COMPRESS */
+#endif /* AM_WITH_COMPRESS */
 
 /* ================================================================
  * Extension definition
  * ================================================================ */
 
-const qwrt_ext_t qwrt_compress_ext = {
+const am_ext_t am_compress_ext = {
     .name = "compress",
-#if QWRT_WITH_COMPRESS
+#if AM_WITH_COMPRESS
     .init = compress_ext_init,
     .destroy = NULL,
     .suspend = NULL,

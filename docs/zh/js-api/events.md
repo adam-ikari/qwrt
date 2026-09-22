@@ -1,6 +1,6 @@
 ---
 title: EventTarget / Event
-description: Qwrt.js 中的 EventTarget 和 Event API —— addEventListener、dispatchEvent、CustomEvent 以及事件传播。
+description: Amoib.js 中的 EventTarget 和 Event API —— addEventListener、dispatchEvent、CustomEvent 以及事件传播。
 ---
 
 # EventTarget / Event / CustomEvent / ErrorEvent
@@ -77,7 +77,7 @@ let event = new Event('load');
 let cancelable = new Event('submit', {
     bubbles: true,        // 向上传播
     cancelable: true,     // 可以被取消
-    composed: true        // 跨越 shadow DOM 边界（在 qwrt 中不相关）
+    composed: true        // 跨越 shadow DOM 边界（在 amoib 中不相关）
 });
 ```
 
@@ -163,7 +163,7 @@ flowchart TB
     B --> C["3. 冒泡阶段（带有 { capture: false } 的监听器，默认）"]
 ```
 
-由于 qwrt 没有 DOM 树，冒泡/捕获只有在你构建自己的事件层次结构时才有意义。
+由于 amoib 没有 DOM 树，冒泡/捕获只有在你构建自己的事件层次结构时才有意义。
 
 ## 注意事项
 

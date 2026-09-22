@@ -38,7 +38,7 @@ updated: "2026-09-14T05:34:30"
 
 ## 2026-09-11 C 层 JSON：vendored cJSON（裁决反转）
 
-- **裁决**：C 层 JSON 解析/序列化一律使用 vendored 官方库快照 **cJSON v1.7.19**（`deps/cjson/`，上游 commit c859b25，MIT，上游原样纯快照，**禁 submodule**），禁自制轮子。本裁决推翻同日早先的"手写共享份"方案（37d1e9c2：control/ipc JSON 归并手写 `qwrt_json_*`），由用户指令"不要手写"触发，落地 commit 08985bb8（净删 201 行手写 JSON 基建；验证 offline 20/20、dap 3/3、mp1_process_e2e PASS）。
+- **裁决**：C 层 JSON 解析/序列化一律使用 vendored 官方库快照 **cJSON v1.7.19**（`deps/cjson/`，上游 commit c859b25，MIT，上游原样纯快照，**禁 submodule**），禁自制轮子。本裁决推翻同日早先的"手写共享份"方案（37d1e9c2：control/ipc JSON 归并手写 `am_json_*`），由用户指令"不要手写"触发，落地 commit 08985bb8（净删 201 行手写 JSON 基建；验证 offline 20/20、dap 3/3、mp1_process_e2e PASS）。
 - **唯一例外**：宿主 `cli.c` 的最小 escape——只 include cJSON 公共头，宿主边界不新增运行时 JSON 基建。
 
 新模块默认自制 + harness 测试；要引库时先对三条件逐条举证，并核对上面的基线裁决；观察对象只在触发条件成立时换，触发条件变更须走本页 update-truth；"保留"裁决按复核机制周期性重举证，CVE 与规范演进立即触发。
@@ -84,7 +84,7 @@ updated: "2026-09-14T05:34:30"
 
 - time: 2026-09-11T12:18:37
   kind: reversal
-  summary: "2026-09-11 用户指令\"不要手写\"推翻同日早先\"C 层 JSON 手写共享份\"裁决（37d1e9c2：control/ipc 归并手写 qwrt_json_*）：C 层 JSON 一律 vendored 官方库快照（cJSON v1.7.19，deps/cjson/ 快照 c859b25，MIT，禁 submodule），禁自制轮子；宿主 cli.c 最小 escape 为唯一例外（只 include 公共头）。落地 commit 08985bb8（净删 201 行），验证 offline 20/20、dap 3/3、mp1_process_e2e PASS"
+  summary: "2026-09-11 用户指令\"不要手写\"推翻同日早先\"C 层 JSON 手写共享份\"裁决（37d1e9c2：control/ipc 归并手写 am_json_*）：C 层 JSON 一律 vendored 官方库快照（cJSON v1.7.19，deps/cjson/ 快照 c859b25，MIT，禁 submodule），禁自制轮子；宿主 cli.c 最小 escape 为唯一例外（只 include 公共头）。落地 commit 08985bb8（净删 201 行），验证 offline 20/20、dap 3/3、mp1_process_e2e PASS"
   affects: [c-js-layering]
 
 - time: 2026-09-11T13:59:39

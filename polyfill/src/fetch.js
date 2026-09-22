@@ -1,5 +1,5 @@
 /**
- * qwrt Polyfill - fetch API
+ * amoib Polyfill - fetch API
  *
  * Implements WHATWG Fetch standard: Headers, Request, Response, fetch()
  * Uses pal.httpRequestStream(url, method, headers_json, body, onHeaders, onData, onEnd)
@@ -752,7 +752,7 @@ export function setupFetch(pal) {
     }
 
     /* SW-1：Service Worker fetch 拦截。存在 activated 控制器时把请求交给
-     * service-worker.js 的 __qwrt_sw_intercept__（request + 已序列化 body）。
+     * service-worker.js 的 __am_sw_intercept__（request + 已序列化 body）。
      * 返回 true = SW 接管本请求；超时 / SW 回退时由其调用 onFallback(bytes)
      * 续走网络路径（bytes 复用，避免二次消费流式 body）。SW 明确回退后
      * swBypassed 置位，同一请求不再重复派发（防 SW-网络-SW 死循环）。
@@ -761,9 +761,9 @@ export function setupFetch(pal) {
     var swBypassed = false;
     function swDispatch(bytes, onFallback) {
       if (swBypassed) return false;
-      if (globalThis.__qwrt_sw_mode__) return false; /* SW 线程内不递归拦截 */
+      if (globalThis.__am_sw_mode__) return false; /* SW 线程内不递归拦截 */
       var svc = globalThis.navigator && globalThis.navigator.serviceWorker;
-      if (!svc || typeof svc.__qwrt_sw_intercept__ !== 'function') return false;
+      if (!svc || typeof svc.__am_sw_intercept__ !== 'function') return false;
       var settleHook = null;
       var oldOnAbort = onAbort;
       if (request.signal && onAbort) {
@@ -778,7 +778,7 @@ export function setupFetch(pal) {
         };
         settleHook = cleanupAbort;
       }
-      var taken = svc.__qwrt_sw_intercept__(request, bytes, resolve, reject,
+      var taken = svc.__am_sw_intercept__(request, bytes, resolve, reject,
         function(fbBytes) { swBypassed = true; onFallback(fbBytes); },
         settleHook) === true;
       if (!taken && settleHook) { onAbort = oldOnAbort; }
@@ -942,13 +942,13 @@ export function setupFetch(pal) {
       /* 网络错误(连接/握手/TLS 失败/代理拒绝)且 fetch promise 尚未 settle:
        * 必须 reject，否则 fetch 永远 pending。errorStatus 语义：
        *   0      — 正常完成；
-       *   < 0    — qwrt 错误码（网络/TLS/无效参数…）；
+       *   < 0    — amoib 错误码（网络/TLS/无效参数…）；
        *   > 0    — 代理拒绝时透传的 HTTP 状态（407/403，来自 CONNECT 失败）。 */
       if (errorStatus !== 0 && !resolved) {
         if (errorStatus > 0) {
           reject(new TypeError('fetch failed: proxy error HTTP ' + errorStatus));
         } else if (errorStatus === -6) {
-          /* QWRT_ERR_INVALID_ARG：多为无效/不支持的代理 URL（含 https:// 代理） */
+          /* AM_ERR_INVALID_ARG：多为无效/不支持的代理 URL（含 https:// 代理） */
           reject(new TypeError('fetch failed: invalid proxy URL'));
         } else {
           reject(new TypeError('fetch failed: network error ' + errorStatus));

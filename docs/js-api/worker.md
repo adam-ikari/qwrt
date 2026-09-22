@@ -1,11 +1,11 @@
 ---
 title: Worker
-description: The Web Worker API in Qwrt.js — Worker class, postMessage, terminate, worker-side globals, and message passing.
+description: The Web Worker API in Amoib.js — Worker class, postMessage, terminate, worker-side globals, and message passing.
 ---
 
 # Worker API
 
-A W3C-style `Worker` class backed by a real qwrt runtime thread. Each worker is its own `qwrt_t` with its own thread, event loop, and JS runtime (execution model A).
+A W3C-style `Worker` class backed by a real amoib runtime thread. Each worker is its own `am_t` with its own thread, event loop, and JS runtime (execution model A).
 
 ## Global
 
@@ -80,7 +80,7 @@ onmessage = (ev) => {
 ## Message passing
 
 - Messages travel as [structured-clone](/js-api/structured-clone) bytes over each thread's inbound queue.
-- Parent → worker delivery dispatches through `__qwrt_dispatch__`; the worker-side boot shim deserializes and fires a `MessageEvent`.
+- Parent → worker delivery dispatches through `__am_dispatch__`; the worker-side boot shim deserializes and fires a `MessageEvent`.
 - `MessagePort`s can be transferred alongside a message (both parent→worker and worker→parent), including multi-hop forwarding between threads.
 
 ## Error handling

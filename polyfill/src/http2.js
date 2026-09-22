@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: HTTP/2 client stack (RFC 7540) — pure JS over pal.tcp*.
+ * amoib polyfill: HTTP/2 client stack (RFC 7540) — pure JS over pal.tcp*.
  *
  * Scope (gRPC/HTTP2 Phase 1): a client-side h2 engine — frame codec, HPACK
  * header (de)compression (via hpack.js), stream multiplexing, per-stream +
@@ -652,8 +652,8 @@ function utf8(s) {
 export function setupHttp2(pal) {
   _pal = pal;
   if (typeof pal.tcpConnect === 'function') {
-    globalThis.qwrt = globalThis.qwrt || {};
-    globalThis.qwrt.http2 = { HTTP2Client: HTTP2Client };
+    globalThis.amoib = globalThis.amoib || {};
+    globalThis.amoib.http2 = { HTTP2Client: HTTP2Client };
   }
 }
 

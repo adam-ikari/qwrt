@@ -1,15 +1,15 @@
 #!/bin/bash
 # SW-1 e2e — fetch 拦截三场景：SW 合成响应（respondWith）/ SW 内 fetch
 # 透传（防重入 + 真实网络回退 serve()）/ 未 respondWith 回退网络。
-# 期望输出逐行匹配。用法: bash test/service_worker_sw1_e2e.sh <path-to-qwrt>
+# 期望输出逐行匹配。用法: bash test/service_worker_sw1_e2e.sh <path-to-amoib>
 set -u
-QWRT="${1:-./build_grpc2/qwrt}"
+AM="${1:-./build_grpc2/amoib}"
 DIR="$(cd "$(dirname "$0")/sw-e2e" && pwd)"
 
-TMP="$(mktemp /tmp/qwrt-sw1.XXXXXX.js)" || exit 1
+TMP="$(mktemp /tmp/amoib-sw1.XXXXXX.js)" || exit 1
 trap 'rm -f "$TMP"' EXIT
 sed "s|__SW_DIR__|$DIR|g" "$DIR/main-sw1.js" > "$TMP"
-OUT="$(timeout 20 "$QWRT" "$TMP" 2>&1)"
+OUT="$(timeout 20 "$AM" "$TMP" 2>&1)"
 EXPECTED='SW1 install
 SW1 activate
 p1: 201 1 intercepted:GET

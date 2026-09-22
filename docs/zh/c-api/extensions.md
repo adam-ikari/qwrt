@@ -1,18 +1,18 @@
 # 扩展（C API）
 
-扩展是向 JS 上下文添加全局对象和函数的原生 C 模块。它们实现 `qwrt_ext_t` 接口及其生命周期钩子。
+扩展是向 JS 上下文添加全局对象和函数的原生 C 模块。它们实现 `am_ext_t` 接口及其生命周期钩子。
 
-## `qwrt_ext_t`
+## `am_ext_t`
 
 ```c
-typedef struct qwrt_ext_t {
+typedef struct am_ext_t {
     const char *name;
-    int (*init)(qwrt_ext_t *ext, qwrt_t *rt);
-    void (*destroy)(qwrt_ext_t *ext, qwrt_t *rt);
-    int (*suspend)(qwrt_ext_t *ext, qwrt_t *rt);
-    int (*resume)(qwrt_ext_t *ext, qwrt_t *rt);
+    int (*init)(am_ext_t *ext, am_t *rt);
+    void (*destroy)(am_ext_t *ext, am_t *rt);
+    int (*suspend)(am_ext_t *ext, am_t *rt);
+    int (*resume)(am_ext_t *ext, am_t *rt);
     void *user_data;
-} qwrt_ext_t;
+} am_ext_t;
 ```
 
 | 字段 | 描述 |
@@ -26,43 +26,43 @@ typedef struct qwrt_ext_t {
 
 ## 注册模型
 
-扩展在**编译期**通过 `QWRT_EXTENSIONS` 宏注册（定义在 `include/qwrt/qwrt_ext_registry.h` 中）。没有运行时注册 API — 扩展集在 qwrt 库编译时固定。
+扩展在**编译期**通过 `AM_EXTENSIONS` 宏注册（定义在 `include/amoib/am_ext_registry.h` 中）。没有运行时注册 API — 扩展集在 amoib 库编译时固定。
 
 ```c
-// include/qwrt/qwrt_ext_registry.h
-#define QWRT_DEFAULT_EXTENSIONS \
-    QWRT_EXT_IF_WITH(COMPRESS,   &qwrt_compress_ext) \
-    QWRT_EXT_IF_WITH(CRYPTO_EXT, &qwrt_crypto_ext)   \
-    QWRT_EXT_IF_WITH(TEXTCODEC,  &qwrt_textcodec_ext) \
-    QWRT_EXT_IF_WITH(WAMR,       &qwrt_wamr_ext)
+// include/amoib/am_ext_registry.h
+#define AM_DEFAULT_EXTENSIONS \
+    AM_EXT_IF_WITH(COMPRESS,   &am_compress_ext) \
+    AM_EXT_IF_WITH(CRYPTO_EXT, &am_crypto_ext)   \
+    AM_EXT_IF_WITH(TEXTCODEC,  &am_textcodec_ext) \
+    AM_EXT_IF_WITH(WAMR,       &am_wamr_ext)
 ```
 
-父项目通过在包含 qwrt 子目录之前覆盖 `QWRT_EXTENSIONS` 来添加自定义扩展：
+父项目通过在包含 amoib 子目录之前覆盖 `AM_EXTENSIONS` 来添加自定义扩展：
 
 ```cmake
-set(QWRT_EXTENSIONS "QWRT_DEFAULT_EXTENSIONS, &my_extension")
-set(QWRT_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
-add_subdirectory(deps/qwrt)
+set(AM_EXTENSIONS "AM_DEFAULT_EXTENSIONS, &my_extension")
+set(AM_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
+add_subdirectory(deps/amoib)
 ```
 
 ## 内置扩展
 
 | 扩展 | CMake 选项 | JS API |
 |-----------|-------------|-------|
-| `ext_compress` | `QWRT_WITH_COMPRESS` | gzip/zlib/deflate |
-| `ext_crypto` | `QWRT_WITH_CRYPTO_EXT` | crypto.subtle（SHA、HMAC、PBKDF2、AES-GCM） |
-| `ext_textcodec` | `QWRT_WITH_TEXTCODEC` | TextEncoder、TextDecoder |
-| `ext_wamr` | `QWRT_WITH_WAMR` | WebAssembly（WAMR，默认） |
-| `ext_wasm3` | `QWRT_WITH_WASM3` | WebAssembly（wasm3，可选） |
+| `ext_compress` | `AM_WITH_COMPRESS` | gzip/zlib/deflate |
+| `ext_crypto` | `AM_WITH_CRYPTO_EXT` | crypto.subtle（SHA、HMAC、PBKDF2、AES-GCM） |
+| `ext_textcodec` | `AM_WITH_TEXTCODEC` | TextEncoder、TextDecoder |
+| `ext_wamr` | `AM_WITH_WAMR` | WebAssembly（WAMR，默认） |
+| `ext_wasm3` | `AM_WITH_WASM3` | WebAssembly（wasm3，可选） |
 
 ## 编写扩展
 
 ```c
-#include <qwrt/qwrt.h>
+#include <amoib/amoib.h>
 #include <quickjs.h>
 
-static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+static int my_ext_init(am_ext_t *ext, am_t *rt) {
+    JSContext *ctx = am_get_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);
@@ -73,11 +73,11 @@ static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
     return 0;
 }
 
-static void my_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt) {
+static void my_ext_destroy(am_ext_t *ext, am_t *rt) {
     // 释放任何扩展特定资源
 }
 
-qwrt_ext_t my_extension = {
+am_ext_t my_extension = {
     .name = "my_extension",
     .init = my_ext_init,
     .destroy = my_ext_destroy,
@@ -89,14 +89,14 @@ qwrt_ext_t my_extension = {
 
 ## 每个运行时的数据
 
-`qwrt_ext_t.user_data` 在所有运行时之间共享。对于每个实例的状态，使用 `config.host_data`：
+`am_ext_t.user_data` 在所有运行时之间共享。对于每个实例的状态，使用 `config.host_data`：
 
 ```c
-qwrt_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
-qwrt_t *rt = qwrt_create(&cfg);
+am_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
+am_t *rt = am_create(&cfg);
 
 // 在扩展 init 内部：
-my_state_t *st = (my_state_t *)qwrt_get_runtime_data(rt);
+my_state_t *st = (my_state_t *)am_get_runtime_data(rt);
 ```
 
 ## 参见

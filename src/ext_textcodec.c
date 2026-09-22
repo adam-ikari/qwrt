@@ -1,5 +1,5 @@
 /*
- * qwrt TextCodec Extension
+ * amoib TextCodec Extension
  *
  * Native UTF-8 encode/decode and Base64 encode/decode.
  * Registers pal.nativeEncodeUtf8, pal.nativeBtoa, pal.nativeAtob on the JS pal object.
@@ -9,9 +9,9 @@
  * per-character JS function call overhead and string concatenation.
  */
 
-#include "qwrt_internal.h"
+#include "am_internal.h"
 
-#if QWRT_WITH_TEXTCODEC
+#if AM_WITH_TEXTCODEC
 
 #include <string.h>
 #include <stdlib.h>
@@ -212,9 +212,9 @@ static JSValue js_pal_native_atob(JSContext *ctx, JSValueConst this_val,
  * Extension hooks
  * ================================================================ */
 
-static int textcodec_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
+static int textcodec_ext_init(am_ext_t *ext, am_t *rt)
 {
-    JSContext *ctx = qwrt_get_active_jsctx(rt);
+    JSContext *ctx = am_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);
@@ -245,32 +245,32 @@ static int textcodec_ext_init(qwrt_ext_t *ext, qwrt_t *rt)
     return 0;
 }
 
-static void textcodec_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt)
+static void textcodec_ext_destroy(am_ext_t *ext, am_t *rt)
 {
     (void)ext; (void)rt;
 }
 
-static int textcodec_ext_suspend(qwrt_ext_t *ext, qwrt_t *rt)
-{
-    (void)ext; (void)rt;
-    return 0;
-}
-
-static int textcodec_ext_resume(qwrt_ext_t *ext, qwrt_t *rt)
+static int textcodec_ext_suspend(am_ext_t *ext, am_t *rt)
 {
     (void)ext; (void)rt;
     return 0;
 }
 
-#endif /* QWRT_WITH_TEXTCODEC */
+static int textcodec_ext_resume(am_ext_t *ext, am_t *rt)
+{
+    (void)ext; (void)rt;
+    return 0;
+}
+
+#endif /* AM_WITH_TEXTCODEC */
 
 /* ================================================================
  * Extension definition
  * ================================================================ */
 
-const qwrt_ext_t qwrt_textcodec_ext = {
+const am_ext_t am_textcodec_ext = {
     .name = "textcodec",
-#if QWRT_WITH_TEXTCODEC
+#if AM_WITH_TEXTCODEC
     .init = textcodec_ext_init,
     .destroy = textcodec_ext_destroy,
     .suspend = textcodec_ext_suspend,

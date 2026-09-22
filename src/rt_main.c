@@ -1,10 +1,10 @@
 /*
- * qwrt-rt — standalone child-process binary for the multi-process model.
+ * amoib-rt — standalone child-process binary for the multi-process model.
  *
  * 两种形态（由 argv 选择）：
- *   1) worker 进程（M-P1）：--qwrt-worker --parent-fd N --worker-id K [--script PATH]
+ *   1) worker 进程（M-P1）：--amoib-worker --parent-fd N --worker-id K [--script PATH]
  *      worker 自己的 JSRuntime + worker-boot 垫片，服务一个 worker JS。
- *   2) 主RT 进程（M-P2）：--qwrt-rt-server --parent-fd N [--script PATH]
+ *   2) 主RT 进程（M-P2）：--amoib-rt-server --parent-fd N [--script PATH]
  *                            [--worker-backend 0|1]
  *      父运行时语义（无 worker_self）：跑宿主 initial_script，与宿主一条 IPC
  *      通道（信封 payload = JSON 文本；宿主 post_message 的 json 原样透传）；
@@ -13,17 +13,17 @@
  * Lifecycle:
  *   1. Parse argv
  *   2. Handshake on raw parent-fd (child sends first, waits for ack, 5s)
- *   3. Init qwrt_t (loop + wake + runtime + polyfill)
+ *   3. Init am_t (loop + wake + runtime + polyfill)
  *   4. uv_pipe_open(parent-fd) + uv_read_start (frame accumulator → msgq)
  *   5. worker: eval worker boot bytecode + script / server: eval initial script,
- *      然后回 CONTROL{ready}（宿主 qwrt_create 据此判定成功）
+ *      然后回 CONTROL{ready}（宿主 am_create 据此判定成功）
  *   6. Main loop (uv_run(ONCE) + flush microtasks; server 形态含 idle 检测)
  *   7. EOF on parent-fd → shutting_down → teardown → exit(0)
  *
  * Design: docs/plans/2026-09-04-multi-process-model.md §5, §6.2, §9.2, M-P1/M-P2.
  */
 
-#include "qwrt_internal.h"
+#include "am_internal.h"
 #include "ipc_process.h"
 #include <stdlib.h>
 #include <string.h>
@@ -59,30 +59,30 @@ static int has_substring(const uint8_t *hay, size_t hlen, const char *needle)
 
 
 /* ── Wake callback: drain msgq and dispatch ──
- * worker 形态走 qwrt_worker_dispatch（worker-boot 垫片语义）；主RT 形态（M-P2）
- * 走 qwrt_dispatch_message + 逐条微任务冲刷——与 thread.c 的 qwrt_wake_cb 完全
+ * worker 形态走 am_worker_dispatch（worker-boot 垫片语义）；主RT 形态（M-P2）
+ * 走 am_dispatch_message + 逐条微任务冲刷——与 thread.c 的 am_wake_cb 完全
  * 同构（宿主消息即主 runtime 的 onmessage）。 */
 
-static int g_server_mode;   /* 1 = --qwrt-rt-server（主RT 进程，M-P2） */
+static int g_server_mode;   /* 1 = --amoib-rt-server（主RT 进程，M-P2） */
 static int32_t g_local_id;  /* CTL-1：本节点槽位 id（主RT=1 / worker=--worker-id） */
 
-static void process_rx(qwrt_t *rt);   /* 帧累加器解码；child_storage_sync 在其前定义 */
+static void process_rx(am_t *rt);   /* 帧累加器解码；child_storage_sync 在其前定义 */
 
 static void child_wake_cb(uv_async_t *a)
 {
-    qwrt_t *rt = (qwrt_t *)a->data;
+    am_t *rt = (am_t *)a->data;
     if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return;
-    qwrt_msg_t *m;
-    while ((m = qwrt_msg_pop(rt)) != NULL) {
+    am_msg_t *m;
+    while ((m = am_msg_pop(rt)) != NULL) {
         /* CONTROL（flags==1）→ control dispatch；其余（含 PORT_TRANSFER 的
          * flags==2）走运行时的应用消息派发，kind 作为第三参交给 JS。 */
-        if (m->flags == QWRT_MSG_FLAG_CONTROL) {
-            qwrt_control_dispatch(rt, m);
+        if (m->flags == AM_MSG_FLAG_CONTROL) {
+            am_control_dispatch(rt, m);
         } else if (g_server_mode) {
-            qwrt_dispatch_message(rt, m);
-            qwrt_flush_microtasks(rt);
+            am_dispatch_message(rt, m);
+            am_flush_microtasks(rt);
         } else {
-            qwrt_worker_dispatch(rt, m);
+            am_worker_dispatch(rt, m);
         }
     }
 }
@@ -90,10 +90,10 @@ static void child_wake_cb(uv_async_t *a)
 /* ── 主RT 形态：宿主边界出站（§6.2）──
  * bridge.c 的宿主 postMessage 路径调 config.message_cb（JSON 文本），此处把它
  * 装成 MESSAGE 信封上行给宿主。跑在 JS 线程 = loop 线程，tx 写路径单线程独占。 */
-static void server_emit_cb(qwrt_t *rt, const char *json, size_t len, void *data)
+static void server_emit_cb(am_t *rt, const char *json, size_t len, void *data)
 {
-    QWRT_UNUSED(rt); QWRT_UNUSED(data);
-    qwrt_ipc_child_emit(QWRT_IPC_MAIN_ID, QWRT_IPC_HOST_ID,
+    AM_UNUSED(rt); AM_UNUSED(data);
+    am_ipc_child_emit(AM_IPC_MAIN_ID, AM_IPC_HOST_ID,
                         IPC_ENV_KIND_MESSAGE,
                         0,
                         (const uint8_t *)json, (uint32_t)len);
@@ -101,18 +101,18 @@ static void server_emit_cb(qwrt_t *rt, const char *json, size_t len, void *data)
 
 /* 主RT 形态的 CONTROL 分流（§6.1）：M-P2 协议消息在管道读路径就地消化；
  * 其余 CONTROL（控制面消息等）照 worker 形态推入 msgq flags=1。 */
-static void server_handle_control(qwrt_t *rt, const ipc_envelope_view_t *view)
+static void server_handle_control(am_t *rt, const ipc_envelope_view_t *view)
 {
     int val = 0;
-    qwrt_ipc_ctl_kind_t kind =
-        qwrt_ipc_ctl_classify(view->payload, view->payload_len, &val);
-    if (kind == QWRT_IPC_CTL_IDLE && val == 0) {
+    am_ipc_ctl_kind_t kind =
+        am_ipc_ctl_classify(view->payload, view->payload_len, &val);
+    if (kind == AM_IPC_CTL_IDLE && val == 0) {
         /* 宿主请求 idle：置标志，主循环在排空后回 ack 并自身退出。 */
         __atomic_store_n(&rt->wait_idle, 1, __ATOMIC_RELEASE);
         uv_async_send(&rt->wake);
     }
     /* READY / IDLE ack / SHUTDOWN 由宿主→主RT 方向不出现；shutdown 的两种
-     * payload 形态（{"qwrt":1,"shutdown":1} 与 M-P1 的 {"cmd":"shutdown"}）统一
+     * payload 形态（{"amoib":1,"shutdown":1} 与 M-P1 的 {"cmd":"shutdown"}）统一
      * 在下方 substring 判定里处理。 */
 }
 
@@ -136,12 +136,12 @@ static int32_t g_sync_corr = 0;   /* 自身在途同步请求的关联 id（0 = 
 static uint8_t *g_sync_reply = NULL;
 static uint32_t g_sync_reply_len = 0;
 
-static int child_storage_sync(qwrt_t *rt, const uint8_t *payload,
+static int child_storage_sync(am_t *rt, const uint8_t *payload,
                               uint32_t payload_len,
                               uint8_t **out_reply, uint32_t *out_reply_len)
 {
-    qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
-    int fd = qwrt_ipc_child_channel();
+    am_worker_t *w = (am_worker_t *)rt->worker_self;
+    int fd = am_ipc_child_channel();
     *out_reply = NULL;
     *out_reply_len = 0;
     if (!w || fd < 0) return -1;
@@ -149,7 +149,7 @@ static int child_storage_sync(qwrt_t *rt, const uint8_t *payload,
      * ~5MB）远超 socket 缓冲，poll(POLLOUT) 等待父侧排空；父死 → -1。 */
     int32_t corr;
     do { corr = ++rt->storage_corr_seq; } while (corr == 0);
-    if (qwrt_ipc_child_emit_sync((int32_t)w->id, 0, IPC_ENV_KIND_STORAGE,
+    if (am_ipc_child_emit_sync((int32_t)w->id, 0, IPC_ENV_KIND_STORAGE,
                                  corr,
                                  payload, payload_len) != 0)
         return -1;
@@ -171,7 +171,7 @@ static int child_storage_sync(qwrt_t *rt, const uint8_t *payload,
         }
         if (pr == 0) continue;
         if (pfd.revents & (POLLIN | POLLHUP | POLLERR)) {
-            uint8_t tmp[QWRT_IPC_READ_BUF_SIZE];
+            uint8_t tmp[AM_IPC_READ_BUF_SIZE];
             ssize_t n = recv(fd, tmp, sizeof tmp, 0);
             if (n == 0) {
                 /* EOF：父进程死亡 → §9.4 孤儿自杀 */
@@ -222,22 +222,22 @@ static void pipe_alloc_cb(uv_handle_t *h, size_t suggested, uv_buf_t *buf)
 {
     (void)h; (void)suggested;
     /* Allocate a fixed chunk; libuv reuses it per read */
-    buf->base = (char *)malloc(QWRT_IPC_READ_BUF_SIZE);
-    buf->len = buf->base ? QWRT_IPC_READ_BUF_SIZE : 0;
+    buf->base = (char *)malloc(AM_IPC_READ_BUF_SIZE);
+    buf->len = buf->base ? AM_IPC_READ_BUF_SIZE : 0;
 }
 
 /* ── 跨层 liveness ping（§8.2 path 寻址，宿主→任意 worker）──
  * PING 过境下投：payload 字节零改写（"tp" 保留作回程过境标记），corr 保持；
  * 下一跳 = 链上第 self_path_len+1 个元素（本节点深度即已走跳数）。无对应
  * 子槽位/写失败 → 回 pfail（corr=seq）沿上行直接回宿主，不白等。 */
-static void ping_forward_down(qwrt_t *rt, int32_t source, int32_t child_slot,
+static void ping_forward_down(am_t *rt, int32_t source, int32_t child_slot,
                               int32_t corr, const uint8_t *payload,
                               uint32_t len)
 {
-    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
-        qwrt_proc_handle_t *h = &rt->proc_handles[i];
+    for (int i = 0; i < AM_MAX_PROC_HANDLES; i++) {
+        am_proc_handle_t *h = &rt->proc_handles[i];
         if (h->live && h->proc && h->proc->id == (int)child_slot) {
-            if (qwrt_proc_post(h->proc, source, child_slot,
+            if (am_proc_post(h->proc, source, child_slot,
                                IPC_ENV_KIND_CONTROL, corr,
                                payload, len) == 0)
                 return;
@@ -245,15 +245,15 @@ static void ping_forward_down(qwrt_t *rt, int32_t source, int32_t child_slot,
         }
     }
     char msg[48];
-    int n = snprintf(msg, sizeof msg, QWRT_IPC_CTL_PFAIL_FMT, corr);
+    int n = snprintf(msg, sizeof msg, AM_IPC_CTL_PFAIL_FMT, corr);
     if (n > 0 && n < (int)sizeof msg)
-        qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+        am_ipc_child_emit(g_local_id, AM_IPC_HOST_ID,
                             IPC_ENV_KIND_CONTROL, corr,
                             (const uint8_t *)msg, (uint32_t)n);
 }
 
 /* Process accumulated bytes: extract complete frames, decode, push to msgq */
-static void process_rx(qwrt_t *rt)
+static void process_rx(am_t *rt)
 {
     for (;;) {
         if (g_rx.frame_len == 0) {
@@ -287,17 +287,17 @@ static void process_rx(qwrt_t *rt)
                 int ctl_val = 0;    /* CTL-1：CONTROL 命令类判定 */
                 if (is_ctl && g_server_mode)
                     server_handle_control(rt, &view);
-                /* Liveness ping（{"qwrt":1,"ping":1}）：读泵 C 层就地直回
+                /* Liveness ping（{"amoib":1,"ping":1}）：读泵 C 层就地直回
                  * PONG（corr = ping seq 原样回显），不经 msgq/JS——pong 延迟
                  * 反映 uv loop 健康度（loop 阻塞在读泵 poll 里就回不了）。
                  * 跨层形态（带 "tp"，宿主→任意 worker）：本节点非目的地时
                  * 按链下投（读泵转发，不消费），仅目的地直回。 */
                 if (is_ctl && view.payload_len > 0 &&
-                    qwrt_ipc_ctl_classify(view.payload, view.payload_len,
-                                          &ctl_val) == QWRT_IPC_CTL_PING) {
-                    int32_t tp[QWRT_SELF_PATH_MAX];
-                    int tpn = qwrt_ipc_ping_tp(view.payload, view.payload_len,
-                                               tp, QWRT_SELF_PATH_MAX);
+                    am_ipc_ctl_classify(view.payload, view.payload_len,
+                                          &ctl_val) == AM_IPC_CTL_PING) {
+                    int32_t tp[AM_SELF_PATH_MAX];
+                    int tpn = am_ipc_ping_tp(view.payload, view.payload_len,
+                                               tp, AM_SELF_PATH_MAX);
                     int hop = (int)rt->self_path_len;   /* 深度 = 已走跳数 */
                     if (tpn > hop) {
                         /* 过境：tp[hop] 是本节点的下投子槽位（根=宿主直发
@@ -312,7 +312,7 @@ static void process_rx(qwrt_t *rt)
                          * 反映本节点 uv loop 健康度。） */
                         char msg[160];
                         int off = snprintf(msg, sizeof msg,
-                                           "{\"qwrt\":1,\"pong\":1,\"tp\":[");
+                                           "{\"amoib\":1,\"pong\":1,\"tp\":[");
                         int ok = off > 0 && off < (int)sizeof msg;
                         for (int i = 0; ok && i < tpn; i++) {
                             int n = snprintf(msg + off,
@@ -324,32 +324,32 @@ static void process_rx(qwrt_t *rt)
                         if (ok) {
                             msg[off++] = ']';
                             msg[off++] = '}';
-                            qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+                            am_ipc_child_emit(g_local_id, AM_IPC_HOST_ID,
                                                 IPC_ENV_KIND_CONTROL,
                                                 view.corr,
                                                 (const uint8_t *)msg,
                                                 (uint32_t)off);
                         }
                     } else {
-                        /* 单跳目的地（无 tp 的 qwrt_ping）：原样直回。 */
-                        qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+                        /* 单跳目的地（无 tp 的 am_ping）：原样直回。 */
+                        am_ipc_child_emit(g_local_id, AM_IPC_HOST_ID,
                                             IPC_ENV_KIND_CONTROL,
                                             view.corr,
-                                            (const uint8_t *)QWRT_IPC_CTL_PONG_MSG,
-                                            (uint32_t)(sizeof QWRT_IPC_CTL_PONG_MSG
+                                            (const uint8_t *)AM_IPC_CTL_PONG_MSG,
+                                            (uint32_t)(sizeof AM_IPC_CTL_PONG_MSG
                                                        - 1));
                     }
                 } else {
                     int pong_val = 0;
-                    qwrt_ipc_ctl_kind_t ck =
-                        qwrt_ipc_ctl_classify(view.payload, view.payload_len,
+                    am_ipc_ctl_kind_t ck =
+                        am_ipc_ctl_classify(view.payload, view.payload_len,
                                               &pong_val);
                     /* 跨层 PONG/pfail 过境（宿主 ping_path 发起的帧沿上行回
                      * 来）：沿父通道转发给宿主（corr/payload 保持）。本节点
                      * 自身的单跳 PONG 不会到达这里——那类帧已在子通道读泵
                      * （proc_process_rx）按 pong_seq 槽拦截。 */
-                    if (ck == QWRT_IPC_CTL_PONG || ck == QWRT_IPC_CTL_PFAIL) {
-                        qwrt_ipc_child_emit(g_local_id, QWRT_IPC_HOST_ID,
+                    if (ck == AM_IPC_CTL_PONG || ck == AM_IPC_CTL_PFAIL) {
+                        am_ipc_child_emit(g_local_id, AM_IPC_HOST_ID,
                                             IPC_ENV_KIND_CONTROL,
                                             view.corr,
                                             view.payload,
@@ -357,8 +357,8 @@ static void process_rx(qwrt_t *rt)
                     }
                 }
                 /* CONTROL{shutdown} → graceful exit (§9.2 tier 1)。两种 payload
-                 * 形态都认：M-P2 的 {"qwrt":1,"shutdown":1} 与 M-P1 三级终止
-                 * tier-1 的 {"cmd":"shutdown"}（qwrt_proc_terminate 发出）。 */
+                 * 形态都认：M-P2 的 {"amoib":1,"shutdown":1} 与 M-P1 三级终止
+                 * tier-1 的 {"cmd":"shutdown"}（am_proc_terminate 发出）。 */
                 if (is_ctl && view.payload_len > 0 &&
                     has_substring(view.payload, view.payload_len, "shutdown")) {
                     __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
@@ -385,14 +385,14 @@ static void process_rx(qwrt_t *rt)
                         /* N-P4：本节点是中继 —— owner（根）的回复按 corr 配对
                          * 下投；转发帧把下行 corr（发起子进程帧携带的原值）带回，
                          * 让子进程侧按它匹配自己的同步等待。 */
-                        for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+                        for (int i = 0; i < AM_MAX_PROC_HANDLES; i++) {
                             if (rt->storage_relays[i].up_corr != view.corr)
                                 continue;
-                            for (int j = 0; j < QWRT_MAX_PROC_HANDLES; j++) {
-                                qwrt_proc_handle_t *h = &rt->proc_handles[j];
+                            for (int j = 0; j < AM_MAX_PROC_HANDLES; j++) {
+                                am_proc_handle_t *h = &rt->proc_handles[j];
                                 if (h->live && h->proc &&
                                     h->proc->id == rt->storage_relays[i].child) {
-                                    qwrt_proc_post(h->proc, g_local_id,
+                                    am_proc_post(h->proc, g_local_id,
                                                    rt->storage_relays[i].child,
                                                    IPC_ENV_KIND_STORAGE,
                                                    rt->storage_relays[i].down_corr,
@@ -407,22 +407,22 @@ static void process_rx(qwrt_t *rt)
                     }
                 }
                 else if (is_ctl &&
-                           qwrt_ipc_ctl_classify(view.payload, view.payload_len,
+                           am_ipc_ctl_classify(view.payload, view.payload_len,
                                                  &ctl_val) ==
-                               QWRT_IPC_CTL_NONE) {
+                               AM_IPC_CTL_NONE) {
                     /* CTL-1（§2.2）：命令类 CONTROL 信封在本节点树路由——命中
                      * 本地则入 msgq（flags=CONTROL）交 dispatch，否则逐跳向上/
                      * 向下转发。系统级 CONTROL 已由上方分支消化，不受影响。 */
-                    qwrt_control_route(rt, g_local_id, view.source, view.target,
+                    am_control_route(rt, g_local_id, view.source, view.target,
                                        view.payload, view.payload_len);
                 } else {
                     /* kind → msgq flags：CONTROL 交控制面；PORT_TRANSFER 走
                      * 应用派发但 JS 拿到 kind=1，据此走 port 端点路由（M-P3）。 */
                     int flags = view.kind == IPC_ENV_KIND_CONTROL
-                                    ? QWRT_MSG_FLAG_CONTROL
+                                    ? AM_MSG_FLAG_CONTROL
                                     : (view.kind == IPC_ENV_KIND_PORT_TRANSFER
-                                           ? QWRT_MSG_FLAG_PORT_TRANSFER : 0);
-                    qwrt_msg_push(rt, (const char *)view.payload,
+                                           ? AM_MSG_FLAG_PORT_TRANSFER : 0);
+                    am_msg_push(rt, (const char *)view.payload,
                                   view.payload_len, view.source, flags);
                     uv_async_send(&rt->wake);
                 }
@@ -439,7 +439,7 @@ static void process_rx(qwrt_t *rt)
 
 static void pipe_read_cb(uv_stream_t *s, ssize_t nread, const uv_buf_t *buf)
 {
-    qwrt_t *rt = (qwrt_t *)s->data;
+    am_t *rt = (am_t *)s->data;
 
     if (nread < 0) {
         /* EOF or error → parent gone → self-terminate (§6.4) */
@@ -490,9 +490,9 @@ int main(int argc, char **argv)
     const char *path_arg = NULL;       /* §8.2 path 链 "k1,k2,..."（父经 argv 传） */
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--qwrt-worker") == 0) {
+        if (strcmp(argv[i], "--amoib-worker") == 0) {
             is_worker = 1;
-        } else if (strcmp(argv[i], "--qwrt-rt-server") == 0) {
+        } else if (strcmp(argv[i], "--amoib-rt-server") == 0) {
             is_server = 1;
         } else if (strcmp(argv[i], "--parent-fd") == 0 && i + 1 < argc) {
             parent_fd = atoi(argv[++i]);
@@ -503,11 +503,11 @@ int main(int argc, char **argv)
              * 免去「同构建内数值排列相同」这一隐含前提。 */
             const char *wb = argv[++i];
             if (strcmp(wb, "process") == 0)
-                worker_backend = QWRT_WORKER_BACKEND_PROCESS;
+                worker_backend = AM_WORKER_BACKEND_PROCESS;
             else if (strcmp(wb, "thread") == 0)
-                worker_backend = QWRT_WORKER_BACKEND_THREAD;
+                worker_backend = AM_WORKER_BACKEND_THREAD;
             else {
-                fprintf(stderr, "qwrt-rt: bad --worker-backend: %s\n", wb);
+                fprintf(stderr, "amoib-rt: bad --worker-backend: %s\n", wb);
                 return 1;
             }
         } else if (strcmp(argv[i], "--script") == 0 && i + 1 < argc) {
@@ -518,11 +518,11 @@ int main(int argc, char **argv)
             path_arg = argv[++i];
         } else if (strcmp(argv[i], "--control-plane") == 0 && i + 1 < argc) {
             const char *cp = argv[++i];
-            if (strcmp(cp, "off") == 0) control_plane = QWRT_CONTROL_OFF;
-            else if (strcmp(cp, "in-proc") == 0) control_plane = QWRT_CONTROL_IN_PROC;
-            else if (strcmp(cp, "local") == 0) control_plane = QWRT_CONTROL_LOCAL;
+            if (strcmp(cp, "off") == 0) control_plane = AM_CONTROL_OFF;
+            else if (strcmp(cp, "in-proc") == 0) control_plane = AM_CONTROL_IN_PROC;
+            else if (strcmp(cp, "local") == 0) control_plane = AM_CONTROL_LOCAL;
             else {
-                fprintf(stderr, "qwrt-rt: bad --control-plane: %s\n", cp);
+                fprintf(stderr, "amoib-rt: bad --control-plane: %s\n", cp);
                 return 1;
             }
         } else if (strcmp(argv[i], "--control-pipe") == 0 && i + 1 < argc) {
@@ -531,15 +531,15 @@ int main(int argc, char **argv)
     }
 
     g_server_mode = is_server;
-    /* CTL-1 本地标签：主RT 在宿主通道上恒为 1（QWRT_IPC_MAIN_ID）；worker 用
+    /* CTL-1 本地标签：主RT 在宿主通道上恒为 1（AM_IPC_MAIN_ID）；worker 用
      * --worker-id（与父侧 spawn 时登记的子槽位 id 同值）。 */
-    g_local_id = is_server ? QWRT_IPC_MAIN_ID : (int32_t)worker_id;
+    g_local_id = is_server ? AM_IPC_MAIN_ID : (int32_t)worker_id;
 
     if ((!is_worker && !is_server) || (is_worker && is_server) || parent_fd < 0) {
         fprintf(stderr,
-                "qwrt-rt: usage:\n"
-                "  qwrt-rt --qwrt-worker    --parent-fd N --worker-id K [--script PATH]\n"
-                "  qwrt-rt --qwrt-rt-server --parent-fd N [--script PATH]"
+                "amoib-rt: usage:\n"
+                "  amoib-rt --amoib-worker    --parent-fd N --worker-id K [--script PATH]\n"
+                "  amoib-rt --amoib-rt-server --parent-fd N [--script PATH]"
                 " [--worker-backend process|thread]\n");
         return 1;
     }
@@ -549,7 +549,7 @@ int main(int argc, char **argv)
     if (script_path) {
         FILE *f = fopen(script_path, "r");
         if (!f) {
-            fprintf(stderr, "qwrt-rt: cannot open script: %s\n", script_path);
+            fprintf(stderr, "amoib-rt: cannot open script: %s\n", script_path);
             return 1;
         }
         fseek(f, 0, SEEK_END);
@@ -573,12 +573,12 @@ int main(int argc, char **argv)
         char hs_json[40];
         /* 握手身份：worker 形态 = 本地槽位 id（相对直接父）；主RT 形态 =
          * 固定本地标签 1（宿主为 0，§4.3 主RT 通道上的相对寻址）。 */
-        int hs_role = is_server ? QWRT_IPC_ROLE_MAIN : QWRT_IPC_ROLE_WORKER;
-        int hs_id = is_server ? QWRT_IPC_MAIN_ID : worker_id;
-        size_t hs_len = qwrt_ipc_build_handshake(hs_json, sizeof hs_json,
+        int hs_role = is_server ? AM_IPC_ROLE_MAIN : AM_IPC_ROLE_WORKER;
+        int hs_id = is_server ? AM_IPC_MAIN_ID : worker_id;
+        size_t hs_len = am_ipc_build_handshake(hs_json, sizeof hs_json,
                                                   hs_role, hs_id);
         if (hs_len == 0) {
-            fprintf(stderr, "qwrt-rt: handshake build failed\n");
+            fprintf(stderr, "amoib-rt: handshake build failed\n");
             free(script);
             return 1;
         }
@@ -587,35 +587,35 @@ int main(int argc, char **argv)
         if (!env_buf) { free(script); return 1; }
         size_t env_len = ipc_envelope_encode(env_buf, env_cap,
                                             (int32_t)hs_id,
-                                            is_server ? QWRT_IPC_HOST_ID : 1,
+                                            is_server ? AM_IPC_HOST_ID : 1,
                                             IPC_ENV_KIND_CONTROL,
                                             0,
                                             (const uint8_t *)hs_json,
                                             (uint32_t)hs_len);
         if (env_len == 0) {
-            fprintf(stderr, "qwrt-rt: envelope encode failed\n");
+            fprintf(stderr, "amoib-rt: envelope encode failed\n");
             free(env_buf); free(script);
             return 1;
         }
-        if (qwrt_ipc_write_frame(parent_fd, env_buf, env_len) < 0) {
-            fprintf(stderr, "qwrt-rt: handshake write failed\n");
+        if (am_ipc_write_frame(parent_fd, env_buf, env_len) < 0) {
+            fprintf(stderr, "amoib-rt: handshake write failed\n");
             free(env_buf); free(script);
             return 1;
         }
         free(env_buf);
 
         /* Read ack (5s deadline) */
-        int64_t deadline = qwrt_now_ms() + QWRT_IPC_HANDSHAKE_TIMEOUT_MS;
+        int64_t deadline = am_now_ms() + AM_IPC_HANDSHAKE_TIMEOUT_MS;
         uint8_t *ack_frame = NULL;
         size_t ack_flen = 0;
-        if (qwrt_ipc_read_frame(parent_fd, &ack_frame, &ack_flen, deadline) < 0) {
-            fprintf(stderr, "qwrt-rt: handshake ack timeout/EOF\n");
+        if (am_ipc_read_frame(parent_fd, &ack_frame, &ack_flen, deadline) < 0) {
+            fprintf(stderr, "amoib-rt: handshake ack timeout/EOF\n");
             free(script);
             return 1;
         }
         ipc_envelope_view_t view;
         if (ipc_envelope_decode(ack_frame, ack_flen, &view) < 0) {
-            fprintf(stderr, "qwrt-rt: ack decode failed\n");
+            fprintf(stderr, "amoib-rt: ack decode failed\n");
             free(ack_frame); free(script);
             return 1;
         }
@@ -627,28 +627,28 @@ int main(int argc, char **argv)
         free(ack_frame);
 
         int ok = 0, ver = 0;
-        if (qwrt_ipc_parse_ack(ack_json, &ok, &ver) < 0 || !ok ||
-            ver != QWRT_IPC_PROTO_VERSION) {
-            fprintf(stderr, "qwrt-rt: handshake rejected (ok=%d v=%d)\n", ok, ver);
+        if (am_ipc_parse_ack(ack_json, &ok, &ver) < 0 || !ok ||
+            ver != AM_IPC_PROTO_VERSION) {
+            fprintf(stderr, "amoib-rt: handshake rejected (ok=%d v=%d)\n", ok, ver);
             free(script);
             return 1;
         }
     }
 
     /* Register the emit channel for bridge.c (child → parent envelopes). */
-    qwrt_ipc_child_set_channel(parent_fd);
+    am_ipc_child_set_channel(parent_fd);
 
-    /* ── Init qwrt_t ── */
-    qwrt_t *rt = (qwrt_t *)calloc(1, sizeof(qwrt_t));
+    /* ── Init am_t ── */
+    am_t *rt = (am_t *)calloc(1, sizeof(am_t));
     if (!rt) { free(script); return 1; }
-    rt->magic = QWRT_MAGIC;
+    rt->magic = AM_MAGIC;
     rt->config.initial_script = NULL;
     rt->config.debug = 0;
     rt->config.control_plane = 0;
     rt->msg_head = &rt->msg_stub;
     rt->msg_tail = &rt->msg_stub;
 
-    qwrt_worker_t *w = NULL;
+    am_worker_t *w = NULL;
 
     /* 运行时角色：worker 形态标记 worker_self（bridge.c 的 pal 按 worker 绑定）；
      * 主RT 形态保持 worker_self == NULL = 父运行时语义（可自行 spawn worker
@@ -657,12 +657,12 @@ int main(int argc, char **argv)
         if (worker_backend >= 0) rt->config.worker_backend = worker_backend;
         rt->config.message_cb = server_emit_cb;
     } else {
-        /* qwrt-rt --qwrt-worker 进程按构造即 PROCESS 后端 worker（THREAD
+        /* amoib-rt --amoib-worker 进程按构造即 PROCESS 后端 worker（THREAD
          * worker 是同进程线程，不 exec 本二进制）。强制置位让 worker 侧
          * pal.workerBackend() 返回 'process'——local-storage.js 据此挂
          * §10.2 单所有者代理（M-P4）。 */
-        rt->config.worker_backend = QWRT_WORKER_BACKEND_PROCESS;
-        w = (qwrt_worker_t *)calloc(1, sizeof(qwrt_worker_t));
+        rt->config.worker_backend = AM_WORKER_BACKEND_PROCESS;
+        w = (am_worker_t *)calloc(1, sizeof(am_worker_t));
         if (!w) { free(rt); free(script); return 1; }
         w->self = rt;
         w->id = worker_id;
@@ -681,7 +681,7 @@ int main(int argc, char **argv)
          * 要求「target 指向 worker 槽位 → 沿树下发 → worker 自己 safepoint
          * 执行」（§2.2）。若父未显式传档位，OFF 会让 worker 静默丢弃所有
          * 命令、回执退化为 TIMEOUT——故 worker 缺省取可执行档。 */
-        rt->config.control_plane = QWRT_CONTROL_IN_PROC;
+        rt->config.control_plane = AM_CONTROL_IN_PROC;
     }
     rt->config.control_pipe_path = control_pipe;
 
@@ -689,7 +689,7 @@ int main(int argc, char **argv)
      * 退化为单元素 [worker_id]（深度 1 的旧扁平语义）。主RT/宿主形态为空 path。 */
     if (path_arg) {
         const char *p = path_arg;
-        while (*p && rt->self_path_len < QWRT_SELF_PATH_MAX) {
+        while (*p && rt->self_path_len < AM_SELF_PATH_MAX) {
             char *end = NULL;
             long v = strtol(p, &end, 10);
             if (end == p) break;
@@ -702,7 +702,7 @@ int main(int argc, char **argv)
 
     int loop_inited = 0;
     if (uv_loop_init(&rt->loop) != 0) {
-        fprintf(stderr, "qwrt-rt: loop init failed\n");
+        fprintf(stderr, "amoib-rt: loop init failed\n");
         free(w); free(rt); free(script);
         return 1;
     }
@@ -710,61 +710,61 @@ int main(int argc, char **argv)
 
     rt->wake.data = rt;
     if (uv_async_init(&rt->loop, &rt->wake, child_wake_cb) != 0) {
-        fprintf(stderr, "qwrt-rt: async init failed\n");
+        fprintf(stderr, "amoib-rt: async init failed\n");
         goto fail;
     }
 
-    /* CTL-2 §2.3：LOCAL 档在主RT 打开本地端点（qwrt-ctl 连入）。必须在
-     * qwrt_runtime_init 之前——runtime_init 会 attach DAP 并阻塞在
+    /* CTL-2 §2.3：LOCAL 档在主RT 打开本地端点（amoib-ctl 连入）。必须在
+     * am_runtime_init 之前——runtime_init 会 attach DAP 并阻塞在
      * configuration（debug 模式），端点若排在其后则调试会话期间完全不可用。
      * 端点与 DAP stdio 是两个分离通道（§2.3「与 DAP 并存规则」），互不抢占。
      * bind/listen 失败即显式失败，不静默降级为 in-proc。 */
-    if (is_server && rt->config.control_plane == QWRT_CONTROL_LOCAL &&
-        qwrt_ctl_endpoint_init(rt) != 0) {
-        fprintf(stderr, "qwrt-rt: control endpoint init failed\n");
+    if (is_server && rt->config.control_plane == AM_CONTROL_LOCAL &&
+        am_ctl_endpoint_init(rt) != 0) {
+        fprintf(stderr, "amoib-rt: control endpoint init failed\n");
         goto fail;
     }
 
-    if (qwrt_runtime_init(rt) != 0) {
-        fprintf(stderr, "qwrt-rt: runtime init failed\n");
+    if (am_runtime_init(rt) != 0) {
+        fprintf(stderr, "amoib-rt: runtime init failed\n");
         goto fail;
     }
 
     /* ── Open pipe on loop for async reads ── */
     if (uv_pipe_init(&rt->loop, &g_parent_pipe, 0) != 0) {
-        fprintf(stderr, "qwrt-rt: pipe init failed\n");
+        fprintf(stderr, "amoib-rt: pipe init failed\n");
         goto fail;
     }
     if (uv_pipe_open(&g_parent_pipe, parent_fd) != 0) {
-        fprintf(stderr, "qwrt-rt: pipe open failed\n");
+        fprintf(stderr, "amoib-rt: pipe open failed\n");
         goto fail;
     }
     g_parent_pipe.data = rt;
     if (uv_read_start((uv_stream_t *)&g_parent_pipe,
                       pipe_alloc_cb, (uv_read_cb)pipe_read_cb) != 0) {
-        fprintf(stderr, "qwrt-rt: read_start failed\n");
+        fprintf(stderr, "amoib-rt: read_start failed\n");
         goto fail;
     }
     /* emit 写路径走 spill buffer（非阻塞 send + 1ms flush timer，背压不丢帧） */
-    qwrt_ipc_child_tx_init(&rt->loop, parent_fd);
+    am_ipc_child_tx_init(&rt->loop, parent_fd);
     /* M-P4：worker 进程注册同步 storage RPC 实现（pal.storageSync 的传输
      * 半边；主RT/宿主进程不注册，调用即 -1 = 不可达）。 */
-    qwrt_ipc_child_set_storage_sync(child_storage_sync);
+    am_ipc_child_set_storage_sync(child_storage_sync);
 
     /* 主RT 形态：登记宿主通道管道 —— 读管道恒活动（duplex 读泵），wait_idle 的
-     * idle 判定须豁免它，否则主RT 永不判 idle（qwrt_proc_handle_is_pipe）。 */
+     * idle 判定须豁免它，否则主RT 永不判 idle（am_proc_handle_is_pipe）。 */
     if (is_server) rt->ipc_channel_pipe = &g_parent_pipe;
 
     if (is_server) {
         /* ── 主RT 形态：eval 初始脚本（宿主 config.initial_script，经临时文件
          * 传入）→ 回 CONTROL{ready}。旧 thread 后端的 ready_err 语义搬到这里：
-         * 初始脚本抛异常 = 运行时起不来，宿主 qwrt_create 必须返回失败（不静默
+         * 初始脚本抛异常 = 运行时起不来，宿主 am_create 必须返回失败（不静默
          * 降级，§5.3）。 */
         int ready_ok = 1;
         if (script) {
             char *err = NULL;
-            if (qwrt_eval_internal(rt, script, &err) != 0) {
-                fprintf(stderr, "qwrt-rt: initial script error: %s\n",
+            if (am_eval_internal(rt, script, &err) != 0) {
+                fprintf(stderr, "amoib-rt: initial script error: %s\n",
                         err ? err : "?");
                 free(err);
                 ready_ok = 0;
@@ -772,13 +772,13 @@ int main(int argc, char **argv)
             free(script);
             script = NULL;
         }
-        if (qwrt_ipc_child_emit_ctl(ready_ok ? QWRT_IPC_CTL_READY_OK
-                                             : QWRT_IPC_CTL_READY_ERR) < 0) {
-            fprintf(stderr, "qwrt-rt: ready emit failed\n");
+        if (am_ipc_child_emit_ctl(ready_ok ? AM_IPC_CTL_READY_OK
+                                             : AM_IPC_CTL_READY_ERR) < 0) {
+            fprintf(stderr, "amoib-rt: ready emit failed\n");
             goto fail;
         }
         if (!ready_ok) {
-            qwrt_thread_teardown(rt);
+            am_thread_teardown(rt);
             free(g_rx.buf);
             g_rx.buf = NULL;
             free(rt);
@@ -788,10 +788,10 @@ int main(int argc, char **argv)
         /* ── Eval worker boot bytecode ── */
         {
             char *err = NULL;
-            if (qwrt_eval_bytecode_internal(rt, qwrt_default_worker_boot,
-                                             qwrt_default_worker_boot_len,
+            if (am_eval_bytecode_internal(rt, am_default_worker_boot,
+                                             am_default_worker_boot_len,
                                              &err) != 0) {
-                fprintf(stderr, "qwrt-rt: boot failed: %s\n", err ? err : "?");
+                fprintf(stderr, "amoib-rt: boot failed: %s\n", err ? err : "?");
                 free(err);
                 goto fail;
             }
@@ -800,8 +800,8 @@ int main(int argc, char **argv)
         /* ── Eval worker script ── */
         if (script) {
             char *err = NULL;
-            if (qwrt_eval_internal(rt, script, &err) != 0) {
-                fprintf(stderr, "qwrt-rt: script error: %s\n", err ? err : "?");
+            if (am_eval_internal(rt, script, &err) != 0) {
+                fprintf(stderr, "amoib-rt: script error: %s\n", err ? err : "?");
                 free(err);
                 /* Worker continues (per spec: error event, not crash) */
             }
@@ -811,27 +811,27 @@ int main(int argc, char **argv)
     }
 
     /* ── Main loop ──
-     * worker 形态镜像 qwrt_worker_thread_main；主RT 形态镜像 qwrt_thread_main
+     * worker 形态镜像 am_worker_thread_main；主RT 形态镜像 am_thread_main
      * （多一层 idle 检测：排空且自身 idle → 回 CONTROL{idle} ack → 自身退出，
      * 与 thread 后端的「idle 即退」语义一致，§6.1）。 */
     while (!__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE) &&
            !(w && __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE))) {
         uv_run(&rt->loop, UV_RUN_ONCE);
-        if (is_server) qwrt_ctl_reap_timeouts(rt);
+        if (is_server) am_ctl_reap_timeouts(rt);
         if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE) ||
             (w && __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE))) break;
-        qwrt_flush_microtasks(rt);
+        am_flush_microtasks(rt);
         if (is_server &&
             __atomic_load_n(&rt->wait_idle, __ATOMIC_ACQUIRE) &&
-            qwrt_loop_idle(rt)) {
-            qwrt_ipc_child_emit_ctl(QWRT_IPC_CTL_IDLE_ACK);
+            am_loop_idle(rt)) {
+            am_ipc_child_emit_ctl(AM_IPC_CTL_IDLE_ACK);
             __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
             break;
         }
     }
 
     /* ── Teardown ── */
-    qwrt_thread_teardown(rt);
+    am_thread_teardown(rt);
     free(g_rx.buf);
     g_rx.buf = NULL;
     free(w);

@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: dynamic proto3 subset — .proto text parser + wire codec.
+ * amoib polyfill: dynamic proto3 subset — .proto text parser + wire codec.
  *
  * Scope (gRPC/HTTP2 Phase 2, design §3): parse `.proto` source at runtime into
  * a message/enum/service registry, and encode/decode the proto3 wire format.

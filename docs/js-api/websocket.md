@@ -1,11 +1,11 @@
 ---
 title: WebSocket
-description: The WebSocket API in Qwrt.js — global `WebSocket` client and serve() WebSocket routes, RFC 6455 over raw TCP.
+description: The WebSocket API in Amoib.js — global `WebSocket` client and serve() WebSocket routes, RFC 6455 over raw TCP.
 ---
 
 # WebSocket
 
-qwrt has both sides of WebSocket:
+amoib has both sides of WebSocket:
 
 - **Client**: the global `WebSocket` class (RFC 6455 client over raw TCP)
 - **Server**: WebSocket routes registered on a `serve()` listener (see

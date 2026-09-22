@@ -9,15 +9,15 @@
 #   3. CTL 到孙：--target-path <k1,k2> 的命令在孙 runtime 上执行（用「孙设的
 #      全局在主RT / worker 都不可见」证明驻留点），回执沿树回程配对。
 #
-# Usage: bash test/test_nested_e2e.sh [path-to-qwrt] [path-to-qwrt-ctl]
+# Usage: bash test/test_nested_e2e.sh [path-to-amoib] [path-to-amoib-ctl]
 set -u
-QWRT="${1:-./build/qwrt}"
-QWRTCTL="${2:-./build/qwrt-ctl}"
+AM="${1:-./build/amoib}"
+AMCTL="${2:-./build/amoib-ctl}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$DIR/.." && pwd)"
 FIXI="$DIR/nested-e2e"
 
-for bin in "$QWRT" "$QWRTCTL"; do
+for bin in "$AM" "$AMCTL"; do
   [ -x "$bin" ] || { echo "FAIL: binary not found: $bin"; exit 1; }
 done
 
@@ -26,8 +26,8 @@ QPID=""
 cleanup() {
   [ -n "$QPID" ] && kill -TERM "$QPID" 2>/dev/null
   sleep 0.3
-  pkill -f "qwrt-rt --qwrt-worker" 2>/dev/null
-  pkill -f "qwrt-rt --qwrt-rt-server" 2>/dev/null
+  pkill -f "amoib-rt --amoib-worker" 2>/dev/null
+  pkill -f "amoib-rt --amoib-rt-server" 2>/dev/null
   rm -rf "$FIX"
 }
 trap cleanup EXIT
@@ -41,28 +41,28 @@ main-nested-cascade.js worker_spawn_child.js worker_grand_echo.js \
 worker_port_relay.js worker_grand_port_echo.js worker_spawn_child_storage.js \
 worker_grand_storage.js worker_spawn_child_hold.js"
 for f in $NESTED_FIXTURES; do
-  sed "s#file:///home/gem/project/qwrt/test/nested-e2e#file://$FIX#g" "$FIXI/$f" > "$FIX/$f"
+  sed "s#file:///home/gem/project/amoib/test/nested-e2e#file://$FIX#g" "$FIXI/$f" > "$FIX/$f"
 done
 # 自检：副本里不得再残留开发机绝对路径（CI checkout 下会变成致命误路由）。
-if grep -l "file:///home/gem/project/qwrt" "$FIX"/*.js > /dev/null 2>&1; then
+if grep -l "file:///home/gem/project/amoib" "$FIX"/*.js > /dev/null 2>&1; then
   fail "fixture 重写不完整（仍有开发机绝对路径）" \
-       "$(grep -l 'file:///home/gem/project/qwrt' "$FIX"/*.js)"
+       "$(grep -l 'file:///home/gem/project/amoib' "$FIX"/*.js)"
 fi
 
-export QWRT_WORKER_BACKEND=process
-rm -f /tmp/qwrt-worker-*
+export AM_WORKER_BACKEND=process
+rm -f /tmp/amoib-worker-*
 
 # ── 1: 孙 worker 进程能力 + 三级 PID + 往返 ──
-OUT="$(timeout 30 "$QWRT" "$FIX/main-nested.js" 2>&1)" || fail "1 nested run rc" "$OUT"
+OUT="$(timeout 30 "$AM" "$FIX/main-nested.js" 2>&1)" || fail "1 nested run rc" "$OUT"
 EXP=$'nested:child-grand:ping\nDONE'
 [ "$OUT" = "$EXP" ] || fail "1 nested spawn round-trip" "$OUT"
 
 # PID 证据：跑一个 spawn 孙但不退出的脚本，检查三级父子链。
-"$QWRT" "$FIX/main-nested-cascade.js" > "$FIX/hold.out" 2>&1 &
+"$AM" "$FIX/main-nested-cascade.js" > "$FIX/hold.out" 2>&1 &
 HPID=$!
 for _ in $(seq 1 50); do grep -q READY "$FIX/hold.out" 2>/dev/null && break; sleep 0.1; done
 sleep 0.6
-MAINRT="$(pgrep -P "$HPID" -f 'qwrt-rt' 2>/dev/null | head -1)"
+MAINRT="$(pgrep -P "$HPID" -f 'amoib-rt' 2>/dev/null | head -1)"
 [ -n "$MAINRT" ] || fail "1 no mainRT child of host $HPID" "$(cat "$FIX/hold.out")"
 WORKER="$(pgrep -P "$MAINRT" 2>/dev/null | head -1)"
 [ -n "$WORKER" ] || fail "1 no worker child of mainRT $MAINRT" "$(cat "$FIX/hold.out")"
@@ -74,13 +74,13 @@ kill -TERM "$HPID" 2>/dev/null
 sleep 0.5
 
 # ── 2: §8.2 port path 路由（跨两级经 LCA + 改指转发）──
-OUT="$(timeout 30 "$QWRT" "$FIX/main-nested-port.js" 2>&1)" || fail "2 nested port rc" "$OUT"
+OUT="$(timeout 30 "$AM" "$FIX/main-nested-port.js" 2>&1)" || fail "2 nested port rc" "$OUT"
 EXP2=$'G2M:echo:hello\nDONE'
 [ "$OUT" = "$EXP2" ] || fail "2 nested MessagePort two-level round-trip" "$OUT"
 kill -TERM "$HPID" 2>/dev/null
 for _ in $(seq 1 60); do kill -0 "$HPID" 2>/dev/null || break; sleep 0.1; done
 SOCK="$FIX/ctl.sock"
-"$QWRT" --control-plane=local --control-pipe="$SOCK" -e "
+"$AM" --control-plane=local --control-pipe="$SOCK" -e "
 var w = new Worker('file://$FIX/worker_spawn_child_hold.js');
 setInterval(function(){}, 100);
 " > "$FIX/q.out" 2>&1 &
@@ -88,7 +88,7 @@ QPID=$!
 for _ in $(seq 1 50); do [ -S "$SOCK" ] && break; sleep 0.1; done
 
 [ -S "$SOCK" ] || fail "3 endpoint socket not created" "$(cat "$FIX/q.out")"
-ctl() { timeout 10 "$QWRTCTL" --pipe "$SOCK" "$@"; }
+ctl() { timeout 10 "$AMCTL" --pipe "$SOCK" "$@"; }
 
 # 孙的 path = [主RT 给 worker 的槽位, worker 给孙的槽位] = 1001,1001（见 worker.js procWorkerSeq）。
 OUT="$(ctl --correl n-set --target-path 1001,1001 eval "(function(){ globalThis.__GRAND__=42; return 'set-ok'; })()")" \
@@ -109,15 +109,15 @@ echo "$OUT" | grep -q '"worker_count":0' || fail "3 grandchild metrics (leaf)" "
 kill -TERM "$QPID" 2>/dev/null; QPID=""
 # 进程树级联退出需要一个调度窗口（kill→EOF→自杀逐级传播）。
 for _ in $(seq 1 60); do
-  pgrep -f "qwrt-rt" > /dev/null 2>&1 || break
+  pgrep -f "amoib-rt" > /dev/null 2>&1 || break
   sleep 0.1
 done
-if pgrep -f "qwrt-rt" > /dev/null 2>&1; then
-  fail "cleanup: leftover qwrt-rt process" "$(pgrep -af qwrt-rt)"
+if pgrep -f "amoib-rt" > /dev/null 2>&1; then
+  fail "cleanup: leftover amoib-rt process" "$(pgrep -af amoib-rt)"
 fi
 
 # ── 4: §10.2 STORAGE 嵌套（孙的 localStorage 经子中继到主RT 所有者）──
-OUT="$(timeout 30 "$QWRT" "$FIX/main-nested-storage.js" 2>&1)" || fail "4 nested storage rc" "$OUT"
+OUT="$(timeout 30 "$AM" "$FIX/main-nested-storage.js" 2>&1)" || fail "4 nested storage rc" "$OUT"
 printf '%s\n' "$OUT" | grep -q "grand:g-get=gv1" || fail "4 grandchild reads owner-set value" "$OUT"
 printf '%s\n' "$OUT" | grep -q "main-sees-gkey:gval" || fail "4 owner sees grandchild write" "$OUT"
 printf '%s\n' "$OUT" | grep -q "NESTED-STORAGE-DONE" || fail "4 nested storage completion" "$OUT"
@@ -126,17 +126,17 @@ printf '%s\n' "$OUT" | grep -q "NESTED-STORAGE-DONE" || fail "4 nested storage c
 start_tree() {
   TREE_OUT="$FIX/tree.out"
   : > "$TREE_OUT"
-  "$QWRT" "$FIX/main-nested-cascade.js" > "$TREE_OUT" 2>&1 &
+  "$AM" "$FIX/main-nested-cascade.js" > "$TREE_OUT" 2>&1 &
   TREE_HOST=$!
   for _ in $(seq 1 60); do grep -q READY "$TREE_OUT" 2>/dev/null && break; sleep 0.1; done
   sleep 0.6
-  PID_MAINRT="$(pgrep -P "$TREE_HOST" -f 'qwrt-rt' 2>/dev/null | head -1)"
+  PID_MAINRT="$(pgrep -P "$TREE_HOST" -f 'amoib-rt' 2>/dev/null | head -1)"
   PID_WORKER="$(pgrep -P "$PID_MAINRT" 2>/dev/null | head -1)"
   PID_GRAND="$(pgrep -P "$PID_WORKER" 2>/dev/null | head -1)"
   [ -n "$PID_MAINRT" ] && [ -n "$PID_WORKER" ] && [ -n "$PID_GRAND" ] \
     || fail "5 tree not up (host=$TREE_HOST mainRT=$PID_MAINRT worker=$PID_WORKER grand=$PID_GRAND)" "$(cat "$TREE_OUT")"
 }
-zombies() { ps -eo stat=,comm= 2>/dev/null | awk '$2=="qwrt-rt" && $1 ~ /Z/' | wc -l; }
+zombies() { ps -eo stat=,comm= 2>/dev/null | awk '$2=="amoib-rt" && $1 ~ /Z/' | wc -l; }
 
 # 5a：kill 孙 → 子（worker）收尸，主RT/worker 存活，零 zombie。
 start_tree
@@ -149,7 +149,7 @@ kill -0 "$PID_MAINRT" 2>/dev/null || fail "5a mainRT died when grandchild was ki
 
 # 5b（新树）：kill worker → 孙按 §9.4 孤儿自杀 + 主RT 感知 error 且自身存活。
 kill -TERM "$TREE_HOST" 2>/dev/null
-for _ in $(seq 1 60); do pgrep -f qwrt-rt >/dev/null 2>&1 || break; sleep 0.1; done
+for _ in $(seq 1 60); do pgrep -f amoib-rt >/dev/null 2>&1 || break; sleep 0.1; done
 start_tree
 kill -9 "$PID_WORKER" 2>/dev/null
 for _ in $(seq 1 80); do kill -0 "$PID_GRAND" 2>/dev/null || break; sleep 0.1; done
@@ -160,12 +160,12 @@ grep -q "MAINRT-ONERROR:" "$TREE_OUT" || fail "5b mainRT onerror on worker death
 
 # 5c（新树）：kill 宿主 → 主RT + worker + 孙 全链退出（§9.4）。
 kill -TERM "$TREE_HOST" 2>/dev/null
-for _ in $(seq 1 60); do pgrep -f qwrt-rt >/dev/null 2>&1 || break; sleep 0.1; done
+for _ in $(seq 1 60); do pgrep -f amoib-rt >/dev/null 2>&1 || break; sleep 0.1; done
 start_tree
 kill -9 "$TREE_HOST" 2>/dev/null
-for _ in $(seq 1 80); do pgrep -f qwrt-rt >/dev/null 2>&1 || break; sleep 0.1; done
-if pgrep -f qwrt-rt > /dev/null 2>&1; then
-  fail "5c two-level chain death incomplete" "$(pgrep -af qwrt-rt)"
+for _ in $(seq 1 80); do pgrep -f amoib-rt >/dev/null 2>&1 || break; sleep 0.1; done
+if pgrep -f amoib-rt > /dev/null 2>&1; then
+  fail "5c two-level chain death incomplete" "$(pgrep -af amoib-rt)"
 fi
 [ "$(zombies)" = "0" ] || fail "5c zombies after host kill: $(zombies)"
 

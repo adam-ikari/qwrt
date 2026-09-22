@@ -1,6 +1,6 @@
 ---
 title: EventSource
-description: The EventSource API in Qwrt.js — Server-Sent Events (SSE) client with automatic reconnection.
+description: The EventSource API in Amoib.js — Server-Sent Events (SSE) client with automatic reconnection.
 ---
 
 # EventSource

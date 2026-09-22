@@ -42,8 +42,8 @@ function waitMsg(sw, data) {
 }
 
 function copyFile(src) {
-  return qwrt.fs.readFile(src).then(function (code) {
-    return qwrt.fs.writeFile(SW_FILE, code);
+  return amoib.fs.readFile(src).then(function (code) {
+    return amoib.fs.writeFile(SW_FILE, code);
   });
 }
 

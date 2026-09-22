@@ -19,7 +19,7 @@ WinterTC Web API 合规测试不再使用 WPT runner（vendored .any.js + testha
 
 ## 原因
 1. mock_libuv（新模型）是确定性离线测试，与 gtest 统一（crypto-subtle-gtest 决策同源）
-2. wpt_runner 依赖已删除的 pal_mock API（pal_mock_create + qwrt_eval）
+2. wpt_runner 依赖已删除的 pal_mock API（pal_mock_create + am_eval）
 3. 项目 13 个 gtest 套件已覆盖 WinterTC API（URL/URLPattern/FormData/Event/Blob/console/timers/crypto.subtle）
 
 ## 现状（2026-08-19，Phase 3 完成后）

@@ -50,6 +50,6 @@ test262_quickjs CTest 失败，`Result: 79/42421 errors, ..., 79 new`。
 
 - time: 2026-09-07T08:45:13
   kind: decision
-  summary: "2026-09-07 全量 CI 验证通过：干净重建 build_final2 后 ctest -L test262 全绿（97.9s），42339/42398=99.86%，59 失败全部命中 quickjs-ng v0.15.1（fd0a021）upstream 官方 gap 清单（test262_errors.txt 未被 qwrt 修改，git diff 确认），0 新增失败——C99/裁剪补丁（quickjs.c/quickjs.h/quickjs-c-atomics.h/quickjs-opcode.h）无 test262 回归。"
+  summary: "2026-09-07 全量 CI 验证通过：干净重建 build_final2 后 ctest -L test262 全绿（97.9s），42339/42398=99.86%，59 失败全部命中 quickjs-ng v0.15.1（fd0a021）upstream 官方 gap 清单（test262_errors.txt 未被 amoib 修改，git diff 确认），0 新增失败——C99/裁剪补丁（quickjs.c/quickjs.h/quickjs-c-atomics.h/quickjs-opcode.h）无 test262 回归。"
   source: "2026-09-07 test262 全量 CI 验证"
   affects: [test262-ctest-fix]

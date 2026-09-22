@@ -1,6 +1,6 @@
 ---
 title: 流
-description: Qwrt.js 中的 Streams API —— ReadableStream、WritableStream、TransformStream、管道传输与背压。
+description: Amoib.js 中的 Streams API —— ReadableStream、WritableStream、TransformStream、管道传输与背压。
 ---
 
 # ReadableStream / WritableStream
@@ -28,7 +28,7 @@ let stream = new ReadableStream({
     },
     pull(controller) {
         // 当消费者需要更多数据时调用。
-        // 在 qwrt 的 WinterTC 模块中尚未实现。
+        // 在 amoib 的 WinterTC 模块中尚未实现。
     },
     cancel(reason) {
         // 当消费者取消流时调用。

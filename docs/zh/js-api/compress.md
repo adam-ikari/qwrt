@@ -1,6 +1,6 @@
 ---
 title: compress
-description: Qwrt.js 的压缩 —— CompressionStream 与 DecompressionStream，经 miniz 支持 gzip、deflate、deflate-raw。
+description: Amoib.js 的压缩 —— CompressionStream 与 DecompressionStream，经 miniz 支持 gzip、deflate、deflate-raw。
 ---
 
 # 压缩 API
@@ -61,7 +61,7 @@ let text = new TextDecoder().decode(out[0]); // "hello world"
 
 ## 说明
 
-- 原生实现是 `miniz`；构建时需 `QWRT_WITH_COMPRESS=ON`（默认开）。
+- 原生实现是 `miniz`；构建时需 `AM_WITH_COMPRESS=ON`（默认开）。
 - `serve()` 的 HTTP handler 可用 `CompressionStream` 生成 `Content-Encoding: gzip`
   响应（见 [serve](/zh/js-api/serve) 与
-  [httpserver 示例](https://github.com/adam-ikari/qwrt/tree/master/examples/httpserver)）。
+  [httpserver 示例](https://github.com/adam-ikari/amoib/tree/master/examples/httpserver)）。

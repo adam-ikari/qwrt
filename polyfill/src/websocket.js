@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: WebSocket (client) — pure JS RFC 6455 implementation
+ * amoib polyfill: WebSocket (client) — pure JS RFC 6455 implementation
  *
  * Uses pal.tcpConnect/tcpWrite/tcpClose for raw TCP transport.
  * The WebSocket protocol (handshake, frame masking, frame parsing,

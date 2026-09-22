@@ -15,7 +15,7 @@ wasm_runtime_init + init_thread_env 从 wamr_ext_init 下沉为 wamr_ensure_runt
 
 ## 实测
 
-- Release 端到端 `qwrt -e` median 10.33 → 4.82ms（Δ5.5ms，为探针 init 死重 7.0ms 的 79%，差值归因真实进程主线程栈已部分映射）。
+- Release 端到端 `amoib -e` median 10.33 → 4.82ms（Δ5.5ms，为探针 init 死重 7.0ms 的 79%，差值归因真实进程主线程栈已部分映射）。
 - 不碰 wasm 路径 wasm_runtime_init 调用数 0（--wrap 计数法）。
 
 ## 三原则裁决

@@ -1,5 +1,5 @@
 {
-  "qwrt": {
+  "amoib": {
     "streams": {
       "pipe_mbs": 2014.8,
       "tee_mbs": 2779.2
@@ -16,7 +16,7 @@
       "input_bytes": 1048576
     },
     "fs": {
-      "fs_backend": "qwrt",
+      "fs_backend": "amoib",
       "big_read_mbs": 5432.9,
       "small_batch_files_per_s": 25628
     },

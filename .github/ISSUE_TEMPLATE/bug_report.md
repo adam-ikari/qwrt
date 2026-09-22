@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in qwrt
+about: Report a bug in amoib
 labels: bug
 ---
 
@@ -15,8 +15,8 @@ What happened? What did you expect?
 **Environment:**
 - OS: [e.g. Linux, macOS, ESP32-S3]
 - Compiler: [e.g. GCC 12, Clang 16]
-- qwrt version: [e.g. commit hash or tag]
-- CMake options: [e.g. `-DQWRT_BUILD_TESTS=ON -DQWRT_WITH_WASM3=OFF`]
+- amoib version: [e.g. commit hash or tag]
+- CMake options: [e.g. `-DAM_BUILD_TESTS=ON -DAM_WITH_WASM3=OFF`]
 
 **Additional context**
 Add any other context about the problem here.

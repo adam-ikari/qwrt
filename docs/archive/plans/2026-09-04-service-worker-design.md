@@ -1,26 +1,26 @@
-# Service Worker 设计 — qwrt 嵌入式运行时的 SW 子集与分阶段落地
+# Service Worker 设计 — amoib 嵌入式运行时的 SW 子集与分阶段落地
 
 > 状态：设计文档（实施前）。
 > 日期：2026-09-04
-> 范围：qwrt 运行时（QuickJS-ng 嵌入式）的 Service Worker 能力子集。目标是**在非浏览器宿主环境中提供 SW 核心语义：注册/生命周期管理 + fetch 客户端拦截 + 离线缓存**，不依赖浏览器平台。
-> 背景：qwrt 已有 Worker（真线程隔离 qwrt_t）、CacheStorage/Cache（内存 Map 实现）、fetch（libuv HTTP/HTTPS）、serve()（纯 JS HTTP/WS 服务器）、BroadcastChannel、MessageChannel/MessagePort、structuredClone。多进程模型处于设计阶段（`2026-09-04-multi-process-model.md`）。
+> 范围：amoib 运行时（QuickJS-ng 嵌入式）的 Service Worker 能力子集。目标是**在非浏览器宿主环境中提供 SW 核心语义：注册/生命周期管理 + fetch 客户端拦截 + 离线缓存**，不依赖浏览器平台。
+> 背景：amoib 已有 Worker（真线程隔离 am_t）、CacheStorage/Cache（内存 Map 实现）、fetch（libuv HTTP/HTTPS）、serve()（纯 JS HTTP/WS 服务器）、BroadcastChannel、MessageChannel/MessagePort、structuredClone。多进程模型处于设计阶段（`2026-09-04-multi-process-model.md`）。
 
 **核心结论（TL;DR）**
-1. **定位裁剪**：qwrt SW = **fetch 客户端拦截 + 离线缓存 + 消息通信**；不纳入 push/notification/background-sync（宿主平台依赖，首版不做）。`serve()` 入站拦截作为扩展点预留，首版不做——标准 SW 的 `FetchEvent` 语义映射到**主线程 `fetch()` 调用拦截**，而非服务端入站请求。
-2. **执行上下文**：SW 跑在**独立 Worker 线程**（复用现有 `qwrt_worker_create` + `worker-boot.js` 垫片），天然隔离（独立 JSRuntime + 线程 + 事件循环）。多进程模型落地后无缝接入 SW 常驻进程（同一 spawn 路径，仅消息后端从线程队列切换到 IPC 信封）。
-3. **作用域**：qwrt 无页面导航概念，scope 简化为**全局注册（每进程唯一 SW）**；scope 参数保留但默认覆盖所有 `fetch()` 调用，不做 URL 前缀匹配。
-4. **更新策略**：新 SW install 成功后直接 skipWaiting + clients.claim（无"等待旧 SW 控制页关闭"——qwrt 无页面概念），**零等待切换**。
+1. **定位裁剪**：amoib SW = **fetch 客户端拦截 + 离线缓存 + 消息通信**；不纳入 push/notification/background-sync（宿主平台依赖，首版不做）。`serve()` 入站拦截作为扩展点预留，首版不做——标准 SW 的 `FetchEvent` 语义映射到**主线程 `fetch()` 调用拦截**，而非服务端入站请求。
+2. **执行上下文**：SW 跑在**独立 Worker 线程**（复用现有 `am_worker_create` + `worker-boot.js` 垫片），天然隔离（独立 JSRuntime + 线程 + 事件循环）。多进程模型落地后无缝接入 SW 常驻进程（同一 spawn 路径，仅消息后端从线程队列切换到 IPC 信封）。
+3. **作用域**：amoib 无页面导航概念，scope 简化为**全局注册（每进程唯一 SW）**；scope 参数保留但默认覆盖所有 `fetch()` 调用，不做 URL 前缀匹配。
+4. **更新策略**：新 SW install 成功后直接 skipWaiting + clients.claim（无"等待旧 SW 控制页关闭"——amoib 无页面概念），**零等待切换**。
 5. **fetch 拦截机制**：在 `fetch.js` 的 `doRequest` 层加钩子——调用 `pal.httpRequestStream` 前先查询 SW 控制器，若 SW 已注册则 dispatch `FetchEvent` 到 SW 线程，SW 通过 `event.respondWith()` 返回 Response 或 `undefined`（回退网络）。**单向拦截：主线程 fetch → SW；serve() 入站不经 SW**。
 6. **Cache API**：现有 `cache-storage.js` 内存 Map 实现**语义够用**（put/match/delete/keys 全有），但**断电丢失**。离线缓存（SW install pre-cache + fetch 时 cache-first）在首版用内存 Cache 即可；持久化存储作为后续扩展（`pal.fsWrite` 写文件，或 localStorage 桥接）。
 7. **分四阶段**：SW-0 注册/生命周期（无 fetch 拦截）→ SW-1 fetch 拦截 + clients → SW-2 Cache 集成 + 离线策略 → SW-3 更新机制（字节对比 + 多版本）。每阶段独立可验证。
 
 ---
 
-# 1. Service Worker 在 qwrt 中的定位
+# 1. Service Worker 在 amoib 中的定位
 
-## 1.1 标准 SW 能力 vs qwrt 裁剪
+## 1.1 标准 SW 能力 vs amoib 裁剪
 
-| 标准 SW 能力 | qwrt 首版 | 理由 |
+| 标准 SW 能力 | amoib 首版 | 理由 |
 |---|---|---|
 | `navigator.serviceWorker.register(url)` | ✅ | 核心入口 |
 | SW 独立上下文（ServiceWorkerGlobalScope） | ✅ 复用 Worker | 独立 JSRuntime + 线程，天然隔离 |
@@ -38,11 +38,11 @@
 | Navigation Preload | ❌ | 无导航概念 |
 | updateViaCache | ❌ | 无 HTTP 缓存语义 |
 | scope URL 前缀匹配 | ❌ 简化为全局 | 无页面导航，SW 拦截所有 fetch |
-| 强制 HTTPS（secure context） | ❌ 豁免 | 非浏览器，qwrt 可在任意网络环境运行 |
+| 强制 HTTPS（secure context） | ❌ 豁免 | 非浏览器，amoib 可在任意网络环境运行 |
 
 **明确不做**（首版 + 中期）：
-- **push/notification/background-sync**：这些 API 依赖宿主平台推送服务（浏览器 Push API、OS 通知中心）。qwrt 是嵌入式运行时，无浏览器宿主，无推送基础设施。若未来需要后台推送，需自建推送通道（与 SW 核心语义解耦），不在本设计范围。
-- **强制 HTTPS 要求**：Web 标准 SW 要求 secure context（HTTPS 或 localhost）。qwrt 非浏览器——可在内网 HTTP、嵌入式设备、甚至 Unix socket 上运行。**明确豁免 secure context 要求**，`register()` 不检查协议。文档标注"开发者自行确保传输安全"。
+- **push/notification/background-sync**：这些 API 依赖宿主平台推送服务（浏览器 Push API、OS 通知中心）。amoib 是嵌入式运行时，无浏览器宿主，无推送基础设施。若未来需要后台推送，需自建推送通道（与 SW 核心语义解耦），不在本设计范围。
+- **强制 HTTPS 要求**：Web 标准 SW 要求 secure context（HTTPS 或 localhost）。amoib 非浏览器——可在内网 HTTP、嵌入式设备、甚至 Unix socket 上运行。**明确豁免 secure context 要求**，`register()` 不检查协议。文档标注"开发者自行确保传输安全"。
 - **多 SW 版本并行控制页面**：无页面概念，不存在"页面 A 被 SW-1 控制、页面 B 被 SW-2 控制"的场景。全局唯一 SW 实例。
 
 ## 1.2 拦截目标：fetch 客户端请求（推荐）vs serve() 入站请求
@@ -51,9 +51,9 @@
 
 理由：
 
-1. **Web 标准对齐**：SW 的 `FetchEvent` 在浏览器中拦截的是**客户端发起的 `fetch()` / XHR 请求**。qwrt 的 `fetch()` 是客户端 API（`polyfill/src/fetch.js`，经 `pal.httpRequestStream` 走 libuv HTTP），语义上完全对应。保持标准语义让用户已有 SW 知识直接迁移。
+1. **Web 标准对齐**：SW 的 `FetchEvent` 在浏览器中拦截的是**客户端发起的 `fetch()` / XHR 请求**。amoib 的 `fetch()` 是客户端 API（`polyfill/src/fetch.js`，经 `pal.httpRequestStream` 走 libuv HTTP），语义上完全对应。保持标准语义让用户已有 SW 知识直接迁移。
 2. **实现简单**：`fetch.js` 的 `doRequest` 函数是单一入口点，加钩子只需在 `pal.httpRequestStream` 调用前插入 SW 查询逻辑——不涉及 TCP 层改动。
-3. **serve() 入站拦截是非标准扩展**：`serve()` 的请求来自 TCP 监听端口，语义上是"服务端收到的请求"，不是"客户端发起的请求"。拦截 serve() 入站请求等价于 Service Worker 作为反向代理——这在 Web 标准中不存在。若未来需要，可作为 `qwrt.sw.interceptServe()` 扩展 API，与标准 SW 语义分离。
+3. **serve() 入站拦截是非标准扩展**：`serve()` 的请求来自 TCP 监听端口，语义上是"服务端收到的请求"，不是"客户端发起的请求"。拦截 serve() 入站请求等价于 Service Worker 作为反向代理——这在 Web 标准中不存在。若未来需要，可作为 `amoib.sw.interceptServe()` 扩展 API，与标准 SW 语义分离。
 
 ```mermaid
 graph LR
@@ -78,12 +78,12 @@ graph LR
 
 Web 标准 SW 有 scope（URL 前缀匹配）：注册在 `/app/` 的 SW 只拦截路径以 `/app/` 开头的请求。
 
-**qwrt 简化：全局注册，一个进程一个 SW，拦截所有 fetch() 调用。**
+**amoib 简化：全局注册，一个进程一个 SW，拦截所有 fetch() 调用。**
 
 理由：
 
-1. **无页面导航**：qwrt 不做 HTML 页面加载，不存在"页面在 `/app/` 下"的概念。`fetch()` 调用来自用户 JS 代码，不绑定 URL 路径层级。
-2. **scope 参数保留**：`register(url, {scope})` 接受 scope 参数但**首版忽略其值**（所有 fetch 均被拦截）。scope 保留是为了 API 兼容——若未来 qwrt 支持模块化加载或 URL 路由，scope 可启用。文档标注"scope 参数当前被忽略"。
+1. **无页面导航**：amoib 不做 HTML 页面加载，不存在"页面在 `/app/` 下"的概念。`fetch()` 调用来自用户 JS 代码，不绑定 URL 路径层级。
+2. **scope 参数保留**：`register(url, {scope})` 接受 scope 参数但**首版忽略其值**（所有 fetch 均被拦截）。scope 保留是为了 API 兼容——若未来 amoib 支持模块化加载或 URL 路由，scope 可启用。文档标注"scope 参数当前被忽略"。
 3. **单 SW 限制**：`navigator.serviceWorker.register()` 同时只允许一个活跃 SW。重复注册新 SW 脚本 URL → 替换旧 SW（触发旧 SW→redundant + 新 SW→install）。这与浏览器的"每个 scope 一个 SW"不同，但对嵌入式场景足够——应用通常只有一个拦截点。
 
 ---
@@ -128,12 +128,12 @@ stateDiagram-v2
 
 Web 标准 SW 更新：`register()` 同 URL → 浏览器检查字节变化 → 新 SW installing → install 完成后进入 installed（等待）→ 旧 SW 控制的"页面"全部关闭后才 activating。
 
-**qwrt 简化：新 SW install 完成后直接 skipWaiting + clients.claim（零等待切换）。controller/active 切换点在 `activate_done`——新 SW install/activating 期间旧 SW 保持 controller 继续拦截 fetch，无控制真空；activate 完成才 terminate 旧 SW。**
+**amoib 简化：新 SW install 完成后直接 skipWaiting + clients.claim（零等待切换）。controller/active 切换点在 `activate_done`——新 SW install/activating 期间旧 SW 保持 controller 继续拦截 fetch，无控制真空；activate 完成才 terminate 旧 SW。**
 
 理由：
 
-1. **无页面概念**：不存在"等待页面关闭"的等待条件。qwrt 的"受控上下文"是主线程 JS 本身——它始终在运行，不会"关闭"。若等待，SW 永远不会激活。
-2. **skipWaiting 语义保留**：SW 脚本可通过 `self.skipWaiting()` 显式控制激活时机（标准行为）。但 qwrt 的默认行为是 **install 完成即自动 skipWaiting**（与浏览器的"默认等待"不同，但对嵌入式场景更实用）。
+1. **无页面概念**：不存在"等待页面关闭"的等待条件。amoib 的"受控上下文"是主线程 JS 本身——它始终在运行，不会"关闭"。若等待，SW 永远不会激活。
+2. **skipWaiting 语义保留**：SW 脚本可通过 `self.skipWaiting()` 显式控制激活时机（标准行为）。但 amoib 的默认行为是 **install 完成即自动 skipWaiting**（与浏览器的"默认等待"不同，但对嵌入式场景更实用）。
 3. **更新检测（SW-3 已落地）**：`register(url)`/`update()` 每次**同步读 SW 脚本**（`pal.fsReadSync`，与 worker.js loadScript 同路径），与**最新槽位（installing > waiting > active）做字节对比**——同 URL 且字节未变 → 跳过安装、直接 resolve 现有 registration；字节变化 → 走 install 流程（install 失败则旧 SW 不受影响）。
 
 ```mermaid
@@ -160,14 +160,14 @@ sequenceDiagram
 
 ## 2.4 执行上下文：复用现有 Worker 机制（推荐）
 
-**推荐：SW 跑在独立 Worker 线程（复用 `qwrt_worker_create` + worker-boot.js 垫片）。**
+**推荐：SW 跑在独立 Worker 线程（复用 `am_worker_create` + worker-boot.js 垫片）。**
 
 理由：
 
 1. **真隔离**：独立 JSRuntime + 线程 + 事件循环。SW 脚本的 bug 不会影响主线程。这是 Web 标准 SW 的核心安全保证。
 2. **代码复用**：`worker.js` 的 Worker 构造 + `worker-boot.js` 的 postMessage/dispatch 移植 + `message-channel.js` 的 MessagePort 跨线程路由——全部复用，不需要新 PAL 原语。
-3. **多进程自然接入**：多进程模型落地后，SW Worker 从"线程 qwrt_t"升级为"进程 qwrt_t"（M-P1：伴随 `qwrt-rt` 二进制 + `--qwrt-worker`），JS 层零改动。SW 是常驻进程的理想候选（生命周期长、可被主 RT 按需唤醒）。
-4. **message 通信**：主线程 ↔ SW 通过现有 Worker postMessage / MessagePort，序列化走 structuredClone（`__qwrt_serialize__`/`__qwrt_deserialize__`），跨线程原子队列（或未来 IPC 信封）。
+3. **多进程自然接入**：多进程模型落地后，SW Worker 从"线程 am_t"升级为"进程 am_t"（M-P1：伴随 `amoib-rt` 二进制 + `--amoib-worker`），JS 层零改动。SW 是常驻进程的理想候选（生命周期长、可被主 RT 按需唤醒）。
+4. **message 通信**：主线程 ↔ SW 通过现有 Worker postMessage / MessagePort，序列化走 structuredClone（`__am_serialize__`/`__am_deserialize__`），跨线程原子队列（或未来 IPC 信封）。
 
 **备选（不推荐）：同进程软隔离 context（`context.js` 的 suspend/resume 模式）**。context.js 做的是"拍快照→销毁 JSContext→重建→恢复"，设计目标是**可挂起/恢复的任务**，不是常驻拦截器。SW 需要长期存活 + 实时响应 fetch 事件，suspend/resume 的"销毁重建"语义不匹配。且 context.js 的 JSContext 不是独立线程——SW 的阻塞或慢操作会卡主线程。
 
@@ -264,8 +264,8 @@ self.caches              // CacheStorage（复用现有 globalThis.caches）
 | `self.clients.get(id)` | method → Promise\<Client> | ✅ | 按 id 获取客户端 |
 | `client.postMessage(data)` | method | ✅ | 向客户端发消息 |
 | `client.id` | property | ✅ | 客户端唯一 id |
-| `client.type` | property | ✅ | 恒为 `'window'`（qwrt 无 window/worker 区分，或返回 `'worker'`） |
-| `client.url` | property | ✅ | 恒为 `''`（qwrt 无 URL 概念） |
+| `client.type` | property | ✅ | 恒为 `'window'`（amoib 无 window/worker 区分，或返回 `'worker'`） |
+| `client.url` | property | ✅ | 恒为 `''`（amoib 无 URL 概念） |
 
 ### FetchEvent
 
@@ -330,7 +330,7 @@ function interceptBySW(request, resolve, reject) {
 **SW 线程侧（worker-boot.js 扩展）**：
 
 ```js
-// SW 侧 __qwrt_dispatch__ 收到 type='fetch' 消息后：
+// SW 侧 __am_dispatch__ 收到 type='fetch' 消息后：
 // 1. 从 structuredClone 字节重建 Request 对象
 // 2. 创建 FetchEvent(request, { clientId })
 // 3. dispatchEvent(fetchEvent)
@@ -459,7 +459,7 @@ self.addEventListener('fetch', (event) => {
 
 多进程模型（`2026-09-04-multi-process-model.md`）定义了：
 - 宿主进程 → 主 RT 进程 → WorkerRT 进程 ×N 的星型拓扑
-- Worker 进程经**伴随的 `qwrt-rt` 二进制** spawn（M-P1：`--qwrt-worker --parent-fd N --worker-id K [--script PATH]`，非 exec 宿主自身；exec 自身形态属 M-P2 设计）
+- Worker 进程经**伴随的 `amoib-rt` 二进制** spawn（M-P1：`--amoib-worker --parent-fd N --worker-id K [--script PATH]`，非 exec 宿主自身；exec 自身形态属 M-P2 设计）
 - 消息走 `uv_pipe_t` + FlatBuffers 信封
 
 **SW 自然成为树中的一个常驻 WorkerRT 进程**：
@@ -487,19 +487,19 @@ graph TB
 
 ## 4.2 本期实现（基于线程 Worker）
 
-本期 SW 实现基于现有线程 Worker 机制（`qwrt_worker_create` 线程模式）：
+本期 SW 实现基于现有线程 Worker 机制（`am_worker_create` 线程模式）：
 - SW Worker = 一个普通 Worker，加载 SW 脚本而非用户脚本
 - 主线程 fetch → postMessage FetchEvent → SW 线程 → postMessage 响应
 - 消息走现有 lock-free MPSC + `uv_async_send`
 
 ## 4.3 多进程演进预留
 
-**设计原则：SW 上下文创建走 `qwrt_worker_create` 同路径。**
+**设计原则：SW 上下文创建走 `am_worker_create` 同路径。**
 
 多进程落地时：
-- `QWRT_PROCESS_MODEL=ISOLATED`：SW Worker 从线程升级为进程（exec + socketpair），JS 层零改动。`postMessage`/FetchEvent 序列化仍走 structuredClone；进程边界加 FlatBuffers 信封（C 层透明，JS 不感知）。
+- `AM_PROCESS_MODEL=ISOLATED`：SW Worker 从线程升级为进程（exec + socketpair），JS 层零改动。`postMessage`/FetchEvent 序列化仍走 structuredClone；进程边界加 FlatBuffers 信封（C 层透明，JS 不感知）。
 - SW 是**常驻进程**的天然候选：生命周期长（install→activated 后持续运行）、不需要频繁 spawn/destroy。主 RT 可在 SW 注册时 spawn SW 进程、注销时 terminate。
-- `QWRT_PROCESS_MODEL=THREAD`：SW 继续用线程，编译选项回退无缝。
+- `AM_PROCESS_MODEL=THREAD`：SW 继续用线程，编译选项回退无缝。
 
 **无额外 C 改动需求**：SW 的核心操作（postMessage、terminate、事件分发）全部走现有 Worker 路径。多进程模型只改变消息后端，不改变 JS API。
 
@@ -514,7 +514,7 @@ graph TB
 **实现范围**：
 - `polyfill/src/service-worker.js`（新文件）— SW 注册/状态机/管理器
 - `polyfill/src/worker-boot.js` 扩展 — SW 侧全局 API 注入（skipWaiting、clients、registration、FetchEvent 类）
-- `polyfill/src/fetch.js` 小改 — 暂不加拦截钩子，但预留 `__qwrt_sw_intercept__` 钩子点
+- `polyfill/src/fetch.js` 小改 — 暂不加拦截钩子，但预留 `__am_sw_intercept__` 钩子点
 - `polyfill/src/cache-storage.js` 扩展 — `cache.addAll()` 方法
 - `polyfill/src/index.js` 接线 — `setupServiceWorker(pal)`
 
@@ -575,17 +575,17 @@ export function setupServiceWorker(pal) {
 
 ```js
 // SW 侧全局扩展（仅当 SW 模式时注入）
-if (globalThis.__qwrt_sw_mode__) {
+if (globalThis.__am_sw_mode__) {
   globalThis.self.skipWaiting = function() {
-    pal.postMessage(__qwrt_serialize__({ __qwrt_sw: 'skipWaiting' }));
+    pal.postMessage(__am_serialize__({ __am_sw: 'skipWaiting' }));
   };
   globalThis.self.clients = {
     claim: function() {
-      pal.postMessage(__qwrt_serialize__({ __qwrt_sw: 'clients.claim' }));
+      pal.postMessage(__am_serialize__({ __am_sw: 'clients.claim' }));
       return Promise.resolve();
     },
     matchAll: function() {
-      pal.postMessage(__qwrt_serialize__({ __qwrt_sw: 'clients.matchAll' }));
+      pal.postMessage(__am_serialize__({ __am_sw: 'clients.matchAll' }));
       return Promise.resolve([{ id: 'main', type: 'window', url: '' }]);
     },
     get: function(id) {
@@ -627,7 +627,7 @@ function doRequest(request, resolve, reject, redirectCount) {
     var fetchId = __nextFetchId__++;
     __pendingFetches__.set(fetchId, { resolve: resolve, reject: reject });
     swController._worker.postMessage({
-      __qwrt_sw_event: 'fetch',
+      __am_sw_event: 'fetch',
       fetchId: fetchId,
       request: { url: request.url, method: request.method,
                  headers: request._headers, body: request._body }
@@ -704,17 +704,17 @@ function doRequest(request, resolve, reject, redirectCount) {
 | 标准对齐 | 偏离（标准有 scope） | 对齐 |
 | 预留 | scope 参数保留但忽略 | — |
 
-**选择：全局注册，scope 参数保留但忽略。** 理由：qwrt 无页面导航概念，全局一个 SW 是最自然的语义。scope 保留为 API 兼容 + 未来扩展。
+**选择：全局注册，scope 参数保留但忽略。** 理由：amoib 无页面导航概念，全局一个 SW 是最自然的语义。scope 保留为 API 兼容 + 未来扩展。
 
 ## 决策 3：更新策略 = install 后自动 skipWaiting（推荐）vs 等待
 
 | 维度 | 自动 skipWaiting（推荐） | 等待旧 SW 释放 |
 |---|---|---|
-| 切换延迟 | 零等待 | 无限等待（qwrt 无页面关闭） |
+| 切换延迟 | 零等待 | 无限等待（amoib 无页面关闭） |
 | 用户控制 | 通过 activate 事件做迁移 | — |
 | 标准对齐 | 偏离（标准默认等待） | 对齐但不可行 |
 
-**选择：install 完成后自动 skipWaiting + clients.claim。** 理由：qwrt 无"等待页面关闭"条件，必须自动切换。
+**选择：install 完成后自动 skipWaiting + clients.claim。** 理由：amoib 无"等待页面关闭"条件，必须自动切换。
 
 ## 决策 4：拦截范围 = 仅 fetch 客户端（推荐）vs fetch + serve()
 
@@ -724,7 +724,7 @@ function doRequest(request, resolve, reject, redirectCount) {
 | 实现范围 | fetch.js 单点改动 | fetch.js + http-server.js |
 | 适用性 | 客户端请求路由足够 | 需要反向代理能力 |
 
-**选择：首版仅 fetch 客户端拦截。** serve() 入站拦截作为扩展点预留（`qwrt.sw.interceptServe()`）。
+**选择：首版仅 fetch 客户端拦截。** serve() 入站拦截作为扩展点预留（`amoib.sw.interceptServe()`）。
 
 ## 决策 5：Cache 持久化 = 内存首版（推荐）vs 立即持久化
 
@@ -748,14 +748,14 @@ function doRequest(request, resolve, reject, redirectCount) {
 
 ## 7.2 正确性
 
-- **递归拦截防护**：SW 脚本内调用 `fetch()` 不应被自身拦截（浏览器行为）。实现：SW 线程内的 fetch 调用绕过 SW 拦截钩子（通过 `__qwrt_sw_mode__` 标志判断）。
+- **递归拦截防护**：SW 脚本内调用 `fetch()` 不应被自身拦截（浏览器行为）。实现：SW 线程内的 fetch 调用绕过 SW 拦截钩子（通过 `__am_sw_mode__` 标志判断）。
 - **FetchEvent 超时**：SW 处理慢或 hang 时，主线程 fetch 需超时回退。30 秒默认值与浏览器一致。
 - **多版本切换无控制真空**：controller/active 切换点在 `activate_done`——新 SW install/activating 期间旧 SW 保持 controller 持续拦截 fetch，无控制真空期。仅当旧 SW 崩溃/被 terminate（如错误）且新 SW 尚未 activated 时，才出现无 SW 控制 → fetch 回退网络；这是预期行为。
 
 ## 7.3 安全
 
 - SW 脚本加载：首版仅 `file://`（与 Worker 一致）。远程 SW 脚本需要网络加载能力（`fetch` 自举问题——SW 拦截 fetch，fetch 又要加载 SW，鸡生蛋）。留作后续讨论。
-- SW 脚本注入风险：qwrt 是嵌入式运行时，SW 脚本来源由宿主控制（非用户上传），安全边界与 Worker 一致。
+- SW 脚本注入风险：amoib 是嵌入式运行时，SW 脚本来源由宿主控制（非用户上传），安全边界与 Worker 一致。
 
 ---
 
@@ -763,8 +763,8 @@ function doRequest(request, resolve, reject, redirectCount) {
 
 | 能力 | 理由 |
 |---|---|
-| Push / Notification API | 依赖浏览器推送平台 / OS 通知中心，qwrt 无此基础设施 |
-| Background Sync | 依赖浏览器后台调度，qwrt 无此概念 |
+| Push / Notification API | 依赖浏览器推送平台 / OS 通知中心，amoib 无此基础设施 |
+| Background Sync | 依赖浏览器后台调度，amoib 无此概念 |
 | Navigation Preload | 无导航概念 |
 | updateViaCache | 无 HTTP 缓存语义（fetch 走 libuv 原始 HTTP） |
 | 强制 HTTPS（secure context） | 非浏览器，豁免 secure context 要求 |
@@ -791,4 +791,4 @@ function doRequest(request, resolve, reject, redirectCount) {
 
 5. **SW-2 Cache 持久化时机**：首版内存够用，持久化放在 SW-3 之后还是与 SW-2 同步？推荐 SW-3 之后独立票。（§3.4）
 
-6. **clients.type 返回值**：qwrt 无 window/worker 区分。`client.type` 返回 `'window'`（贴合标准默认值）还是 `'worker'`（更准确）？推荐 `'window'`（不暴露实现细节）。（§3.2）
+6. **clients.type 返回值**：amoib 无 window/worker 区分。`client.type` 返回 `'window'`（贴合标准默认值）还是 `'worker'`（更准确）？推荐 `'window'`（不暴露实现细节）。（§3.2）

@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for qwrt
+about: Suggest a feature for amoib
 labels: enhancement
 ---
 
@@ -8,7 +8,7 @@ labels: enhancement
 A clear description of what the problem is.
 
 **Describe the solution you'd like**
-What should qwrt do?
+What should amoib do?
 
 **Describe alternatives you've considered**
 Are there other ways to solve this?

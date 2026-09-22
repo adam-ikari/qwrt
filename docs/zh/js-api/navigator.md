@@ -1,6 +1,6 @@
 ---
 title: navigator
-description: Qwrt.js 中的 navigator API —— 平台与运行时信息、用户代理以及硬件并发数。
+description: Amoib.js 中的 navigator API —— 平台与运行时信息、用户代理以及硬件并发数。
 ---
 
 # navigator
@@ -40,10 +40,10 @@ let results = await Promise.all(
 
 ```js
 console.log(navigator.userAgent);
-// "qwrt/1.0" 或类似内容
+// "amoib/1.0" 或类似内容
 ```
 
-这是有意精简的——不是类似浏览器的 user agent 字符串。确切的格式可能在不同 qwrt 版本之间变化。
+这是有意精简的——不是类似浏览器的 user agent 字符串。确切的格式可能在不同 amoib 版本之间变化。
 
 ## 方法
 

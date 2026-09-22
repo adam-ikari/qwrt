@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: crypto.subtle
+ * amoib polyfill: crypto.subtle
  *
  * TC55/ECMA-429 requires crypto.subtle with at minimum:
  *   - digest (SHA-1, SHA-256, SHA-384, SHA-512)
@@ -25,7 +25,7 @@
  * pal.nativeEcGenerate, pal.nativeEcdh, pal.nativeEcdsaSign/Verify,
  * pal.nativeRsaGenerateKey, pal.nativeRsaOaepEncrypt/Decrypt,
  * pal.nativeRsaSign/Verify. These are registered by the crypto extension
- * (ext_crypto.c, gated by QWRT_WITH_CRYPTO_EXT).
+ * (ext_crypto.c, gated by AM_WITH_CRYPTO_EXT).
  */
 
 export function setupCryptoSubtle(pal) {

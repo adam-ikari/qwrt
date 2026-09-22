@@ -1,6 +1,6 @@
 // test_host_messaging_gtest.cpp — host-messaging 模块直接测试（P2-10）
 //
-// 审计缺口：polyfill/src/host-messaging.js（postMessage / __qwrt_dispatch__ /
+// 审计缺口：polyfill/src/host-messaging.js（postMessage / __am_dispatch__ /
 // onmessage 三件套）此前零直接测试——只被 worker/bootstrap 间接受测。
 //
 // 覆盖契约（对宿主可观察的行为，非实现细节）：
@@ -8,7 +8,7 @@
 //      （对象/数组/字符串/数字/null 原样；undefined 退化为裸文本 "undefined"）
 //   2. 出站错误路径：不可序列化（BigInt / 循环引用）同步抛 TypeError，
 //      且宿主不收到任何信封
-//   3. host → JS 入站：bridge 派发的 __qwrt_dispatch__(data, 0) 变成
+//   3. host → JS 入站：bridge 派发的 __am_dispatch__(data, 0) 变成
 //      MessageEvent 'message'（addEventListener 可收，data 原样）
 //   4. onmessage 属性语义：setter 替换旧 handler / null 注销 / 与
 //      addEventListener 并存不双触发
@@ -17,7 +17,7 @@
 //   6. 宿主发坏 JSON → 规范 §5 错误信封 {"type":"error","error":"bad-json"}
 //      回到 message_cb（bridge 契约，host-messaging 是其 JS 侧入口）
 //
-// 基建：与 test_qwrt_gtest 同款 host_create/host_eval/host_wait_msg
+// 基建：与 test_am_gtest 同款 host_create/host_eval/host_wait_msg
 // （mock_libuv，无网络，ctest -L offline）。
 #include "test_host.h"
 #include <cstring>
@@ -93,14 +93,14 @@ TEST_F(HostMessagingTest, PostMessageNonSerializableThrowsNothingSent) {
      * 抛出后 message_cb 不得收到任何东西（eval 通道之外 inbox 应为空）。
      * 用 echo 命令探测：若错误信封被发送，它会排在 echo 回显之前。 */
     const char *echo = "{\"cmd\":\"echo\",\"data\":\"probe\"}";
-    ASSERT_EQ(0, qwrt_post_message(h->rt, echo, strlen(echo)));
+    ASSERT_EQ(0, am_post_message(h->rt, echo, strlen(echo)));
     std::string out;
     ASSERT_TRUE(host_wait_msg(h, &out));
     EXPECT_EQ(out, R"("probe")") << "serialization failure leaked a message: " << out;
 }
 
 // ================================================================
-// 3. host → JS 入站：__qwrt_dispatch__ → MessageEvent
+// 3. host → JS 入站：__am_dispatch__ → MessageEvent
 // ================================================================
 
 TEST_F(HostMessagingTest, DispatchDeliversMessageEventToListener) {
@@ -108,23 +108,23 @@ TEST_F(HostMessagingTest, DispatchDeliversMessageEventToListener) {
     ASSERT_TRUE(host_value(h,
         "var _got = [];\n"
         "addEventListener('message', function(ev){ _got.push(ev.data); });\n"
-        "__qwrt_dispatch__({k: [1, 2]}, 0);\n"
+        "__am_dispatch__({k: [1, 2]}, 0);\n"
         "JSON.stringify(_got)", &v));
     /* 入站 JSON（bridge 解析后派发）原样成为 MessageEvent.data。
-     * 防的 bug：__qwrt_dispatch__ 未定义（模块未 setup）→ 宿主消息全部丢失
+     * 防的 bug：__am_dispatch__ 未定义（模块未 setup）→ 宿主消息全部丢失
      * 只报 bad-json；或 data 传引用未克隆被后续覆盖。 */
     EXPECT_NE(std::string::npos, v.find(R"([{"k":[1,2]}])")) << "got: " << v;
 
     /* 二次派发独立到达（事件不复用/覆盖） */
     ASSERT_TRUE(host_value(h,
-        "__qwrt_dispatch__('second', 0);\n"
+        "__am_dispatch__('second', 0);\n"
         "JSON.stringify(_got)", &v));
     EXPECT_NE(std::string::npos, v.find(R"([{"k":[1,2]},"second"])")) << "got: " << v;
 }
 
 TEST_F(HostMessagingTest, HostInboundJsonRoundTrip) {
-    /* 全链路：qwrt_post_message（宿主线程）→ msgq → bridge JSON 解析 →
-     * __qwrt_dispatch__ → listener。监听器也会收到 eval 命令，故按首条
+    /* 全链路：am_post_message（宿主线程）→ msgq → bridge JSON 解析 →
+     * __am_dispatch__ → listener。监听器也会收到 eval 命令，故按首条
      * 非 eval 消息断言。 */
     std::string v;
     ASSERT_TRUE(host_value(h,
@@ -132,7 +132,7 @@ TEST_F(HostMessagingTest, HostInboundJsonRoundTrip) {
         "addEventListener('message', function(ev){ if (_inbound === null) _inbound = ev.data; });\n"
         "'ok'", &v));
     const char *json = "{\"ping\":{\"n\":3}}";
-    ASSERT_EQ(0, qwrt_post_message(h->rt, json, strlen(json)));
+    ASSERT_EQ(0, am_post_message(h->rt, json, strlen(json)));
     /* poll：每次 eval 泵一轮 loop，消息在 wake_cb 派发后 _inbound 非 null。
      * 注意 eval 命令本身也会触发 listener，_inbound 首条可能抢到 eval 命令
      * 或宿主消息——但宿主消息先入队，先派发。 */
@@ -149,11 +149,11 @@ TEST_F(HostMessagingTest, OnmessageSetterReplacesAndNulls) {
     ASSERT_TRUE(host_value(h,
         "globalThis.__seq = [];\n"
         "onmessage = function(e){ __seq.push('A' + JSON.stringify(e.data)); };\n"
-        "__qwrt_dispatch__({n:1}, 0);\n"
+        "__am_dispatch__({n:1}, 0);\n"
         "onmessage = function(e){ __seq.push('B' + JSON.stringify(e.data)); };\n"
-        "__qwrt_dispatch__({n:2}, 0);\n"
+        "__am_dispatch__({n:2}, 0);\n"
         "onmessage = null;\n"
-        "__qwrt_dispatch__({n:3}, 0);\n"
+        "__am_dispatch__({n:3}, 0);\n"
         "JSON.stringify(__seq)", &v));
     /* setter 替换旧 handler（A 只收到 n:1，B 收 n:2）；null 注销（n:3 无人收）。
      * 防的 bug：setter 叠加注册 → 同一消息触发多次；null 不注销 → 关不掉。 */
@@ -167,9 +167,9 @@ TEST_F(HostMessagingTest, OnmessageCoexistsWithAddEventListener) {
         "globalThis.__seq = [];\n"
         "addEventListener('message', function(e){ __seq.push('L'); });\n"
         "onmessage = function(e){ __seq.push('H'); };\n"
-        "__qwrt_dispatch__('x', 0);\n"
+        "__am_dispatch__('x', 0);\n"
         "onmessage = null;\n"
-        "__qwrt_dispatch__('y', 0);\n"
+        "__am_dispatch__('y', 0);\n"
         "JSON.stringify(__seq)", &v));
     /* onmessage 与 listener 并存各触发一次；null 后仅剩 listener。
      * 防的 bug：onmessage 挤掉 listener 或双双不触发。 */
@@ -186,9 +186,9 @@ TEST_F(HostMessagingTest, HandlerErrorReportedNotFatal) {
         "globalThis.__errs = []; globalThis.__after = 'no';\n"
         "addEventListener('error', function(e){ __errs.push(e.message); });\n"
         "onmessage = function(){ throw new Error('handler-boom'); };\n"
-        "__qwrt_dispatch__('x', 0);\n"
+        "__am_dispatch__('x', 0);\n"
         "onmessage = null;\n"
-        "__qwrt_dispatch__('y', 0);\n"
+        "__am_dispatch__('y', 0);\n"
         "__after = 'yes';\n"
         "JSON.stringify([__errs, __after])", &v));
     /* 异常进全局 error 事件（reportError 路径），后续派发照常。
@@ -201,7 +201,7 @@ TEST_F(HostMessagingTest, HandlerErrorReportedNotFatal) {
 // ================================================================
 
 TEST_F(HostMessagingTest, BadJsonHostMessageYieldsErrorEnvelope) {
-    ASSERT_EQ(0, qwrt_post_message(h->rt, "{not json", 9));
+    ASSERT_EQ(0, am_post_message(h->rt, "{not json", 9));
     std::string out;
     ASSERT_TRUE(host_wait_msg(h, &out));
     /* 防的 bug：坏 JSON 静默丢弃（宿主无从得知）或把残片喂给 dispatch。 */

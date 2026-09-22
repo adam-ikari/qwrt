@@ -1,6 +1,6 @@
 #!/bin/bash
 # M-P1 process-backend e2e (review I7) — exercises the real two-process path
-# against the qwrt CLI (QWRT_WORKER_BACKEND=process). Three phases:
+# against the amoib CLI (AM_WORKER_BACKEND=process). Three phases:
 #   1.  spawn → handshake → postMessage round-trip → graceful terminate (tier-1)
 #   1b. >64KB payload round-trip — frame spans multiple pipe reads, so the
 #       receiver must accumulate a partial frame (2018 regression guard: the
@@ -8,11 +8,11 @@
 #   2.  hard SIGKILL the child mid-flight → parent survives (C2 MSG_NOSIGNAL)
 #       → zombie reaped + slot released (I1) so a fresh Worker spawns → no
 #       leftover temp script file (C1)
-# Usage: bash test/test_mp1_process_e2e.sh <path-to-qwrt>
+# Usage: bash test/test_mp1_process_e2e.sh <path-to-amoib>
 set -u
-QWRT="${1:-./build_e2e/qwrt}"
+AM="${1:-./build_e2e/amoib}"
 DIR="$(cd "$(dirname "$0")/mp1-e2e" && pwd)"
-export QWRT_WORKER_BACKEND=process
+export AM_WORKER_BACKEND=process
 
 # main-mp1*.js 内的 worker URL 是同仓绝对路径（历史遗留）——CI checkout 不在该
 # 路径下，故按本仓根替换到临时副本再跑（fixture 本身不动）。
@@ -20,20 +20,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIX="$(mktemp -d)"
 trap 'rm -rf "$FIX"' EXIT
 for f in main-mp1.js main-mp1-big.js main-mp1-kill.js; do
-  sed "s#file:///home/gem/project/qwrt#file://$ROOT#g" "$DIR/$f" > "$FIX/$f"
+  sed "s#file:///home/gem/project/amoib#file://$ROOT#g" "$DIR/$f" > "$FIX/$f"
   grep -q "file://$ROOT/test/mp1-e2e/" "$FIX/$f" || { echo "FAIL: fixture path rewrite"; exit 1; }
 done
 
-if [ ! -x "$QWRT" ]; then
-  echo "FAIL: qwrt binary not found at '$QWRT'"
+if [ ! -x "$AM" ]; then
+  echo "FAIL: amoib binary not found at '$AM'"
   exit 1
 fi
 
 # Clean any stale temp files so the C1 leak check is meaningful.
-rm -f /tmp/qwrt-worker-*
+rm -f /tmp/amoib-worker-*
 
 # ── Phase 1: graceful round-trip + terminate ──
-OUT1="$(timeout 20 "$QWRT" "$FIX/main-mp1.js" 2>&1)"
+OUT1="$(timeout 20 "$AM" "$FIX/main-mp1.js" 2>&1)"
 EXP1=$'echo:ping\nDONE'
 if [ "$OUT1" != "$EXP1" ]; then
   echo "FAIL: phase 1 (graceful round-trip) output mismatch"
@@ -42,7 +42,7 @@ if [ "$OUT1" != "$EXP1" ]; then
 fi
 
 # ── Phase 1b: >64KB payload round-trip (multi-read frame accumulation) ──
-OUT1B="$(timeout 20 "$QWRT" "$FIX/main-mp1-big.js" 2>&1)"
+OUT1B="$(timeout 20 "$AM" "$FIX/main-mp1-big.js" 2>&1)"
 EXP1B=$'big:131072:7:9\nDONE'
 if [ "$OUT1B" != "$EXP1B" ]; then
   echo "FAIL: phase 1b (>64KB round-trip) output mismatch"
@@ -52,19 +52,19 @@ fi
 
 # ── Phase 2: hard kill + respawn + no zombie / no temp leak ──
 TMP="$(mktemp)"
-"$QWRT" "$FIX/main-mp1-kill.js" > "$TMP" 2>&1 &
+"$AM" "$FIX/main-mp1-kill.js" > "$TMP" 2>&1 &
 PARENT=$!
 # Wait for the worker to come up (READY) so the child exists to kill.
 for i in $(seq 1 50); do
   grep -q '^READY$' "$TMP" 2>/dev/null && break
   sleep 0.1
 done
-# 按 argv 定位 worker 进程（`--qwrt-worker`）而非「父进程下第一个 qwrt-rt」：
+# 按 argv 定位 worker 进程（`--amoib-worker`）而非「父进程下第一个 amoib-rt」：
 # ISOLATED 编译（M-P2 缺省）下宿主与主RT 是两个进程，worker 是主RT 的子进程
 # （宿主的孙进程）——按父进程号找会误取主RT（进程模型的主体，非被测对象）。
-CHILD="$(pgrep -f -- '--qwrt-worker' | head -1)"
+CHILD="$(pgrep -f -- '--amoib-worker' | head -1)"
 if [ -z "$CHILD" ]; then
-  echo "FAIL: phase 2 — no qwrt-rt child found under parent $PARENT"
+  echo "FAIL: phase 2 — no amoib-rt child found under parent $PARENT"
   kill "$PARENT" 2>/dev/null
   wait "$PARENT" 2>/dev/null
   cat "$TMP"; rm -f "$TMP"
@@ -81,17 +81,17 @@ if [ "$OUT2" != "$EXP2" ]; then
   exit 1
 fi
 
-# Zombie check (I1): the killed child must have been reaped — no qwrt-rt lingers.
-if pgrep -f qwrt-rt >/dev/null; then
-  echo "FAIL: phase 2 — leftover qwrt-rt process (zombie not reaped)"
-  pgrep -af qwrt-rt
+# Zombie check (I1): the killed child must have been reaped — no amoib-rt lingers.
+if pgrep -f amoib-rt >/dev/null; then
+  echo "FAIL: phase 2 — leftover amoib-rt process (zombie not reaped)"
+  pgrep -af amoib-rt
   exit 1
 fi
 
 # Temp-file leak check (C1): the child unlinks its script after reading.
-if ls /tmp/qwrt-worker-* >/dev/null 2>&1; then
+if ls /tmp/amoib-worker-* >/dev/null 2>&1; then
   echo "FAIL: temp script files leaked:"
-  ls /tmp/qwrt-worker-*
+  ls /tmp/amoib-worker-*
   exit 1
 fi
 

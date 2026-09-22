@@ -1,6 +1,6 @@
 ---
 title: crypto
-description: The Web Crypto API in Qwrt.js — crypto.subtle with SHA-256/384/512, HMAC, PBKDF2, AES-GCM, and crypto.getRandomValues.
+description: The Web Crypto API in Amoib.js — crypto.subtle with SHA-256/384/512, HMAC, PBKDF2, AES-GCM, and crypto.getRandomValues.
 ---
 
 # crypto API
@@ -40,7 +40,7 @@ The operation is synchronous — random bytes come from `/dev/urandom` (Linux), 
 
 ## crypto.subtle — SubtleCrypto
 
-All SubtleCrypto methods return `Promise`s. Available algorithms depend on whether `QWRT_WITH_CRYPTO_EXT` is enabled at build time.
+All SubtleCrypto methods return `Promise`s. Available algorithms depend on whether `AM_WITH_CRYPTO_EXT` is enabled at build time.
 
 ### `crypto.subtle.digest(algorithm, data)`
 
@@ -66,7 +66,7 @@ let hash512 = await crypto.subtle.digest('SHA-512', data);
 
 ### `crypto.subtle.encrypt(algorithm, key, data)` / `decrypt(algorithm, key, data)`
 
-AES encryption/decryption. Available when `QWRT_WITH_CRYPTO_EXT=ON`.
+AES encryption/decryption. Available when `AM_WITH_CRYPTO_EXT=ON`.
 
 ```js
 let key = await crypto.subtle.generateKey(
@@ -148,7 +148,7 @@ console.log('Valid:', valid); // true
 
 ### PBKDF2 Key Derivation
 
-Available when `QWRT_WITH_CRYPTO_EXT` provides PBKDF2 support.
+Available when `AM_WITH_CRYPTO_EXT` provides PBKDF2 support.
 
 ```js
 let password = new TextEncoder().encode('password');
@@ -166,7 +166,7 @@ let derived = await crypto.subtle.deriveBits(
 
 ### Key Export, Wrapping, and Derivation
 
-`exportKey` / `wrapKey` / `unwrapKey` / `deriveKey` are available when `QWRT_WITH_CRYPTO_EXT=ON`.
+`exportKey` / `wrapKey` / `unwrapKey` / `deriveKey` are available when `AM_WITH_CRYPTO_EXT=ON`.
 
 `exportKey` supports `"raw"` and `"jwk"` formats, and requires a key created with `extractable: true`:
 
@@ -211,7 +211,7 @@ let derived = await crypto.subtle.deriveKey(
 
 ## Without CRYPTO_EXT
 
-When `QWRT_WITH_CRYPTO_EXT=OFF`, only `crypto.getRandomValues()` is available. `crypto.subtle` is `undefined` — there is no JS fallback.
+When `AM_WITH_CRYPTO_EXT=OFF`, only `crypto.getRandomValues()` is available. `crypto.subtle` is `undefined` — there is no JS fallback.
 
 ## Notes
 

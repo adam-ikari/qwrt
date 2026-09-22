@@ -1,5 +1,5 @@
 /**
- * qwrt Polyfill - Crypto interface
+ * amoib Polyfill - Crypto interface
  *
  * Provides crypto.getRandomValues() and crypto.randomUUID().
  * Uses pal.randomBytes() for cryptographically secure random generation.

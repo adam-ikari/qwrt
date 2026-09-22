@@ -1,6 +1,6 @@
 // test_context_worker_composition_gtest.cpp — M-R2 多 RT 组合模型（§14）
 //
-// 单个 qwrt_t 内两个正交组合原语并存：
+// 单个 am_t 内两个正交组合原语并存：
 //   context — context.c，同一 JSRuntime 堆内多 JSContext（rt->contexts[]）
 //   worker  — rt->workers[] 槽位表 + 独立消息循环执行域
 //
@@ -17,8 +17,8 @@
 //        contexts 回收）一次干净
 //
 // worker 后端：THREAD（mock 构建唯一可达后端，bridge.c pal.workerBackend 在
-// QWRT_USE_MOCK_LIBUV 下恒 'thread'）。PROCESS 后端同场景回归见
-// test/test_mr2_composition_e2e.sh（真实进程，QWRT_WORKER_BACKEND=process）。
+// AM_USE_MOCK_LIBUV 下恒 'thread'）。PROCESS 后端同场景回归见
+// test/test_mr2_composition_e2e.sh（真实进程，AM_WORKER_BACKEND=process）。
 #include "test_host.h"
 #include <string>
 #include <cstdio>
@@ -30,12 +30,12 @@
 static HostCtx *host_create_ctl_plane(int plane) {
     auto *h = new HostCtx();
     uv_mutex_init(&h->m); uv_cond_init(&h->c);
-    qwrt_config_t cfg = {};
+    am_config_t cfg = {};
     cfg.initial_script = kTestBootstrap;
     cfg.message_cb = host_msg_cb;
     cfg.host_data = h;
     cfg.control_plane = plane;
-    h->rt = qwrt_create(&cfg);
+    h->rt = am_create(&cfg);
     if (!h->rt) {
         uv_cond_destroy(&h->c); uv_mutex_destroy(&h->m);
         delete h;
@@ -77,14 +77,14 @@ static std::string worker_setup(const char *var, int tag) {
  * 两个组合原语各自成域：子 context 全局互不可见、不外泄到主 context；两个
  * worker 各自消息域不串；rt 级两张表同时记账（ctx_count=3 / worker_count=2）。 */
 TEST(composition_, contexts_and_workers_coexist_orthogonally) {
-    HostCtx *h = host_create_ctl_plane(QWRT_CONTROL_IN_PROC);
+    HostCtx *h = host_create_ctl_plane(AM_CONTROL_IN_PROC);
     ASSERT_NE(nullptr, h);
     std::string out;
 
     /* 2 个子 context（同一 JSRuntime 堆内、各自全局） */
     ASSERT_TRUE(host_value(h,
-        "JSON.stringify([qwrtContext.spawn('globalThis.tag = \"c1\";'),"
-        " qwrtContext.spawn('globalThis.tag = \"c2\";')])", &out));
+        "JSON.stringify([amContext.spawn('globalThis.tag = \"c1\";'),"
+        " amContext.spawn('globalThis.tag = \"c2\";')])", &out));
     EXPECT_EQ("[1,2]", out) << out;
 
     /* 2 个 worker（各自独立消息循环执行域），带上源标记回显 */
@@ -124,7 +124,7 @@ TEST(composition_, contexts_and_workers_coexist_orthogonally) {
  * 挂起 = ctx 槽位消失（状态落盘），恢复 = 原槽位重建。worker 生命周期只随 rt：
  * 期间照常收发；恢复后 ctx 状态正确（字节级），与 worker 消息互不影响。 */
 TEST(composition_, ctx_suspend_resume_leaves_workers_untouched) {
-    HostCtx *h = host_create_ctl_plane(QWRT_CONTROL_IN_PROC);
+    HostCtx *h = host_create_ctl_plane(AM_CONTROL_IN_PROC);
     ASSERT_NE(nullptr, h);
     std::string out;
     const char *state_a = TEST_DIR "/state_mr2_a.bin";
@@ -133,7 +133,7 @@ TEST(composition_, ctx_suspend_resume_leaves_workers_untouched) {
     remove(state_b);
 
     std::string setup = worker_setup("w", -1) +
-                        "qwrtContext.spawn('globalThis.keep = 41;'); 'ok'";
+                        "amContext.spawn('globalThis.keep = 41;'); 'ok'";
     ASSERT_TRUE(host_eval(h, setup.c_str(), &out));
     EXPECT_EQ(2, metrics_int(h, "m1", "ctx_count"));
     EXPECT_EQ(1, metrics_int(h, "m1w", "worker_count"));
@@ -144,7 +144,7 @@ TEST(composition_, ctx_suspend_resume_leaves_workers_untouched) {
     EXPECT_NE(std::string::npos, out.find("before")) << out;
 
     /* 挂起子 context：槽位消失，worker 槽位不受影响 */
-    std::string suspend_a = "qwrtContext.suspend(1, '" + std::string(state_a) + "'); 'ok'";
+    std::string suspend_a = "amContext.suspend(1, '" + std::string(state_a) + "'); 'ok'";
     ASSERT_TRUE(host_eval(h, suspend_a.c_str(), &out));
     EXPECT_NE(std::string::npos, out.find("ok")) << out;
     EXPECT_EQ(1, metrics_int(h, "m2", "ctx_count"));
@@ -156,7 +156,7 @@ TEST(composition_, ctx_suspend_resume_leaves_workers_untouched) {
     EXPECT_NE(std::string::npos, out.find("during")) << out;
 
     /* 恢复：状态完全来自盘（空 init 脚本） */
-    std::string resume = "JSON.stringify(qwrtContext.resume(1, '', '" +
+    std::string resume = "JSON.stringify(amContext.resume(1, '', '" +
                          std::string(state_a) + "'))";
     ASSERT_TRUE(host_value(h, resume.c_str(), &out));
     EXPECT_EQ("1", out) << out;
@@ -168,7 +168,7 @@ TEST(composition_, ctx_suspend_resume_leaves_workers_untouched) {
     EXPECT_NE(std::string::npos, out.find("after")) << out;
 
     /* 恢复后 ctx 状态正确：再次挂起 → 两次捕获字节一致（worker 收发不留痕） */
-    std::string suspend_b = "qwrtContext.suspend(1, '" + std::string(state_b) + "'); 'ok'";
+    std::string suspend_b = "amContext.suspend(1, '" + std::string(state_b) + "'); 'ok'";
     ASSERT_TRUE(host_eval(h, suspend_b.c_str(), &out));
     EXPECT_NE(std::string::npos, out.find("ok")) << out;
     std::string a, b;
@@ -186,18 +186,18 @@ TEST(composition_, ctx_suspend_resume_leaves_workers_untouched) {
  * 子 context 销毁不触及 rt 级 workers 表；worker 早已入队的消息继续派发到
  * 主 context（宿主可见面），主 context 本身也照常工作。 */
 TEST(composition_, ctx_destroy_leaves_workers_dispatching) {
-    HostCtx *h = host_create_ctl_plane(QWRT_CONTROL_IN_PROC);
+    HostCtx *h = host_create_ctl_plane(AM_CONTROL_IN_PROC);
     ASSERT_NE(nullptr, h);
     std::string out;
 
     ASSERT_TRUE(host_eval(h, worker_setup("w", -1).c_str(), &out));
     ASSERT_TRUE(host_value(h,
-        "JSON.stringify(qwrtContext.spawn('globalThis.gone = 1;'))", &out));
+        "JSON.stringify(amContext.spawn('globalThis.gone = 1;'))", &out));
     EXPECT_EQ("1", out) << out;
     EXPECT_EQ(2, metrics_int(h, "m1", "ctx_count"));
     EXPECT_EQ(1, metrics_int(h, "m1w", "worker_count"));
 
-    ASSERT_TRUE(host_value(h, "qwrtContext.destroy(1); 'ok'", &out));
+    ASSERT_TRUE(host_value(h, "amContext.destroy(1); 'ok'", &out));
     EXPECT_EQ(1, metrics_int(h, "m2", "ctx_count"));
     EXPECT_EQ(1, metrics_int(h, "m2w", "worker_count")) << "ctx 销毁波及了 worker";
 
@@ -217,7 +217,7 @@ TEST(composition_, ctx_destroy_leaves_workers_dispatching) {
  * resume → postMessage('seq-3')。eval 能返回即无死锁；worker 侧 FIFO 保序
  * （三条回显顺序 = 发送顺序），ctx 状态在交错后仍字节级可复现。 */
 TEST(composition_, interleaved_postmessage_across_suspend_resume) {
-    HostCtx *h = host_create_ctl_plane(QWRT_CONTROL_IN_PROC);
+    HostCtx *h = host_create_ctl_plane(AM_CONTROL_IN_PROC);
     ASSERT_NE(nullptr, h);
     std::string out;
     const char *state_a = TEST_DIR "/state_mr2_i1.bin";
@@ -226,11 +226,11 @@ TEST(composition_, interleaved_postmessage_across_suspend_resume) {
     remove(state_b);
 
     std::string code = worker_setup("w", -1);
-    code += "qwrtContext.spawn('globalThis.n = 7;');\n";
+    code += "amContext.spawn('globalThis.n = 7;');\n";
     code += "w.postMessage('seq-1');\n";
-    code += "qwrtContext.suspend(1, '" + std::string(state_a) + "');\n";
+    code += "amContext.suspend(1, '" + std::string(state_a) + "');\n";
     code += "w.postMessage('seq-2');\n";
-    code += "qwrtContext.resume(1, '', '" + std::string(state_a) + "');\n";
+    code += "amContext.resume(1, '', '" + std::string(state_a) + "');\n";
     code += "w.postMessage('seq-3');\n";
     code += "'interleaved'";
     /* 交错完成即返回：挂住（死锁）会让本 eval 超时失败 */
@@ -248,7 +248,7 @@ TEST(composition_, interleaved_postmessage_across_suspend_resume) {
     EXPECT_EQ(1, metrics_int(h, "m1w", "worker_count"));
 
     /* 交错后 ctx 状态仍正确 */
-    std::string suspend_b = "qwrtContext.suspend(1, '" + std::string(state_b) + "'); 'ok'";
+    std::string suspend_b = "amContext.suspend(1, '" + std::string(state_b) + "'); 'ok'";
     ASSERT_TRUE(host_eval(h, suspend_b.c_str(), &out));
     EXPECT_NE(std::string::npos, out.find("ok")) << out;
     std::string a, b;
@@ -266,12 +266,12 @@ TEST(composition_, interleaved_postmessage_across_suspend_resume) {
  * worker 落 rt 级同一张表：建它的子 context 销毁后槽位仍在（生命周期只随 rt），
  * 主 context 后续建的 worker 与之共用同一张表（计数并列相加）。 */
 TEST(composition_, worker_spawned_in_child_ctx_is_rt_owned) {
-    HostCtx *h = host_create_ctl_plane(QWRT_CONTROL_IN_PROC);
+    HostCtx *h = host_create_ctl_plane(AM_CONTROL_IN_PROC);
     ASSERT_NE(nullptr, h);
     std::string out;
 
     /* 子 context 的 init 脚本里建 worker（宿主不见该 ctx，只见主 context） */
-    std::string spawn = "JSON.stringify(qwrtContext.spawn(" +
+    std::string spawn = "JSON.stringify(amContext.spawn(" +
         JSON_string("globalThis.wc = new Worker('file://" TEST_DIR "/worker_idle.js');") +
         "))";
     ASSERT_TRUE(host_value(h, spawn.c_str(), &out));
@@ -280,7 +280,7 @@ TEST(composition_, worker_spawned_in_child_ctx_is_rt_owned) {
     EXPECT_EQ(1, metrics_int(h, "m1w", "worker_count"));
 
     /* 销毁建它的子 context：worker 槽位仍在（不同轴，不回滚） */
-    ASSERT_TRUE(host_value(h, "qwrtContext.destroy(1); 'ok'", &out));
+    ASSERT_TRUE(host_value(h, "amContext.destroy(1); 'ok'", &out));
     EXPECT_EQ(1, metrics_int(h, "m2", "ctx_count"));
     EXPECT_EQ(1, metrics_int(h, "m2w", "worker_count"))
         << "子 context 销毁回收了 rt 级 worker 槽位";
@@ -306,12 +306,12 @@ TEST(composition_, tree_destroy_with_live_workers_is_clean) {
 
     long long t0 = mono_ms();
     {
-        HostCtx *h = host_create_ctl_plane(QWRT_CONTROL_IN_PROC);
+        HostCtx *h = host_create_ctl_plane(AM_CONTROL_IN_PROC);
         ASSERT_NE(nullptr, h);
 
         ASSERT_TRUE(host_value(h,
-            "JSON.stringify([qwrtContext.spawn('globalThis.a = 1;'),"
-            " qwrtContext.spawn('globalThis.b = 2;')])", &out));
+            "JSON.stringify([amContext.spawn('globalThis.a = 1;'),"
+            " amContext.spawn('globalThis.b = 2;')])", &out));
         EXPECT_EQ("[1,2]", out) << out;
         ASSERT_TRUE(host_eval(h,
             (worker_setup("w1", -1) + worker_setup("w2", -1)).c_str(), &out));

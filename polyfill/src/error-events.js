@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: ErrorEvent, PromiseRejectionEvent
+ * amoib polyfill: ErrorEvent, PromiseRejectionEvent
  *
  * TC55/ECMA-429 requires these event types for error reporting.
  *

@@ -1,19 +1,19 @@
-# qwrt HTTPServer Example
+# amoib HTTPServer Example
 
-一个基于 qwrt 能力搭建的**完整 HTTP 服务器**示例（应用层实现）。
+一个基于 amoib 能力搭建的**完整 HTTP 服务器**示例（应用层实现）。
 
 ## 架构说明
 
-qwrt 只提供三类能力，其余全部由应用层实现：
+amoib 只提供三类能力，其余全部由应用层实现：
 
-| 能力 | qwrt API | 本示例使用 |
+| 能力 | amoib API | 本示例使用 |
 |---|---|---|
 | 监听 + 回复 | `serve({port}, handler)` | 接收请求、返回 `Response` |
-| 读取文件 | `qwrt.fs.readFileBinary(path)` | 读取静态文件（二进制安全） |
+| 读取文件 | `amoib.fs.readFileBinary(path)` | 读取静态文件（二进制安全） |
 | 压缩 | `CompressionStream('gzip')` | 大文本响应 gzip 压缩 |
 
 > 路由、缓存、MIME、压缩策略、ETag 协商、404/500 等 HTTP 服务器该有的
-> 逻辑，全部写在 `server.js` 里——这正是"qwrt 只提供原语，应用层搭建
+> 逻辑，全部写在 `server.js` 里——这正是"amoib 只提供原语，应用层搭建
 > 协议"的演示。
 
 ## 功能列表
@@ -40,7 +40,7 @@ qwrt 只提供三类能力，其余全部由应用层实现：
 
 ```bash
 # 在仓库根目录
-./build-ws/qwrt examples/httpserver/server.js
+./build-ws/amoib examples/httpserver/server.js
 ```
 
 端口与静态目录在 `server.js` 顶部修改：
@@ -61,7 +61,7 @@ curl -i -H 'Accept-Encoding: gzip' http://127.0.0.1:8080/style.css | head
 
 # API 路由
 curl http://127.0.0.1:8080/api/hello
-curl -X POST -d 'hello qwrt' http://127.0.0.1:8080/api/echo
+curl -X POST -d 'hello amoib' http://127.0.0.1:8080/api/echo
 
 # ETag 缓存协商
 curl -i http://127.0.0.1:8080/style.css | grep -i etag

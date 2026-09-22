@@ -1,57 +1,57 @@
 /*
- * qwrt Web Worker (执行模型 A — 真线程)
+ * amoib Web Worker (执行模型 A — 真线程)
  *
- * Worker = 父 runtime 里的独立 qwrt_t：独立线程（uv_thread_t）+ 独立
- * JSRuntime + 独立 loop + 独立 wake async。父 runtime 持有 qwrt_worker_t 表
+ * Worker = 父 runtime 里的独立 am_t：独立线程（uv_thread_t）+ 独立
+ * JSRuntime + 独立 loop + 独立 wake async。父 runtime 持有 am_worker_t 表
  * （rt->workers[]，槽位索引 = worker id = 入站消息的 source 标签）。
  *
  * 数据路径：
  *   worker→父   worker 的 pal.postMessage（js_pal_worker_emit，已被垫片换成
  *               结构化克隆字节）push 进父入站队列（source=w->id）→ 父线程
  *               wake_cb 派发 → worker.js 按 source 路由到 Worker 实例。
- *   父→worker   qwrt_worker_post push 进 worker 自己的入站队列（self 的
+ *   父→worker   am_worker_post push 进 worker 自己的入站队列（self 的
  *               msg_head/tail，source=0）→ worker 线程 wake_cb 派发 →
- *               __qwrt_dispatch__(bytes,0) → 垫片反序列化 → MessageEvent。
+ *               __am_dispatch__(bytes,0) → 垫片反序列化 → MessageEvent。
  *
- * 生命周期：qwrt_worker_create 阻塞到 worker ready 握手才返回 id；脚本顶层
+ * 生命周期：am_worker_create 阻塞到 worker ready 握手才返回 id；脚本顶层
  * 异常 → 先在本 runtime 内 dispatch ErrorEvent（触发 self.onerror），再经
  * postMessage 发 {type:'error'} 给父（触发 w.onerror），worker 继续存活。
  * terminate 异步（置 shutting_down + wake，不 join——不能 join 自己）。join +
  * 释放 worker runtime 有两条路径，都在父线程：父 teardown
- * （qwrt_thread_teardown 第一步）与下一次 spawn 时的 qwrt_worker_reap——后者
- * 回收槽位（id = 索引+1），否则反复 spawn/terminate 会耗尽 QWRT_MAX_WORKERS。
+ * （am_thread_teardown 第一步）与下一次 spawn 时的 am_worker_reap——后者
+ * 回收槽位（id = 索引+1），否则反复 spawn/terminate 会耗尽 AM_MAX_WORKERS。
  */
 
-#include "qwrt_internal.h"
+#include "am_internal.h"
 #include <sched.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-/* 父线程调用的 worker API 契约见 qwrt_internal.h（qwrt_worker_* 声明；
- * qwrt_worker_s 定义也在那，bridge.c / qwrt.c 需解引用其字段）。 */
+/* 父线程调用的 worker API 契约见 am_internal.h（am_worker_* 声明；
+ * am_worker_s 定义也在那，bridge.c / amoib.c 需解引用其字段）。 */
 
 /* worker 启动垫片：由 polyfill/src/worker-boot.js 经 build.js(qjsc) 编译成
- * 字节码注入（src/worker_boot_default.c → qwrt_default_worker_boot）。垫片
- * 读 __native__，覆盖 postMessage / __qwrt_dispatch__ / close /
+ * 字节码注入（src/worker_boot_default.c → am_default_worker_boot）。垫片
+ * 读 __native__，覆盖 postMessage / __am_dispatch__ / close /
  * importScripts——之后 worker 脚本里的 postMessage()/onmessage/close() 即
  * 按 worker 语义工作。 */
 
-/* worker 入站派发：父发的字节 → __qwrt_dispatch__(bytes, 0, kind)（垫片反序列化）。
+/* worker 入站派发：父发的字节 → __am_dispatch__(bytes, 0, kind)（垫片反序列化）。
  * kind 由 msgq flags 投影（0=MESSAGE / 1=PORT_TRANSFER）——port 帧据此走端点
  * 路由而不必猜 payload 形状（M-P3）。 */
-void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m)
+void am_worker_dispatch(am_t *rt, am_msg_t *m)
 {
-    qwrt_ctx_t *cctx = rt->contexts[0];
+    am_ctx_t *cctx = rt->contexts[0];
     if (!cctx || !cctx->jsctx) return;
     JSContext *ctx = cctx->jsctx;
     JSValue g = JS_GetGlobalObject(ctx);
-    JSValue fn = JS_GetPropertyStr(ctx, g, "__qwrt_dispatch__");
+    JSValue fn = JS_GetPropertyStr(ctx, g, "__am_dispatch__");
     JS_FreeValue(ctx, g);
     if (JS_IsFunction(ctx, fn)) {
         JSValue data = JS_NewArrayBufferCopy(ctx, (const uint8_t *)m->data, m->len);
-        JSValue src = JS_NewInt32(ctx, QWRT_MSG_SRC_HOST);
-        JSValue kind = JS_NewInt32(ctx, qwrt_msg_kind(m->flags));
+        JSValue src = JS_NewInt32(ctx, AM_MSG_SRC_HOST);
+        JSValue kind = JS_NewInt32(ctx, am_msg_kind(m->flags));
         JSValue args[3] = { data, src, kind };
         JSValue r = JS_Call(ctx, fn, JS_UNDEFINED, 3, args);
         JS_FreeValue(ctx, r);
@@ -63,13 +63,13 @@ void qwrt_worker_dispatch(qwrt_t *rt, qwrt_msg_t *m)
 }
 
 /* worker 线程的 wake 回调：排空自己的入站队列并派发 */
-static void qwrt_worker_wake_cb(uv_async_t *a)
+static void am_worker_wake_cb(uv_async_t *a)
 {
-    qwrt_t *rt = (qwrt_t *)a->data;
+    am_t *rt = (am_t *)a->data;
     if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE)) return;
-    qwrt_msg_t *m;
-    while ((m = qwrt_msg_pop(rt)) != NULL) {
-        qwrt_worker_dispatch(rt, m);
+    am_msg_t *m;
+    while ((m = am_msg_pop(rt)) != NULL) {
+        am_worker_dispatch(rt, m);
         /* node is not freed here: pop already frees the old head; m becomes the next pop's head */
     }
 }
@@ -79,9 +79,9 @@ static void qwrt_worker_wake_cb(uv_async_t *a)
  * postMessage（已被垫片替换为序列化→父）以 {type:'error', error:<msg>} 通知
  * 父；worker 继续存活。ErrorEvent 构造失败（如 polyfill 未加载）时跳过本地
  * 派发，回退到仅父通知。 */
-static void qwrt_worker_notify_error(qwrt_t *rt, const char *msg)
+static void am_worker_notify_error(am_t *rt, const char *msg)
 {
-    qwrt_ctx_t *cctx = rt->contexts[0];
+    am_ctx_t *cctx = rt->contexts[0];
     if (!cctx || !cctx->jsctx) return;
     JSContext *ctx = cctx->jsctx;
     const char *text = msg ? msg : "";
@@ -135,10 +135,10 @@ static void qwrt_worker_notify_error(qwrt_t *rt, const char *msg)
     JS_FreeValue(ctx, pm);
 }
 
-static void qwrt_worker_thread_main(void *arg)
+static void am_worker_thread_main(void *arg)
 {
-    qwrt_worker_t *w = (qwrt_worker_t *)arg;
-    qwrt_t *rt = w->self;
+    am_worker_t *w = (am_worker_t *)arg;
+    am_t *rt = w->self;
     int loop_inited = 0;
 
     if (uv_loop_init(&rt->loop) != 0) {
@@ -146,18 +146,18 @@ static void qwrt_worker_thread_main(void *arg)
     } else {
         loop_inited = 1;
         rt->wake.data = rt;
-        if (uv_async_init(&rt->loop, &rt->wake, qwrt_worker_wake_cb) != 0) {
+        if (uv_async_init(&rt->loop, &rt->wake, am_worker_wake_cb) != 0) {
             rt->ready_err = -1;
-        } else if (qwrt_runtime_init(rt) != 0) {
+        } else if (am_runtime_init(rt) != 0) {
             rt->ready_err = -1;
         } else {
             char *err = NULL;
-            if (qwrt_eval_bytecode_internal(rt, qwrt_default_worker_boot,
-                                            qwrt_default_worker_boot_len, &err) != 0) {
-                qwrt_worker_notify_error(rt, err ? err : "worker boot failed");
+            if (am_eval_bytecode_internal(rt, am_default_worker_boot,
+                                            am_default_worker_boot_len, &err) != 0) {
+                am_worker_notify_error(rt, err ? err : "worker boot failed");
                 free(err);
-            } else if (qwrt_eval_internal(rt, w->script, &err) != 0) {
-                qwrt_worker_notify_error(rt, err ? err : "worker script error");
+            } else if (am_eval_internal(rt, w->script, &err) != 0) {
+                am_worker_notify_error(rt, err ? err : "worker script error");
                 free(err);
             }
         }
@@ -167,7 +167,7 @@ static void qwrt_worker_thread_main(void *arg)
     __atomic_store_n(&rt->thread_ready, 1, __ATOMIC_RELEASE);
 
     if (rt->ready_err) {
-        if (loop_inited) qwrt_thread_teardown(rt);
+        if (loop_inited) am_thread_teardown(rt);
         return;
     }
 
@@ -177,9 +177,9 @@ static void qwrt_worker_thread_main(void *arg)
         uv_run(&rt->loop, UV_RUN_ONCE);  /* 阻塞等事件；wake_cb 派发消息 */
         if (__atomic_load_n(&rt->shutting_down, __ATOMIC_ACQUIRE) ||
             __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE)) break;
-        qwrt_flush_microtasks(rt);
+        am_flush_microtasks(rt);
     }
-    qwrt_thread_teardown(rt);
+    am_thread_teardown(rt);
 }
 
 /* ================================================================
@@ -188,7 +188,7 @@ static void qwrt_worker_thread_main(void *arg)
 
 /* 释放 worker 自己的 runtime（线程已结束、即 join 已返回时才可调用；worker
  * 侧再无人引用它）。self 置 NULL 即"已 join + runtime 已释放"标记。 */
-static void qwrt_worker_release_runtime(qwrt_worker_t *w)
+static void am_worker_release_runtime(am_worker_t *w)
 {
     if (w->self) {
         free(w->self);
@@ -197,14 +197,14 @@ static void qwrt_worker_release_runtime(qwrt_worker_t *w)
 }
 
 /* 父入站队列里是否还有 source == id 的未派发消息。消费端只读遍历（与
- * qwrt_msg_pop 同样的 acquire 链式读，不改队列）：生产者尚未落链的消息读不到，
+ * am_msg_pop 同样的 acquire 链式读，不改队列）：生产者尚未落链的消息读不到，
  * 但那不可能是本 worker 的——调用前已 join，它的线程不可能再 push。 */
-static int qwrt_worker_msg_queued(qwrt_t *parent, int id)
+static int am_worker_msg_queued(am_t *parent, int id)
 {
     struct uv__queue *nq =
         __atomic_load_n(&parent->msg_head->q.next, __ATOMIC_ACQUIRE);
     while (nq) {
-        qwrt_msg_t *m = uv__queue_data(nq, qwrt_msg_t, q);
+        am_msg_t *m = uv__queue_data(nq, am_msg_t, q);
         if (m->source == id) return 1;
         nq = __atomic_load_n(&nq->next, __ATOMIC_ACQUIRE);
     }
@@ -215,70 +215,70 @@ static int qwrt_worker_msg_queued(qwrt_t *parent, int id)
  * worker 自己的线程调用——不能 join 自己），所以清槽发生在这里：join 返回即
  * 线程完全结束，此后 self（worker 自己的 loop/JSRuntime）不再被任何线程引用，
  * 可安全释放，槽位（id = 索引+1）也随之可被下一个 worker 复用。否则宿主反复
- * spawn/terminate 会耗尽 QWRT_MAX_WORKERS，spawn 恒返回 BUSY。
+ * spawn/terminate 会耗尽 AM_MAX_WORKERS，spawn 恒返回 BUSY。
  *
  * 仅父 runtime 线程调用（parent->workers[] 与父队列消费端的唯一所有者）。
  * 幂等：self == NULL 表示已 join + runtime 已释放，跳过 join。
  * 残留消息：若父队列里还有该 worker 未派发的入站消息（source == id），本次
  * 不复用该槽——复用后 id 会指向新 worker，残留消息会被派发到它身上；留待下一
  * 次 spawn（或父 teardown）回收。 */
-static void qwrt_worker_reap(qwrt_t *parent)
+static void am_worker_reap(am_t *parent)
 {
-    for (int i = 0; i < QWRT_MAX_WORKERS; i++) {
-        qwrt_worker_t *w = parent->workers[i];
+    for (int i = 0; i < AM_MAX_WORKERS; i++) {
+        am_worker_t *w = parent->workers[i];
         /* 空槽，或未请求退出（线程仍在跑）：不动 */
         if (!w || !__atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE))
             continue;
         if (w->self) {
             uv_thread_join(&w->thread);
-            qwrt_worker_release_runtime(w);
+            am_worker_release_runtime(w);
         }
-        if (qwrt_worker_msg_queued(parent, w->id)) continue;
+        if (am_worker_msg_queued(parent, w->id)) continue;
         parent->workers[i] = NULL;
-        qwrt_worker_free(w);
+        am_worker_free(w);
     }
 }
 
-qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_err)
+am_worker_t *am_worker_create(am_t *parent, const char *script, int *out_err)
 {
-    if (!parent || parent->magic != QWRT_MAGIC || !script) {
-        if (out_err) *out_err = QWRT_ERR_INVALID_ARG;
+    if (!parent || parent->magic != AM_MAGIC || !script) {
+        if (out_err) *out_err = AM_ERR_INVALID_ARG;
         return NULL;
     }
-#ifdef QWRT_USE_MOCK_LIBUV
+#ifdef AM_USE_MOCK_LIBUV
     /* Test builds compile the core against mock_libuv.h, which has no process
-     * backend (ipc_process.c is excluded — design §10.1). qwrt.h documents
+     * backend (ipc_process.c is excluded — design §10.1). amoib.h documents
      * that a PROCESS request in a test build errors explicitly rather than
      * silently degrading to THREAD (I4). */
-    if (parent->config.worker_backend == QWRT_WORKER_BACKEND_PROCESS) {
-        if (out_err) *out_err = QWRT_ERR_NOT_SUPPORTED;
+    if (parent->config.worker_backend == AM_WORKER_BACKEND_PROCESS) {
+        if (out_err) *out_err = AM_ERR_NOT_SUPPORTED;
         return NULL;
     }
 #endif
 
     /* 先回收已退出的 worker 槽位（terminate 只置标志，回收点在此，见
-     * qwrt_worker_reap）：否则反复 spawn/terminate 会耗尽槽位，spawn 恒 BUSY。 */
-    qwrt_worker_reap(parent);
+     * am_worker_reap）：否则反复 spawn/terminate 会耗尽槽位，spawn 恒 BUSY。 */
+    am_worker_reap(parent);
 
     int slot = -1;
-    for (int i = 0; i < QWRT_MAX_WORKERS; i++) {
+    for (int i = 0; i < AM_MAX_WORKERS; i++) {
         if (!parent->workers[i]) { slot = i; break; }
     }
     if (slot < 0) {
-        if (out_err) *out_err = QWRT_ERR_BUSY;
+        if (out_err) *out_err = AM_ERR_BUSY;
         return NULL;
     }
 
-    qwrt_worker_t *w = (qwrt_worker_t *)calloc(1, sizeof *w);
-    qwrt_t *self = (qwrt_t *)calloc(1, sizeof *self);
+    am_worker_t *w = (am_worker_t *)calloc(1, sizeof *w);
+    am_t *self = (am_t *)calloc(1, sizeof *self);
     if (!w || !self) {
         free(w);
         free(self);
-        if (out_err) *out_err = QWRT_ERR_NO_MEMORY;
+        if (out_err) *out_err = AM_ERR_NO_MEMORY;
         return NULL;
     }
 
-    self->magic = QWRT_MAGIC;
+    self->magic = AM_MAGIC;
     self->worker_self = w;         /* 标记：这是 worker runtime（pal 绑定用） */
     w->parent = parent;
     w->id = slot + 1;              /* id = 槽位+1；0 保留给宿主 source（不冲突） */
@@ -286,10 +286,10 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
     w->script = strdup(script);
     if (!w->script) {
         /* OOM：strdup 失败 → 返回前清理。不能带着 NULL script 继续 ——
-         * qwrt_eval_internal(rt, NULL) 会 strlen(NULL) → UB。 */
+         * am_eval_internal(rt, NULL) 会 strlen(NULL) → UB。 */
         free(self);
         free(w);
-        if (out_err) *out_err = QWRT_ERR_NO_MEMORY;
+        if (out_err) *out_err = AM_ERR_NO_MEMORY;
         return NULL;
     }
     /* lock-free MPSC: self's inbound queue head == tail == sentinel (calloc zeroed) */
@@ -298,12 +298,12 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
     parent->workers[slot] = w;
     /* ── 线程后端（唯一后端；PROCESS 由 JS 层 processSpawn 封装接管，
      * C 层不再有进程 worker 分流 —— spawn 分层化 Phase C）── */
-    if (uv_thread_create(&w->thread, qwrt_worker_thread_main, w) != 0) {
+    if (uv_thread_create(&w->thread, am_worker_thread_main, w) != 0) {
         parent->workers[slot] = NULL;
         free(w->script);
         free(self);
         free(w);
-        if (out_err) *out_err = QWRT_ERR_GENERIC;
+        if (out_err) *out_err = AM_ERR_GENERIC;
         return NULL;
     }
 
@@ -314,47 +314,47 @@ qwrt_worker_t *qwrt_worker_create(qwrt_t *parent, const char *script, int *out_e
     if (self->ready_err) {
         uv_thread_join(&w->thread);
         parent->workers[slot] = NULL;
-        qwrt_worker_free(w);
-        if (out_err) *out_err = QWRT_ERR_GENERIC;
+        am_worker_free(w);
+        if (out_err) *out_err = AM_ERR_GENERIC;
         return NULL;
     }
     return w;
 }
 
-void qwrt_worker_post(qwrt_t *parent, qwrt_worker_t *w, const uint8_t *bytes,
+void am_worker_post(am_t *parent, am_worker_t *w, const uint8_t *bytes,
                       size_t len, uint8_t flags)
 {
-    QWRT_UNUSED(parent);
+    AM_UNUSED(parent);
     if (!w || __atomic_load_n(&w->shutting_down, __ATOMIC_ACQUIRE)) return;
     if (w->self)
-        qwrt_msg_push(w->self, (const char *)bytes, len, QWRT_MSG_SRC_HOST, flags);
+        am_msg_push(w->self, (const char *)bytes, len, AM_MSG_SRC_HOST, flags);
 }
 
-void qwrt_worker_terminate(qwrt_t *parent, qwrt_worker_t *w)
+void am_worker_terminate(am_t *parent, am_worker_t *w)
 {
-    QWRT_UNUSED(parent);
+    AM_UNUSED(parent);
     if (!w) return;
     __atomic_store_n(&w->shutting_down, 1, __ATOMIC_RELEASE);
     if (!w->self) return;
-    qwrt_t *self = w->self;
+    am_t *self = w->self;
     __atomic_store_n(&self->shutting_down, 1, __ATOMIC_RELEASE);
     uv_async_send(&self->wake);          /* wake a blocked worker uv_run */
 }
 
-qwrt_worker_t *qwrt_worker_get(qwrt_t *parent, int id)
+am_worker_t *am_worker_get(am_t *parent, int id)
 {
-    /* id = 槽位 + 1（1..QWRT_MAX_WORKERS）；id 0 是宿主 source，不是 worker */
-    if (!parent || parent->magic != QWRT_MAGIC ||
-        id < 1 || id > QWRT_MAX_WORKERS) {
+    /* id = 槽位 + 1（1..AM_MAX_WORKERS）；id 0 是宿主 source，不是 worker */
+    if (!parent || parent->magic != AM_MAGIC ||
+        id < 1 || id > AM_MAX_WORKERS) {
         return NULL;
     }
     return parent->workers[id - 1];
 }
 
-void qwrt_worker_free(qwrt_worker_t *w)
+void am_worker_free(am_worker_t *w)
 {
     if (!w) return;
-    qwrt_worker_release_runtime(w);
+    am_worker_release_runtime(w);
     free(w->script);
     free(w);
 }

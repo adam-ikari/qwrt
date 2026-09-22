@@ -484,7 +484,7 @@
      */
     function ShellTestEnvironment() {
         this.name_counter = 0;
-        this.all_loaded = true;  /* qwrt: sync — no async loading needed */
+        this.all_loaded = true;  /* amoib: sync — no async loading needed */
         this.on_loaded_callback = null;
         this.message_list = [];
         this.message_ports = [];

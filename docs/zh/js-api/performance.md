@@ -1,6 +1,6 @@
 ---
 title: performance
-description: Qwrt.js 中的 performance API —— performance.now() 用于高精度时间戳和性能测量。
+description: Amoib.js 中的 performance API —— performance.now() 用于高精度时间戳和性能测量。
 ---
 
 # performance
@@ -30,7 +30,7 @@ console.log(`操作耗时 ${elapsed.toFixed(3)}ms`);
 
 ## performance.timeOrigin
 
-qwrt 运行时创建时的 Unix 时间戳（毫秒）。
+amoib 运行时创建时的 Unix 时间戳（毫秒）。
 
 ```js
 let now = performance.timeOrigin + performance.now();

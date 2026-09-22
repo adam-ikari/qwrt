@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: CacheStorage / Cache
+ * amoib polyfill: CacheStorage / Cache
  *
  * Simplified WHATWG Cache API: in-memory Map-based implementation.
  * caches.open → Cache, put/match/delete/keys by URL string.

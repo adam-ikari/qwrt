@@ -1,10 +1,10 @@
 /* lz4_compress_main.c — build-time helper: raw-LZ4-block compress stdin→stdout.
  *
- * Used by polyfill/build.js in QWRT_POLYFILL_MODE=compressed to produce the
+ * Used by polyfill/build.js in AM_POLYFILL_MODE=compressed to produce the
  * payload that src/polyfill_load.c decodes with LZ4_decompress_safe().
  * Raw block (no frame format) keeps the C decoder to one call.
  *
- * Usage: qwrt_lz4_compress < level > level.lz4
+ * Usage: am_lz4_compress < level > level.lz4
  * Exit 0 on success, 1 on failure. No output on stdout except the block.
  */
 #include "lz4.h"
@@ -32,7 +32,7 @@ int main(int argc, char **argv)
     }
     if (ferror(stdin)) { free(src); return 1; }
     if (len == 0 || len > LZ4_MAX_INPUT_SIZE) {
-        fprintf(stderr, "qwrt_lz4_compress: input size %zu (max %d)\n",
+        fprintf(stderr, "am_lz4_compress: input size %zu (max %d)\n",
                 len, (int)LZ4_MAX_INPUT_SIZE);
         free(src);
         return 1;

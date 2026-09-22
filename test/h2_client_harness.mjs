@@ -5,7 +5,7 @@
  * a REAL Node built-in http2 server. The only thing shimmed is the transport:
  * `pal.tcpConnect/tcpWrite/tcpClose` are backed by Node `net` sockets, so the h2
  * engine sees an identical plaintext byte stream to what it would over
- * pal.tcpConnect in the qwrt runtime.
+ * pal.tcpConnect in the amoib runtime.
  *
  * Usage: node test/h2_client_harness.mjs
  * Exits 0 on all-pass, 1 on any failure.
@@ -29,7 +29,7 @@ buildSync({
 });
 const { HTTP2Client } = await import(bundlePath);
 
-// 2. pal shim over Node net (mirrors qwrt pal.tcp* contract)
+// 2. pal shim over Node net (mirrors amoib pal.tcp* contract)
 const pal = {
   tcpConnect(host, port, cb /*, opts */) {
     const sock = net.connect({ host, port });

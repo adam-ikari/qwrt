@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: HTTP server (serve API) — pure JS implementation
+ * amoib polyfill: HTTP server (serve API) — pure JS implementation
  *
  * Uses pal.tcpListen/tcpWrite/tcpClose for raw TCP transport.
  * HTTP request parsing, routing, WebSocket server, and response
@@ -28,7 +28,7 @@ export function setupHttpServer(pal) {
    * 语义归 JS（RFC 6455 握手协议），算力全下沉：SHA-1 走 mbedTLS 的
    * pal.nativeDigest（crypto 扩展），digest 经 globalThis.btoa 编码
    * （nativeBtoa，textcodec 扩展）。两者均在 polyfill 注入后注册，
-   * 必须每次调用探测。任一缺失（QWRT_WITH_CRYPTO_EXT / QWRT_WITH_TEXTCODEC
+   * 必须每次调用探测。任一缺失（AM_WITH_CRYPTO_EXT / AM_WITH_TEXTCODEC
    * =OFF）即抛 Error——无 JS fallback（原 b64encode/手写 SHA-1 已删）。 */
   function wsAccept(key) {
     var raw = new Uint8Array(key.length + WS_GUID.length);
@@ -36,7 +36,7 @@ export function setupHttpServer(pal) {
     for (var i = 0; i < WS_GUID.length; i++) raw[key.length + i] = WS_GUID.charCodeAt(i);
     if (typeof pal.nativeDigest !== 'function' ||
         typeof globalThis.btoa !== 'function') {
-      throw new Error('WebSocket accept unavailable: rebuild with QWRT_WITH_CRYPTO_EXT=ON and QWRT_WITH_TEXTCODEC=ON');
+      throw new Error('WebSocket accept unavailable: rebuild with AM_WITH_CRYPTO_EXT=ON and AM_WITH_TEXTCODEC=ON');
     }
     var digest = pal.nativeDigest('SHA-1', raw);
     return globalThis.btoa(String.fromCharCode.apply(null, digest));
@@ -197,10 +197,10 @@ export function setupHttpServer(pal) {
     var hostname = options.hostname || '0.0.0.0';
     var wsRoutes = options.ws || {};
     var activeServer = { closed: false };
-    /* h2/gRPC 分流：QWRT_WITH_GRPC=ON 时 grpc-stack 已把 HTTP2ServerSession 与
-     * PREFACE 挂到 qwrt.http2；options.grpc 为 grpc.createServer() 实例时，
+    /* h2/gRPC 分流：AM_WITH_GRPC=ON 时 grpc-stack 已把 HTTP2ServerSession 与
+     * PREFACE 挂到 amoib.http2；options.grpc 为 grpc.createServer() 实例时，
      * h2 连接上的流路由到 gRPC 服务端（ALPN 'h2' 或明文前导识别）。 */
-    var h2api = (globalThis.qwrt && globalThis.qwrt.http2) || null;
+    var h2api = (globalThis.amoib && globalThis.amoib.http2) || null;
     var H2SessionClass = (h2api && h2api.HTTP2ServerSession) || null;
     var H2Preface = (h2api && h2api.PREFACE) || null;
     var H2_PREFACE_LEN = H2Preface ? H2Preface.length : 0;

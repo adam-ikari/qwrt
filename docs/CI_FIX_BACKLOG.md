@@ -9,7 +9,7 @@ CI 已全绿（run 34395551179 = ALL-GREEN，19 个 job 零失败）。
 
 | # | 提交 | 问题 | 根因与修复 |
 |---|---|---|---|
-| 1 | 75f3c47a | clang-tidy / ubsan(clang) Build | `qwrt_internal.h` typedef `qwrt_ctx_t` 重复（C11 特性，clang -Werror）→ struct 定义去尾部别名 |
+| 1 | 75f3c47a | clang-tidy / ubsan(clang) Build | `am_internal.h` typedef `am_ctx_t` 重复（C11 特性，clang -Werror）→ struct 定义去尾部别名 |
 | 2 | 75f3c47a | e2e — Service Worker | `test/sw-e2e/main*.js` 硬编码 `/home/gem/...` 本机路径 → `__SW_DIR__` 占位 + sed 注入 |
 | 3 | 75f3c47a | test262 Not Run | quickjs-ng `EXCLUDE_FROM_ALL` → run-test262 不产出，ALL 依赖挂 target |
 | 4 | fcf38813 | test262 执行失败 | 上游 test262 submodule `update=none` 阻断语料 → CI 显式拉取 |
@@ -18,16 +18,16 @@ CI 已全绿（run 34395551179 = ALL-GREEN，19 个 job 零失败）。
 | 7 | 30ccb970 | ubsan(gcc) misaligned | WAMR loader 2/4 字节流嵌 8 字节指针（x86 有意未对齐）→ vmlib `-fno-sanitize=alignment` |
 | 8 | 3dd786d3 | asan native stack overflow | GCC 13 ASan 默认 UAR 假栈，WAMR 栈边界检测误报 → `detect_stack_use_after_return=0` |
 | 9 | bfabda0a | wasm3 gc_obj_list 断言 | ① 7 类补 `gc_mark` ② ext_destroy 过早清 class_id 致 gc_mark 失效（teardown 顺序 ctx→rt）③ memory import 明确报错 |
-| 10 | 3a3a3e32 | ubsan(clang) fetch 死锁真根因 | sanitizer 帧放大 → QuickJS 默认 1MB JS 栈预算假溢出（fetch 同步链）→ `QWRT_SANITIZE_BUILD` 时 4MB |
+| 10 | 3a3a3e32 | ubsan(clang) fetch 死锁真根因 | sanitizer 帧放大 → QuickJS 默认 1MB JS 栈预算假溢出（fetch 同步链）→ `AM_SANITIZE_BUILD` 时 4MB |
 | 11 | 3505dffc | ubsan(clang) function 误报 | quickjs js_realloc 函数指针类型链路 → clang sanitizer 档 `-fno-sanitize=function` |
 | 12 | 3505dffc | ipc_envelope_fbcheck | CLI `EXCLUDE_FROM_ALL` → CI 干净构建缺失产物 → 移除 EXCLUDE |
 
 ## 基建
 
 - lazy 初始化实施与评审修复：6c27d6a9 / 10bff38e（含 README 0a48f4b8）
-- nightly 例行（2 点）：cron（supervisord 自愈）→ ci-nightly-once.sh → omp 无头会话按本文件推进；日志 /tmp/qwrt-ci-nightly/。brain 页 ci-nightly-repair 记录契约。
+- nightly 例行（2 点）：cron（supervisord 自愈）→ ci-nightly-once.sh → omp 无头会话按本文件推进；日志 /tmp/amoib-ci-nightly/。brain 页 ci-nightly-repair 记录契约。
 
 ## 后续（非阻塞，可留档）
 
 - CI 全绿后无例行任务；若未来 CI 再红，恢复本模式：gh run list → 定位 → 根因修复（禁放宽检查转绿）→ 提交 → 复验。
-- nightly cron 已于 2026-09-13 停用：归档后连续 4 夜空转（每晚 omp 无头会话仅输出 CI-ALL-GREEN 即退），与 brain「不再每晚自动跑空转」结论对齐。脚本 scripts/ci-nightly-once.sh 保留；未来 CI 再红时 `crontab -e` 恢复 `0 2 * * * /home/gem/project/qwrt/scripts/ci-nightly-once.sh` 即可。
+- nightly cron 已于 2026-09-13 停用：归档后连续 4 夜空转（每晚 omp 无头会话仅输出 CI-ALL-GREEN 即退），与 brain「不再每晚自动跑空转」结论对齐。脚本 scripts/ci-nightly-once.sh 保留；未来 CI 再红时 `crontab -e` 恢复 `0 2 * * * /home/gem/project/amoib/scripts/ci-nightly-once.sh` 即可。

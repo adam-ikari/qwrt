@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: performance
+ * amoib polyfill: performance
  *
  * Implements performance.now() using pal.hrtime() (nanosecond precision)
  * or pal.timeNow() (millisecond precision) as fallback.

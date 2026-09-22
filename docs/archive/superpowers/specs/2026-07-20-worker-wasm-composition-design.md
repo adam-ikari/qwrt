@@ -1,4 +1,4 @@
-# qwrt 编译时组合设计：PAL × WASM引擎 × Worker
+# amoib 编译时组合设计：PAL × WASM引擎 × Worker
 
 ## 问题
 
@@ -6,20 +6,20 @@
 
 ## PAL 作为运行时通用平台接口
 
-PAL 是 qwrt 与外部世界之间的**唯一接口**。所有资源通过 PAL 分配——qwrt 不直接调用任何系统 API。WASM 引擎的内存也通过 PAL 分配，不绕过 PAL。
+PAL 是 amoib 与外部世界之间的**唯一接口**。所有资源通过 PAL 分配——amoib 不直接调用任何系统 API。WASM 引擎的内存也通过 PAL 分配，不绕过 PAL。
 
 ### 核心原则
 
-1. **qwrt 永远是单线程的。** 一个 qwrt 实例 = 一个线程 = 一个 JSRuntime
-2. **并行由宿主提供。** 宿主创建多个 qwrt 实例，各自独立运行
+1. **amoib 永远是单线程的。** 一个 amoib 实例 = 一个线程 = 一个 JSRuntime
+2. **并行由宿主提供。** 宿主创建多个 amoib 实例，各自独立运行
 3. **所有资源通过 PAL 分配。** WASM 引擎不绕过 PAL 调用系统 API
-4. **PAL 是运行时通用接口。** `qwrt_pal_t` 是唯一的 ABI 契约
-5. **qwrt 不拥有任何 PAL 实现。** 参考实现（uv/mock/freertos/wasm）由宿主在自己的构建中编译
-6. **扩展模式。** WASM 引擎作为 `qwrt_ext_t` 实现
+4. **PAL 是运行时通用接口。** `am_pal_t` 是唯一的 ABI 契约
+5. **amoib 不拥有任何 PAL 实现。** 参考实现（uv/mock/freertos/wasm）由宿主在自己的构建中编译
+6. **扩展模式。** WASM 引擎作为 `am_ext_t` 实现
 
 ### PAL Consumer
 
-所有 qwrt 组件都是 PAL Consumer——通过 `qwrt_pal_t` 接口获取平台能力：
+所有 amoib 组件都是 PAL Consumer——通过 `am_pal_t` 接口获取平台能力：
 
 | Consumer | 消费的 PAL 接口 | 提供的 JS API |
 |----------|----------------|---------------|
@@ -44,10 +44,10 @@ Worker 由 JS 创建（`new Worker('script.js')`），PAL 提供底层 spawn 机
 
 ```c
 /* PAL Worker 接口 */
-void *(*worker_spawn)(qwrt_pal_t *pal, const char *script);           /* 创建 Worker */
-void  (*worker_post)(qwrt_pal_t *pal, void *w, const char *msg, ...); /* 发送消息 */
-void  (*worker_on_message)(qwrt_pal_t *pal, void *w, qwrt_pal_cb_t, ...); /* 接收消息 */
-void  (*worker_terminate)(qwrt_pal_t *pal, void *w);                   /* 终止 Worker */
+void *(*worker_spawn)(am_pal_t *pal, const char *script);           /* 创建 Worker */
+void  (*worker_post)(am_pal_t *pal, void *w, const char *msg, ...); /* 发送消息 */
+void  (*worker_on_message)(am_pal_t *pal, void *w, am_pal_cb_t, ...); /* 接收消息 */
+void  (*worker_terminate)(am_pal_t *pal, void *w);                   /* 终止 Worker */
 ```
 
 不同 PAL 的 Worker 实现不同，但 JS API 一致：
@@ -55,7 +55,7 @@ void  (*worker_terminate)(qwrt_pal_t *pal, void *w);                   /* 终止
 | PAL | 创建方式 | 通信方式 |
 |-----|---------|---------|
 | pal_uv | fork + pipe | pipe fd |
-| pal_mock | 同线程 qwrt_t + queue | 内存 queue |
+| pal_mock | 同线程 am_t + queue | 内存 queue |
 | pal_wasm | browser new Worker(url) | 原生 postMessage |
 | pal_freertos | xTaskCreate + queue | FreeRTOS queue |
 
@@ -75,9 +75,9 @@ platform/wasm/pal_wasm.c    (Emscripten，浏览器)
 #### 维度 2: WASM 引擎（扩展）
 
 ```
-QWRT_WITH_WAMR    → src/ext_wamr.c    (WAMR Fast JIT，默认)
-QWRT_WITH_WASM3   → src/ext_wasm3.c   (wasm3 解释器，备选)
-QWRT_WITH_WEB_WASM → src/ext_web_wasm.c (浏览器原生 WebAssembly)
+AM_WITH_WAMR    → src/ext_wamr.c    (WAMR Fast JIT，默认)
+AM_WITH_WASM3   → src/ext_wasm3.c   (wasm3 解释器，备选)
+AM_WITH_WEB_WASM → src/ext_web_wasm.c (浏览器原生 WebAssembly)
 ```
 
 #### 维度 3: Worker polyfill
@@ -88,14 +88,14 @@ JS 层提供 `new Worker()` API。PAL 提供底层 spawn + 通信机制。
 
 ```bash
 # 嵌入式: FreeRTOS + WAMR + 单任务 Worker
-cmake -DQWRT_PAL_FREERTOS=ON -DQWRT_WITH_WAMR=ON
+cmake -DAM_PAL_FREERTOS=ON -DAM_WITH_WAMR=ON
 
 # 服务器: libuv + WAMR + fork Worker
-cmake -DQWRT_PAL_UV=ON -DQWRT_WITH_WAMR=ON
+cmake -DAM_PAL_UV=ON -DAM_WITH_WAMR=ON
 
 # 浏览器: WASM PAL + 浏览器原生 WASM + browser Worker
-cmake -DQWRT_PAL_WASM=ON -DQWRT_WITH_WEB_WASM=ON
+cmake -DAM_PAL_WASM=ON -DAM_WITH_WEB_WASM=ON
 
 # 沙箱: libuv + wasm3
-cmake -DQWRT_PAL_UV=ON -DQWRT_WITH_WASM3=ON
+cmake -DAM_PAL_UV=ON -DAM_WITH_WASM3=ON
 ```

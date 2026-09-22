@@ -1,18 +1,18 @@
 # Extensions (C API)
 
-Extensions are native C modules that add global objects and functions to JS contexts. They implement the `qwrt_ext_t` interface with lifecycle hooks.
+Extensions are native C modules that add global objects and functions to JS contexts. They implement the `am_ext_t` interface with lifecycle hooks.
 
-## `qwrt_ext_t`
+## `am_ext_t`
 
 ```c
-typedef struct qwrt_ext_t {
+typedef struct am_ext_t {
     const char *name;
-    int (*init)(qwrt_ext_t *ext, qwrt_t *rt);
-    void (*destroy)(qwrt_ext_t *ext, qwrt_t *rt);
-    int (*suspend)(qwrt_ext_t *ext, qwrt_t *rt);
-    int (*resume)(qwrt_ext_t *ext, qwrt_t *rt);
+    int (*init)(am_ext_t *ext, am_t *rt);
+    void (*destroy)(am_ext_t *ext, am_t *rt);
+    int (*suspend)(am_ext_t *ext, am_t *rt);
+    int (*resume)(am_ext_t *ext, am_t *rt);
     void *user_data;
-} qwrt_ext_t;
+} am_ext_t;
 ```
 
 | Field | Description |
@@ -26,43 +26,43 @@ typedef struct qwrt_ext_t {
 
 ## Registration Model
 
-Extensions are registered at **build time** via the `QWRT_EXTENSIONS` macro (defined in `include/qwrt/qwrt_ext_registry.h`). There is no runtime registration API — the extension set is fixed when the qwrt library is compiled.
+Extensions are registered at **build time** via the `AM_EXTENSIONS` macro (defined in `include/amoib/am_ext_registry.h`). There is no runtime registration API — the extension set is fixed when the amoib library is compiled.
 
 ```c
-// include/qwrt/qwrt_ext_registry.h
-#define QWRT_DEFAULT_EXTENSIONS \
-    QWRT_EXT_IF_WITH(COMPRESS,   &qwrt_compress_ext) \
-    QWRT_EXT_IF_WITH(CRYPTO_EXT, &qwrt_crypto_ext)   \
-    QWRT_EXT_IF_WITH(TEXTCODEC,  &qwrt_textcodec_ext) \
-    QWRT_EXT_IF_WITH(WAMR,       &qwrt_wamr_ext)
+// include/amoib/am_ext_registry.h
+#define AM_DEFAULT_EXTENSIONS \
+    AM_EXT_IF_WITH(COMPRESS,   &am_compress_ext) \
+    AM_EXT_IF_WITH(CRYPTO_EXT, &am_crypto_ext)   \
+    AM_EXT_IF_WITH(TEXTCODEC,  &am_textcodec_ext) \
+    AM_EXT_IF_WITH(WAMR,       &am_wamr_ext)
 ```
 
-A parent project adds custom extensions by overriding `QWRT_EXTENSIONS` before including the qwrt subdirectory:
+A parent project adds custom extensions by overriding `AM_EXTENSIONS` before including the amoib subdirectory:
 
 ```cmake
-set(QWRT_EXTENSIONS "QWRT_DEFAULT_EXTENSIONS, &my_extension")
-set(QWRT_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
-add_subdirectory(deps/qwrt)
+set(AM_EXTENSIONS "AM_DEFAULT_EXTENSIONS, &my_extension")
+set(AM_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
+add_subdirectory(deps/amoib)
 ```
 
 ## Built-in Extensions
 
 | Extension | CMake Option | JS API |
 |-----------|-------------|-------|
-| `ext_compress` | `QWRT_WITH_COMPRESS` | gzip/zlib/deflate |
-| `ext_crypto` | `QWRT_WITH_CRYPTO_EXT` | crypto.subtle (SHA, HMAC, PBKDF2, AES-GCM) |
-| `ext_textcodec` | `QWRT_WITH_TEXTCODEC` | TextEncoder, TextDecoder |
-| `ext_wamr` | `QWRT_WITH_WAMR` | WebAssembly (WAMR, default) |
-| `ext_wasm3` | `QWRT_WITH_WASM3` | WebAssembly (wasm3, optional) |
+| `ext_compress` | `AM_WITH_COMPRESS` | gzip/zlib/deflate |
+| `ext_crypto` | `AM_WITH_CRYPTO_EXT` | crypto.subtle (SHA, HMAC, PBKDF2, AES-GCM) |
+| `ext_textcodec` | `AM_WITH_TEXTCODEC` | TextEncoder, TextDecoder |
+| `ext_wamr` | `AM_WITH_WAMR` | WebAssembly (WAMR, default) |
+| `ext_wasm3` | `AM_WITH_WASM3` | WebAssembly (wasm3, optional) |
 
 ## Writing an Extension
 
 ```c
-#include <qwrt/qwrt.h>
+#include <amoib/amoib.h>
 #include <quickjs.h>
 
-static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
-    JSContext *ctx = qwrt_get_jsctx(rt);
+static int my_ext_init(am_ext_t *ext, am_t *rt) {
+    JSContext *ctx = am_get_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);
@@ -73,11 +73,11 @@ static int my_ext_init(qwrt_ext_t *ext, qwrt_t *rt) {
     return 0;
 }
 
-static void my_ext_destroy(qwrt_ext_t *ext, qwrt_t *rt) {
+static void my_ext_destroy(am_ext_t *ext, am_t *rt) {
     // Free any extension-specific resources
 }
 
-qwrt_ext_t my_extension = {
+am_ext_t my_extension = {
     .name = "my_extension",
     .init = my_ext_init,
     .destroy = my_ext_destroy,
@@ -89,14 +89,14 @@ qwrt_ext_t my_extension = {
 
 ## Per-Runtime Data
 
-`qwrt_ext_t.user_data` is shared across all runtimes. For per-instance state, use `config.host_data`:
+`am_ext_t.user_data` is shared across all runtimes. For per-instance state, use `config.host_data`:
 
 ```c
-qwrt_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
-qwrt_t *rt = qwrt_create(&cfg);
+am_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
+am_t *rt = am_create(&cfg);
 
 // Inside extension init:
-my_state_t *st = (my_state_t *)qwrt_get_runtime_data(rt);
+my_state_t *st = (my_state_t *)am_get_runtime_data(rt);
 ```
 
 ## See Also

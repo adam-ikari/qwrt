@@ -1,9 +1,9 @@
 /*
- * qwrt C Bridge Layer (执行模型 A)
+ * amoib C Bridge Layer (执行模型 A)
  *
  * Creates the internal 'pal' JS object whose primitives map directly onto the
- * qwrt thread's libuv loop and the host message boundary. All libuv callbacks
- * run on the qwrt thread, so JS_Call happens directly — the PAL-era deferred
+ * amoib thread's libuv loop and the host message boundary. All libuv callbacks
+ * run on the amoib thread, so JS_Call happens directly — the PAL-era deferred
  * callback queue is gone.
  *
  *   timeNow / hrtime / log / randomBytes — sync, inlined to uv_now / uv_hrtime
@@ -13,14 +13,14 @@
  *       passes repeat=0; setInterval re-schedules setTimeout per tick).
  *   http / fs / storage — direct uv_io_* calls. Each builds a promise
  *       capability, calls the uv_io entry (whose done callback JS_Calls
- *       resolve/reject on the qwrt thread), and hands ownership of the
- *       resolving funcs to a qwrt_cb_data_t. The streaming HTTP path
+ *       resolve/reject on the amoib thread), and hands ownership of the
+ *       resolving funcs to a am_cb_data_t. The streaming HTTP path
  *       (uv_io_http_request_stream) JS_Calls on_headers/on_data/on_end.
- *   postMessage — host boundary: JSON out (rt->config.message_cb on qwrt
- *       thread); __qwrt_dispatch__ handles inbound host JSON (source 0).
+ *   postMessage — host boundary: JSON out (rt->config.message_cb on amoib
+ *       thread); __am_dispatch__ handles inbound host JSON (source 0).
  */
 
-#include "qwrt_internal.h"
+#include "am_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,9 +28,9 @@
 #include <sys/stat.h>
 #include <errno.h>
 /* ipc_envelope.h 是纯 C99（无 uv 依赖），mock 构建也要它——THREAD 路径的
- * msgq flags 与 kind 常量同源（bridge_kind_arg / QWRT_MSG_FLAG_PORT_TRANSFER）。 */
+ * msgq flags 与 kind 常量同源（bridge_kind_arg / AM_MSG_FLAG_PORT_TRANSFER）。 */
 #include "ipc_envelope.h"
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
 #include "ipc_process.h"
 #endif
 
@@ -69,7 +69,7 @@ static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val, int ar
 static JSValue js_pal_context_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_context_suspend(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_context_resume(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
 static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 static JSValue js_pal_process_on_message(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
@@ -80,41 +80,41 @@ static JSValue js_pal_worker_backend(JSContext *ctx, JSValueConst this_val, int 
 static JSValue js_pal_context_destroy(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 
 /* TCP socket PAL (for JS-level protocol implementations) */
-void qwrt_tcp_io_init(JSContext *ctx, JSValue pal);
+void am_tcp_io_init(JSContext *ctx, JSValue pal);
 
 /* ================================================================
- * Helper: get qwrt_t from JSContext / JSRuntime.
- * qwrt_get_rt_from_ctx is also used by extensions (declared in qwrt_internal.h).
+ * Helper: get am_t from JSContext / JSRuntime.
+ * am_get_rt_from_ctx is also used by extensions (declared in am_internal.h).
  * ================================================================ */
 
-qwrt_t *qwrt_get_rt_from_ctx(JSContext *ctx)
+am_t *am_get_rt_from_ctx(JSContext *ctx)
 {
     if (!ctx) {
         return NULL;
     }
-    return qwrt_get_rt_from_jsrt(JS_GetRuntime(ctx));
+    return am_get_rt_from_jsrt(JS_GetRuntime(ctx));
 }
 
-qwrt_t *qwrt_get_rt_from_jsrt(JSRuntime *jsrt)
+am_t *am_get_rt_from_jsrt(JSRuntime *jsrt)
 {
-    qwrt_t *rt = (qwrt_t *)JS_GetRuntimeOpaque(jsrt);
-    if (!rt || rt->magic != QWRT_MAGIC) {
+    am_t *rt = (am_t *)JS_GetRuntimeOpaque(jsrt);
+    if (!rt || rt->magic != AM_MAGIC) {
         return NULL;
     }
     return rt;
 }
 
 /* ================================================================
- * Helper: get qwrt_ctx_t from JSContext — iterate rt->contexts
+ * Helper: get am_ctx_t from JSContext — iterate rt->contexts
  * to find the one matching jsctx
  * ================================================================ */
 
-static qwrt_ctx_t *get_ctx_from_jsctx(qwrt_t *rt, JSContext *jsctx)
+static am_ctx_t *get_ctx_from_jsctx(am_t *rt, JSContext *jsctx)
 {
     if (!rt || !jsctx) {
         return NULL;
     }
-    for (int i = 0; i < QWRT_MAX_CONTEXTS; i++) {
+    for (int i = 0; i < AM_MAX_CONTEXTS; i++) {
         if (rt->contexts[i] && rt->contexts[i]->jsctx == jsctx) {
             return rt->contexts[i];
         }
@@ -126,9 +126,9 @@ static qwrt_ctx_t *get_ctx_from_jsctx(qwrt_t *rt, JSContext *jsctx)
  * Helper: allocate and init callback data
  * ================================================================ */
 
-static qwrt_cb_data_t *alloc_cb_data(qwrt_ctx_t *cctx, JSValue resolve, JSValue reject, qwrt_t *rt)
+static am_cb_data_t *alloc_cb_data(am_ctx_t *cctx, JSValue resolve, JSValue reject, am_t *rt)
 {
-    qwrt_cb_data_t *cbd = (qwrt_cb_data_t *)js_malloc(cctx->jsctx, sizeof(qwrt_cb_data_t));
+    am_cb_data_t *cbd = (am_cb_data_t *)js_malloc(cctx->jsctx, sizeof(am_cb_data_t));
     if (!cbd) {
         return NULL;
     }
@@ -145,7 +145,7 @@ static qwrt_cb_data_t *alloc_cb_data(qwrt_ctx_t *cctx, JSValue resolve, JSValue 
  * 取出并释放 pending exception（否则异常对象悬挂在异常槽里，污染后续调用 /
  * 泄漏）。用于 resolve/reject 回调、流式 on_headers/on_data/on_end、消息派发
  * 等"调用后不检查返回值"的异步回调。args 由调用方自行释放。 */
-static void qwrt_js_call_cleanup(JSContext *ctx, JSValueConst fn,
+static void am_js_call_cleanup(JSContext *ctx, JSValueConst fn,
                                  JSValueConst this_val, int argc,
                                  JSValueConst *argv)
 {
@@ -159,12 +159,12 @@ static void qwrt_js_call_cleanup(JSContext *ctx, JSValueConst fn,
  * Free callback data — shared with context.c for cleanup
  * ================================================================ */
 
-void qwrt_free_cb_data(JSContext *ctx, void *cbd_)
+void am_free_cb_data(JSContext *ctx, void *cbd_)
 {
     if (!cbd_) {
         return;
     }
-    qwrt_cb_data_t *cbd = (qwrt_cb_data_t *)cbd_;
+    am_cb_data_t *cbd = (am_cb_data_t *)cbd_;
     JS_FreeValue(ctx, cbd->resolve);
     JS_FreeValue(ctx, cbd->reject);
     js_free(ctx, cbd);
@@ -173,23 +173,23 @@ void qwrt_free_cb_data(JSContext *ctx, void *cbd_)
 /* ================================================================
  * Timer machinery — malloc'd uv_timer_t on rt->loop
  *
- * t->data = cbd (qwrt_cb_data_t holding resolve/reject). The uv close
+ * t->data = cbd (am_cb_data_t holding resolve/reject). The uv close
  * callback frees the timer struct, so the memory stays valid until libuv
- * finishes closing (close callbacks run on the qwrt thread).
+ * finishes closing (close callbacks run on the amoib thread).
  * ================================================================ */
 
-static void qwrt_timer_close_cb(uv_handle_t *h)
+static void am_timer_close_cb(uv_handle_t *h)
 {
     free(h);
 }
 
-static void qwrt_timer_cb(uv_timer_t *t)
+static void am_timer_cb(uv_timer_t *t)
 {
-    qwrt_cb_data_t *cbd = (qwrt_cb_data_t *)t->data;
+    am_cb_data_t *cbd = (am_cb_data_t *)t->data;
     JSContext *jsctx = cbd->ctx->jsctx;
 
     JSValue arg = JS_UNDEFINED;
-    qwrt_js_call_cleanup(jsctx, cbd->resolve, JS_UNDEFINED, 1, &arg);
+    am_js_call_cleanup(jsctx, cbd->resolve, JS_UNDEFINED, 1, &arg);
 
     if (cbd->repeat) {
         /* repeating: stays armed via the uv repeat interval; resolve is a
@@ -198,8 +198,8 @@ static void qwrt_timer_cb(uv_timer_t *t)
     }
 
     /* one-shot: settle and release the slot + cbd + handle struct */
-    qwrt_ctx_t *cctx = cbd->ctx;
-    if (cbd->handle_idx >= 0 && cbd->handle_idx < QWRT_MAX_HANDLES) {
+    am_ctx_t *cctx = cbd->ctx;
+    if (cbd->handle_idx >= 0 && cbd->handle_idx < AM_MAX_HANDLES) {
         if (!JS_IsUndefined(cctx->timer_resolves[cbd->handle_idx])) {
             JS_FreeValue(jsctx, cctx->timer_resolves[cbd->handle_idx]);
             cctx->timer_resolves[cbd->handle_idx] = JS_UNDEFINED;
@@ -210,18 +210,18 @@ static void qwrt_timer_cb(uv_timer_t *t)
     JS_FreeValue(jsctx, cbd->resolve);
     JS_FreeValue(jsctx, cbd->reject);
     js_free(jsctx, cbd);
-    uv_close((uv_handle_t *)t, qwrt_timer_close_cb);
+    uv_close((uv_handle_t *)t, am_timer_close_cb);
 }
 
 /* Cancel a live timer slot: stop + uv_close (struct freed by the close
  * callback) + free resolve/cbd. Used by js_pal_timer_stop and by context.c
  * cleanup. Safe when the handle slot is NULL. */
-void qwrt_timer_cancel(qwrt_ctx_t *cctx, int idx)
+void am_timer_cancel(am_ctx_t *cctx, int idx)
 {
     JSContext *jsctx = cctx->jsctx;
     if (cctx->handles[idx]) {
         uv_timer_stop((uv_timer_t *)cctx->handles[idx]);
-        uv_close((uv_handle_t *)cctx->handles[idx], qwrt_timer_close_cb);
+        uv_close((uv_handle_t *)cctx->handles[idx], am_timer_close_cb);
         cctx->handles[idx] = NULL;
     }
     if (!JS_IsUndefined(cctx->timer_resolves[idx])) {
@@ -229,7 +229,7 @@ void qwrt_timer_cancel(qwrt_ctx_t *cctx, int idx)
         cctx->timer_resolves[idx] = JS_UNDEFINED;
     }
     if (cctx->timer_cbds[idx]) {
-        qwrt_free_cb_data(jsctx, cctx->timer_cbds[idx]);
+        am_free_cb_data(jsctx, cctx->timer_cbds[idx]);
         cctx->timer_cbds[idx] = NULL;
     }
 }
@@ -240,8 +240,8 @@ void qwrt_timer_cancel(qwrt_ctx_t *cctx, int idx)
 
 static JSValue js_pal_time_now(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val); AM_UNUSED(argc); AM_UNUSED(argv);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.time_now not available");
     }
@@ -250,8 +250,8 @@ static JSValue js_pal_time_now(JSContext *ctx, JSValueConst this_val, int argc, 
 
 static JSValue js_pal_hrtime(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val); AM_UNUSED(argc); AM_UNUSED(argv);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.hrtime not available");
     }
@@ -260,7 +260,7 @@ static JSValue js_pal_hrtime(JSContext *ctx, JSValueConst this_val, int argc, JS
 
 static JSValue js_pal_log(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
+    AM_UNUSED(this_val);
     int32_t level = 0; /* default: info */
     const char *msg = "";
     int msg_needs_free = 0;
@@ -279,7 +279,7 @@ static JSValue js_pal_log(JSContext *ctx, JSValueConst this_val, int argc, JSVal
     }
 
     /* Web 运行时 console 行为：log/info/debug → stdout；warn/error → stderr。
-     * 去掉 [qwrt:N] 前缀，对齐 node/deno 的 console 输出形态。
+     * 去掉 [amoib:N] 前缀，对齐 node/deno 的 console 输出形态。
      * fflush 保证输出即使在全缓冲的管道/重定向场景下也即时可见——否则 server
      * 常驻进程（listener 活跃、loop 不空）的输出会滞留缓冲直到退出才 flush。 */
     FILE *out = (level >= 2) ? stderr : stdout;
@@ -299,12 +299,12 @@ static JSValue js_pal_log(JSContext *ctx, JSValueConst this_val, int argc, JSVal
 
 static JSValue js_pal_timer_stop(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.timer_stop not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.timer_stop not available");
     }
@@ -324,7 +324,7 @@ static JSValue js_pal_timer_stop(JSContext *ctx, JSValueConst this_val, int argc
     }
 
     if (cctx->handles[handle_idx]) {
-        qwrt_timer_cancel(cctx, handle_idx);
+        am_timer_cancel(cctx, handle_idx);
     }
 
     return JS_UNDEFINED;
@@ -332,12 +332,12 @@ static JSValue js_pal_timer_stop(JSContext *ctx, JSValueConst this_val, int argc
 
 static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.timer_start not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.timer_start not available");
     }
@@ -367,7 +367,7 @@ static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int arg
     JSValue resolve_dup = JS_DupValue(ctx, resolving_funcs[0]);
 
     /* Allocate callback data — takes ownership of resolving_funcs */
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolve_dup);
         JS_FreeValue(ctx, resolving_funcs[0]);
@@ -376,11 +376,11 @@ static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int arg
     }
     cbd->repeat = repeat;
 
-    /* Allocate + arm the uv timer on the qwrt thread's loop */
+    /* Allocate + arm the uv timer on the amoib thread's loop */
     uv_timer_t *t = (uv_timer_t *)malloc(sizeof *t);
     if (!t) {
         JS_FreeValue(ctx, resolve_dup);
-        qwrt_free_cb_data(ctx, cbd);
+        am_free_cb_data(ctx, cbd);
         return JS_ThrowOutOfMemory(ctx);
     }
     memset(t, 0, sizeof *t);
@@ -388,15 +388,15 @@ static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int arg
     if (uv_timer_init(&rt->loop, t) != 0) {
         free(t);
         JS_FreeValue(ctx, resolve_dup);
-        qwrt_free_cb_data(ctx, cbd);
+        am_free_cb_data(ctx, cbd);
         return JS_ThrowOutOfMemory(ctx);
     }
     uint64_t timeout = (uint64_t)delay_ms;
     uint64_t interval = repeat ? timeout : 0;
-    if (uv_timer_start(t, qwrt_timer_cb, timeout, interval) != 0) {
-        uv_close((uv_handle_t *)t, qwrt_timer_close_cb);
+    if (uv_timer_start(t, am_timer_cb, timeout, interval) != 0) {
+        uv_close((uv_handle_t *)t, am_timer_close_cb);
         JS_FreeValue(ctx, resolve_dup);
-        qwrt_free_cb_data(ctx, cbd);
+        am_free_cb_data(ctx, cbd);
         return JS_ThrowTypeError(ctx, "failed to start timer");
     }
 
@@ -409,10 +409,10 @@ static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int arg
         }
     }
     if (idx < 0) {
-        if (cctx->handle_count >= QWRT_MAX_HANDLES) {
-            uv_close((uv_handle_t *)t, qwrt_timer_close_cb);
+        if (cctx->handle_count >= AM_MAX_HANDLES) {
+            uv_close((uv_handle_t *)t, am_timer_close_cb);
             JS_FreeValue(ctx, resolve_dup);
-            qwrt_free_cb_data(ctx, cbd);
+            am_free_cb_data(ctx, cbd);
             return JS_ThrowRangeError(ctx, "too many timers");
         }
         idx = cctx->handle_count;
@@ -428,7 +428,7 @@ static JSValue js_pal_timer_start(JSContext *ctx, JSValueConst this_val, int arg
      * call timerStop(handle) and await the promise. */
     JSValue obj = JS_NewObject(ctx);
     if (JS_IsException(obj)) {
-        qwrt_timer_cancel(cctx, idx);
+        am_timer_cancel(cctx, idx);
         JS_FreeValue(ctx, promise);
         return JS_EXCEPTION;
     }
@@ -484,7 +484,7 @@ static bool bridge_validate_path(const char *path)
  *
  * Each wrapper: JS_ToCString args → JS_NewPromiseCapability → alloc_cb_data
  * (takes ownership of resolve/reject) → call the uv_io entry, then free the
- * C strings. The uv_io done callback fires on the qwrt thread's loop and
+ * C strings. The uv_io done callback fires on the amoib thread's loop and
  * JS_Calls resolve/reject directly — no deferred-queue relay. Defaults,
  * validation and level mapping stay in the polyfill JS or the uv_io
  * implementation (thin-bridge rule).
@@ -493,10 +493,10 @@ static bool bridge_validate_path(const char *path)
 /* Shared done callback for the non-streaming ops. status==0 resolves with the
  * payload string (or an empty string when there is no payload); status<0
  * rejects with the payload, or "unknown error" when there is none. Frees the
- * qwrt_cb_data_t and releases resolve/reject. */
+ * am_cb_data_t and releases resolve/reject. */
 static void bridge_io_done(void *opaque, int status, const char *data, size_t len)
 {
-    qwrt_cb_data_t *cd = (qwrt_cb_data_t *)opaque;
+    am_cb_data_t *cd = (am_cb_data_t *)opaque;
     JSContext *ctx = cd->ctx->jsctx;
     JSValue fn = (status == 0) ? cd->resolve : cd->reject;
     JSValue result;
@@ -510,11 +510,11 @@ static void bridge_io_done(void *opaque, int status, const char *data, size_t le
     }
 
     if (!JS_IsException(result)) {
-        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
+        am_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
     }
     JS_FreeValue(ctx, result);
 
-    qwrt_free_cb_data(ctx, cd);
+    am_free_cb_data(ctx, cd);
 }
 
 
@@ -523,10 +523,10 @@ static void bridge_io_done(void *opaque, int status, const char *data, size_t le
  * backing store — the resolved promise hands out that same buffer, no copy.
  * The zc state carries the stashed JSValue; it is malloc'd (not js_malloc)
  * because its lifetime is owned by the async op, and all JS touchpoints
- * (alloc/free_fn/done) run on the qwrt loop thread. */
+ * (alloc/free_fn/done) run on the amoib loop thread. */
 typedef struct {
     JSContext *ctx;
-    qwrt_cb_data_t *cbd;
+    am_cb_data_t *cbd;
     JSValue ab;      /* stashed ArrayBuffer; consumed on success */
     int zc_valid;    /* cleared when uv_io releases the backing */
 } bridge_zc_t;
@@ -576,7 +576,7 @@ static void bridge_zc_free(void *ud, void *owner)
 static void bridge_io_done_binary_zc(void *opaque, int status, const char *data, size_t len)
 {
     bridge_zc_t *zc = (bridge_zc_t *)opaque;
-    qwrt_cb_data_t *cd = zc->cbd;
+    am_cb_data_t *cd = zc->cbd;
     JSContext *ctx = zc->ctx;
     JSValue fn = (status == 0) ? cd->resolve : cd->reject;
     JSValue result;
@@ -593,10 +593,10 @@ static void bridge_io_done_binary_zc(void *opaque, int status, const char *data,
     }
 
     if (!JS_IsException(result)) {
-        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
+        am_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
     }
     JS_FreeValue(ctx, result);
-    qwrt_free_cb_data(ctx, cd);
+    am_free_cb_data(ctx, cd);
     free(zc);
 }
 
@@ -605,12 +605,12 @@ static void bridge_io_done_binary_zc(void *opaque, int status, const char *data,
  * rejection); other errors → reject. */
 static void storage_get_done(void *opaque, int status, const char *data, size_t len)
 {
-    qwrt_cb_data_t *cd = (qwrt_cb_data_t *)opaque;
+    am_cb_data_t *cd = (am_cb_data_t *)opaque;
     JSContext *ctx = cd->ctx->jsctx;
     JSValue fn = cd->resolve;
     JSValue result;
 
-    if (status == QWRT_ERR_NOT_FOUND) {
+    if (status == AM_ERR_NOT_FOUND) {
         result = JS_NULL;
     } else if (status == 0) {
         result = JS_NewStringLen(ctx, data ? data : "", data ? len : 0);
@@ -621,11 +621,11 @@ static void storage_get_done(void *opaque, int status, const char *data, size_t 
     }
 
     if (!JS_IsException(result)) {
-        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
+        am_js_call_cleanup(ctx, fn, JS_UNDEFINED, 1, &result);
     }
     JS_FreeValue(ctx, result);
 
-    qwrt_free_cb_data(ctx, cd);
+    am_free_cb_data(ctx, cd);
 }
 
 /* Streaming HTTP — the ops->user_data passed to uv_io_http_request_stream.
@@ -652,7 +652,7 @@ static void bridge_stream_on_headers(void *ud, int status, const char *headers_j
         JS_FreeValue(bs->ctx, args[1]);
         return;
     }
-    qwrt_js_call_cleanup(bs->ctx, bs->on_headers, JS_UNDEFINED, 2, args);
+    am_js_call_cleanup(bs->ctx, bs->on_headers, JS_UNDEFINED, 2, args);
     JS_FreeValue(bs->ctx, args[0]);
     JS_FreeValue(bs->ctx, args[1]);
 }
@@ -668,7 +668,7 @@ static void bridge_stream_on_data(void *ud, const char *data, size_t len)
         JS_FreeValue(bs->ctx, buf);
         return;
     }
-    qwrt_js_call_cleanup(bs->ctx, bs->on_data, JS_UNDEFINED, 1, &buf);
+    am_js_call_cleanup(bs->ctx, bs->on_data, JS_UNDEFINED, 1, &buf);
     JS_FreeValue(bs->ctx, buf);
 }
 
@@ -677,7 +677,7 @@ static void bridge_stream_on_end(void *ud, int error_status)
     bridge_stream_ctx_t *bs = (bridge_stream_ctx_t *)ud;
     if (JS_IsFunction(bs->ctx, bs->on_end)) {
         JSValue arg = JS_NewInt32(bs->ctx, error_status);
-        qwrt_js_call_cleanup(bs->ctx, bs->on_end, JS_UNDEFINED, 1, &arg);
+        am_js_call_cleanup(bs->ctx, bs->on_end, JS_UNDEFINED, 1, &arg);
         JS_FreeValue(bs->ctx, arg);
     }
     JS_FreeValue(bs->ctx, bs->on_headers);
@@ -688,12 +688,12 @@ static void bridge_stream_on_end(void *ud, int error_status)
 
 static JSValue js_pal_http_request(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.http_request not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.http_request not available");
     }
@@ -733,7 +733,7 @@ static JSValue js_pal_http_request(JSContext *ctx, JSValueConst this_val, int ar
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -756,8 +756,8 @@ static JSValue js_pal_http_request(JSContext *ctx, JSValueConst this_val, int ar
 
 static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.http_request_stream not available");
     }
@@ -808,7 +808,7 @@ static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val,
     bs->on_data = JS_DupValue(ctx, argv[5]);
     bs->on_end = JS_DupValue(ctx, argv[6]);
 
-    qwrt_io_stream_ops_t ops;
+    am_io_stream_ops_t ops;
     memset(&ops, 0, sizeof ops);
     ops.on_headers = bridge_stream_on_headers;
     ops.on_data = bridge_stream_on_data;
@@ -832,8 +832,8 @@ static JSValue js_pal_http_request_stream(JSContext *ctx, JSValueConst this_val,
  * No-op for an unknown/stale id. Runs on the loop thread (JS). */
 static JSValue js_pal_http_request_abort(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.http_request_abort not available");
     }
@@ -850,12 +850,12 @@ static JSValue js_pal_http_request_abort(JSContext *ctx, JSValueConst this_val, 
 
 static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_read not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.fs_read not available");
     }
@@ -879,7 +879,7 @@ static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, J
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -898,12 +898,12 @@ static JSValue js_pal_fs_read(JSContext *ctx, JSValueConst this_val, int argc, J
  * (binary-safe, unlike the string-returning fsRead). */
 static JSValue js_pal_fs_read_binary(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_read_binary not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.fs_read_binary not available");
     }
@@ -934,7 +934,7 @@ static JSValue js_pal_fs_read_binary(JSContext *ctx, JSValueConst this_val, int 
         JS_FreeCString(ctx, path);
         return JS_ThrowOutOfMemory(ctx);
     }
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         free(zc);
         JS_FreeValue(ctx, resolving_funcs[0]);
@@ -956,12 +956,12 @@ static JSValue js_pal_fs_read_binary(JSContext *ctx, JSValueConst this_val, int 
 
 static JSValue js_pal_fs_write(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_write not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.fs_write not available");
     }
@@ -996,7 +996,7 @@ static JSValue js_pal_fs_write(JSContext *ctx, JSValueConst this_val, int argc, 
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -1016,12 +1016,12 @@ static JSValue js_pal_fs_write(JSContext *ctx, JSValueConst this_val, int argc, 
 
 static JSValue js_pal_fs_exists(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_exists not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.fs_exists not available");
     }
@@ -1045,7 +1045,7 @@ static JSValue js_pal_fs_exists(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -1061,12 +1061,12 @@ static JSValue js_pal_fs_exists(JSContext *ctx, JSValueConst this_val, int argc,
 
 static JSValue js_pal_fs_remove(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_remove not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.fs_remove not available");
     }
@@ -1090,7 +1090,7 @@ static JSValue js_pal_fs_remove(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -1106,12 +1106,12 @@ static JSValue js_pal_fs_remove(JSContext *ctx, JSValueConst this_val, int argc,
 
 static JSValue js_pal_fs_list(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.fs_list not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.fs_list not available");
     }
@@ -1135,7 +1135,7 @@ static JSValue js_pal_fs_list(JSContext *ctx, JSValueConst this_val, int argc, J
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -1151,12 +1151,12 @@ static JSValue js_pal_fs_list(JSContext *ctx, JSValueConst this_val, int argc, J
 
 static JSValue js_pal_storage_get(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.storage_get not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.storage_get not available");
     }
@@ -1176,7 +1176,7 @@ static JSValue js_pal_storage_get(JSContext *ctx, JSValueConst this_val, int arg
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -1192,12 +1192,12 @@ static JSValue js_pal_storage_get(JSContext *ctx, JSValueConst this_val, int arg
 
 static JSValue js_pal_storage_set(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.storage_set not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.storage_set not available");
     }
@@ -1228,7 +1228,7 @@ static JSValue js_pal_storage_set(JSContext *ctx, JSValueConst this_val, int arg
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -1248,12 +1248,12 @@ static JSValue js_pal_storage_set(JSContext *ctx, JSValueConst this_val, int arg
 
 static JSValue js_pal_storage_del(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) {
         return JS_ThrowTypeError(ctx, "pal.storage_del not available");
     }
-    qwrt_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
+    am_ctx_t *cctx = get_ctx_from_jsctx(rt, ctx);
     if (!cctx) {
         return JS_ThrowTypeError(ctx, "pal.storage_del not available");
     }
@@ -1273,7 +1273,7 @@ static JSValue js_pal_storage_del(JSContext *ctx, JSValueConst this_val, int arg
         return JS_EXCEPTION;
     }
 
-    qwrt_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
+    am_cb_data_t *cbd = alloc_cb_data(cctx, resolving_funcs[0], resolving_funcs[1], rt);
     if (!cbd) {
         JS_FreeValue(ctx, resolving_funcs[0]);
         JS_FreeValue(ctx, resolving_funcs[1]);
@@ -1294,7 +1294,7 @@ static JSValue js_pal_storage_del(JSContext *ctx, JSValueConst this_val, int arg
 
 static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
+    AM_UNUSED(this_val);
 
     int64_t len = 0;
     if (argc >= 1 && JS_ToInt64(ctx, &len, argv[0])) {
@@ -1343,15 +1343,15 @@ static JSValue js_pal_random_bytes(JSContext *ctx, JSValueConst this_val, int ar
  * 项目严格 -std=c99 + CMAKE_C_EXTENSIONS OFF：不能裸用 C11 _Atomic
  * （libuv/quickjs 都靠补丁把 _Atomic 换成 __atomic_* 宏）。这里用普通
  * uint32_t + 内建原子操作（__atomic_fetch_add），见 js_pal_port_create。 */
-static uint32_t g_qwrt_next_port_id = 1;
+static uint32_t g_am_next_port_id = 1;
 
 /* portCreate() -> {id1, id2}：分配一对全局唯一纠缠 port id。 */
 static JSValue js_pal_port_create(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
-    uint32_t id1 = __atomic_fetch_add(&g_qwrt_next_port_id, 1, __ATOMIC_RELAXED) + 1;
-    uint32_t id2 = __atomic_fetch_add(&g_qwrt_next_port_id, 1, __ATOMIC_RELAXED) + 1;
+    AM_UNUSED(this_val); AM_UNUSED(argc); AM_UNUSED(argv);
+    uint32_t id1 = __atomic_fetch_add(&g_am_next_port_id, 1, __ATOMIC_RELAXED) + 1;
+    uint32_t id2 = __atomic_fetch_add(&g_am_next_port_id, 1, __ATOMIC_RELAXED) + 1;
     JSValue obj = JS_NewObject(ctx);
     if (JS_IsException(obj)) return JS_EXCEPTION;
     JS_SetPropertyStr(ctx, obj, "id1", JS_NewUint32(ctx, id1));
@@ -1366,8 +1366,8 @@ static JSValue js_pal_port_create(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_post_message(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 1) return JS_UNDEFINED;
     if (!rt->config.message_cb) return JS_UNDEFINED;
@@ -1398,7 +1398,7 @@ static JSValue js_pal_post_message(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_fs_read_sync(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
+    AM_UNUSED(this_val);
     if (argc < 1) return JS_EXCEPTION;
     const char *path = JS_ToCString(ctx, argv[0]);
     if (!path) return JS_EXCEPTION;
@@ -1443,7 +1443,7 @@ static JSValue js_pal_fs_read_sync(JSContext *ctx, JSValueConst this_val,
 }
 
 /* 递归创建目录链（mkdir -p），含最终目录组件。仅用于 fsWriteSync 的父目录
- * 预建（localStorage 首次写入 ~/.qwrt/ 时该目录可能尚不存在）。 */
+ * 预建（localStorage 首次写入 ~/.amoib/ 时该目录可能尚不存在）。 */
 static int bridge_mkdir_p(const char *dir)
 {
     size_t len = strlen(dir);
@@ -1476,7 +1476,7 @@ static int bridge_mkdir_p(const char *dir)
 static JSValue js_pal_fs_write_sync(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
+    AM_UNUSED(this_val);
     if (argc < 1) return JS_EXCEPTION;
     const char *path = JS_ToCString(ctx, argv[0]);
     if (!path) return JS_EXCEPTION;
@@ -1495,7 +1495,7 @@ static JSValue js_pal_fs_write_sync(JSContext *ctx, JSValueConst this_val,
         }
     }
 
-    /* 父目录 mkdir -p（首次写入 ~/.qwrt/ 时目录不存在） */
+    /* 父目录 mkdir -p（首次写入 ~/.amoib/ 时目录不存在） */
     const char *slash = strrchr(path, '/');
     if (slash && slash != path) {
         size_t dlen = (size_t)(slash - path);
@@ -1560,43 +1560,43 @@ static JSValue js_pal_fs_write_sync(JSContext *ctx, JSValueConst this_val,
 }
 
 /* pal.localStoragePath() -> string
- * localStorage 持久化文件路径：环境变量 QWRT_LOCALSTORAGE_FILE 优先，否则
- * 默认 ~/.qwrt/localstorage.json（跨项目持久化；HOME 不可用回退当前目录
- * .qwrt-localstorage.json）。 */
+ * localStorage 持久化文件路径：环境变量 AM_LOCALSTORAGE_FILE 优先，否则
+ * 默认 ~/.amoib/localstorage.json（跨项目持久化；HOME 不可用回退当前目录
+ * .amoib-localstorage.json）。 */
 static JSValue js_pal_local_storage_path(JSContext *ctx, JSValueConst this_val,
                                          int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
-    const char *env = getenv("QWRT_LOCALSTORAGE_FILE");
+    AM_UNUSED(this_val); AM_UNUSED(argc); AM_UNUSED(argv);
+    const char *env = getenv("AM_LOCALSTORAGE_FILE");
     if (env && *env) {
         return JS_NewString(ctx, env);
     }
     const char *home = getenv("HOME");
     if (home && *home) {
-        size_t n = strlen(home) + strlen("/.qwrt/localstorage.json") + 1;
+        size_t n = strlen(home) + strlen("/.amoib/localstorage.json") + 1;
         char *buf = (char *)malloc(n);
         if (!buf) return JS_ThrowOutOfMemory(ctx);
-        snprintf(buf, n, "%s/.qwrt/localstorage.json", home);
+        snprintf(buf, n, "%s/.amoib/localstorage.json", home);
         JSValue ret = JS_NewString(ctx, buf);
         free(buf);
         return ret;
     }
-    return JS_NewString(ctx, ".qwrt-localstorage.json");
+    return JS_NewString(ctx, ".amoib-localstorage.json");
 }
 
 /* 父侧 pal.spawnWorker：脚本字符串 → 阻塞创建 worker 线程，返回 worker id */
 static JSValue js_pal_spawn_worker(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 1) return JS_EXCEPTION;
     const char *script = JS_ToCString(ctx, argv[0]);
     if (!script) return JS_EXCEPTION;
 
     int err = 0;
-    qwrt_worker_t *w = qwrt_worker_create(rt, script, &err);
+    am_worker_t *w = am_worker_create(rt, script, &err);
     JS_FreeCString(ctx, script);
     if (!w) {
         return JS_ThrowTypeError(ctx, "spawnWorker failed (err %d)", err);
@@ -1625,8 +1625,8 @@ static int bridge_kind_arg(JSContext *ctx, int argc, JSValueConst *argv, int idx
 static JSValue js_pal_worker_post(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 2) return JS_EXCEPTION;
     int32_t id;
@@ -1636,11 +1636,11 @@ static JSValue js_pal_worker_post(JSContext *ctx, JSValueConst this_val,
     if (!bytes) bytes = JS_GetArrayBuffer(ctx, &len, argv[1]);
     if (!bytes) return JS_ThrowTypeError(ctx, "workerPost: expected bytes");
 
-    qwrt_worker_t *w = qwrt_worker_get(rt, id);
+    am_worker_t *w = am_worker_get(rt, id);
     if (!w) return JS_ThrowTypeError(ctx, "workerPost: no worker %d", id);
-    qwrt_worker_post(rt, w, bytes, len,
+    am_worker_post(rt, w, bytes, len,
                      bridge_kind_arg(ctx, argc, argv, 2) == IPC_ENV_KIND_PORT_TRANSFER
-                         ? QWRT_MSG_FLAG_PORT_TRANSFER : 0);
+                         ? AM_MSG_FLAG_PORT_TRANSFER : 0);
     return JS_UNDEFINED;
 }
 
@@ -1648,19 +1648,19 @@ static JSValue js_pal_worker_post(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_worker_terminate(JSContext *ctx, JSValueConst this_val,
                                        int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 1) return JS_EXCEPTION;
     int32_t id;
     if (JS_ToInt32(ctx, &id, argv[0]) != 0) return JS_EXCEPTION;
-    qwrt_worker_t *w = qwrt_worker_get(rt, id);
+    am_worker_t *w = am_worker_get(rt, id);
     if (!w) return JS_UNDEFINED;   /* 已终止/不存在：幂等 */
-    qwrt_worker_terminate(rt, w);
+    am_worker_terminate(rt, w);
     return JS_UNDEFINED;
 }
 
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
 /* ================================================================
  * 通用进程原语（spawn 分层化, Phase B）
  *
@@ -1714,10 +1714,10 @@ static void bridge_free_argv(char **argv, int n)
     free(argv);
 }
 
-static qwrt_proc_handle_t *bridge_proc_handle_get(qwrt_t *rt, int id)
+static am_proc_handle_t *bridge_proc_handle_get(am_t *rt, int id)
 {
-    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
-        qwrt_proc_handle_t *h = &rt->proc_handles[i];
+    for (int i = 0; i < AM_MAX_PROC_HANDLES; i++) {
+        am_proc_handle_t *h = &rt->proc_handles[i];
         if (h->live && h->id == id) return h;
     }
     return NULL;
@@ -1727,7 +1727,7 @@ static qwrt_proc_handle_t *bridge_proc_handle_get(qwrt_t *rt, int id)
  * 回调(Uint8Array, kind, corr)；payload=NULL → peer-death/EOF，JS 回调(null,
  * kind, 0)。kind（M-P3）原样透传：PORT_TRANSFER 帧让 JS port 层走端点路由，
  * 普通帧交各消费者的应用派发；corr = STORAGE 中继关联 id（非 STORAGE 帧恒
- * 0），owner 的 __qwrt_storage_dispatch__ 按它原样回显回复。h 指向 qwrt_t
+ * 0），owner 的 __am_storage_dispatch__ 按它原样回显回复。h 指向 am_t
  * 内嵌数组元素，指针恒有效（terminate 只清字段不释放数组）。JS 回调内部可能
  * terminate 本句柄（proc 的释放是 uv_close 异步），回调返回后我们不再 touch
  * h，故无 UAF。source 对本消费者无意义。 */
@@ -1735,8 +1735,8 @@ static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
                                int32_t corr,
                                const uint8_t *payload, uint32_t len)
 {
-    qwrt_proc_handle_t *h = (qwrt_proc_handle_t *)user;
-    QWRT_UNUSED(source);
+    am_proc_handle_t *h = (am_proc_handle_t *)user;
+    AM_UNUSED(source);
     if (!h->live || !h->ctx || !h->ctx->jsctx) return;
     JSContext *ctx = h->ctx->jsctx;
     if (!JS_IsFunction(ctx, h->onmsg)) return;
@@ -1762,7 +1762,7 @@ static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
         return;
     }
     JSValue args[3] = { arg, jkind, jcorr };
-    qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 3, args);
+    am_js_call_cleanup(ctx, fn, JS_UNDEFINED, 3, args);
     JS_FreeValue(ctx, fn);
     JS_FreeValue(ctx, arg);
     JS_FreeValue(ctx, jkind);
@@ -1770,27 +1770,27 @@ static void bridge_proc_msg_cb(void *user, int8_t kind, int32_t source,
 }
 
 /* pal.processSpawn(exe, argv, opts) → int handle id（>0）。
- * exe: 任意可执行文件路径；""/null → C 端 auto-resolve qwrt-rt。
+ * exe: 任意可执行文件路径；""/null → C 端 auto-resolve amoib-rt。
  * argv: JS 字符串数组（argv[0]=程序名；含 --parent-fd 3 等子进程参数）。
- * opts: { role?: int（缺省 QWRT_IPC_ROLE_WORKER）, id?: int（缺省 1）,
+ * opts: { role?: int（缺省 AM_IPC_ROLE_WORKER）, id?: int（缺省 1）,
  *         handshake?: bool（缺省 true）}。
  * 失败抛 InternalError。 */
 static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_ThrowInternalError(ctx, "processSpawn: no runtime");
     /* §1.1 树形拓扑：worker 进程亦可 spawn 子 worker（嵌套 spawn）。进程后端
      * 原语（socketpair/fork+exec/握手/读泵）不依赖「本 runtime 是主RT」，
      * worker runtime 同样持有 proc_handles[] 与 uv loop，故不再按 worker_self
      * 拒绝（THREAD 编译由下方 ISOLATED 守卫拒绝）。 */
 
-#ifndef QWRT_PROCESS_MODEL_ISOLATED
+#ifndef AM_PROCESS_MODEL_ISOLATED
     /* THREAD 编译未启用进程后端（§1.4：不静默降级——显式选 PROCESS 在求值点
      * 报错，而不是悄悄退回线程后端）。mock 测试构建走不到此处（无 ipc 后端）。 */
     return JS_ThrowInternalError(ctx,
-        "processSpawn: QWRT_PROCESS_MODEL=THREAD build has no process backend");
+        "processSpawn: AM_PROCESS_MODEL=THREAD build has no process backend");
 #endif
 
     const char *exe = NULL;
@@ -1807,7 +1807,7 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
             "processSpawn: argv must be a non-empty string array");
     }
 
-    int role = QWRT_IPC_ROLE_WORKER;
+    int role = AM_IPC_ROLE_WORKER;
     int id = 1;
     int require_handshake = 1;
     if (argc >= 3 && JS_IsObject(argv[2])) {
@@ -1822,31 +1822,31 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
         JS_FreeValue(ctx, jh);
     }
 
-    qwrt_proc_t *proc = qwrt_proc_new();
+    am_proc_t *proc = am_proc_new();
     if (!proc) {
         bridge_free_argv(cargv, nargv);
         if (exe) JS_FreeCString(ctx, exe);
         return JS_ThrowOutOfMemory(ctx);
     }
-    int rc = qwrt_proc_spawn(rt, proc, exe, cargv, role, id,
+    int rc = am_proc_spawn(rt, proc, exe, cargv, role, id,
                              require_handshake);
     /* fork+exec 在 spawn 内同步完成，cargv 仅在调用期间需要 */
     bridge_free_argv(cargv, nargv);
     if (exe) JS_FreeCString(ctx, exe);
 
     if (rc != 0) {
-        qwrt_proc_free(proc);
+        am_proc_free(proc);
         return JS_ThrowInternalError(ctx, "processSpawn: spawn failed (%d)",
                                      rc);
     }
 
-    qwrt_proc_handle_t *h = NULL;
-    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+    am_proc_handle_t *h = NULL;
+    for (int i = 0; i < AM_MAX_PROC_HANDLES; i++) {
         if (!rt->proc_handles[i].live) { h = &rt->proc_handles[i]; break; }
     }
     if (!h) {
-        qwrt_proc_terminate(proc, 0);
-        qwrt_proc_free(proc);
+        am_proc_terminate(proc, 0);
+        am_proc_free(proc);
         return JS_ThrowInternalError(ctx,
             "processSpawn: too many process handles");
     }
@@ -1857,9 +1857,9 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
     h->id = (int)(++rt->proc_handle_seq);
     /* CTL-1：本进程是 runtime（主RT 或父 worker）——本通道到达的命令类
      * CONTROL（worker 回执上行 / 子命令）在 C 层树路由，不进 JS 层。 */
-    proc->ctl_route_id = qwrt_ctl_local_id(rt);
+    proc->ctl_route_id = am_ctl_local_id(rt);
 
-    qwrt_proc_start_read_cb(proc, bridge_proc_msg_cb, h);
+    am_proc_start_read_cb(proc, bridge_proc_msg_cb, h);
     return JS_NewInt32(ctx, h->id);
 }
 
@@ -1869,12 +1869,12 @@ static JSValue js_pal_process_spawn(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt || argc < 2) return JS_NewBool(ctx, 0);
     int32_t hid = 0;
     if (JS_ToInt32(ctx, &hid, argv[0]) != 0) return JS_NewBool(ctx, 0);
-    qwrt_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
+    am_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
     if (!h || !h->proc) return JS_NewBool(ctx, 0);
 
     size_t len = 0;
@@ -1885,7 +1885,7 @@ static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val,
     int32_t corr = 0;
     if (argc > 3 && !JS_IsUndefined(argv[3]))
         JS_ToInt32(ctx, &corr, argv[3]);
-    int rc = qwrt_proc_post(h->proc, 0, h->proc->id,
+    int rc = am_proc_post(h->proc, 0, h->proc->id,
                             bridge_kind_arg(ctx, argc, argv, 2),
                             corr,
                             data, (uint32_t)len);
@@ -1897,12 +1897,12 @@ static JSValue js_pal_process_post(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_process_on_message(JSContext *ctx, JSValueConst this_val,
                                          int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt || argc < 2) return JS_UNDEFINED;
     int32_t hid = 0;
     if (JS_ToInt32(ctx, &hid, argv[0]) != 0) return JS_UNDEFINED;
-    qwrt_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
+    am_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
     if (!h) return JS_UNDEFINED;
     if (!JS_IsFunction(ctx, argv[1]))
         return JS_ThrowTypeError(ctx,
@@ -1917,16 +1917,16 @@ static JSValue js_pal_process_on_message(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_process_terminate(JSContext *ctx, JSValueConst this_val,
                                         int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt || argc < 1) return JS_UNDEFINED;
     int32_t hid = 0;
     if (JS_ToInt32(ctx, &hid, argv[0]) != 0) return JS_UNDEFINED;
-    qwrt_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
+    am_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
     if (!h) return JS_UNDEFINED;
     if (h->proc) {
-        qwrt_proc_terminate(h->proc, 0);
-        qwrt_proc_free(h->proc);
+        am_proc_terminate(h->proc, 0);
+        am_proc_free(h->proc);
         h->proc = NULL;
     }
     JS_FreeValue(ctx, h->onmsg);
@@ -1937,41 +1937,41 @@ static JSValue js_pal_process_terminate(JSContext *ctx, JSValueConst this_val,
 }
 
 /* pal.processPing(handle, timeoutMs) → int（liveness：检测 sub worker 事件
- * 循环阻塞。仅显式调用触发，无后台心跳。镜像 rt_host.c qwrt_ping：发
- * CONTROL{"qwrt":1,"ping":seq}（corr=seq）→ 阻塞等 sub worker 读泵 C 层直
+ * 循环阻塞。仅显式调用触发，无后台心跳。镜像 rt_host.c am_ping：发
+ * CONTROL{"amoib":1,"ping":seq}（corr=seq）→ 阻塞等 sub worker 读泵 C 层直
  * 回的 PONG → 0=通畅 / 1=超时（对端 loop 阻塞）/ -1=通道死（EOF/状态错）。
  * 单飞行：JS 同步调用同一 handle 同时至多一个在途 ping。 */
 static JSValue js_pal_process_ping(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt || argc < 1) return JS_NewInt32(ctx, -1);
     int32_t hid = 0;
     if (JS_ToInt32(ctx, &hid, argv[0]) != 0) return JS_NewInt32(ctx, -1);
     int32_t timeout_ms = 1000;
     if (argc >= 2 && JS_ToInt32(ctx, &timeout_ms, argv[1]) != 0)
         return JS_NewInt32(ctx, -1);
-    qwrt_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
+    am_proc_handle_t *h = bridge_proc_handle_get(rt, hid);
     if (!h || !h->proc) return JS_NewInt32(ctx, -1);
-    return JS_NewInt32(ctx, qwrt_proc_ping(h->proc, timeout_ms));
+    return JS_NewInt32(ctx, am_proc_ping(h->proc, timeout_ms));
 }
-#endif /* !QWRT_USE_MOCK_LIBUV */
+#endif /* !AM_USE_MOCK_LIBUV */
 
 /* pal.workerBackend → 'thread' | 'process'（当前 worker 后端，JS 层查询用）。
- * mock 构建（QWRT_USE_MOCK_LIBUV）无 ipc_process.c → 恒 'thread'：JS 层据
+ * mock 构建（AM_USE_MOCK_LIBUV）无 ipc_process.c → 恒 'thread'：JS 层据
  * 此走 pal.spawnWorker（线程）路径；若宿主在 mock 下仍设 PROCESS，spawnWorker
  * 照旧报 NOT_SUPPORTED（worker.c I4），与现状一致，无静默降级。 */
 static JSValue js_pal_worker_backend(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
-#ifdef QWRT_USE_MOCK_LIBUV
-    QWRT_UNUSED(rt);
+    AM_UNUSED(this_val); AM_UNUSED(argc); AM_UNUSED(argv);
+    am_t *rt = am_get_rt_from_ctx(ctx);
+#ifdef AM_USE_MOCK_LIBUV
+    AM_UNUSED(rt);
     return JS_NewString(ctx, "thread");
 #else
-    if (rt && rt->config.worker_backend == QWRT_WORKER_BACKEND_PROCESS)
+    if (rt && rt->config.worker_backend == AM_WORKER_BACKEND_PROCESS)
         return JS_NewString(ctx, "process");
     return JS_NewString(ctx, "thread");
 #endif
@@ -1983,8 +1983,8 @@ static JSValue js_pal_worker_backend(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 1) return JS_EXCEPTION;
     size_t len = 0;
@@ -1992,7 +1992,7 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
     if (!bytes) bytes = JS_GetArrayBuffer(ctx, &len, argv[0]);
     if (!bytes) return JS_ThrowTypeError(ctx, "worker postMessage: expected bytes");
 
-    qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+    am_worker_t *w = (am_worker_t *)rt->worker_self;
     int kind = bridge_kind_arg(ctx, argc, argv, 1);
     /* I6: propagate the write result to JS instead of swallowing it. The
      * child's emit fd is non-blocking (uv_pipe_open set it), so under parent
@@ -2004,13 +2004,13 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
     /* Thread backend: push to parent's msgq (source = worker id).
      * Process backend: parent is NULL, send via IPC child channel. */
     if (w->parent) {
-        rc = qwrt_msg_push(w->parent, (const char *)bytes, len, w->id,
+        rc = am_msg_push(w->parent, (const char *)bytes, len, w->id,
                            kind == IPC_ENV_KIND_PORT_TRANSFER
-                               ? QWRT_MSG_FLAG_PORT_TRANSFER : 0);
+                               ? AM_MSG_FLAG_PORT_TRANSFER : 0);
     }
-#ifndef QWRT_USE_MOCK_LIBUV
-    else if (qwrt_ipc_child_channel() >= 0) {
-        rc = qwrt_ipc_child_emit((int32_t)w->id, 0, (int8_t)kind,
+#ifndef AM_USE_MOCK_LIBUV
+    else if (am_ipc_child_channel() >= 0) {
+        rc = am_ipc_child_emit((int32_t)w->id, 0, (int8_t)kind,
                                  0,
                                  bytes, (uint32_t)len);
     }
@@ -2022,23 +2022,23 @@ static JSValue js_pal_worker_emit(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val); AM_UNUSED(argc); AM_UNUSED(argv);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
-    qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+    am_worker_t *w = (am_worker_t *)rt->worker_self;
     /* Thread backend: terminate via parent. Process backend: parent is NULL,
      * set shutting_down + wake the loop to exit (rt_main.c checks it). */
     if (w && w->parent) {
-        qwrt_worker_terminate(w->parent, w);
+        am_worker_terminate(w->parent, w);
     } else if (rt) {
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
         /* M-P4 §9.3：进程后端先发 CONTROL{closing} 通知父「自愿退出」——父侧
          * 收到后随后的 fd EOF 不再当作崩溃触发 Worker.onerror。 */
-            qwrt_ipc_child_emit((int32_t)(w ? w->id : 0), 0,
+            am_ipc_child_emit((int32_t)(w ? w->id : 0), 0,
                                 IPC_ENV_KIND_CONTROL,
                                 0,
-                                (const uint8_t *)QWRT_IPC_CTL_CLOSING,
-                                (uint32_t)strlen(QWRT_IPC_CTL_CLOSING));
+                                (const uint8_t *)AM_IPC_CTL_CLOSING,
+                                (uint32_t)strlen(AM_IPC_CTL_CLOSING));
 #endif
         __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
         uv_async_send(&rt->wake);
@@ -2046,7 +2046,7 @@ static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
 /* pal.storageSync(bytes) → Uint8Array（M-P4 §10.2 单所有者代理的 worker 半边）。
  * bytes = structured clone{op,key,value?,storageDomain} 请求；同步阻塞等待
  * 主RT 所有者执行后回的结果字节（C 层 child_storage_sync：poll/recv 等待，
@@ -2056,8 +2056,8 @@ static JSValue js_pal_worker_close(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_storage_sync(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (!rt->worker_self)
         return JS_ThrowInternalError(ctx,
@@ -2070,7 +2070,7 @@ static JSValue js_pal_storage_sync(JSContext *ctx, JSValueConst this_val,
 
     uint8_t *reply = NULL;
     uint32_t reply_len = 0;
-    if (qwrt_ipc_child_storage_sync(rt, bytes, (uint32_t)len,
+    if (am_ipc_child_storage_sync(rt, bytes, (uint32_t)len,
                                     &reply, &reply_len) != 0)
         return JS_ThrowInternalError(ctx,
             "storageSync: owner unreachable (runtime terminated)");
@@ -2089,8 +2089,8 @@ static JSValue js_pal_storage_sync(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_storage_relay(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (!rt->worker_self)
         return JS_ThrowInternalError(ctx,
@@ -2107,7 +2107,7 @@ static JSValue js_pal_storage_relay(JSContext *ctx, JSValueConst this_val,
         JS_ToInt32(ctx, &down_corr, argv[2]);
 
     int slot = -1;
-    for (int i = 0; i < QWRT_MAX_PROC_HANDLES; i++) {
+    for (int i = 0; i < AM_MAX_PROC_HANDLES; i++) {
         if (rt->storage_relays[i].up_corr == 0) { slot = i; break; }
     }
     if (slot < 0)
@@ -2117,8 +2117,8 @@ static JSValue js_pal_storage_relay(JSContext *ctx, JSValueConst this_val,
     rt->storage_relays[slot].up_corr = up_corr;
     rt->storage_relays[slot].down_corr = down_corr;
     rt->storage_relays[slot].child = child;
-    if (qwrt_ipc_child_emit((int32_t)((qwrt_worker_t *)rt->worker_self)->id,
-                            QWRT_IPC_HOST_ID, IPC_ENV_KIND_STORAGE,
+    if (am_ipc_child_emit((int32_t)((am_worker_t *)rt->worker_self)->id,
+                            AM_IPC_HOST_ID, IPC_ENV_KIND_STORAGE,
                             up_corr,
                             bytes, (uint32_t)len) != 0) {
         rt->storage_relays[slot].up_corr = 0;
@@ -2126,7 +2126,7 @@ static JSValue js_pal_storage_relay(JSContext *ctx, JSValueConst this_val,
     }
     return JS_TRUE;
 }
-#endif /* !QWRT_USE_MOCK_LIBUV */
+#endif /* !AM_USE_MOCK_LIBUV */
 
 /* Worker 侧 pal.workerId：返回自身 worker id（>0）。worker 把 MessagePort
  * transfer 给父线程时，父侧需要真实 workerId 才能经 pal.workerPost 把消息
@@ -2134,17 +2134,17 @@ static JSValue js_pal_storage_relay(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_worker_id(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val); AM_UNUSED(argc); AM_UNUSED(argv);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
-    qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+    am_worker_t *w = (am_worker_t *)rt->worker_self;
     if (!w) return JS_NewInt32(ctx, 0);
     return JS_NewInt32(ctx, w->id);
 }
 
 /* ================================================================
  * Multi-context JS API (Task 5) — 父 runtime 上运行，宿主只见主 context。
- * spawn/suspend/resume/destroy 全部由 qwrtContext（context.js）经这里驱动；
+ * spawn/suspend/resume/destroy 全部由 amContext（context.js）经这里驱动；
  * C 只做边界转换 + 调用 context.c 的辅助函数，序列化逻辑在 JS 侧。
  * ================================================================ */
 
@@ -2156,15 +2156,15 @@ static JSValue js_pal_worker_id(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_self_path(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val); QWRT_UNUSED(argc); QWRT_UNUSED(argv);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val); AM_UNUSED(argc); AM_UNUSED(argv);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     JSValue arr = JS_NewArray(ctx);
     uint32_t n = 0;
     for (uint32_t i = 0; i < rt->self_path_len; i++)
         JS_SetPropertyUint32(ctx, arr, n++, JS_NewInt32(ctx, rt->self_path[i]));
     if (n == 0 && rt->worker_self) {
-        qwrt_worker_t *w = (qwrt_worker_t *)rt->worker_self;
+        am_worker_t *w = (am_worker_t *)rt->worker_self;
         JS_SetPropertyUint32(ctx, arr, n++, JS_NewInt32(ctx, w->id));
     }
     return arr;
@@ -2174,13 +2174,13 @@ static JSValue js_pal_self_path(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_context_spawn(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 1) return JS_EXCEPTION;
     const char *script = JS_ToCString(ctx, argv[0]);
     if (!script) return JS_EXCEPTION;
-    int id = qwrt_ctx_spawn(rt, script);
+    int id = am_ctx_spawn(rt, script);
     JS_FreeCString(ctx, script);
     if (id < 0) return JS_ThrowTypeError(ctx, "contextSpawn failed (err %d)", id);
     return JS_NewInt32(ctx, id);
@@ -2190,17 +2190,17 @@ static JSValue js_pal_context_spawn(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_context_suspend(JSContext *ctx, JSValueConst this_val,
                                       int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 2) return JS_EXCEPTION;
     int32_t id;
     if (JS_ToInt32(ctx, &id, argv[0]) != 0) return JS_EXCEPTION;
     const char *path = JS_ToCString(ctx, argv[1]);
     if (!path) return JS_EXCEPTION;
-    int rc = qwrt_ctx_serialize(rt, id, path);
+    int rc = am_ctx_serialize(rt, id, path);
     JS_FreeCString(ctx, path);
-    if (rc != QWRT_OK) return JS_ThrowTypeError(ctx, "contextSuspend failed (err %d)", rc);
+    if (rc != AM_OK) return JS_ThrowTypeError(ctx, "contextSuspend failed (err %d)", rc);
     return JS_UNDEFINED;
 }
 
@@ -2208,8 +2208,8 @@ static JSValue js_pal_context_suspend(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_context_resume(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 3) return JS_EXCEPTION;
     int32_t id;
@@ -2218,7 +2218,7 @@ static JSValue js_pal_context_resume(JSContext *ctx, JSValueConst this_val,
     if (!script) return JS_EXCEPTION;
     const char *path = JS_ToCString(ctx, argv[2]);
     if (!path) { JS_FreeCString(ctx, script); return JS_EXCEPTION; }
-    int rc = qwrt_ctx_rebuild(rt, id, script, path);
+    int rc = am_ctx_rebuild(rt, id, script, path);
     JS_FreeCString(ctx, script);
     JS_FreeCString(ctx, path);
     if (rc < 0) return JS_ThrowTypeError(ctx, "contextResume failed (err %d)", rc);
@@ -2229,26 +2229,26 @@ static JSValue js_pal_context_resume(JSContext *ctx, JSValueConst this_val,
 static JSValue js_pal_context_destroy(JSContext *ctx, JSValueConst this_val,
                                       int argc, JSValueConst *argv)
 {
-    QWRT_UNUSED(this_val);
-    qwrt_t *rt = qwrt_get_rt_from_ctx(ctx);
+    AM_UNUSED(this_val);
+    am_t *rt = am_get_rt_from_ctx(ctx);
     if (!rt) return JS_EXCEPTION;
     if (argc < 1) return JS_EXCEPTION;
     int32_t id;
     if (JS_ToInt32(ctx, &id, argv[0]) != 0) return JS_EXCEPTION;
-    int rc = qwrt_ctx_destroy_id(rt, id);
-    if (rc != QWRT_OK) return JS_ThrowTypeError(ctx, "contextDestroy failed (err %d)", rc);
+    int rc = am_ctx_destroy_id(rt, id);
+    if (rc != AM_OK) return JS_ThrowTypeError(ctx, "contextDestroy failed (err %d)", rc);
     return JS_UNDEFINED;
 }
 
 /* 主 context 入站派发：宿主 JSON 已解析成值；source0=host。 */
-void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
+void am_dispatch_message(am_t *rt, am_msg_t *m)
 {
-    /* 主 context（第一个 context）上找 __qwrt_dispatch__ 并调用 */
-    qwrt_ctx_t *cctx = rt->contexts[0];
+    /* 主 context（第一个 context）上找 __am_dispatch__ 并调用 */
+    am_ctx_t *cctx = rt->contexts[0];
     if (!cctx || !cctx->jsctx) return;
     JSContext *ctx = cctx->jsctx;
     JSValue g = JS_GetGlobalObject(ctx);
-    JSValue fn = JS_GetPropertyStr(ctx, g, "__qwrt_dispatch__");
+    JSValue fn = JS_GetPropertyStr(ctx, g, "__am_dispatch__");
     JS_FreeValue(ctx, g);
     if (JS_IsFunction(ctx, fn)) {
         JSValue src = JS_NewInt32(ctx, m->source);
@@ -2256,12 +2256,12 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
         /* 非宿主来源 = 进程/线程 worker 的克隆字节；kind 由 msgq flags 投影
          * （PORT_TRANSFER 的 port 帧据此走端点路由）。宿主来源是 JSON 文本，
          * 恒为 MESSAGE。 */
-        JSValue kind = JS_NewInt32(ctx, m->source == QWRT_MSG_SRC_HOST
-                                        ? 0 : qwrt_msg_kind(m->flags));
-        if (m->source == QWRT_MSG_SRC_HOST) {
+        JSValue kind = JS_NewInt32(ctx, m->source == AM_MSG_SRC_HOST
+                                        ? 0 : am_msg_kind(m->flags));
+        if (m->source == AM_MSG_SRC_HOST) {
             /* msgq 保证 m->data 以 '\0' 结尾（data[len]=='\0'），可直接喂
              * JS_ParseJSON（quickjs-ng 无 JS_JSONParse）。 */
-            data = JS_ParseJSON(ctx, m->data, m->len, "<qwrt-msg>");
+            data = JS_ParseJSON(ctx, m->data, m->len, "<amoib-msg>");
             if (JS_IsException(data)) {
                 /* spec §5: bad JSON → error envelope */
                 JS_FreeValue(ctx, data);
@@ -2277,7 +2277,7 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
             data = JS_NewArrayBufferCopy(ctx, (const uint8_t *)m->data, m->len);
         }
         JSValue args[3] = { data, src, kind };
-        qwrt_js_call_cleanup(ctx, fn, JS_UNDEFINED, 3, args);
+        am_js_call_cleanup(ctx, fn, JS_UNDEFINED, 3, args);
         JS_FreeValue(ctx, data);
         JS_FreeValue(ctx, src);
         JS_FreeValue(ctx, kind);
@@ -2291,7 +2291,7 @@ void qwrt_dispatch_message(qwrt_t *rt, qwrt_msg_t *m)
 
 
 
-JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
+JSValue am_create_pal_object_ctx(am_t *rt, am_ctx_t *ctx)
 {
     JSContext *jsctx = ctx->jsctx;
     JSValue pal = JS_NewObject(jsctx);
@@ -2345,7 +2345,7 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "postMessage", JS_NewCFunction(jsctx, js_pal_worker_emit, "postMessage", 1));
         JS_SetPropertyStr(jsctx, pal, "workerClose", JS_NewCFunction(jsctx, js_pal_worker_close, "workerClose", 0));
         JS_SetPropertyStr(jsctx, pal, "workerId", JS_NewCFunction(jsctx, js_pal_worker_id, "workerId", 0));
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
         /* M-P4 §10.2：同步 storage RPC（worker 进程 localStorage 代理 →
          * 主RT 所有者）。mock 构建（无 ipc_process.c）不注册——THREAD worker
          * 不挂 localStorage（基线不回归），workerBackend()==='thread' 时
@@ -2369,7 +2369,7 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "spawnWorker", JS_NewCFunction(jsctx, js_pal_spawn_worker, "spawnWorker", 1));
         JS_SetPropertyStr(jsctx, pal, "workerPost", JS_NewCFunction(jsctx, js_pal_worker_post, "workerPost", 2));
         JS_SetPropertyStr(jsctx, pal, "workerTerminate", JS_NewCFunction(jsctx, js_pal_worker_terminate, "workerTerminate", 1));
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
         /* 通用进程原语（spawn 分层化, Phase B）——JS 层 Worker 封装用 */
         JS_SetPropertyStr(jsctx, pal, "processSpawn", JS_NewCFunction(jsctx, js_pal_process_spawn, "processSpawn", 3));
         JS_SetPropertyStr(jsctx, pal, "processPost", JS_NewCFunction(jsctx, js_pal_process_post, "processPost", 2));
@@ -2382,9 +2382,9 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
         JS_SetPropertyStr(jsctx, pal, "contextSuspend", JS_NewCFunction(jsctx, js_pal_context_suspend, "contextSuspend", 2));
         JS_SetPropertyStr(jsctx, pal, "contextResume", JS_NewCFunction(jsctx, js_pal_context_resume, "contextResume", 3));
         JS_SetPropertyStr(jsctx, pal, "contextDestroy", JS_NewCFunction(jsctx, js_pal_context_destroy, "contextDestroy", 1));
-#ifndef QWRT_USE_MOCK_LIBUV
+#ifndef AM_USE_MOCK_LIBUV
         /* TCP socket PAL — excluded from mock-libuv test builds */
-        qwrt_tcp_io_init(jsctx, pal);
+        am_tcp_io_init(jsctx, pal);
 #endif
     }
 
@@ -2395,13 +2395,13 @@ JSValue qwrt_create_pal_object_ctx(qwrt_t *rt, qwrt_ctx_t *ctx)
  * Inject polyfill via __native_inject__ temp global (per-context version)
  * ================================================================ */
 
-int qwrt_inject_polyfill_ctx(qwrt_t *rt, qwrt_ctx_t *ctx, const uint8_t *code, size_t code_len)
+int am_inject_polyfill_ctx(am_t *rt, am_ctx_t *ctx, const uint8_t *code, size_t code_len)
 {
     JSContext *jsctx = ctx->jsctx;
     JSValue global = JS_GetGlobalObject(jsctx);
 
     /* Create the pal object */
-    JSValue pal = qwrt_create_pal_object_ctx(rt, ctx);
+    JSValue pal = am_create_pal_object_ctx(rt, ctx);
     if (JS_IsException(pal)) {
         JS_FreeValue(jsctx, global);
         return -1;
@@ -2421,7 +2421,7 @@ int qwrt_inject_polyfill_ctx(qwrt_t *rt, qwrt_ctx_t *ctx, const uint8_t *code, s
         if (rt->debug) {
             const char *err_str = JS_ToCString(jsctx, exc);
             if (err_str) {
-                fprintf(stderr, "[qwrt] polyfill eval error: %s\n", err_str);
+                fprintf(stderr, "[amoib] polyfill eval error: %s\n", err_str);
                 JS_FreeCString(jsctx, err_str);
             }
         }

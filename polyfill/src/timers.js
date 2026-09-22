@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: timers
+ * amoib polyfill: timers
  *
  * Implements setTimeout/setInterval/clearTimeout/clearInterval
  * using pal.timerStart(delay_ms, repeat) and pal.timerStop(handle).

@@ -3,7 +3,7 @@
  *
  * Run: node test/bench_wamr_vs_node.js
  *
- * Uses the same compute workloads for direct comparison with qwrt.
+ * Uses the same compute workloads for direct comparison with amoib.
  */
 
 'use strict';

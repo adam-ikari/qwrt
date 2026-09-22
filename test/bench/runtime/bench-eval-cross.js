@@ -1,15 +1,15 @@
-/* qwrt runtime-perf harness — cross-runtime R6 eval throughput (integer add
- * / closure call / string concat). Shared verbatim by qwrt / node / bun /
+/* amoib runtime-perf harness — cross-runtime R6 eval throughput (integer add
+ * / closure call / string concat). Shared verbatim by amoib / node / bun /
  * tjs so every runtime runs identical code; driven by
  * test/bench_cross_runtime.py; prints one JSON line.
  *
  * Interpreter vs JIT is exactly the positioning difference under test, so
  * the iteration/sample schedule (warmup 3 + samples 5, median M ops/s) is
- * generous enough to fully warm V8/JSC-style JITs without making qwrt/tjs
+ * generous enough to fully warm V8/JSC-style JITs without making amoib/tjs
  * runs pathological.
  *
  * Args are read via each runtime's own convention: process.argv for
- * node/bun, globalThis.arguments for qwrt/tjs.
+ * node/bun, globalThis.arguments for amoib/tjs.
  *
  * Usage: <bin> test/bench/runtime/bench-eval-cross.js [iterations] [samples]
  */

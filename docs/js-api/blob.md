@@ -1,6 +1,6 @@
 ---
 title: Blob / File / FormData
-description: Binary data APIs in Qwrt.js — Blob, File, FormData, text(), arrayBuffer(), and multipart form handling.
+description: Binary data APIs in Amoib.js — Blob, File, FormData, text(), arrayBuffer(), and multipart form handling.
 ---
 
 # Blob / File / FormData

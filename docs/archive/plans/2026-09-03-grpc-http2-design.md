@@ -2,11 +2,11 @@
 
 > 状态：Phase 0–2 已实现并验证（见各阶段"实现状态"小节）；Phase 3 未开始。
 > 日期：2026-09-03
-> 范围：qwrt 运行时（QuickJS-ng 嵌入式/边缘）的 HTTP/2 与 gRPC 能力。目标是**云原生边缘节点调用上游 gRPC 服务**（客户端 unary 先行），最终覆盖流式客户端与服务端 gRPC。
+> 范围：amoib 运行时（QuickJS-ng 嵌入式/边缘）的 HTTP/2 与 gRPC 能力。目标是**云原生边缘节点调用上游 gRPC 服务**（客户端 unary 先行），最终覆盖流式客户端与服务端 gRPC。
 > 背景：用户已确认"需要 gRPC"——gRPC 是 h2 硬必须场景（gRPC 线协议基于 HTTP/2），故本设计为 h2 选型 + gRPC 分层落地。
 
 **核心结论（TL;DR）**
-1. **传输缺口**：`pal.tcpConnect` 目前**无 TLS 客户端**（只有 `tcpListen` 服务端 TLS）；mbedTLS 已编入 `MBEDTLS_SSL_ALPN` 但 qwrt **从未调用 ALPN API**。h2 over TLS 需要 ALPN `h2`，这是唯一必须先补的 C 缺口。
+1. **传输缺口**：`pal.tcpConnect` 目前**无 TLS 客户端**（只有 `tcpListen` 服务端 TLS）；mbedTLS 已编入 `MBEDTLS_SSL_ALPN` 但 amoib **从未调用 ALPN API**。h2 over TLS 需要 ALPN `h2`，这是唯一必须先补的 C 缺口。
 2. **h2 栈选型**：**方案 A（纯 JS 最小 h2 子集）为推荐主路径**，符合"C 只给原语、协议策略在 JS"铁律；方案 C（HPACK 下沉 C）作为 Phase 3 的**增量回退**决策点；方案 B（vendored nghttp2）否决。
 3. **protobuf**：推荐**纯 JS 动态 proto3 子集**（运行时解析 .proto），无工具链步骤；预编译（protoc codegen）否决。
 4. **分阶段**：Phase 0 = C 补 TLS 客户端 + ALPN h2（~1-2 人日）；Phase 1 = 客户端 unary + 动态 protobuf（~10-15 人日）；Phase 2 = 流式客户端（~3-5 人日）；Phase 3 = 服务端 gRPC（~1.5-3 周）。验证对端可用 Node `@grpc/grpc-js` / `grpcurl`，Phase 1 可先用明文 h2c 全 JS 跑通（不碰 C）。
@@ -35,7 +35,7 @@
 - 版本 **mbedTLS 3.6.6**（`deps/mbedtls/include/mbedtls/build_info.h`）。
 - 配置（`deps/mbedtls/include/mbedtls/mbedtls_config.h`）：`MBEDTLS_SSL_ALPN` ✓、`MBEDTLS_SSL_CLI_C` ✓、`MBEDTLS_SSL_SRV_C` ✓、`MBEDTLS_SSL_PROTO_TLS1_2` ✓、TLS1.3（EPHEMERAL + COMPATIBILITY_MODE）✓。
 - ALPN API 存在：`mbedtls_ssl_conf_alpn_protocols(conf, protos)` 与 `mbedtls_ssl_get_alpn_protocol(ssl)`（`ssl.h:4309, 4320`）。
-- **全仓 grep `alpn` 仅命中 mbedtls 头文件**——`src/tcp_io.c`、`src/uv_io.c` 均未调用。结论：**ALPN 编译进来了，但 qwrt 一次都没用**。
+- **全仓 grep `alpn` 仅命中 mbedtls 头文件**——`src/tcp_io.c`、`src/uv_io.c` 均未调用。结论：**ALPN 编译进来了，但 amoib 一次都没用**。
 
 ## 1.3 fetch/https 客户端：有完整 TLS 客户端，但无 ALPN
 
@@ -151,7 +151,7 @@
 
 **工作量**：wire 编解码（varint/zigzag/length-delimited/packed/fixed32/64、tag 解析）~150-250 行；schema 模型 + .proto 解析器 ~400-600 行；well-known ~100-200 行。合计 **~700-1000 行 JS**，对标 protobufjs 的浏览器子集但**无依赖、无 Buffer/process shim**。
 
-**备选提及**：protobufjs 是成熟的纯 JS 实现，但依赖树大（自带 .proto 解析 + Long + Buffer shim），与 qwrt 极简手写风格不合；仅在 proto3 覆盖需求失控时作为 vendored 回退（O2）。
+**备选提及**：protobufjs 是成熟的纯 JS 实现，但依赖树大（自带 .proto 解析 + Long + Buffer shim），与 amoib 极简手写风格不合；仅在 proto3 覆盖需求失控时作为 vendored 回退（O2）。
 
 ## 3.2 64 位整数策略
 
@@ -226,7 +226,7 @@ setupHttp2(pal)  // 预留接线钩子；FRAME/FLAG/SETTING/ERR 常量导出
 
 ### Phase 2 实现状态 — gRPC unary + 双序列化 + 编译开关（已完成，2026-09-03）
 
-> 本节记录 gRPC unary 语义层、proto3/flatbuffers 双序列化、以及 `QWRT_WITH_GRPC` 编译开关的**实际落地**。Phase 2 实际交付范围超出原设计草案（原 Phase 2 定义为流式客户端），将 gRPC unary + 序列化纳入 Phase 2 合并交付，流式客户端顺延。
+> 本节记录 gRPC unary 语义层、proto3/flatbuffers 双序列化、以及 `AM_WITH_GRPC` 编译开关的**实际落地**。Phase 2 实际交付范围超出原设计草案（原 Phase 2 定义为流式客户端），将 gRPC unary + 序列化纳入 Phase 2 合并交付，流式客户端顺延。
 
 **文件**：`polyfill/src/protobuf.js`（~850 行，动态 proto3 子集解析器 + wire 编解码 + 注册表）、`polyfill/src/flatbuffers.js`（~400 行，FlatBuffers 编解码 + schema 注册）、`polyfill/src/grpc.js`（~350 行，gRPC unary 语义层）。
 
@@ -259,18 +259,18 @@ channel.invoke(method, request, opts?) → Promise     // unary RPC
 
 **双序列化策略**：protobuf 为默认序列化（`content-type: application/grpc+proto`），flatbuffers 作为内部快路径（`content-type: application/grpc+flatbuffers`）。应用层按需选择，gRPC 层透明处理。
 
-**QWRT_WITH_GRPC 编译开关**：
-- CMake 选项 `QWRT_WITH_GRPC`（默认 OFF），控制 gRPC/HTTP2/HPACK/protobuf/flatbuffers 模块是否打入 polyfill bytecode bundle。
+**AM_WITH_GRPC 编译开关**：
+- CMake 选项 `AM_WITH_GRPC`（默认 OFF），控制 gRPC/HTTP2/HPACK/protobuf/flatbuffers 模块是否打入 polyfill bytecode bundle。
 - **OFF 态**：`build.js` 跳过 hpack.js/http2.js/protobuf.js/flatbuffers.js/grpc.js，polyfill bundle 268KB（与无 gRPC 时一致，零字节 gRPC 代码进入）。
 - **ON 态**：上述 5 模块全部打入，polyfill bundle 411KB（+143KB，含 HPACK 静态/Huffman 表 + proto3 解析器 + FlatBuffers 编解码 + gRPC 语义层）。
-- C 层通过 `qwrt_polyfill_grpc_bytecode` / `qwrt_polyfill_grpc_bytecode_size` 条件链接；OFF 时符号不存在，链接器零残留。
-- `polyfill/src/index.js` 条件导出：`if (globalThis.__qwrt_grpc_enabled__) { ... }`，运行时门控。
+- C 层通过 `am_polyfill_grpc_bytecode` / `am_polyfill_grpc_bytecode_size` 条件链接；OFF 时符号不存在，链接器零残留。
+- `polyfill/src/index.js` 条件导出：`if (globalThis.__am_grpc_enabled__) { ... }`，运行时门控。
 
 **验证（全绿）**：
 - gRPC e2e **24/24**：真实 Node `@grpc/grpc-js` 服务端为对端，覆盖 unary 请求/响应、metadata 往返、deadline 超时、错误码映射（CANCELLED/DEADLINE_EXCEEDED/NOT_FOUND/INTERNAL）、空消息（Empty）、大消息（>64KB）、并发多 unary（多流复用）、TLS 通道（Phase 0 ALPN）。脚本 `test/grpc_client_harness.mjs`。
 - FlatBuffers 单测 **70/70**：schema 解析（基本类型/嵌套/向量/enum/union/struct）+ 编解码往返 + 零拷贝读取 + 边界对齐 + 错误路径（缺字段/类型不匹配/缓冲截断）。脚本 `test/flatbuffers_test.mjs`。
 - ctest 回归 **15/15**：全量 offline 测试套件无回归（含新增 gRPC 相关用例）。
-- 编译开关两态验证：`QWRT_WITH_GRPC=OFF` 构建产物 268KB（grep 确认零 gRPC/h2/HPACK 符号）；`QWRT_WITH_GRPC=ON` 构建产物 411KB（功能完整）。
+- 编译开关两态验证：`AM_WITH_GRPC=OFF` 构建产物 268KB（grep 确认零 gRPC/h2/HPACK 符号）；`AM_WITH_GRPC=ON` 构建产物 411KB（功能完整）。
 
 **修复的关键 bug**：protobuf.js varint 解码在 >4 字节时未正确处理符号扩展（int32 负数高位截断）；flatbuffers.js vtable 偏移计算在嵌套 table 时未递归修正基址。
 
@@ -314,7 +314,7 @@ const reg = grpc.loadProto(`
 
 // TLS 通道（生产；Phase 0 后可用）
 const ch = grpc.createChannel('https://upstream.example.com:443', {
-  tls: { ca: '/etc/qwrt/ca.pem' },   // 缺省用系统 CA；verify 恒为严格
+  tls: { ca: '/etc/amoib/ca.pem' },   // 缺省用系统 CA；verify 恒为严格
 });
 
 // 明文 h2c 通道（本地测试 / 内网，Phase 1 即可全 JS 跑）
@@ -376,8 +376,8 @@ createChannel('https://host:443', {tls})
 | 对端 | 用途 | 备注 |
 |---|---|---|
 | **Node `@grpc/grpc-js`**（本地起真实 gRPC 服务） | 主验证对端：unary + 三种流式 + 错误注入 + metadata + deadline | `npx` 拉起即可，Node http2 同源，互操作可信 |
-| **grpcurl**（`grpcurl -plaintext host:port list` / `invoke`） | 反向验证：用 grpcurl 调 qwrt 起的服务（Phase 3） | 也作 qwrt 客户端对 grpc-go 反射服务的验证 |
-| **nghttp2 工具**（`nghttp`/`h2load`） | h2 帧级互操作（SETTINGS/流控/多流） | `nghttp -v` 能看到 qwrt 客户端发出的原始帧 |
+| **grpcurl**（`grpcurl -plaintext host:port list` / `invoke`） | 反向验证：用 grpcurl 调 amoib 起的服务（Phase 3） | 也作 amoib 客户端对 grpc-go 反射服务的验证 |
+| **nghttp2 工具**（`nghttp`/`h2load`） | h2 帧级互操作（SETTINGS/流控/多流） | `nghttp -v` 能看到 amoib 客户端发出的原始帧 |
 | **grpc-go 测试服务**（hello/echo 样例） | 跨语言真实服务端互操作 | 有网络环境时可选 |
 
 Phase 1 明确路径：**先明文 h2c 对 `@grpc/grpc-js` 不启用 TLS 的服务跑通**（100% JS，不碰 C），再做 Phase 0 TLS + ALPN 验证 `grpcurl -servername` 类握手。
@@ -410,14 +410,14 @@ Phase 1 明确路径：**先明文 h2c 对 `@grpc/grpc-js` 不启用 TLS 的服�
 1. **Phase 0**：`tcpConnect(host, 443, cb, {tls:{alpn:['h2']}})` 对真实 TLS gRPC 服务握手成功、`onconnect` 触发、ALPN 协商 "h2"；对不支持 h2 的 TLS 服务（如普通 https）`onerror('h2 not negotiated')`；明文 h2c 不受影响。
 2. **Phase 1**：`grpc.createInsecureChannel(...).invoke('/helloworld.Greeter/SayHello', {name:'world'})` 对 `@grpc/grpc-js` 返回正确 `{message:'Hello world'}`；非 OK 状态正确 reject 为 `StatusError`（code/message/details）；metadata 往返一致；deadline 生效。
 3. **Phase 2**：三种流式形态对 `@grpc/grpc-js` 往返正确；>16MB 流式不卡死（流控）；gzip 压缩消息解码正确。
-4. **Phase 3**：grpcurl（`-plaintext` 与 TLS 各一）能 `list` 并 `invoke` qwrt 起的 gRPC 服务；HTTP/1.1 与 h2 在同一 `serve()` 端口共存（ALPN/前导自动分流）。
+4. **Phase 3**：grpcurl（`-plaintext` 与 TLS 各一）能 `list` 并 `invoke` amoib 起的 gRPC 服务；HTTP/1.1 与 h2 在同一 `serve()` 端口共存（ALPN/前导自动分流）。
 5. 全链路不新增系统依赖、不引外部库（miniz/mbedtls 等现有 deps 复用），构建保持 C99 全源码。
 
 ---
 
 # 8. 开放问题
 
-- **O1（protobuf schema 来源）**：运行时直接解析 `.proto` 文本（推荐，自包含）vs 应用方 protoc 预编译 `FileDescriptorSet` 二进制、qwrt 只解析 descriptor（解析器更小但引入外部工具步骤）。首版倾向前者，若 oneof/map/well-known 覆盖失控再退化为后者。
+- **O1（protobuf schema 来源）**：运行时直接解析 `.proto` 文本（推荐，自包含）vs 应用方 protoc 预编译 `FileDescriptorSet` 二进制、amoib 只解析 descriptor（解析器更小但引入外部工具步骤）。首版倾向前者，若 oneof/map/well-known 覆盖失控再退化为后者。
 - **O2（protobufjs 回退）**：若手写 proto3 子集覆盖需求爆表，vendored protobufjs 作为纯 JS 备选（需解决其依赖/shim 问题）。仅作风险预案，不默认采用。
 - **O3（64 位整数默认形态）**：BigInt 默认 vs `int64AsString` 默认——边缘节点对接方（遥测/ID/时间戳）常要字符串，需确认默认值。
 - **O4（Phase 0 是否同期做服务端 ALPN）**：G4 与客户端 G1/G2 改动点相邻（都改 `tcp_io.c` TLS 面），可顺手做，避免 Phase 3 再动 C。

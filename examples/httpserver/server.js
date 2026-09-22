@@ -1,7 +1,7 @@
-/* qwrt example: full-featured HTTP server
+/* amoib example: full-featured HTTP server
  *
- * 演示在应用层用 qwrt 提供的能力搭建一个完整的 HTTP 服务器
- * （qwrt 只提供监听/回复、读文件、压缩的能力，其余由应用层实现）：
+ * 演示在应用层用 amoib 提供的能力搭建一个完整的 HTTP 服务器
+ * （amoib 只提供监听/回复、读文件、压缩的能力，其余由应用层实现）：
  *
  *   1. 路由    — 手动 path 匹配（/api/* JSON 路由 + 静态文件）
  *   2. 静态文件 — MIME 类型表 + 从 STATIC_ROOT 读文件 + index.html 默认页
@@ -10,11 +10,11 @@
  *   5. 安全    — 路径穿越防护 + 404 / 500 处理
  *
  * 运行：
- *   ./build-ws/qwrt examples/httpserver/server.js
+ *   ./build-ws/amoib examples/httpserver/server.js
  *
- * 依赖的能力（qwrt 内置）：
+ * 依赖的能力（amoib 内置）：
  *   serve({port}, handler)            — HTTP 监听 + 回复
- *   qwrt.fs.readFileBinary(path)      — 二进制读文件
+ *   amoib.fs.readFileBinary(path)      — 二进制读文件
  *   CompressionStream('gzip')         — 压缩
  */
 
@@ -127,7 +127,7 @@ function loadFile(filePath) {
   var cached = cacheGet(filePath);
   if (cached) return Promise.resolve(cached);
 
-  return qwrt.fs.readFileBinary(filePath).then(function(ab) {
+  return amoib.fs.readFileBinary(filePath).then(function(ab) {
     var data = new Uint8Array(ab);
     var entry = {
       data: data,
@@ -212,7 +212,7 @@ function isCompressible(type) {
 }
 
 /* ── 启动 ── */
-console.log('qwrt example http server starting on http://127.0.0.1:' + PORT);
+console.log('amoib example http server starting on http://127.0.0.1:' + PORT);
 console.log('  static root : ' + STATIC_ROOT);
 console.log('  try:  curl http://127.0.0.1:' + PORT + '/');
 console.log('        curl http://127.0.0.1:' + PORT + '/api/hello');
@@ -224,7 +224,7 @@ var srv = serve({ port: PORT }, async function(req) {
 
   /* ── 路由：API ── */
   if (pathname === '/api/hello') {
-    return jsonResponse({ message: 'hello from qwrt', method: req.method });
+    return jsonResponse({ message: 'hello from amoib', method: req.method });
   }
 
   if (pathname === '/api/echo') {

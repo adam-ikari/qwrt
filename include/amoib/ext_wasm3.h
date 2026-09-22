@@ -1,7 +1,7 @@
-#ifndef QWRT_EXT_WASM3_H
-#define QWRT_EXT_WASM3_H
+#ifndef AM_EXT_WASM3_H
+#define AM_EXT_WASM3_H
 
-#include "qwrt/qwrt.h"
+#include "amoib/amoib.h"
 
 /* wasm3 extension — enables WebAssembly API with pure sandbox model.
  *
@@ -11,11 +11,11 @@
  * Purpose: CPU-intensive compute acceleration (crypto, compression,
  * image processing, math).
  *
- * wasm3 is the WASM engine (QWRT_WITH_WASM3, default ON). When compiled in,
- * it's in the default QWRT_EXTENSIONS set (see qwrt_ext_registry.h), so
+ * wasm3 is the WASM engine (AM_WITH_WASM3, default ON). When compiled in,
+ * it's in the default AM_EXTENSIONS set (see am_ext_registry.h), so
  * WebAssembly is available out of the box. Without wasm3 compiled in, the
  * WebAssembly global is not available.
  */
-extern const qwrt_ext_t qwrt_wasm3_ext;
+extern const am_ext_t am_wasm3_ext;
 
-#endif /* QWRT_EXT_WASM3_H */
+#endif /* AM_EXT_WASM3_H */

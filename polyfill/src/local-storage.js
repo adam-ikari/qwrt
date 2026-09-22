@@ -1,23 +1,23 @@
 /**
- * qwrt Polyfill - localStorage / sessionStorage (Web Storage, Storage interface)
+ * amoib Polyfill - localStorage / sessionStorage (Web Storage, Storage interface)
  *
  * 双形态（M-P4 §10.2 单所有者代理）：
  *
  *   A. 所有者（主RT runtime，pal.workerId 不存在）——同进程语义不变：
  *      - localStorage 持久化文件：pal.localStoragePath() — env
- *        QWRT_LOCALSTORAGE_FILE, else ~/.qwrt/localstorage.json (HOME unset →
- *        .qwrt-localstorage.json in cwd)；sessionStorage 为纯内存区，生命周期
- *        = 本 runtime 会话（qwrt 无页面），不落盘、不触碰 localStorage 文件
+ *        AM_LOCALSTORAGE_FILE, else ~/.amoib/localstorage.json (HOME unset →
+ *        .amoib-localstorage.json in cwd)；sessionStorage 为纯内存区，生命周期
+ *        = 本 runtime 会话（amoib 无页面），不落盘、不触碰 localStorage 文件
  *      - localStorage loaded synchronously at setup (pal.fsReadSync; missing/
  *        corrupt → empty)；sessionStorage 从空开始
  *      - every setItem/removeItem/clear writes back atomically (pal.fsWriteSync:
  *        temp file + rename) —— localStorage 仅；sessionStorage 不持久化
  *      - quota: 5 MiB (key + value UTF-16 code units) → DOMException
  *        'QuotaExceededError'（两域同 QUOTA）
- *      - 额外注册 __qwrt_storage_dispatch__：处理 PROCESS worker 经
+ *      - 额外注册 __am_storage_dispatch__：处理 PROCESS worker 经
  *        kind=STORAGE 信封路由来的 store 操作（payload = structured clone
  *        {op,key,value?,storageDomain}），按 storageDomain 路由到
- *        localStorage/sessionStorage 独立区执行后经 __qwrt_worker_post__
+ *        localStorage/sessionStorage 独立区执行后经 __am_worker_post__
  *        (source, replyBytes, kind=4) 回发结果。
  *
  *   B. PROCESS worker（pal.workerId 存在 且 pal.workerBackend()==='process'）
@@ -32,7 +32,7 @@
  * THREAD worker（pal.workerId 存在 且 backend==='thread'）不挂 localStorage
  * （Web Storage 保守默认：worker 无 DOM 场景；THREAD 基线零改动）。
  *
- * 与 qwrt.storage（async in-memory extension API）共存。
+ * 与 amoib.storage（async in-memory extension API）共存。
  */
 
 /* 组装 Storage 接口实例（方法/访问器不可枚举）并挂到 globalThis[name]
@@ -79,10 +79,10 @@ export function setupLocalStorage(pal) {
    * 'sessionStorage'，owner 按域路由到独立区。 */
   if (isWorker) {
     function request(op, key, value, storageDomain) {
-      var req = __qwrt_serialize__({ op: op, key: key, value: value,
+      var req = __am_serialize__({ op: op, key: key, value: value,
                                      storageDomain: storageDomain || 'localStorage' });
       var rep = pal.storageSync(req);   /* Uint8Array；所有者死亡 → 抛 InternalError */
-      var r = __qwrt_deserialize__(rep);
+      var r = __am_deserialize__(rep);
       if (r && r.e) {
         var name = String(r.e.name || 'Error');
         var msg = String(r.e.message != null ? r.e.message : r.e);
@@ -138,7 +138,7 @@ export function setupLocalStorage(pal) {
   /* createArea(persistPath)：构造独立 Storage 区——map/keys/total 每区闭包，
    * 域间完全隔离。persistPath 字符串 → 文件持久化（localStorage，原子写回，
    * 行为不变）；persistPath null → 纯内存，生命周期 = 本 runtime 会话
-   * （sessionStorage：qwrt 无页面，会话即主RT 进程生命周期，不落盘、不触碰
+   * （sessionStorage：amoib 无页面，会话即主RT 进程生命周期，不落盘、不触碰
    * localStorage 持久文件）。 */
   function createArea(persistPath) {
     /* Storage area. map: null prototype so keys like '__proto__' can't pollute;
@@ -260,13 +260,13 @@ var lsArea = createArea(path);       /* localStorage：文件持久化（行为�
 var ssArea = createArea(null);       /* sessionStorage：纯内存（runtime 会话） */
 
   /* M-P4 §10.2（所有者侧）：处理 PROCESS worker 的 storage 请求帧。C 层只
-   * 透传信封（qwrt_storage_dispatch），op 编排在这里——按 storageDomain 路由
+   * 透传信封（am_storage_dispatch），op 编排在这里——按 storageDomain 路由
    * 到对应区（'sessionStorage' → ssArea，其余 → lsArea），对区 map/persist
    * 执行，异常（配额/落盘）原样封装成 {e:{name,message}} 回发，代理侧据此
    * 重建 DOMException，同步 API 语义跨进程保持一致。 */
-  globalThis.__qwrt_storage_dispatch__ = function (bytes, source, corr) {
+  globalThis.__am_storage_dispatch__ = function (bytes, source, corr) {
     var o;
-    try { o = __qwrt_deserialize__(bytes); } catch (err) { return; }
+    try { o = __am_deserialize__(bytes); } catch (err) { return; }
     if (!o || typeof o !== 'object') return;
     var area = (o.storageDomain === 'sessionStorage') ? ssArea : lsArea;
     var reply;
@@ -287,9 +287,9 @@ var ssArea = createArea(null);       /* sessionStorage：纯内存（runtime 会
                                 ? String(err.message) : String(err) } };
     }
     var rep;
-    try { rep = __qwrt_serialize__(reply); } catch (err) { return; }
-    if (typeof globalThis.__qwrt_worker_post__ === 'function')
-      globalThis.__qwrt_worker_post__(source, rep, 4, corr);  /* kind=STORAGE */
+    try { rep = __am_serialize__(reply); } catch (err) { return; }
+    if (typeof globalThis.__am_worker_post__ === 'function')
+      globalThis.__am_worker_post__(source, rep, 4, corr);  /* kind=STORAGE */
   };
 
   /* Storage 接口实例：方法/访问器均不可枚举（Object.keys(x) 为空）。 */

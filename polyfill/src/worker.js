@@ -1,13 +1,13 @@
 /**
- * qwrt polyfill: Web Worker (parent side)
+ * amoib polyfill: Web Worker (parent side)
  *
  * W3C-style Worker class backed by a real execution backend (worker_backend):
  *
- *   THREAD  — each worker is its own qwrt_t with its own thread/loop/JSRuntime
+ *   THREAD  — each worker is its own am_t with its own thread/loop/JSRuntime
  *             (execution model A), spawned via pal.spawnWorker (C-side slot).
  *   PROCESS — spawn 分层化: JS 层把通用进程原语（pal.processSpawn 等，C 只给
  *             "启动任意可执行文件 + 信封字节通道"）封装成 Worker 语义。写临时
- *             脚本 → processSpawn(qwrt-rt) → processOnMessage/processPost/
+ *             脚本 → processSpawn(amoib-rt) → processOnMessage/processPost/
  *             processTerminate。对外接口（new Worker/postMessage/onmessage/
  *             terminate）与 THREAD 后端完全一致。
  *
@@ -24,15 +24,15 @@
  *                                 top level; the event's data is
  *                                 {type:'error', error:<message>}.
  *
- * Inbound routing: __qwrt_dispatch__(data, source). source 0 = host (delegates
+ * Inbound routing: __am_dispatch__(data, source). source 0 = host (delegates
  * to host-messaging's handler verbatim); source > 0 = THREAD worker id. PROCESS
  * worker inbound arrives via pal.processOnMessage callback directly (per-handle,
  * no source label) and funnels into the same deliverToWorker dispatch.
- * __qwrt_worker_post__(workerId, bytes) is the unified parent→worker byte
+ * __am_worker_post__(workerId, bytes) is the unified parent→worker byte
  * channel (both backends) that message-channel.js uses for MessagePort routing.
  *
- * Depends on: MessageEvent (message-channel.js), __qwrt_serialize__ /
- * __qwrt_deserialize__ (structured-clone.js), host-messaging.js (invoked after
+ * Depends on: MessageEvent (message-channel.js), __am_serialize__ /
+ * __am_deserialize__ (structured-clone.js), host-messaging.js (invoked after
  * it in index.js so the host handler can be captured for delegation).
  */
 
@@ -59,19 +59,19 @@ export function setupWorker(pal) {
   }
 
   /* ── PROCESS 后端封装（spawn 分层化, Phase C）──
-   * 临时脚本 → processSpawn(qwrt-rt) → processOnMessage/processPost/
+   * 临时脚本 → processSpawn(amoib-rt) → processOnMessage/processPost/
    * processTerminate。worker id 从 1000 起，避开 C 线程后端槽位 1-16。
    * 临时文件：成功路径由子进程（rt_main.c）读后自 unlink（C1）；失败路径
    * 在此显式 fsRemove。 */
   var procWorkerSeq = 1000;
   function ProcessWorker(code) {
     var id = ++procWorkerSeq;
-    var tmp = '/tmp/qwrt-worker-' + id + '.js';
+    var tmp = '/tmp/amoib-worker-' + id + '.js';
     pal.fsWriteSync(tmp, code);
     /* §8.2：本节点的完整 path = 父 path ++ [本地槽位 id]，经 --path 传给子
      * （进程号按直接父本地分配，跨层会撞号——只有 path 链能消歧路由）。 */
     var pathArg = selfPath.concat([id]).join(',');
-    var argv = ['qwrt-rt', '--qwrt-worker', '--parent-fd', '3',
+    var argv = ['amoib-rt', '--amoib-worker', '--parent-fd', '3',
                 '--worker-id', String(id), '--path', pathArg, '--script', tmp];
     var handle;
     try {
@@ -120,7 +120,7 @@ export function setupWorker(pal) {
        * post 静默丢弃），post/terminate 幂等安全。
        * kind=4（STORAGE，M-P4 §10.2）→ 本 worker 的 localStorage 请求（同步
        * RPC 的 request 半边）→ 交所有者处理器（local-storage.js 注册的
-       * __qwrt_storage_dispatch__），不进应用消息流。
+       * __am_storage_dispatch__），不进应用消息流。
        * kind=3（CONTROL）→ 协议面，不进应用消息流；worker 自 close 的
        * closing 通知在这里消费（随后 EOF 不再当作崩溃，§9.3）。 */
       pal.processOnMessage(this._proc._handle, function (bytes, kind, corr) {
@@ -132,8 +132,8 @@ export function setupWorker(pal) {
           var crashed = !w._proc._dead && !w._proc._closing;
           w._proc._dead = true;
           /* §8.2 端点死亡清表（path 链身份：本 worker 的子端点）。 */
-          if (globalThis.__qwrt_endpoint_dead__)
-            globalThis.__qwrt_endpoint_dead__(childPath(w._proc._id));
+          if (globalThis.__am_endpoint_dead__)
+            globalThis.__am_endpoint_dead__(childPath(w._proc._id));
           if (crashed) w._deliverError('Worker process exited unexpectedly');
           return;
         }
@@ -150,8 +150,8 @@ export function setupWorker(pal) {
           /* §10.2 单所有者代理：owner（根 runtime）就地执行；非根 runtime 是
            * 中继节点（N-P4）——把子树的请求上行给父，owner 的回复沿父通道
            * 回来时由 C 侧按 corr 配对下投（并发关联 id，见 ipc_envelope.h）。 */
-          if (typeof globalThis.__qwrt_storage_dispatch__ === 'function')
-            globalThis.__qwrt_storage_dispatch__(bytes, w._proc._id, corr);
+          if (typeof globalThis.__am_storage_dispatch__ === 'function')
+            globalThis.__am_storage_dispatch__(bytes, w._proc._id, corr);
           else if (typeof pal.storageRelay === 'function')
             pal.storageRelay(bytes, w._proc._id, corr);
           return;
@@ -252,7 +252,7 @@ export function setupWorker(pal) {
 
   Worker.prototype.postMessage = function (value, transfer) {
     /* 拆出 transfer 列表里的 MessagePort（其余 ArrayBuffer 照常序列化），
-     * 编码成 PORT_TRANSFER 帧（op=2）：16B 头 + SC({__qwrt_ports, __qwrt_payload})。
+     * 编码成 PORT_TRANSFER 帧（op=2）：16B 头 + SC({__am_ports, __am_payload})。
      * 转移语义：原 port 标记 detached；留在父侧的对端 port 的 _peerThread 指向
      * worker（消息将来按该端点投递）。ref 带 owner——跨进程下各进程本地 id 会
      * 重合，接收方按 (owner,id) 登记代理（§8.2）。 */
@@ -272,9 +272,9 @@ export function setupWorker(pal) {
           t._detached = true;   /* 原 port 已转移，不再可用 */
           /* §8.2 路由表：该 port 已从本 runtime 移到子 worker（对端可能仍按
            * 旧端点发来 → 本 runtime 命中本地但 port 已 detached 时按表改指）。 */
-          if (globalThis.__qwrt_port_moved__)
-            globalThis.__qwrt_port_moved__(t._owner, t._id, childPath(this._id));
-          var peer = globalThis.__qwrt_lookup_port__(t._peerId, t._owner);
+          if (globalThis.__am_port_moved__)
+            globalThis.__am_port_moved__(t._owner, t._id, childPath(this._id));
+          var peer = globalThis.__am_lookup_port__(t._peerId, t._owner);
           if (peer) peer._peerThread = childPath(this._id);  /* 对端现在在子 worker */
         } else {
           abTransfer.push(t);
@@ -282,11 +282,11 @@ export function setupWorker(pal) {
       }
       if (!abTransfer.length) abTransfer = undefined;
     }
-    var dataBytes = __qwrt_serialize__(value, abTransfer);
+    var dataBytes = __am_serialize__(value, abTransfer);
     if (ports.length) {
-      var wrapped = __qwrt_serialize__(
-        { __qwrt_ports: ports, __qwrt_payload: dataBytes });
-      this._send(globalThis.__qwrt_port_xfer_frame__(wrapped), 1);
+      var wrapped = __am_serialize__(
+        { __am_ports: ports, __am_payload: dataBytes });
+      this._send(globalThis.__am_port_xfer_frame__(wrapped), 1);
     } else {
       this._send(dataBytes);
     }
@@ -297,8 +297,8 @@ export function setupWorker(pal) {
     workers.delete(this._id);
     /* 显式终止也要清端点路由表（进程后端另有 EOF 路径；此处覆盖 THREAD 与
      * 进程后端正常终止，两次调用幂等）。 */
-    if (globalThis.__qwrt_endpoint_dead__)
-      globalThis.__qwrt_endpoint_dead__(childPath(this._id));
+    if (globalThis.__am_endpoint_dead__)
+      globalThis.__am_endpoint_dead__(childPath(this._id));
   };
 
   /* Liveness ping（父 → sub worker，仅显式调用）：检测 sub worker 事件循环
@@ -320,21 +320,21 @@ export function setupWorker(pal) {
   }
 
   /* 公共入站派发：克隆字节 → 反序列化 → MessageEvent/port 路由/error 通知。
-   * THREAD 的 __qwrt_dispatch__ 与 PROCESS 的 processOnMessage 回调共用。
+   * THREAD 的 __am_dispatch__ 与 PROCESS 的 processOnMessage 回调共用。
    * kind=1（PORT_TRANSFER）先按帧头分流：op=1 是 port 消息（投递或按 dest
    * 端点接力），op=2 是 port 转移列表（解包重建代理后派发 MessageEvent）。 */
   function deliverToWorker(w, dataBytes, kind) {
     var d;
-    if (kind === 1 && globalThis.__qwrt_port_frame_op__) {
-      var op = globalThis.__qwrt_port_frame_op__(dataBytes);
+    if (kind === 1 && globalThis.__am_port_frame_op__) {
+      var op = globalThis.__am_port_frame_op__(dataBytes);
       if (op === 1) {
-        globalThis.__qwrt_route_port_message__(dataBytes);
+        globalThis.__am_route_port_message__(dataBytes);
         return;   /* port 消息属于某个 port，不派发到 Worker.onmessage */
       }
       if (op !== 2) return;   /* 未知 op：协议不认识，丢弃 */
-      dataBytes = globalThis.__qwrt_port_frame_body__(dataBytes);  /* 剥路由头 */
+      dataBytes = globalThis.__am_port_frame_body__(dataBytes);  /* 剥路由头 */
     }
-    try { d = __qwrt_deserialize__(dataBytes); }
+    try { d = __am_deserialize__(dataBytes); }
     catch (err) {
       /* 反序列化失败：按规范触发 worker 的 messageerror 事件 */
       var errEv;
@@ -344,15 +344,15 @@ export function setupWorker(pal) {
       return;
     }
     /* 带 MessagePort 转移的 worker 消息：解包 ports + payload */
-    if (d && typeof d === 'object' && d.__qwrt_ports) {
+    if (d && typeof d === 'object' && d.__am_ports) {
       var ports = [];
       try {
-        for (var i = 0; i < d.__qwrt_ports.length; i++) {
-          ports.push(globalThis.__qwrt_port_from_ref__(d.__qwrt_ports[i]));
+        for (var i = 0; i < d.__am_ports.length; i++) {
+          ports.push(globalThis.__am_port_from_ref__(d.__am_ports[i]));
         }
       } catch (err) { reportError(err); return; }
       var inner;
-      try { inner = __qwrt_deserialize__(d.__qwrt_payload); }
+      try { inner = __am_deserialize__(d.__am_payload); }
       catch (err) { reportError(err); return; }
       if (isWorkerError(inner)) { w._deliverError(inner.error); return; }
       var ev2;
@@ -379,7 +379,7 @@ export function setupWorker(pal) {
    * 投递成功（THREAD 的 workerPost 返回 undefined；PROCESS 的 processPost
    * 对已死句柄返回 false 也在此静默，与 THREAD 语义对齐）。corr = STORAGE
    * 中继关联 id（owner 回复回显，缺省 undefined → 0）。 */
-  globalThis.__qwrt_worker_post__ = function (workerId, bytes, kind, corr) {
+  globalThis.__am_worker_post__ = function (workerId, bytes, kind, corr) {
     var w = workers.get(workerId);
     if (!w) return false;
     w._send(bytes, kind, corr);
@@ -388,8 +388,8 @@ export function setupWorker(pal) {
 
   // Route inbound messages: source 0 = host JSON, > 0 = THREAD worker bytes.
   // (PROCESS worker inbound bypasses this — processOnMessage callback.)
-  var hostDispatch = self.__qwrt_dispatch__;
-  globalThis.__qwrt_dispatch__ = function (data, source, kind) {
+  var hostDispatch = self.__am_dispatch__;
+  globalThis.__am_dispatch__ = function (data, source, kind) {
     if (source === 0) {
       /* 嵌套 spawn：本 worker 也加载了 Worker polyfill → 用重载 dispatch；父
        * 消息（含 PORT_TRANSFER 帧）必须把 kind 原样递给 boot shim 分流，否则

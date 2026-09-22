@@ -1,10 +1,10 @@
 /**
- * qwrt Multi-Context + Soft Suspend/Resume (Task 5)
+ * amoib Multi-Context + Soft Suspend/Resume (Task 5)
  *
- * 宿主只见主 context；子 context 由 qwrtContext.spawn 建立。挂起 = 把目标 ctx
+ * 宿主只见主 context；子 context 由 amContext.spawn 建立。挂起 = 把目标 ctx
  * 的"用户全局"收集成结构化克隆字节写盘（经 pal.contextSuspend），然后 C 销毁
  * 该 JSContext；恢复 = C 在原槽位重建 JSContext + 重注入 polyfill + 重 eval
- * init 脚本，再经 pal.contextResume 触发 __qwrt_ctx_restore__ 把状态写回。
+ * init 脚本，再经 pal.contextResume 触发 __am_ctx_restore__ 把状态写回。
  *
  * 关键：只捕获"快照之后新增的"枚举全局键（_pristine 在 setup 全部完成后、
  * 基础设施挂载前拍下），因此引擎内建与 polyfill 注入的 API 天然被排除——它们
@@ -23,12 +23,12 @@ export function setupContext(pal) {
 
   /* 本模块自己的基础设施（快照之后挂载，且挂起时也要排除） */
   var _infra = {
-    __qwrt_ctx_capture__: 1,
-    __qwrt_ctx_restore__: 1,
-    qwrtContext: 1
+    __am_ctx_capture__: 1,
+    __am_ctx_restore__: 1,
+    amContext: 1
   };
 
-  globalThis.__qwrt_ctx_capture__ = function() {
+  globalThis.__am_ctx_capture__ = function() {
     var props = Object.create(null);
     var skipped = [];
     var keys = Object.keys(globalThis);
@@ -40,24 +40,24 @@ export function setupContext(pal) {
       try {
         /* F4 审计：props 无原型 + defineProperty 落 own 属性，防 '__proto__' 键
          * 触发原型链 setter。 */
-        Object.defineProperty(props, n, { value: __qwrt_serialize__(v),
+        Object.defineProperty(props, n, { value: __am_serialize__(v),
           writable: true, enumerable: true, configurable: true });
       } catch (e) {
         skipped.push(n);
       }
     }
-    return __qwrt_serialize__({ props: props, skipped: skipped });
+    return __am_serialize__({ props: props, skipped: skipped });
   };
 
-  globalThis.__qwrt_ctx_restore__ = function(bytes) {
-    var rec = __qwrt_deserialize__(bytes);
+  globalThis.__am_ctx_restore__ = function(bytes) {
+    var rec = __am_deserialize__(bytes);
     var p = (rec && rec.props) || {};
     var keys = Object.keys(p);
     for (var i = 0; i < keys.length; i++) {
       var n = keys[i];
       if (_infra[n]) continue;
       var v;
-      try { v = __qwrt_deserialize__(p[n]); } catch (e) { continue; }
+      try { v = __am_deserialize__(p[n]); } catch (e) { continue; }
       try {
         /* F4 审计：defineProperty 落 own 数据属性，防 '__proto__'/'constructor'
          * 键改原型/污染全局。 */
@@ -68,7 +68,7 @@ export function setupContext(pal) {
     return (rec && rec.skipped) || [];
   };
 
-  globalThis.qwrtContext = {
+  globalThis.amContext = {
     spawn: function(s) { return pal.contextSpawn(String(s)); },
     suspend: function(id, p) { return pal.contextSuspend(Number(id), String(p)); },
     resume: function(id, s, p) { return pal.contextResume(Number(id), String(s), String(p)); },

@@ -5,7 +5,7 @@
  * hpack,protobuf}.js (esbuild-bundled to ESM) against real clients. Only the
  * transport is shimmed: `pal.tcpListen/tcpWrite/tcpClose` are backed by Node
  * `net`, so the h2 engine and serve() see the same byte streams they would in
- * the qwrt runtime.
+ * the amoib runtime.
  *
  * Coverage (HTTP/2 + gRPC Phase 3 acceptance):
  *   1. h2 server engine: Node http2.connect GET/POST round-trip, trailers,
@@ -16,7 +16,7 @@
  *   3. serve() dispatch: HTTP/1.1 + gRPC on ONE port (ALPN/preface sniffing),
  *      plaintext h2c preface sniffing across TCP fragments, h2-without-grpc
  *      returns 404
- *   4. @grpc/grpc-js client (peer modules at QWRT_GRPC_PEER_MODULES or
+ *   4. @grpc/grpc-js client (peer modules at AM_GRPC_PEER_MODULES or
  *      /tmp/grpcpeer) — a real standard gRPC peer
  *
  * Usage: node test/grpc_server_harness.mjs
@@ -53,8 +53,8 @@ message HelloRequest { string name = 1; repeated string tags = 2; }
 message HelloReply { string message = 1; int32 count = 2; }
 `;
 
-// ── bundle the qwrt server stack to a temp ESM file ──
-const entryPath = '/tmp/qwrt_server_entry.mjs';
+// ── bundle the amoib server stack to a temp ESM file ──
+const entryPath = '/tmp/am_server_entry.mjs';
 fs.writeFileSync(entryPath,
   `export { setupHttpServer } from '${SRC}/http-server.js';\n` +
   `export { setupGrpcStack } from '${SRC}/grpc-stack.js';\n`);
@@ -64,7 +64,7 @@ buildSync({
   outfile: bundlePath, write: true, logLevel: 'silent',
 });
 
-// ── pal shim over Node net (mirrors the qwrt pal.tcp* contract) ──
+// ── pal shim over Node net (mirrors the amoib pal.tcp* contract) ──
 // Setting pal._fragment = N>1 splits every inbound chunk into N-byte pieces,
 // forcing the h2c connection preface / frame headers across many TCP segments.
 const pal = {
@@ -122,12 +122,12 @@ const pal = {
 // __native_inject__ must be set BEFORE importing the bundle (pal.js reads it
 // at module init).
 globalThis.__native_inject__ = pal;
-globalThis.qwrt = globalThis.qwrt || {};
+globalThis.amoib = globalThis.amoib || {};
 const { setupHttpServer, setupGrpcStack } = await import(bundlePath);
 setupHttpServer(pal);
 setupGrpcStack();
 const grpc = globalThis.grpc;
-const H2 = globalThis.qwrt.http2;
+const H2 = globalThis.amoib.http2;
 
 // ── tiny test harness ───────────────────────────────────────────────
 let passed = 0, failed = 0, skipped = 0;
@@ -240,16 +240,16 @@ raw.close();
 // ════════════════════════════════════════════════════════════════════
 let peer = null;
 try {
-  const base = process.env.QWRT_GRPC_PEER_MODULES || '/tmp/grpcpeer/node_modules';
+  const base = process.env.AM_GRPC_PEER_MODULES || '/tmp/grpcpeer/node_modules';
   peer = { grpc: require(path.join(base, '@grpc', 'grpc-js')), loader: require(path.join(base, '@grpc', 'proto-loader')) };
 } catch (e) { peer = null; }
 
 if (!peer) {
-  skip('gRPC server via @grpc/grpc-js', 'package not resolvable; set QWRT_GRPC_PEER_MODULES');
+  skip('gRPC server via @grpc/grpc-js', 'package not resolvable; set AM_GRPC_PEER_MODULES');
 } else {
   const grpcjs = peer.grpc;
   const loader = peer.loader;
-  const protoTmp = path.join(os.tmpdir(), 'qwrt_server_helloworld.proto');
+  const protoTmp = path.join(os.tmpdir(), 'am_server_helloworld.proto');
   fs.writeFileSync(protoTmp, PROTO_TEXT);
   const def = loader.loadSync(protoTmp, { keepCase: true, longs: Number, defaults: true });
   const pkg = grpcjs.loadPackageDefinition(def);
@@ -352,7 +352,7 @@ if (!peer) {
       new Promise((res, rej) => greeter.SayHello({ name: 'c' + i }, (e, v) => (e ? rej(e) : res(v))))));
     eq(rs.map((r) => r.message).join('|'), Array.from({ length: 10 }, (_, i) => 'Hello c' + i).join('|'));
   });
-  await t('qwrt client → qwrt server (own stack interop)', async () => {
+  await t('amoib client → amoib server (own stack interop)', async () => {
     const regOwn = grpc.loadProto(PROTO_TEXT);
     const sayHelloMethod = regOwn.service('helloworld.Greeter').method('SayHello');
     const qch = grpc.createInsecureChannel('127.0.0.1:' + srv.port);
@@ -362,7 +362,7 @@ if (!peer) {
     let err = null;
     try { await qch.invoke('/helloworld.Greeter/Fail', { name: 'x' }, { registry: regOwn }); }
     catch (e) { err = e; }
-    ok(err && err.code === grpc.Status.NOT_FOUND, 'qwrt client saw NOT_FOUND, got ' + (err && err.code));
+    ok(err && err.code === grpc.Status.NOT_FOUND, 'amoib client saw NOT_FOUND, got ' + (err && err.code));
     await qch.close();
   });
 
@@ -379,7 +379,7 @@ if (!peer) {
     eq(msgs[2].count, 3, 'last payload intact');
   });
 
-  await t('server streaming (array): qwrt client invokeStream collects all messages', async () => {
+  await t('server streaming (array): amoib client invokeStream collects all messages', async () => {
     const regOwn = grpc.loadProto(PROTO_TEXT);
     const countList = regOwn.service('helloworld.Greeter').method('CountList');
     const qch = grpc.createInsecureChannel('127.0.0.1:' + srv.port);
@@ -410,7 +410,7 @@ if (!peer) {
     eq(reply.count, 0, 'count');
   });
 
-  await t('bidi: grpc-js duplex, 3↔3 against qwrt server', async () => {
+  await t('bidi: grpc-js duplex, 3↔3 against amoib server', async () => {
     const msgs = [];
     const done = new Promise((res, rej) => {
       const call = greeter.Chat();
@@ -427,7 +427,7 @@ if (!peer) {
     eq(msgs.map((m) => m.message).join('|'), 'echo a|echo b|echo c', 'messages in order');
   });
 
-  await t('bidi: qwrt client invokeBidi against qwrt server (own stack)', async () => {
+  await t('bidi: amoib client invokeBidi against amoib server (own stack)', async () => {
     const regOwn = grpc.loadProto(PROTO_TEXT);
     const chat = regOwn.service('helloworld.Greeter').method('Chat');
     const qch = grpc.createInsecureChannel('127.0.0.1:' + srv.port);

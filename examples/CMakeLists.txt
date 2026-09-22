@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.14)
-project(qwrt_examples C)
+project(am_examples C)
 
 # Add example subdirectories
 add_subdirectory(hello)
 add_subdirectory(worker)
 
 # ============================================================================
-# JS examples — pure-JS samples run via the qwrt CLI, compile-verified at
+# JS examples — pure-JS samples run via the amoib CLI, compile-verified at
 # build time with qjsc (same bytecode pipeline the polyfill uses). An example
 # that fails to compile fails the build; run instructions live in each file's
 # header comment.
@@ -30,7 +30,7 @@ foreach(_ex_js IN ITEMS
     add_custom_target(example_${_ex_name} DEPENDS "${_ex_bc}")
     list(APPEND _ex_targets example_${_ex_name})
 endforeach()
-# qjsc 编译校验挂 ALL（顶层 qwrt_cli 定义在 add_subdirectory(examples) 之后，
+# qjsc 编译校验挂 ALL（顶层 am_cli 定义在 add_subdirectory(examples) 之后，
 # 此处无法 add_dependencies 到它）；qjsc 编译器经此依赖先行就绪。
 add_custom_target(examples_js_compile_check ALL DEPENDS ${_ex_targets})
 add_dependencies(examples_js_compile_check qjsc)

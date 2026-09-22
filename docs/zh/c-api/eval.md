@@ -1,85 +1,85 @@
 # JS 求值
 
-Qwrt.js 提供三种执行 JavaScript 的方式，外加一个字节码编译 API。
+Amoib.js 提供三种执行 JavaScript 的方式，外加一个字节码编译 API。
 
-## `qwrt_eval`
+## `am_eval`
 
 ```c
-int qwrt_eval(qwrt_t *rt, const char *code, char **result);
+int am_eval(am_t *rt, const char *code, char **result);
 ```
 
 在活动上下文上求值 JS 源代码。WinterTC 运行时（fetch、console、定时器等）在第一次求值前自动注入新上下文。
 
 - `code` — 以 null 结尾的 JavaScript 源字符串
-- `result` — 如果非 NULL，接收一个 `malloc` 分配的字符串化结果（JSON）。使用 `qwrt_free()` 释放
+- `result` — 如果非 NULL，接收一个 `malloc` 分配的字符串化结果（JSON）。使用 `am_free()` 释放
 - 成功返回 0，JS 异常返回 <0
 
 ```c
 char *result = NULL;
-if (qwrt_eval(rt, "JSON.stringify({hello: 'world'})", &result) == 0) {
+if (am_eval(rt, "JSON.stringify({hello: 'world'})", &result) == 0) {
     printf("%s\n", result);  // {"hello":"world"}
-    qwrt_free(result);
+    am_free(result);
 }
 ```
 
-## `qwrt_eval_bytecode`
+## `am_eval_bytecode`
 
 ```c
-int qwrt_eval_bytecode(qwrt_t *rt, const uint8_t *bytecode, size_t len,
+int am_eval_bytecode(am_t *rt, const uint8_t *bytecode, size_t len,
                        char **result);
 ```
 
-求值预编译的 QuickJS 字节码。结果/返回语义与 `qwrt_eval` 相同。使用 `qwrt_compile` 从源代码生成字节码。
+求值预编译的 QuickJS 字节码。结果/返回语义与 `am_eval` 相同。使用 `am_compile` 从源代码生成字节码。
 
 ```c
 size_t bc_len = 0;
-uint8_t *bc = qwrt_compile(rt, "1 + 1", 5, &bc_len);
+uint8_t *bc = am_compile(rt, "1 + 1", 5, &bc_len);
 char *result = NULL;
-qwrt_eval_bytecode(rt, bc, bc_len, &result);
-qwrt_free(bc);
-qwrt_free(result);
+am_eval_bytecode(rt, bc, bc_len, &result);
+am_free(bc);
+am_free(result);
 ```
 
-## `qwrt_call`
+## `am_call`
 
 ```c
-int qwrt_call(qwrt_t *rt, const char *func,
+int am_call(am_t *rt, const char *func,
               const char *args_json, char **result);
 ```
 
-使用 JSON 编码的参数调用全局 JS 函数。结果语义与 `qwrt_eval` 相同。
+使用 JSON 编码的参数调用全局 JS 函数。结果语义与 `am_eval` 相同。
 
 ```c
 // 相当于：myFunc(1, "hello", true)
 char *result = NULL;
-qwrt_call(rt, "myFunc", "[1,\"hello\",true]", &result);
+am_call(rt, "myFunc", "[1,\"hello\",true]", &result);
 ```
 
-## `qwrt_compile`
+## `am_compile`
 
 ```c
-uint8_t *qwrt_compile(qwrt_t *rt, const char *code, size_t code_len,
+uint8_t *am_compile(am_t *rt, const char *code, size_t code_len,
                       size_t *out_len);
 ```
 
-将 JS 源代码编译为 QuickJS 字节码。返回分配的缓冲区（使用 `qwrt_free` 释放），并将长度写入 `*out_len`。错误时返回 `NULL`。
+将 JS 源代码编译为 QuickJS 字节码。返回分配的缓冲区（使用 `am_free` 释放），并将长度写入 `*out_len`。错误时返回 `NULL`。
 
-## `qwrt_compile_module`
+## `am_compile_module`
 
 ```c
-uint8_t *qwrt_compile_module(qwrt_t *rt, const char *code, size_t code_len,
+uint8_t *am_compile_module(am_t *rt, const char *code, size_t code_len,
                              size_t *out_len);
 ```
 
-与 `qwrt_compile` 相同，但将源代码视为 ES 模块。
+与 `am_compile` 相同，但将源代码视为 ES 模块。
 
-## `qwrt_free`
+## `am_free`
 
 ```c
-void qwrt_free(void *ptr);
+void am_free(void *ptr);
 ```
 
-释放由 `qwrt_eval`、`qwrt_call`、`qwrt_compile` 或 `qwrt_compile_module` 返回的内存。NULL 安全。
+释放由 `am_eval`、`am_call`、`am_compile` 或 `am_compile_module` 返回的内存。NULL 安全。
 
 ## 错误处理
 
@@ -87,8 +87,8 @@ void qwrt_free(void *ptr);
 
 ```c
 char *result = NULL;
-if (qwrt_eval(rt, "throw new Error('oops')", &result) < 0) {
+if (am_eval(rt, "throw new Error('oops')", &result) < 0) {
     printf("JS error: %s\n", result);  // Error: oops
-    qwrt_free(result);
+    am_free(result);
 }
 ```

@@ -1,6 +1,6 @@
-// test_context_gtest.cpp — Task 5: 多上下文 JS API（qwrtContext）
+// test_context_gtest.cpp — Task 5: 多上下文 JS API（amContext）
 //
-// 宿主只见主 context；子 context 由 qwrtContext.spawn 建立（返回 ctx id），
+// 宿主只见主 context；子 context 由 amContext.spawn 建立（返回 ctx id），
 // destroy 释放槽位，suspend/resume 见 test_suspend_gtest.cpp。
 // 全部经 host_eval 命令通道驱动，子 context 不与宿主直接通信（避免 eval
 // 进行中子 context 的同步 postMessage 打乱回复匹配）。
@@ -14,7 +14,7 @@ TEST(context_, spawn_isolation) {
     std::string out;
 
     std::string spawnCode =
-        "JSON.stringify(qwrtContext.spawn(" + JSON_string("globalThis.y = 5;") + "))";
+        "JSON.stringify(amContext.spawn(" + JSON_string("globalThis.y = 5;") + "))";
     ASSERT_TRUE(host_value(h, spawnCode.c_str(), &out));
     EXPECT_EQ("1", out) << "got: " << out;
 
@@ -33,11 +33,11 @@ TEST(context_, spawn_destroy_reuse_slot) {
     std::string out;
 
     ASSERT_TRUE(host_value(h,
-        "JSON.stringify(qwrtContext.spawn('globalThis.a = 1;'))", &out));
+        "JSON.stringify(amContext.spawn('globalThis.a = 1;'))", &out));
     EXPECT_EQ("1", out) << "got: " << out;
 
     ASSERT_TRUE(host_value(h,
-        "qwrtContext.destroy(1); JSON.stringify(qwrtContext.spawn('globalThis.b = 2;'))", &out));
+        "amContext.destroy(1); JSON.stringify(amContext.spawn('globalThis.b = 2;'))", &out));
     EXPECT_EQ("1", out) << "got: " << out;
 
     ASSERT_TRUE(host_value(h, "1 + 2", &out));
@@ -45,7 +45,7 @@ TEST(context_, spawn_destroy_reuse_slot) {
     host_destroy(h);
 }
 
-// 挂起正在执行的主 context（active=0）被拒（QWRT_ERR_BUSY）——不能销毁/挂起
+// 挂起正在执行的主 context（active=0）被拒（AM_ERR_BUSY）——不能销毁/挂起
 // 自己正在运行的 context；错误经 throw 传播给调用方。
 TEST(context_, cannot_suspend_active_ctx) {
     HostCtx *h = host_create();
@@ -54,7 +54,7 @@ TEST(context_, cannot_suspend_active_ctx) {
 
     ASSERT_TRUE(host_eval(h,
         "var rejected = false;"
-        "try { qwrtContext.suspend(0, ''); } catch (e) { rejected = true; }"
+        "try { amContext.suspend(0, ''); } catch (e) { rejected = true; }"
         "JSON.stringify(rejected)", &out));
     ASSERT_NE(std::string::npos, out.find("true")) << "got: " << out;
 

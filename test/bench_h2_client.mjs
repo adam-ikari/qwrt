@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * qwrt HTTP/2 client stack performance benchmark.
+ * amoib HTTP/2 client stack performance benchmark.
  *
  * Measures the pure-JS HTTP/2 client protocol stack (HPACK decode + frame
  * processing + stream multiplexing) by driving it against a local Node
@@ -8,7 +8,7 @@
  * (same pattern as test/h2_client_harness.mjs).
  *
  * This benchmarks the JS protocol stack only — NOT the C network path.
- * The qwrt binary is not involved.
+ * The amoib binary is not involved.
  *
  * Scenarios:
  *   tiny       : 8-byte response, sequential         — per-request overhead

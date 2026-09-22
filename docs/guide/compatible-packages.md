@@ -1,6 +1,6 @@
 # Compatible npm Packages
 
-These packages have been **downloaded and run** in the actual qwrt runtime. Each is loaded by `test/compat_check.py` through a minimal CommonJS loader and exercised with real calls.
+These packages have been **downloaded and run** in the actual amoib runtime. Each is loaded by `test/compat_check.py` through a minimal CommonJS loader and exercised with real calls.
 
 ## Runtime-Verified ✅
 
@@ -19,14 +19,14 @@ These packages have been **downloaded and run** in the actual qwrt runtime. Each
 
 ## CJS Packages
 
-Many npm packages use CommonJS (`module.exports`). qwrt does not have a built-in module system. To use CJS packages, inject a shim before loading:
+Many npm packages use CommonJS (`module.exports`). amoib does not have a built-in module system. To use CJS packages, inject a shim before loading:
 
 ```js
 // Before loading the package:
 var module = { exports: {} };
 var exports = module.exports;
 
-// (compat_check.py performs this load inside a real qwrt runtime)
+// (compat_check.py performs this load inside a real amoib runtime)
 
 // Access the package:
 var myPkg = module.exports;
@@ -41,16 +41,16 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
   npx esbuild --bundle --format=iife --global-name=nanoid_bundle > nanoid.bundle.js
 ```
 
-Then run the IIFE bundle as an `initial_script` or `new Worker(url)` script — there is no `qwrt_eval`.
+Then run the IIFE bundle as an `initial_script` or `new Worker(url)` script — there is no `am_eval`.
 
 ## Checking Compatibility
 
-`test/compat_check.py` combines a **static source scan** with a **real qwrt
+`test/compat_check.py` combines a **static source scan** with a **real amoib
 load**:
 
 1. **Static scan** flags Node built-ins and missing globals in the source,
    even in branches that never run at load time.
-2. **Runtime load** injects the package into a qwrt runtime through a minimal
+2. **Runtime load** injects the package into a amoib runtime through a minimal
    CommonJS loader and actually loads the main entry.
 
 ```bash
@@ -62,7 +62,7 @@ python3 test/compat_check.py lodash --json    # machine-readable
 The runtime verdict is decisive: a CJS package that loads and returns its
 exports is compatible; one that `require`s a Node built-in or external npm dep
 fails on require; an ESM-only package (`"type": "module"`) reports that it
-needs bundling to an IIFE with esbuild (qwrt has no ESM loader). The static
+needs bundling to an IIFE with esbuild (amoib has no ESM loader). The static
 scan adds warnings for latent risks the load test cannot see.
 
 Exit code is 1 if the package fails to load at runtime, so it works as a CI gate.

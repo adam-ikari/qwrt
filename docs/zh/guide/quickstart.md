@@ -1,11 +1,11 @@
 ---
 title: 快速开始
-description: 在 5 分钟内让 Qwrt.js 跑起来 — 克隆、构建并运行你的第一个基于嵌入式 QuickJS-ng 运行时的 JavaScript 程序。
+description: 在 5 分钟内让 Amoib.js 跑起来 — 克隆、构建并运行你的第一个基于嵌入式 QuickJS-ng 运行时的 JavaScript 程序。
 ---
 
 # 快速开始
 
-在 5 分钟内让 qwrt 跑起来。
+在 5 分钟内让 amoib 跑起来。
 
 ## 前置条件
 
@@ -17,48 +17,48 @@ description: 在 5 分钟内让 Qwrt.js 跑起来 — 克隆、构建并运行�
 
 ```bash
 # 克隆仓库及所有子模块
-git clone --recursive https://github.com/adam-ikari/qwrt.git
-cd qwrt
+git clone --recursive https://github.com/adam-ikari/amoib.git
+cd amoib
 
 # 配置并构建（Release 模式）
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-尺寸敏感的构建：加 `-DQWRT_PROFILE=minimal`（仍满足 WinterTC 兼容，
+尺寸敏感的构建：加 `-DAM_PROFILE=minimal`（仍满足 WinterTC 兼容，
 2.45 MiB strip 后）。见[构建选项](/zh/guide/build-options)。
 
-构建产物 `libqwrt.a`（静态核心）和 `libqwrt_full.a`（供 CMake 消费方使用的链接接口聚合库）位于 `build/` 目录，另有 `build/qwrt.pc` 供 pkg-config 使用。
+构建产物 `libamoib.a`（静态核心）和 `libam_full.a`（供 CMake 消费方使用的链接接口聚合库）位于 `build/` 目录，另有 `build/amoib.pc` 供 pkg-config 使用。
 
 ## 你的第一个程序
 
 创建 `hello.c`：
 
 ```c
-#include <qwrt/qwrt.h>
+#include <amoib/amoib.h>
 #include <stdio.h>
 
-static void on_message(qwrt_t *rt, const char *json, size_t len, void *data) {
+static void on_message(am_t *rt, const char *json, size_t len, void *data) {
     (void)rt; (void)data;
     printf("received: %.*s\n", (int)len, json);
 }
 
 int main(void) {
-    // 创建运行时 — qwrt 启动自己的内部线程和循环
-    qwrt_config_t cfg = {0};
+    // 创建运行时 — amoib 启动自己的内部线程和循环
+    am_config_t cfg = {0};
     cfg.initial_script = "console.log('Hello from QuickJS!'); postMessage(1 + 1);";
     cfg.message_cb = on_message;
-    qwrt_t *rt = qwrt_create(&cfg);
+    am_t *rt = am_create(&cfg);
     if (!rt) {
         fprintf(stderr, "Failed to create runtime\n");
         return 1;
     }
 
     // 通过发送 JSON 消息驱动运行时
-    qwrt_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
+    am_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
 
     // 清理 — 优雅关闭
-    qwrt_destroy(rt);
+    am_destroy(rt);
     return 0;
 }
 ```
@@ -66,7 +66,7 @@ int main(void) {
 使用 pkg-config 编译并链接（自动带出完整静态链接行 — 全部 vendored 归档）：
 
 ```bash
-cc -std=c99 -o hello hello.c $(pkg-config --cflags --libs qwrt)
+cc -std=c99 -o hello hello.c $(pkg-config --cflags --libs amoib)
 ```
 
 树内构建时，先把 pkg-config 指向构建目录：
@@ -78,7 +78,7 @@ export PKG_CONFIG_PATH="$PWD/build"
 ## 带测试构建
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQWRT_BUILD_TESTS=ON
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DAM_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```

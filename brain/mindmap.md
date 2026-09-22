@@ -11,7 +11,7 @@ updated: "2026-09-01T09:15:17"
 
 ```mermaid
 mindmap
-  root((qwrt))
+  root((amoib))
     Core
       QuickJS-ng
       libuv loop

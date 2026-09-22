@@ -1,6 +1,6 @@
 ---
 title: AbortController
-description: The AbortController API in Qwrt.js — AbortController, AbortSignal, fetch cancellation, and timeout patterns.
+description: The AbortController API in Amoib.js — AbortController, AbortSignal, fetch cancellation, and timeout patterns.
 ---
 
 # AbortController / AbortSignal / DOMException

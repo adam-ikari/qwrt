@@ -2,7 +2,7 @@
  * ①同 URL 字节未变 → update() 不触发 install，返回同一 registration、controller 不变
  * ②改写脚本（字节变化）→ update() 走 install→activate→替换旧 SW
  * ③新 SW install/activating 期间旧 SW 仍拦截 fetch（无控制真空）
- * 字节变化通过 qwrt.fs.writeFile 改写 SW 脚本文件制造；版本 B 的 activate 顶部
+ * 字节变化通过 amoib.fs.writeFile 改写 SW 脚本文件制造；版本 B 的 activate 顶部
  * postMessage('B-activate') 给主线程显式信号（I4），waitUntil 挂起到主线程回
  * 'go'——观察窗口由信号驱动而非墙钟，CI 负载无关。
  * 脚本文件路径由 wrapper 以参数传入（arguments[0]=临时副本，arguments[1]=fixture
@@ -53,8 +53,8 @@ navigator.serviceWorker.register(SW_URL).then(function (reg1) {
     var after = navigator.serviceWorker.controller;
     console.log('p2: sameReg=' + (r2 === reg1) + ' sameCtrl=' + (before === after) + ' cc=' + ccCount);
     /* 改写脚本 → 字节变化 */
-    return qwrt.fs.readFile(SW_B_FILE).then(function (code) {
-      return qwrt.fs.writeFile(SW_FILE, code);
+    return amoib.fs.readFile(SW_B_FILE).then(function (code) {
+      return amoib.fs.writeFile(SW_FILE, code);
     }).then(function () {
       var upd = reg1.update();
       bsw = reg1.installing;

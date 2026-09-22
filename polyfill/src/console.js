@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: console
+ * amoib polyfill: console
  *
  * Implements console.log/warn/error/info/debug/trace/dir/time/timeEnd/assert
  * using pal.log(level, message) primitive.

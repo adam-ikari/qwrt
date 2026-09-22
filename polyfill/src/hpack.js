@@ -1,5 +1,5 @@
 /**
- * qwrt polyfill: HPACK (RFC 7541) — HTTP/2 header compression.
+ * amoib polyfill: HPACK (RFC 7541) — HTTP/2 header compression.
  *
  * Decoder is FULL (RFC 7541): indexed / literal-incremental / literal-without-
  * indexing / literal-never-indexed, dynamic table with size accounting + table

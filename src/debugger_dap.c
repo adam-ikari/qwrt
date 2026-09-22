@@ -1,22 +1,22 @@
 /*
- * qwrt — DAP (Debug Adapter Protocol) front-end implementation
+ * amoib — DAP (Debug Adapter Protocol) front-end implementation
  *
  * PAL-agnostic. Provides the DAP callback set + base-protocol I/O + a minimal
- * JSON parser/serializer that qwrt_create installs when debugging is enabled.
+ * JSON parser/serializer that am_create installs when debugging is enabled.
  * The DAP stdin pump runs inside on_stopped when JS pauses.
  *
  * Threading: single-threaded. on_stopped blocks reading DAP requests until a
  * flow command (continue/step) sets the step mode and returns, unblocking the
  * interrupt handler → JS resumes.
  *
- * Compiled in only when QWRT_DEBUG_SUPPORT is defined (QWRT_BUILD_DEBUGGER=ON).
+ * Compiled in only when AM_DEBUG_SUPPORT is defined (AM_BUILD_DEBUGGER=ON).
  */
-#include "qwrt_internal.h"
+#include "am_internal.h"
 
-#ifdef QWRT_DEBUG_SUPPORT
+#ifdef AM_DEBUG_SUPPORT
 
-#include "qwrt/qwrt_debug.h"
-#include "qwrt/qwrt_debug_dap.h"
+#include "amoib/am_debug.h"
+#include "amoib/am_debug_dap.h"
 #include <quickjs.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,23 +43,23 @@
  * DAP session state
  * ================================================================ */
 
-typedef struct qwrt_dap {
-    qwrt_t *rt;
-    qwrt_debug_t *dbg;
+typedef struct am_dap {
+    am_t *rt;
+    am_debug_t *dbg;
     FILE *in;
     FILE *out;
     int seq;             /* outbound message sequence counter */
     int configured;      /* 1 after configurationDone */
     int claimed_stdio;   /* 1 when this session owns the process-wide stdio
                           * claim (M-R1 §13.2: one stdio DAP per process);
-                          * qwrt_dap_detach releases it. */
-} qwrt_dap_t;
+                          * am_dap_detach releases it. */
+} am_dap_t;
 
 /* ================================================================
  * DAP message sending
  * ================================================================ */
 
-static void dap_send(qwrt_dap_t *d, const char *json)
+static void dap_send(am_dap_t *d, const char *json)
 {
     size_t n = strlen(json);
     fprintf(d->out, "Content-Length: %zu\r\n\r\n%s", n, json);
@@ -67,7 +67,7 @@ static void dap_send(qwrt_dap_t *d, const char *json)
 }
 
 /* Build & send an event: {"type":"event","event":name,"body":body,...} */
-static void dap_send_event(qwrt_dap_t *d, const char *event, const char *body_json)
+static void dap_send_event(am_dap_t *d, const char *event, const char *body_json)
 {
     cJSON *msg = cJSON_CreateObject();
     if (!msg) return;
@@ -88,7 +88,7 @@ static void dap_send_event(qwrt_dap_t *d, const char *event, const char *body_js
 }
 
 /* Build & send a response: type "response", success, command, body, message. */
-static void dap_send_response(qwrt_dap_t *d, int request_seq, const char *command,
+static void dap_send_response(am_dap_t *d, int request_seq, const char *command,
                               int success, const char *body_json, const char *error_msg)
 {
     cJSON *msg = cJSON_CreateObject();
@@ -120,7 +120,7 @@ static void dap_send_response(qwrt_dap_t *d, int request_seq, const char *comman
 /* Read one DAP message (Content-Length header + JSON body). Returns malloc'd
  * JSON string (caller frees), or NULL on EOF/error. Sets *out_seq to the
  * request seq, *out_command to a malloc'd command string. */
-static char *dap_read_message(qwrt_dap_t *d, int *out_seq, char **out_command,
+static char *dap_read_message(am_dap_t *d, int *out_seq, char **out_command,
                               char **out_arguments)
 {
     *out_seq = 0;
@@ -181,7 +181,7 @@ static char *dap_read_message(qwrt_dap_t *d, int *out_seq, char **out_command,
  *   1 = message available (call dap_read_message to get it)
  *   0 = timeout (no message yet — caller can pump PAL)
  *  -1 = EOF / error */
-static int dap_poll_message(qwrt_dap_t *d, int timeout_ms)
+static int dap_poll_message(am_dap_t *d, int timeout_ms)
 {
     if (!d || !d->in) return -1;
     int fd = fileno(d->in);
@@ -196,7 +196,7 @@ static int dap_poll_message(qwrt_dap_t *d, int timeout_ms)
 
 /* Forward: handle a single DAP request; returns 1 if it was a flow command
  * (continue/step/stop) that should end the paused pump, 0 otherwise. */
-static int dap_handle_request(qwrt_dap_t *d, const char *command,
+static int dap_handle_request(am_dap_t *d, const char *command,
                               const char *args, int req_seq);
 
 /* The DAP callback for on_stopped. Pumps DAP requests until a flow command.
@@ -204,12 +204,12 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
  * PAL callbacks) does not advance, and the re-entrancy guard in debugger.c
  * suppresses PAL-driven re-entry. This matches standard debugger semantics
  * (freeze on break). */
-static void dap_on_stopped(qwrt_debug_t *dbg, const char *reason, int thread_id)
+static void dap_on_stopped(am_debug_t *dbg, const char *reason, int thread_id)
 {
     (void)thread_id;
     /* Recover the per-runtime DAP layer from the debug session — no global. */
-    qwrt_t *rt = qwrt_debug_get_runtime(dbg);
-    qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
+    am_t *rt = am_debug_get_runtime(dbg);
+    am_dap_t *d = rt ? (am_dap_t *)rt->dap : NULL;
     if (!d) return;
 
     /* emit stopped event */
@@ -246,31 +246,31 @@ static void dap_on_stopped(qwrt_debug_t *dbg, const char *reason, int thread_id)
 /* Each returns 1 if it's a flow command (continue/step/stop) that ends the
  * paused pump, 0 otherwise. */
 
-static int dap_handle_request(qwrt_dap_t *d, const char *command,
+static int dap_handle_request(am_dap_t *d, const char *command,
                               const char *args, int req_seq)
 {
     if (strcmp(command, "continue") == 0) {
-        qwrt_debug_continue(d->dbg);
+        am_debug_continue(d->dbg);
         dap_send_response(d, req_seq, "continue", 1, "{\"allThreadsContinued\":true}", NULL);
         return 1;
     }
     if (strcmp(command, "next") == 0) {
-        qwrt_debug_step_over(d->dbg);
+        am_debug_step_over(d->dbg);
         dap_send_response(d, req_seq, "next", 1, "{}", NULL);
         return 1;
     }
     if (strcmp(command, "stepIn") == 0) {
-        qwrt_debug_step_into(d->dbg);
+        am_debug_step_into(d->dbg);
         dap_send_response(d, req_seq, "stepIn", 1, "{}", NULL);
         return 1;
     }
     if (strcmp(command, "stepOut") == 0) {
-        qwrt_debug_step_out(d->dbg);
+        am_debug_step_out(d->dbg);
         dap_send_response(d, req_seq, "stepOut", 1, "{}", NULL);
         return 1;
     }
     if (strcmp(command, "pause") == 0) {
-        qwrt_debug_pause(d->dbg);
+        am_debug_pause(d->dbg);
         dap_send_response(d, req_seq, "pause", 1, "{}", NULL);
         return 0;
     }
@@ -280,8 +280,8 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
         return 0;
     }
     if (strcmp(command, "stackTrace") == 0) {
-        qwrt_debug_frame *frames = NULL; int n = 0;
-        qwrt_debug_get_call_frames(d->dbg, &frames, &n);
+        am_debug_frame *frames = NULL; int n = 0;
+        am_debug_get_call_frames(d->dbg, &frames, &n);
         cJSON *body = cJSON_CreateObject();
         cJSON *arr = cJSON_AddArrayToObject(body, "stackFrames");
         int i;
@@ -304,7 +304,7 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
         cJSON_Delete(body);
         dap_send_response(d, req_seq, "stackTrace", 1, buf ? buf : "", NULL);
         free(buf);
-        qwrt_debug_free_frames(frames, n);
+        am_debug_free_frames(frames, n);
         return 0;
     }
     if (strcmp(command, "scopes") == 0) {
@@ -318,8 +318,8 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
                 cJSON_Delete(ja);
             }
         }
-        qwrt_debug_scope *scopes = NULL; int n = 0;
-        int rc = qwrt_debug_get_scopes(d->dbg, (int)fid, &scopes, &n);
+        am_debug_scope *scopes = NULL; int n = 0;
+        int rc = am_debug_get_scopes(d->dbg, (int)fid, &scopes, &n);
         if (rc < 0) {
             dap_send_response(d, req_seq, "scopes", 1, "{\"scopes\":[]}", NULL);
             return 0;
@@ -340,7 +340,7 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
         cJSON_Delete(body);
         dap_send_response(d, req_seq, "scopes", 1, buf ? buf : "", NULL);
         free(buf);
-        qwrt_debug_free_scopes(scopes, n);
+        am_debug_free_scopes(scopes, n);
         return 0;
     }
     if (strcmp(command, "variables") == 0) {
@@ -355,8 +355,8 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
                 cJSON_Delete(ja);
             }
         }
-        qwrt_debug_var *vars = NULL; int n = 0;
-        int rc = qwrt_debug_get_variables(d->dbg, (int)vr, &vars, &n);
+        am_debug_var *vars = NULL; int n = 0;
+        int rc = am_debug_get_variables(d->dbg, (int)vr, &vars, &n);
         if (rc < 0) {
             dap_send_response(d, req_seq, "variables", 1, "{\"variables\":[]}", NULL);
             return 0;
@@ -382,7 +382,7 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
         cJSON_Delete(body);
         dap_send_response(d, req_seq, "variables", 1, buf ? buf : "", NULL);
         free(buf);
-        qwrt_debug_free_vars(vars, n);
+        am_debug_free_vars(vars, n);
         return 0;
     }
     if (strcmp(command, "evaluate") == 0) {
@@ -401,7 +401,7 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
             }
         }
         char *val = NULL, *err = NULL;
-        int rc = qwrt_debug_evaluate(d->dbg, (int)fid, expr ? expr : "", &val, &err);
+        int rc = am_debug_evaluate(d->dbg, (int)fid, expr ? expr : "", &val, &err);
         cJSON *body = cJSON_CreateObject();
         if (body) {
             cJSON_AddStringToObject(body, "result",
@@ -418,7 +418,7 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
     }
     if (strcmp(command, "disconnect") == 0) {
         dap_send_response(d, req_seq, "disconnect", 1, "{}", NULL);
-        qwrt_debug_continue(d->dbg);  /* unblock so JS can exit */
+        am_debug_continue(d->dbg);  /* unblock so JS can exit */
         return 1;
     }
     /* unknown / unsupported (setExceptionBreakpoints, setFunctionBreakpoints,
@@ -437,19 +437,19 @@ static int dap_handle_request(qwrt_dap_t *d, const char *command,
 #define DAP_POLL_MS 50
 /* forward decl — defined with the other request handlers below; shared by the
  * configuration phase and the run-time service pump. */
-static void dap_handle_set_breakpoints(qwrt_dap_t *d, const char *args, int req_seq);
+static void dap_handle_set_breakpoints(am_dap_t *d, const char *args, int req_seq);
 
 
-/* Timer callback: fires on the qwrt thread while the debuggee is running.
+/* Timer callback: fires on the amoib thread while the debuggee is running.
  * Non-blockingly drains any DAP request that arrived on stdin. */
-static void qwrt_dap_timer_cb(uv_timer_t *t)
+static void am_dap_timer_cb(uv_timer_t *t)
 {
-    qwrt_t *rt = (qwrt_t *)t->data;
-    if (rt) qwrt_dap_service(rt);
+    am_t *rt = (am_t *)t->data;
+    if (rt) am_dap_service(rt);
 }
 
 /* Service the DAP stdin channel while the debuggee is NOT paused. Called
- * from the periodic poll timer (see qwrt_dap_attach); never blocks. Handles
+ * from the periodic poll timer (see am_dap_attach); never blocks. Handles
  * the requests that are meaningful mid-run: pause (arm the next dispatch
  * checkpoint to stop), setBreakpoints (replace the breakpoint table so new
  * breakpoints take effect immediately) and disconnect (stop polling). All
@@ -457,9 +457,9 @@ static void qwrt_dap_timer_cb(uv_timer_t *t)
  * real work (stackTrace/scopes/variables/evaluate) happens in the paused
  * pump (dap_on_stopped), which runs on the same thread and therefore cannot
  * race with this function. */
-void qwrt_dap_service(qwrt_t *rt)
+void am_dap_service(am_t *rt)
 {
-    qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
+    am_dap_t *d = rt ? (am_dap_t *)rt->dap : NULL;
     if (!d || !d->in) return;
 
     int pr = dap_poll_message(d, 0);  /* non-blocking */
@@ -478,7 +478,7 @@ void qwrt_dap_service(qwrt_t *rt)
     if (!msg) return;
     if (cmd) {
         if (strcmp(cmd, "pause") == 0) {
-            qwrt_debug_pause(d->dbg);
+            am_debug_pause(d->dbg);
             dap_send_response(d, req_seq, "pause", 1, "{}", NULL);
         } else if (strcmp(cmd, "setBreakpoints") == 0) {
             dap_handle_set_breakpoints(d, args, req_seq);
@@ -504,18 +504,18 @@ void qwrt_dap_service(qwrt_t *rt)
  * -std=c99：plain int + __atomic 内建（与 g_wamr_state 同款）。 */
 static int g_dap_stdio_claimed = 0;
 
-int qwrt_dap_attach(qwrt_t *rt, const qwrt_dap_config_t *cfg)
+int am_dap_attach(am_t *rt, const am_dap_config_t *cfg)
 {
     if (!rt) return -1;
     int use_stdio = (!cfg || (!cfg->in && !cfg->out));
     if (use_stdio &&
         __atomic_exchange_n(&g_dap_stdio_claimed, 1, __ATOMIC_ACQ_REL) != 0) {
-        fprintf(stderr, "[qwrt] DAP: stdio already attached by another "
-                "runtime — pass explicit qwrt_dap_config_t.in/out fds "
+        fprintf(stderr, "[amoib] DAP: stdio already attached by another "
+                "runtime — pass explicit am_dap_config_t.in/out fds "
                 "for this instance (M-R1 §13.2)\n");
         return -2;   /* explicit reject: no silent arbitration */
     }
-    qwrt_dap_t *d = calloc(1, sizeof(*d));
+    am_dap_t *d = calloc(1, sizeof(*d));
     if (!d) return -1;
     d->rt = rt;
     d->in = (cfg && cfg->in) ? cfg->in : stdin;
@@ -523,14 +523,14 @@ int qwrt_dap_attach(qwrt_t *rt, const qwrt_dap_config_t *cfg)
     d->seq = 0;
     d->claimed_stdio = use_stdio;
 
-    qwrt_debug_cbs cbs;
+    am_debug_cbs cbs;
     memset(&cbs, 0, sizeof(cbs));
     cbs.on_stopped = dap_on_stopped;
-    d->dbg = qwrt_debug_attach(rt, &cbs);
+    d->dbg = am_debug_attach(rt, &cbs);
     if (!d->dbg) { free(d); return -1; }
 
     if (cfg && cfg->stop_on_entry)
-        qwrt_debug_stop_on_entry(d->dbg);
+        am_debug_stop_on_entry(d->dbg);
 
     rt->dap = d;
 
@@ -541,21 +541,21 @@ int qwrt_dap_attach(qwrt_t *rt, const qwrt_dap_config_t *cfg)
      * 循环空闲（无 pending work）时 uv_run(UV_RUN_ONCE) 无限阻塞在 poll，
      * 运行中的 pause/setBreakpoints/disconnect 请求永远不被读取。active
      * timer 同时让真 libuv 的 uv_run 有界（backend timeout ≤ DAP_POLL_MS），
-     * 每次醒来回调 qwrt_dap_service 非阻塞服务 stdin。loop 在调用本函数
+     * 每次醒来回调 am_dap_service 非阻塞服务 stdin。loop 在调用本函数
      * 前已由 thread_main/worker_thread_main 完成 uv_loop_init。 */
     if (!rt->dap_timer_active) {
         uv_timer_init(&rt->loop, &rt->dap_timer);
         rt->dap_timer.data = rt;
-        uv_timer_start(&rt->dap_timer, qwrt_dap_timer_cb,
+        uv_timer_start(&rt->dap_timer, am_dap_timer_cb,
                        DAP_POLL_MS, DAP_POLL_MS);
         rt->dap_timer_active = 1;
     }
     return 0;
 }
 
-void qwrt_dap_detach(qwrt_t *rt)
+void am_dap_detach(am_t *rt)
 {
-    qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
+    am_dap_t *d = rt ? (am_dap_t *)rt->dap : NULL;
     if (!d) return;
     /* stop the periodic stdin poll timer (it keeps the loop alive + waking) */
     if (rt->dap_timer_active) {
@@ -567,20 +567,20 @@ void qwrt_dap_detach(qwrt_t *rt)
         __atomic_store_n(&g_dap_stdio_claimed, 0, __ATOMIC_RELEASE);
     rt->dap = NULL;
     if (d->dbg)
-        qwrt_debug_detach(d->rt, d->dbg);
+        am_debug_detach(d->rt, d->dbg);
     free(d);
 }
 
 /* Process DAP requests that arrive BEFORE the program starts running (the
  * configuration phase: initialize, setBreakpoints, attach, configurationDone).
- * Called by the host (qwrt_create auto-attach path) after qwrt_dap_attach.
+ * Called by the host (am_create auto-attach path) after am_dap_attach.
  * Returns when configurationDone is received. */
 /* Handle a setBreakpoints request: replace the whole breakpoint table for the
  * session with the breakpoints in `args` (source.path + breakpoints[].line,
  * optional condition), then respond with the verified lines. Shared by the
- * configuration phase (qwrt_dap_configure) and the run-time pump
- * (qwrt_dap_service) so breakpoints added mid-run take effect immediately. */
-static void dap_handle_set_breakpoints(qwrt_dap_t *d, const char *args, int req_seq)
+ * configuration phase (am_dap_configure) and the run-time pump
+ * (am_dap_service) so breakpoints added mid-run take effect immediately. */
+static void dap_handle_set_breakpoints(am_dap_t *d, const char *args, int req_seq)
 {
     /* args.source.path + args.breakpoints[].line（+ 可选 condition） */
     cJSON *ja = cJSON_Parse(args ? args : "");
@@ -590,7 +590,7 @@ static void dap_handle_set_breakpoints(qwrt_dap_t *d, const char *args, int req_
                         cJSON_IsString(cJSON_GetObjectItemCaseSensitive(src, "path")))
         ? cJSON_GetObjectItemCaseSensitive(src, "path")->valuestring : NULL;
 
-    qwrt_debug_clear_breakpoints(d->dbg);
+    am_debug_clear_breakpoints(d->dbg);
     if (path && cJSON_IsArray(bps)) {
         const cJSON *bp = NULL;
         cJSON_ArrayForEach(bp, bps) {
@@ -600,7 +600,7 @@ static void dap_handle_set_breakpoints(qwrt_dap_t *d, const char *args, int req_
             const cJSON *cond = cJSON_GetObjectItemCaseSensitive(bp, "condition");
             const char *condstr = (cJSON_IsString(cond) && cond->valuestring)
                 ? cond->valuestring : NULL;
-            qwrt_debug_add_breakpoint(d->dbg, path, ln->valueint, condstr);
+            am_debug_add_breakpoint(d->dbg, path, ln->valueint, condstr);
         }
     }
 
@@ -627,9 +627,9 @@ static void dap_handle_set_breakpoints(qwrt_dap_t *d, const char *args, int req_
     free(buf);
 }
 
-int qwrt_dap_configure(qwrt_t *rt)
+int am_dap_configure(am_t *rt)
 {
-    qwrt_dap_t *d = rt ? (qwrt_dap_t *)rt->dap : NULL;
+    am_dap_t *d = rt ? (am_dap_t *)rt->dap : NULL;
     if (!d) return -1;
     for (;;) {
         int req_seq = 0; char *cmd = NULL, *args = NULL;
@@ -663,4 +663,4 @@ int qwrt_dap_configure(qwrt_t *rt)
     }
 }
 
-#endif /* QWRT_DEBUG_SUPPORT */
+#endif /* AM_DEBUG_SUPPORT */

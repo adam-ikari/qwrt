@@ -1,6 +1,6 @@
 ---
 title: console
-description: Qwrt.js 中的 console API —— console.log、console.error、console.warn 以及结构化日志。
+description: Amoib.js 中的 console API —— console.log、console.error、console.warn 以及结构化日志。
 ---
 
 # console API
@@ -72,7 +72,7 @@ console.debug('请求头:', JSON.stringify(headers));
 
 ## 实现
 
-`console.*` 在 qwrt 的内部线程上运行，并写入宿主进程的标准错误，格式为 `[qwrt:<level>] <message>`。console 没有宿主回调 — 输出直接进入 stderr。
+`console.*` 在 amoib 的内部线程上运行，并写入宿主进程的标准错误，格式为 `[amoib:<level>] <message>`。console 没有宿主回调 — 输出直接进入 stderr。
 
 ## 格式化
 
