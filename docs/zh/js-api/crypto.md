@@ -1,6 +1,6 @@
 ---
 title: crypto
-description: Amoib.js 中的 Web Crypto API —— crypto.subtle 支持 SHA-256/384/512、HMAC、PBKDF2、AES-GCM 以及 crypto.getRandomValues。
+description: Qzjs.js 中的 Web Crypto API —— crypto.subtle 支持 SHA-256/384/512、HMAC、PBKDF2、AES-GCM 以及 crypto.getRandomValues。
 ---
 
 # crypto API
@@ -40,7 +40,7 @@ let id = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
 ## crypto.subtle — SubtleCrypto
 
-所有 SubtleCrypto 方法返回 `Promise`。可用的算法取决于构建时是否启用了 `AM_WITH_CRYPTO_EXT`。
+所有 SubtleCrypto 方法返回 `Promise`。可用的算法取决于构建时是否启用了 `QZ_WITH_CRYPTO_EXT`。
 
 ### `crypto.subtle.digest(algorithm, data)`
 
@@ -66,7 +66,7 @@ let hash512 = await crypto.subtle.digest('SHA-512', data);
 
 ### `crypto.subtle.encrypt(algorithm, key, data)` / `decrypt(algorithm, key, data)`
 
-AES 加密/解密。当 `AM_WITH_CRYPTO_EXT=ON` 时可用。
+AES 加密/解密。当 `QZ_WITH_CRYPTO_EXT=ON` 时可用。
 
 ```js
 let key = await crypto.subtle.generateKey(
@@ -147,7 +147,7 @@ console.log('有效:', valid); // true
 
 ### PBKDF2 密钥派生
 
-当 `AM_WITH_CRYPTO_EXT` 提供 PBKDF2 支持时可用。
+当 `QZ_WITH_CRYPTO_EXT` 提供 PBKDF2 支持时可用。
 
 ```js
 let password = new TextEncoder().encode('password');
@@ -165,7 +165,7 @@ let derived = await crypto.subtle.deriveBits(
 
 ## 无 CRYPTO_EXT 时
 
-当 `AM_WITH_CRYPTO_EXT=OFF` 时，只有 `crypto.getRandomValues()` 可用。`crypto.subtle` 为 `undefined` — 无 JS 回退。
+当 `QZ_WITH_CRYPTO_EXT=OFF` 时，只有 `crypto.getRandomValues()` 可用。`crypto.subtle` 为 `undefined` — 无 JS 回退。
 
 ## 注意事项
 

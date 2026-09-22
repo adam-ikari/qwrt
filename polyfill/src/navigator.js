@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: navigator.userAgent, reportError, self, globalThis event handlers
+ * qzjs polyfill: navigator.userAgent, reportError, self, globalThis event handlers
  *
  * TC55/ECMA-429 requires:
  *   - navigator.userAgent — identifies the runtime
@@ -18,7 +18,7 @@ export function setupNavigatorReportError() {
    * Provides platform identification per TC55 spec.
    */
   var navigator = {
-    userAgent: 'amoib/1.0 (WinterTC)',
+    userAgent: 'qzjs/1.0 (WinterTC)',
     language: 'en-US',
     platform: 'wintercg',
     hardwareConcurrency: 1,

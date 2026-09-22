@@ -1,6 +1,6 @@
 ---
 title: CacheStorage
-description: Amoib.js 的 CacheStorage API —— 支撑 Service Worker 请求拦截层的全局 `caches` / `CacheStorage` / `Cache`。
+description: Qzjs.js 的 CacheStorage API —— 支撑 Service Worker 请求拦截层的全局 `caches` / `CacheStorage` / `Cache`。
 ---
 
 # CacheStorage
@@ -52,4 +52,4 @@ const any = await caches.match('/api/data');  // 跨所有缓存搜索
 - 存入缓存的 `Response` 会被克隆（原对象仍可用）。`Response.clone()` 背后
   的 tee 语义见 [streams](/zh/js-api/streams)。
 - CacheStorage 支撑 Service Worker 的离线层；通用键值存储用
-  [`amoib.storage`](/zh/js-api/storage)。
+  [`qzjs.storage`](/zh/js-api/storage)。

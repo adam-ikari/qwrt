@@ -1,10 +1,10 @@
 /* M-P1 process-backend e2e — phase 2: hard-kill the child mid-flight.
- * The shell SIGKILLs the amoib-rt child after READY. JS gets no death event
+ * The shell SIGKILLs the qzjs-rt child after READY. JS gets no death event
  * (crash notification is M-P4), so we re-spawn on a timer: if the crashed
  * worker's slot was NOT released (I1), `new Worker` would throw once all 16
  * slots leak — here it must succeed. Also proves the parent survives the dead
  * peer (C2: writes use MSG_NOSIGNAL, no SIGPIPE abort). */
-var WORKER_URL = 'file:///home/gem/project/amoib/test/mp1-e2e/worker_echo.js';
+var WORKER_URL = 'file:///home/gem/project/qzjs/test/mp1-e2e/worker_echo.js';
 var keepalive = setInterval(function () {}, 50);
 
 var w = new Worker(WORKER_URL);

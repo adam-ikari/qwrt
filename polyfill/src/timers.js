@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: timers
+ * qzjs polyfill: timers
  *
  * Implements setTimeout/setInterval/clearTimeout/clearInterval
  * using pal.timerStart(delay_ms, repeat) and pal.timerStop(handle).

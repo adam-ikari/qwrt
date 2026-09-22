@@ -1,12 +1,12 @@
 /**
- * amoib polyfill: Service Worker — SW-1/2/3（注册 / 生命周期 / 消息 + fetch 拦截）
+ * qzjs polyfill: Service Worker — SW-1/2/3（注册 / 生命周期 / 消息 + fetch 拦截）
  *
  * SW 脚本跑在独立 worker 线程（复用 Worker）。主线程状态机由 worker 侧
  * 控制消息驱动（协议见 worker-boot.js）：
  *   register → new Worker(url)（同步 spawn + 脚本顶层 eval）
- *     → {__am_sw__:'enter'} → {__am_sw_lifecycle__:'install'} → installing
+ *     → {__qz_sw__:'enter'} → {__qz_sw_lifecycle__:'install'} → installing
  *   ← {__sw_event__,phase:'install_done'} → installed →（零等待）activating
- *     → {__am_sw_lifecycle__:'activate'}
+ *     → {__qz_sw_lifecycle__:'activate'}
  *   ← {__sw_event__,phase:'activate_done'} → activated → controller + controllerchange
  *   带 error 的 *_done / worker 'error' 事件 → redundant。
  * 与浏览器差异（设计已拍板）：全局唯一注册；scope 接受但忽略；
@@ -157,7 +157,7 @@ export function setupServiceWorker(pal) {
      * controller 重算（见 handleControl）。 */
     sw._setState('activating');
     try {
-      sw._worker.postMessage({ __am_sw_lifecycle__: 'activate' });
+      sw._worker.postMessage({ __qz_sw_lifecycle__: 'activate' });
     } catch (err) {
       failSW(sw, registration, err);
     }
@@ -225,7 +225,7 @@ export function setupServiceWorker(pal) {
         r(registration);
       }
     }
-    /* phase === 'skipWaiting'：amoib 本就零等待，忽略 */
+    /* phase === 'skipWaiting'：qzjs 本就零等待，忽略 */
   }
 
   /* ---- navigator.serviceWorker ---- */
@@ -251,7 +251,7 @@ export function setupServiceWorker(pal) {
    * 返回 true = 已派发 FetchEvent 到 SW 线程（fetch promise 由回话消息驱动）；
    * 返回 false = 无 activated 控制器，fetch.js 直接走网络。
    * 30s 超时回退（设计 §5 SW-1，与浏览器一致）。 */
-  container.__am_sw_intercept__ = function (request, bytes, resolve, reject, onFallback, onSettle) {
+  container.__qz_sw_intercept__ = function (request, bytes, resolve, reject, onFallback, onSettle) {
     var sw = controller;
     if (!sw || sw._state !== 'activated' || !sw._worker) return false;
     var fetchId = ++fetchSeq;
@@ -274,7 +274,7 @@ export function setupServiceWorker(pal) {
     }, 30000);
     try {
       sw._worker.postMessage({
-        __am_sw_fetch__: {
+        __qz_sw_fetch__: {
           fetchId: fetchId,
           request: { url: request.url, method: request.method, headers: headers, body: bytes || null },
         },
@@ -362,8 +362,8 @@ export function setupServiceWorker(pal) {
     sw._setState('installing');
     try {
       /* 1) 进入 SW 模式  2) 派发 install（见 worker-boot.js） */
-      worker.postMessage({ __am_sw__: 'enter', url: url, scope: scope });
-      worker.postMessage({ __am_sw_lifecycle__: 'install' });
+      worker.postMessage({ __qz_sw__: 'enter', url: url, scope: scope });
+      worker.postMessage({ __qz_sw_lifecycle__: 'install' });
     } catch (err) {
       failSW(sw, registration, err);
     }

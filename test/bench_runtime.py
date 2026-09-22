@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""amoib runtime performance benchmark (worker spawn / IPC / eval / memory).
+"""qzjs runtime performance benchmark (worker spawn / IPC / eval / memory).
 
-Drives the real amoib CLI (build/amoib) across the runtime-perf metric set
+Drives the real qzjs CLI (build/qzjs) across the runtime-perf metric set
 (R1-R6, docs/plans/2026-09-04-runtime-perf-benchmark-design.md) on both
 worker backends and prints a machine-readable JSON summary as the last
 stdout line — the bench_httpserver.py convention the CI job parses.
 
 Metrics:
-  R1  cold start      amoib -e 'console.log(1)' wall time, N=5 median
+  R1  cold start      qzjs -e 'console.log(1)' wall time, N=5 median
   R2  spawn           unified time-to-first-message (new Worker + first echo),
                       THREAD vs PROCESS; raw new Worker() time also reported
   R2b terminate       w.terminate() call latency (record-only)
@@ -18,7 +18,7 @@ Metrics:
   R6  eval            integer-add / closure-call / string-concat M ops/s
 
 Usage:
-  python3 test/bench_runtime.py --amoib-bin ./build/amoib
+  python3 test/bench_runtime.py --qzjs-bin ./build/qzjs
         [--backend both|thread|process] [--quick] [--json out.json]
 
 --quick shrinks sample counts for CI (still both backends + all metrics).
@@ -35,7 +35,7 @@ import time
 
 # Design §2 sample counts. R2 is capped at warmup+samples <= 16 because the
 # THREAD backend never releases worker slots until runtime teardown
-# (AM_MAX_WORKERS=16); see bench-worker.js header comment.
+# (QZ_MAX_WORKERS=16); see bench-worker.js header comment.
 DEFAULT = {
     'r1_n': 5,
     'r2_warmup': 3, 'r2_samples': 12,
@@ -67,23 +67,23 @@ def bench_dir():
 
 def make_env(backend):
     env = os.environ.copy()
-    env['AM_BENCH_DIR'] = bench_dir()
+    env['QZ_BENCH_DIR'] = bench_dir()
     if backend == 'process':
-        env['AM_WORKER_BACKEND'] = 'process'
+        env['QZ_WORKER_BACKEND'] = 'process'
     else:
-        env.pop('AM_WORKER_BACKEND', None)
+        env.pop('QZ_WORKER_BACKEND', None)
     return env
 
 
 class BenchTimeout(RuntimeError):
-    """A single amoib harness run exceeded its wall-clock budget. The worker
+    """A single qzjs harness run exceeded its wall-clock budget. The worker
     subsystems have a documented flaky hang (64KB THREAD round-trip; see
     bench-worker.js), so one measurement timing out must degrade that sample,
     not abort the whole run."""
 
 
 def run_am(bin_path, args, backend, timeout=45):
-    """Run amoib, return (rc, decoded stdout). Progress-free: harness prints
+    """Run qzjs, return (rc, decoded stdout). Progress-free: harness prints
     one JSON line; any straggler stderr is merged for diagnostics."""
     proc = subprocess.Popen([bin_path] + args, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, env=make_env(backend))
@@ -106,7 +106,7 @@ def parse_json(out):
             return json.loads(line)
         except json.JSONDecodeError:
             continue
-    raise RuntimeError('no JSON line in amoib output: %r' % out[-500:])
+    raise RuntimeError('no JSON line in qzjs output: %r' % out[-500:])
 
 
 def run_harness(bin_path, script, args, backend, timeout=45, attempts=2):
@@ -117,7 +117,7 @@ def run_harness(bin_path, script, args, backend, timeout=45, attempts=2):
         try:
             rc, out = run_am(bin_path, cmd, backend, timeout=timeout)
             if rc != 0:
-                raise RuntimeError('amoib rc=%d for %s %s: %s'
+                raise RuntimeError('qzjs rc=%d for %s %s: %s'
                                    % (rc, script, args, out[-500:]))
             return parse_json(out)
         except BenchTimeout:
@@ -333,7 +333,7 @@ def build_summary(thread, proc, startup, eval_res, skipped):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--amoib-bin', required=True)
+    ap.add_argument('--qzjs-bin', required=True)
     ap.add_argument('--backend', choices=['both', 'thread', 'process'],
                     default='both')
     ap.add_argument('--quick', action='store_true',
@@ -343,8 +343,8 @@ def main():
     args = ap.parse_args()
 
     params = QUICK if args.quick else DEFAULT
-    if not os.path.exists(args.am_bin):
-        print('FAIL: amoib binary %s not found' % args.am_bin,
+    if not os.path.exists(args.qz_bin):
+        print('FAIL: qzjs binary %s not found' % args.qz_bin,
               file=sys.stderr)
         return 1
 
@@ -366,7 +366,7 @@ def main():
             return None
 
     # R1 cold start
-    startup = guard('r1', lambda: bench_cold_start(args.am_bin,
+    startup = guard('r1', lambda: bench_cold_start(args.qz_bin,
                                                    params['r1_n']))
     if startup:
         progress('r1 cold-start median=%.2fms (n=%d)'
@@ -378,11 +378,11 @@ def main():
     for backend in backends:
         progress('--- backend: %s ---' % backend)
         results[backend] = guard(backend, lambda: bench_backend(
-            args.am_bin, backend, params, progress, skipped))
+            args.qz_bin, backend, params, progress, skipped))
 
     # R6: CPU-dense, backend-independent — run once on the thread backend
     d = guard('r6', lambda: run_harness(
-        args.am_bin, 'bench-eval.js',
+        args.qz_bin, 'bench-eval.js',
         [str(params['r6_iters']), str(params['r6_samples'])], 'thread'))
     if d:
         progress('r6 int=%.2f closure=%.2f str=%.2f M ops/s'

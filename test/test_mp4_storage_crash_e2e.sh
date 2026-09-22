@@ -1,6 +1,6 @@
 #!/bin/bash
 # M-P4 e2e — 单所有者 storage 代理（§10.2）+ 崩溃恢复/孤儿回收（§9.3/§9.4）
-# 真进程路径（缺省 ISOLATED 构建，AM_WORKER_BACKEND=process）：
+# 真进程路径（缺省 ISOLATED 构建，QZ_WORKER_BACKEND=process）：
 #   1. 跨进程 storage：worker 内 localStorage.* 经 kind=STORAGE 信封同步 RPC 到
 #      主RT 所有者执行——跨进程一致（worker 写主RT 读、主RT 写 worker 读）、
 #      同步 API 语义（含 QuotaExceededError 异常形状）、持久化落盘
@@ -11,14 +11,14 @@
 #      + worker 连锁自杀（§9.4，无残留）
 #   5. 宿主被杀 → 主RT + worker 自杀（§6.4/§9.4 孤儿回收，无泄漏进程）
 #   6. 洪泛：2000 条跨进程往返无丢失（计数 + 校验和精确），进程干净退出
-# Usage: bash test/test_mp4_storage_crash_e2e.sh <path-to-amoib>
+# Usage: bash test/test_mp4_storage_crash_e2e.sh <path-to-qzjs>
 set -u
-AM="${1:-./build/amoib}"
+AM="${1:-./build/qzjs}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$DIR/.." && pwd)"
 FIX="$(mktemp -d)"
 TMPLS="$(mktemp -d)"
-export AM_WORKER_BACKEND=process
+export QZ_WORKER_BACKEND=process
 HOSTPID=""
 
 cleanup() {
@@ -27,7 +27,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[ -x "$AM" ] || { echo "FAIL: amoib binary not found at '$AM'"; exit 1; }
+[ -x "$AM" ] || { echo "FAIL: qzjs binary not found at '$AM'"; exit 1; }
 fail() { echo "FAIL: $1"; [ -n "${2:-}" ] && { echo "--- got:"; printf '%s\n' "$2"; }; exit 1; }
 
 # fixtures 用 __ROOT__ 占位（repo 根运行时替换，CI 可移植）
@@ -47,7 +47,7 @@ case "$PROBE" in
 esac
 
 # ── 1: 跨进程 storage（worker 代理 → 主RT 所有者，§10.2）──
-export AM_LOCALSTORAGE_FILE="$TMPLS/ls.json"
+export QZ_LOCALSTORAGE_FILE="$TMPLS/ls.json"
 OUT="$(timeout 30 "$AM" "$FIX/main_storage.js" 2>&1)" || fail "1 storage run"
 printf '%s\n' "$OUT" | grep -q "xproc:get=v1"        || fail "1 worker reads mainRT value" "$OUT"
 printf '%s\n' "$OUT" | grep -q "|len=2|"            || fail "1 worker length" "$OUT"
@@ -77,7 +77,7 @@ for _ in $(seq 1 100); do
   kill -0 "$HOSTPID" 2>/dev/null || break
   sleep 0.1
 done
-MAINPID="$(pgrep -P "$HOSTPID" -f 'amoib-rt' 2>/dev/null | head -1)"
+MAINPID="$(pgrep -P "$HOSTPID" -f 'qzjs-rt' 2>/dev/null | head -1)"
 [ -n "$MAINPID" ] || fail "2 no mainRT child of host $HOSTPID" "$(cat "$FIX/crash.out")"
 WKPID="$(pgrep -P "$MAINPID" 2>/dev/null | head -1)"
 [ -n "$WKPID" ] || fail "2 no worker child of mainRT $MAINPID" "$(cat "$FIX/crash.out")"
@@ -111,7 +111,7 @@ for _ in $(seq 1 100); do
   kill -0 "$HOSTPID" 2>/dev/null || break
   sleep 0.1
 done
-MAINPID="$(pgrep -P "$HOSTPID" -f 'amoib-rt' 2>/dev/null | head -1)"
+MAINPID="$(pgrep -P "$HOSTPID" -f 'qzjs-rt' 2>/dev/null | head -1)"
 WKPID="$(pgrep -P "$MAINPID" 2>/dev/null | head -1)"
 [ -n "$MAINPID" ] && [ -n "$WKPID" ] || fail "4 PID evidence (main=$MAINPID worker=$WKPID)"
 kill -9 "$MAINPID" 2>/dev/null || fail "4 kill -9 mainRT $MAINPID failed"
@@ -136,7 +136,7 @@ for _ in $(seq 1 100); do
   kill -0 "$HOSTPID" 2>/dev/null || break
   sleep 0.1
 done
-MAINPID="$(pgrep -P "$HOSTPID" -f 'amoib-rt' 2>/dev/null | head -1)"
+MAINPID="$(pgrep -P "$HOSTPID" -f 'qzjs-rt' 2>/dev/null | head -1)"
 WKPID="$(pgrep -P "$MAINPID" 2>/dev/null | head -1)"
 [ -n "$MAINPID" ] && [ -n "$WKPID" ] || fail "5 PID evidence (main=$MAINPID worker=$WKPID)"
 kill -9 "$HOSTPID" 2>/dev/null || fail "5 kill -9 host $HOSTPID failed"

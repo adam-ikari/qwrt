@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: BroadcastChannel
+ * qzjs polyfill: BroadcastChannel
  *
  * WHATWG BroadcastChannel API. Allows same-name channel instances to
  * communicate via postMessage. Built on EventTarget + MessageEvent.

@@ -1,18 +1,18 @@
 # 扩展（C API）
 
-扩展是向 JS 上下文添加全局对象和函数的原生 C 模块。它们实现 `am_ext_t` 接口及其生命周期钩子。
+扩展是向 JS 上下文添加全局对象和函数的原生 C 模块。它们实现 `qz_ext_t` 接口及其生命周期钩子。
 
-## `am_ext_t`
+## `qz_ext_t`
 
 ```c
-typedef struct am_ext_t {
+typedef struct qz_ext_t {
     const char *name;
-    int (*init)(am_ext_t *ext, am_t *rt);
-    void (*destroy)(am_ext_t *ext, am_t *rt);
-    int (*suspend)(am_ext_t *ext, am_t *rt);
-    int (*resume)(am_ext_t *ext, am_t *rt);
+    int (*init)(qz_ext_t *ext, qz_t *rt);
+    void (*destroy)(qz_ext_t *ext, qz_t *rt);
+    int (*suspend)(qz_ext_t *ext, qz_t *rt);
+    int (*resume)(qz_ext_t *ext, qz_t *rt);
     void *user_data;
-} am_ext_t;
+} qz_ext_t;
 ```
 
 | 字段 | 描述 |
@@ -26,43 +26,43 @@ typedef struct am_ext_t {
 
 ## 注册模型
 
-扩展在**编译期**通过 `AM_EXTENSIONS` 宏注册（定义在 `include/amoib/am_ext_registry.h` 中）。没有运行时注册 API — 扩展集在 amoib 库编译时固定。
+扩展在**编译期**通过 `QZ_EXTENSIONS` 宏注册（定义在 `include/qzjs/qz_ext_registry.h` 中）。没有运行时注册 API — 扩展集在 qzjs 库编译时固定。
 
 ```c
-// include/amoib/am_ext_registry.h
-#define AM_DEFAULT_EXTENSIONS \
-    AM_EXT_IF_WITH(COMPRESS,   &am_compress_ext) \
-    AM_EXT_IF_WITH(CRYPTO_EXT, &am_crypto_ext)   \
-    AM_EXT_IF_WITH(TEXTCODEC,  &am_textcodec_ext) \
-    AM_EXT_IF_WITH(WAMR,       &am_wamr_ext)
+// include/qzjs/qz_ext_registry.h
+#define QZ_DEFAULT_EXTENSIONS \
+    QZ_EXT_IF_WITH(COMPRESS,   &qz_compress_ext) \
+    QZ_EXT_IF_WITH(CRYPTO_EXT, &qz_crypto_ext)   \
+    QZ_EXT_IF_WITH(TEXTCODEC,  &qz_textcodec_ext) \
+    QZ_EXT_IF_WITH(WAMR,       &qz_wamr_ext)
 ```
 
-父项目通过在包含 amoib 子目录之前覆盖 `AM_EXTENSIONS` 来添加自定义扩展：
+父项目通过在包含 qzjs 子目录之前覆盖 `QZ_EXTENSIONS` 来添加自定义扩展：
 
 ```cmake
-set(AM_EXTENSIONS "AM_DEFAULT_EXTENSIONS, &my_extension")
-set(AM_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
-add_subdirectory(deps/amoib)
+set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS, &my_extension")
+set(QZ_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
+add_subdirectory(deps/qzjs)
 ```
 
 ## 内置扩展
 
 | 扩展 | CMake 选项 | JS API |
 |-----------|-------------|-------|
-| `ext_compress` | `AM_WITH_COMPRESS` | gzip/zlib/deflate |
-| `ext_crypto` | `AM_WITH_CRYPTO_EXT` | crypto.subtle（SHA、HMAC、PBKDF2、AES-GCM） |
-| `ext_textcodec` | `AM_WITH_TEXTCODEC` | TextEncoder、TextDecoder |
-| `ext_wamr` | `AM_WITH_WAMR` | WebAssembly（WAMR，默认） |
-| `ext_wasm3` | `AM_WITH_WASM3` | WebAssembly（wasm3，可选） |
+| `ext_compress` | `QZ_WITH_COMPRESS` | gzip/zlib/deflate |
+| `ext_crypto` | `QZ_WITH_CRYPTO_EXT` | crypto.subtle（SHA、HMAC、PBKDF2、AES-GCM） |
+| `ext_textcodec` | `QZ_WITH_TEXTCODEC` | TextEncoder、TextDecoder |
+| `ext_wamr` | `QZ_WITH_WAMR` | WebAssembly（WAMR，默认） |
+| `ext_wasm3` | `QZ_WITH_WASM3` | WebAssembly（wasm3，可选） |
 
 ## 编写扩展
 
 ```c
-#include <amoib/amoib.h>
+#include <qzjs/qzjs.h>
 #include <quickjs.h>
 
-static int my_ext_init(am_ext_t *ext, am_t *rt) {
-    JSContext *ctx = am_get_jsctx(rt);
+static int my_ext_init(qz_ext_t *ext, qz_t *rt) {
+    JSContext *ctx = qz_get_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);
@@ -73,11 +73,11 @@ static int my_ext_init(am_ext_t *ext, am_t *rt) {
     return 0;
 }
 
-static void my_ext_destroy(am_ext_t *ext, am_t *rt) {
+static void my_ext_destroy(qz_ext_t *ext, qz_t *rt) {
     // 释放任何扩展特定资源
 }
 
-am_ext_t my_extension = {
+qz_ext_t my_extension = {
     .name = "my_extension",
     .init = my_ext_init,
     .destroy = my_ext_destroy,
@@ -89,14 +89,14 @@ am_ext_t my_extension = {
 
 ## 每个运行时的数据
 
-`am_ext_t.user_data` 在所有运行时之间共享。对于每个实例的状态，使用 `config.host_data`：
+`qz_ext_t.user_data` 在所有运行时之间共享。对于每个实例的状态，使用 `config.host_data`：
 
 ```c
-am_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
-am_t *rt = am_create(&cfg);
+qz_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
+qz_t *rt = qz_create(&cfg);
 
 // 在扩展 init 内部：
-my_state_t *st = (my_state_t *)am_get_runtime_data(rt);
+my_state_t *st = (my_state_t *)qz_get_runtime_data(rt);
 ```
 
 ## 参见

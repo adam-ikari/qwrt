@@ -14,7 +14,7 @@ updated: "2026-08-19T03:35:18"
   - `crypto.js`：crypto 对象字面量改为 `class Crypto`，暴露 `globalThis.Crypto` + `globalThis.crypto = new Crypto()`。构造里 `this.subtle = undefined`（由 crypto-subtle.js 填充）。getRandomValues/randomUUID 逻辑不变。
   - `crypto-subtle.js`：安装部分加 `globalThis.SubtleCrypto = SubtleCrypto`（class 已存在，只需挂全局）。
   - `performance.js`：performance 对象字面量改为 `class Performance`，暴露 `globalThis.Performance` + `globalThis.performance = new Performance()`。对象方法（now/mark/measure/clearMarks/getEntries 等）改为 class 方法（方法间去掉逗号；getter `timeOrigin` 语法不变）。闭包变量 marks/measures/nowMs 由 class 方法直接捕获。
-- **验证**：`check_globals.js`（57 个 ECMA-429 要求接口）MISSING(0)——所有接口补齐。test_polyfill_gtest 新增 CryptoGlobals/PerformanceGlobals 两用例（检查 typeof function + instanceof + getRandomValues/performance.now 回归），19/19 通过；crypto_subtle 8/8、worker 12/12、fetch_stream 2/2、bridge_stream 1/1、context 3/3、amoib 9/9 全过。
+- **验证**：`check_globals.js`（57 个 ECMA-429 要求接口）MISSING(0)——所有接口补齐。test_polyfill_gtest 新增 CryptoGlobals/PerformanceGlobals 两用例（检查 typeof function + instanceof + getRandomValues/performance.now 回归），19/19 通过；crypto_subtle 8/8、worker 12/12、fetch_stream 2/2、bridge_stream 1/1、context 3/3、qzjs 9/9 全过。
 - **意义**：ECMA-429（WinterTC Minimum Common API）要求的 globalThis 接口集**全部补齐**（Streams BYOB 见 [[wintertc-byob-streams]]）。
 - **构建注意**：polyfill 打包走 build.js 的 QJSC 自动探测 + absWorkingDir（保证产物可复现），无需手动 QJSC 环境变量。
 

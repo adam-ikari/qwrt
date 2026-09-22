@@ -1,16 +1,16 @@
 /*
- * amoib-ctl — 控制面本地端点客户端（CTL-2, §2.3）
+ * qzjs-ctl — 控制面本地端点客户端（CTL-2, §2.3）
  *
- * 连上运行中 amoib 的 AF_UNIX 控制端点，按「一行一条命令」发 JSON，读回一行
+ * 连上运行中 qzjs 的 AF_UNIX 控制端点，按「一行一条命令」发 JSON，读回一行
  * 回执并打印。命令面与 CTL-0 相同：eval / inspect / metrics / interrupt；
  * 也支持 --json 直发任意命令 JSON（含 "target" 寻址字段，CTL-1 树路由）。
  *
  * Usage:
- *   amoib-ctl --pipe <path> [--target N] [--timeout-ms N] eval '<script>'
- *   amoib-ctl --pipe <path> [--target N] [--timeout-ms N] inspect '<expr>'
- *   amoib-ctl --pipe <path> metrics
- *   amoib-ctl --pipe <path> interrupt
- *   amoib-ctl --pipe <path> [--target N] --json '<command JSON>'
+ *   qzjs-ctl --pipe <path> [--target N] [--timeout-ms N] eval '<script>'
+ *   qzjs-ctl --pipe <path> [--target N] [--timeout-ms N] inspect '<expr>'
+ *   qzjs-ctl --pipe <path> metrics
+ *   qzjs-ctl --pipe <path> interrupt
+ *   qzjs-ctl --pipe <path> [--target N] --json '<command JSON>'
  *
  * 退出码：0 = 收到 ok:true 回执；1 = 连接/写读失败或回执 ok:false；2 = 用法错。
  * 设计：docs/plans/2026-09-04-control-plane-design.md §2.3、§6 CTL-2。
@@ -32,8 +32,8 @@
 static void usage(FILE *out)
 {
     fprintf(out,
-        "Usage: amoib-ctl --pipe <path> [options] <command>\n"
-        "       amoib-ctl --pipe <path> [options] --json '<command JSON>'\n"
+        "Usage: qzjs-ctl --pipe <path> [options] <command>\n"
+        "       qzjs-ctl --pipe <path> [options] --json '<command JSON>'\n"
         "\n"
         "Options:\n"
         "  --pipe <path>        control endpoint path (required)\n"
@@ -89,13 +89,13 @@ static int connect_endpoint(const char *path)
     memset(&addr, 0, sizeof addr);
     addr.sun_family = AF_UNIX;
     if (strlen(path) >= sizeof addr.sun_path) {
-        fprintf(stderr, "amoib-ctl: endpoint path too long\n");
+        fprintf(stderr, "qzjs-ctl: endpoint path too long\n");
         close(fd);
         return -1;
     }
     memcpy(addr.sun_path, path, strlen(path) + 1);
     if (connect(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
-        fprintf(stderr, "amoib-ctl: connect '%s' failed: %s\n", path,
+        fprintf(stderr, "qzjs-ctl: connect '%s' failed: %s\n", path,
                 strerror(errno));
         close(fd);
         return -1;
@@ -246,7 +246,7 @@ int main(int argc, char **argv)
     }
 
     if (!line) {
-        fprintf(stderr, "amoib-ctl: out of memory\n");
+        fprintf(stderr, "qzjs-ctl: out of memory\n");
         return 1;
     }
 
@@ -256,14 +256,14 @@ int main(int argc, char **argv)
     int rc = 1;
     size_t llen = strlen(line);
     if (write_all(fd, line, llen) != 0 || write_all(fd, "\n", 1) != 0) {
-        fprintf(stderr, "amoib-ctl: write failed: %s\n", strerror(errno));
+        fprintf(stderr, "qzjs-ctl: write failed: %s\n", strerror(errno));
         goto done;
     }
 
     char resp[CTL_RESP_MAX];
     if (read_line(fd, resp, sizeof resp, (int)timeout_ms + 2000) != 0) {
         fprintf(stderr,
-                "amoib-ctl: no receipt within %ldms (command timeout, target "
+                "qzjs-ctl: no receipt within %ldms (command timeout, target "
                 "not at a safepoint, or endpoint closed)\n",
                 timeout_ms + 2000);
         goto done;

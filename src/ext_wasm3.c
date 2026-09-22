@@ -1,14 +1,14 @@
 /*
- * amoib wasm3 Extension
+ * qzjs wasm3 Extension
  *
  * WASM runtime using wasm3 engine — pure sandbox model.
  * WASM modules have NO access to system APIs: no filesystem,
  * no network, no host functions. Only pure computation + linear memory.
- * When AM_WITH_WASM3 is defined, uses real wasm3 engine.
+ * When QZ_WITH_WASM3 is defined, uses real wasm3 engine.
  * Otherwise, provides stub JS API surface that throws on use.
  */
 
-#include "am_internal.h"
+#include "qz_internal.h"
 #include <string.h>
 
 /* QuickJS registers getter/setter functions via JS_NewCFunction2, which takes
@@ -18,7 +18,7 @@
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #endif
-#if AM_WITH_WASM3
+#if QZ_WITH_WASM3
 #include "wasm3.h"
 #include "m3_env.h"
 #include "m3_function.h"
@@ -32,8 +32,8 @@ static JSValue wasm3_throw_link_error(JSContext *ctx, const char *fmt, ...);
  * wasm3 per-runtime state
  *
  * No file-scope mutable state: the wasm3 environment and QuickJS class IDs
- * live on am_t (per-runtime), reached via am_get_rt_from_ctx(ctx) or
- * am_get_rt_from_jsrt(jsrt). See am_internal.h.
+ * live on qz_t (per-runtime), reached via qz_get_rt_from_ctx(ctx) or
+ * qz_get_rt_from_jsrt(jsrt). See qz_internal.h.
  * ================================================================ */
 
 /* ================================================================
@@ -132,14 +132,14 @@ static void wasm3_global_finalizer(JSRuntime *rt, JSValue val);
  * JS_GetOpaque 需正确 class_id（finalizer 同款）。 */
 static void wasm3_module_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
 {
-    am_t *q = am_get_rt_from_jsrt(rt);
+    qz_t *q = qz_get_rt_from_jsrt(rt);
     wasm3_module_wrap_t *w = q ? (wasm3_module_wrap_t *)JS_GetOpaque(val, q->wasm3_module_class_id) : NULL;
     if (w) JS_MarkValue(rt, w->instance_ref, mark_cb);
 }
 
 static void wasm3_instance_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
 {
-    am_t *q = am_get_rt_from_jsrt(rt);
+    qz_t *q = qz_get_rt_from_jsrt(rt);
     wasm3_instance_wrap_t *w = q ? (wasm3_instance_wrap_t *)JS_GetOpaque(val, q->wasm3_instance_class_id) : NULL;
     if (w) {
         JS_MarkValue(rt, w->module_obj, mark_cb);
@@ -149,28 +149,28 @@ static void wasm3_instance_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark
 
 static void wasm3_func_closure_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
 {
-    am_t *q = am_get_rt_from_jsrt(rt);
+    qz_t *q = qz_get_rt_from_jsrt(rt);
     wasm3_func_closure_t *w = q ? (wasm3_func_closure_t *)JS_GetOpaque(val, q->wasm3_func_closure_class_id) : NULL;
     if (w) JS_MarkValue(rt, w->instance_ref, mark_cb);
 }
 
 static void wasm3_import_closure_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
 {
-    am_t *q = am_get_rt_from_jsrt(rt);
+    qz_t *q = qz_get_rt_from_jsrt(rt);
     wasm3_import_closure_t *w = q ? (wasm3_import_closure_t *)JS_GetOpaque(val, q->wasm3_import_closure_class_id) : NULL;
     if (w) JS_MarkValue(rt, w->js_func, mark_cb);
 }
 
 static void wasm3_memory_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
 {
-    am_t *q = am_get_rt_from_jsrt(rt);
+    qz_t *q = qz_get_rt_from_jsrt(rt);
     wasm3_memory_wrap_t *w = q ? (wasm3_memory_wrap_t *)JS_GetOpaque(val, q->wasm3_memory_class_id) : NULL;
     if (w) JS_MarkValue(rt, w->instance_ref, mark_cb);
 }
 
 static void wasm3_table_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
 {
-    am_t *q = am_get_rt_from_jsrt(rt);
+    qz_t *q = qz_get_rt_from_jsrt(rt);
     wasm3_table_wrap_t *w = q ? (wasm3_table_wrap_t *)JS_GetOpaque(val, q->wasm3_table_class_id) : NULL;
     if (w && w->elements) {
         for (u32 i = 0; i < w->current_size; i++)
@@ -180,7 +180,7 @@ static void wasm3_table_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb
 
 static void wasm3_global_gc_mark(JSRuntime *rt, JSValue val, JS_MarkFunc *mark_cb)
 {
-    am_t *q = am_get_rt_from_jsrt(rt);
+    qz_t *q = qz_get_rt_from_jsrt(rt);
     wasm3_global_wrap_t *w = q ? (wasm3_global_wrap_t *)JS_GetOpaque(val, q->wasm3_global_class_id) : NULL;
     if (w) JS_MarkValue(rt, w->instance_ref, mark_cb);
 }
@@ -201,7 +201,7 @@ static JSValue wasm3_global_valueOf(JSContext *ctx, JSValueConst this_val,
 
 static void wasm3_module_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    am_t *rt = am_get_rt_from_jsrt(jsrt);
+    qz_t *rt = qz_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wasm3_module_wrap_t *wrap = (wasm3_module_wrap_t *)JS_GetOpaque(val, rt->wasm3_module_class_id);
     if (wrap) {
@@ -225,7 +225,7 @@ static void wasm3_module_finalizer(JSRuntime *jsrt, JSValue val)
 
 static void wasm3_instance_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    am_t *rt = am_get_rt_from_jsrt(jsrt);
+    qz_t *rt = qz_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wasm3_instance_wrap_t *wrap = (wasm3_instance_wrap_t *)JS_GetOpaque(val, rt->wasm3_instance_class_id);
     if (wrap) {
@@ -275,7 +275,7 @@ static char *wasm3_build_signature(IM3FuncType ftype)
     return sig;
 }
 
-static void wasm3_register_classes(am_t *rt, JSContext *ctx)
+static void wasm3_register_classes(qz_t *rt, JSContext *ctx)
 {
     JSRuntime *jsrt = JS_GetRuntime(ctx);
 
@@ -393,7 +393,7 @@ static int wasm3_extract_buffer(JSContext *ctx, JSValueConst val,
 static JSValue wasm3_wasm_validate(JSContext *ctx, JSValueConst this_val,
                                    int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) {
@@ -458,7 +458,7 @@ static JSValue wasm3_wasm_compile(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_wasm_instantiate(JSContext *ctx, JSValueConst this_val,
                                       int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) {
@@ -571,7 +571,7 @@ static JSValue wasm3_wasm_streaming(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_module_constructor(JSContext *ctx, JSValueConst new_target,
                                         int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
@@ -639,7 +639,7 @@ static JSValue wasm3_module_constructor(JSContext *ctx, JSValueConst new_target,
 static JSValue wasm3_module_exports(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) return JS_ThrowTypeError(ctx, "Module.exports requires 1 argument");
@@ -696,7 +696,7 @@ static JSValue wasm3_module_exports(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_module_imports(JSContext *ctx, JSValueConst this_val,
                                      int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 1) return JS_ThrowTypeError(ctx, "Module.imports requires 1 argument");
@@ -745,7 +745,7 @@ static JSValue wasm3_module_imports(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_module_custom_sections(JSContext *ctx, JSValueConst this_val,
                                              int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     if (argc < 2) return JS_ThrowTypeError(ctx, "Module.customSections requires 2 arguments");
@@ -830,7 +830,7 @@ done:
 
 static void wasm3_func_closure_free(JSRuntime *jsrt, JSValue val)
 {
-    am_t *rt = am_get_rt_from_jsrt(jsrt);
+    qz_t *rt = qz_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wasm3_func_closure_t *closure = (wasm3_func_closure_t *)JS_GetOpaque(val, rt->wasm3_func_closure_class_id);
     if (closure) {
@@ -843,7 +843,7 @@ static void wasm3_func_closure_free(JSRuntime *jsrt, JSValue val)
 
 static void wasm3_import_closure_free(JSRuntime *jsrt, JSValue val)
 {
-    am_t *rt = am_get_rt_from_jsrt(jsrt);
+    qz_t *rt = qz_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wasm3_import_closure_t *closure = (wasm3_import_closure_t *)JS_GetOpaque(val, rt->wasm3_import_closure_class_id);
     if (closure) {
@@ -924,7 +924,7 @@ static const void *wasm3_import_dispatch(IM3Runtime runtime, IM3ImportContext ct
 
 static void wasm3_memory_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    am_t *rt = am_get_rt_from_jsrt(jsrt);
+    qz_t *rt = qz_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wasm3_memory_wrap_t *wrap = (wasm3_memory_wrap_t *)JS_GetOpaque(val, rt->wasm3_memory_class_id);
     if (wrap) {
@@ -938,7 +938,7 @@ static void wasm3_memory_finalizer(JSRuntime *jsrt, JSValue val)
 
 static void wasm3_table_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    am_t *rt = am_get_rt_from_jsrt(jsrt);
+    qz_t *rt = qz_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wasm3_table_wrap_t *wrap = (wasm3_table_wrap_t *)JS_GetOpaque(val, rt->wasm3_table_class_id);
     if (wrap) {
@@ -954,7 +954,7 @@ static void wasm3_table_finalizer(JSRuntime *jsrt, JSValue val)
 
 static void wasm3_global_finalizer(JSRuntime *jsrt, JSValue val)
 {
-    am_t *rt = am_get_rt_from_jsrt(jsrt);
+    qz_t *rt = qz_get_rt_from_jsrt(jsrt);
     if (!rt) return;
     wasm3_global_wrap_t *wrap = (wasm3_global_wrap_t *)JS_GetOpaque(val, rt->wasm3_global_class_id);
     if (wrap) {
@@ -997,7 +997,7 @@ static void wasm3_memory_refresh_buffer(JSContext *ctx, JSValue mem_obj, wasm3_m
 static JSValue wasm3_memory_grow(JSContext *ctx, JSValueConst this_val,
                                   int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_memory_wrap_t *wrap = (wasm3_memory_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_memory_class_id);
     if (!wrap) {
@@ -1048,7 +1048,7 @@ static JSValue wasm3_call_func(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv, int magic,
                                 JSValue *func_data)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)this_val;
     (void)magic;
@@ -1169,7 +1169,7 @@ static JSValue wasm3_call_func(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_target,
                                           int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
@@ -1507,7 +1507,7 @@ static JSValue wasm3_instance_constructor(JSContext *ctx, JSValueConst new_targe
 static JSValue wasm3_memory_constructor(JSContext *ctx, JSValueConst new_target,
                                         int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
@@ -1571,7 +1571,7 @@ static JSValue wasm3_memory_constructor(JSContext *ctx, JSValueConst new_target,
 
 static JSValue wasm3_table_length_get(JSContext *ctx, JSValueConst this_val)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_table_wrap_t *wrap = (wasm3_table_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_table_class_id);
     if (!wrap) return JS_NewInt32(ctx, 0);
@@ -1581,7 +1581,7 @@ static JSValue wasm3_table_length_get(JSContext *ctx, JSValueConst this_val)
 static JSValue wasm3_table_get(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_table_wrap_t *wrap = (wasm3_table_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_table_class_id);
     if (!wrap) return JS_ThrowTypeError(ctx, "Table.get: invalid table object");
@@ -1595,7 +1595,7 @@ static JSValue wasm3_table_get(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_table_set(JSContext *ctx, JSValueConst this_val,
                                 int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_table_wrap_t *wrap = (wasm3_table_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_table_class_id);
     if (!wrap) return JS_ThrowTypeError(ctx, "Table.set: invalid table object");
@@ -1612,7 +1612,7 @@ static JSValue wasm3_table_set(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_table_grow(JSContext *ctx, JSValueConst this_val,
                                  int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_table_wrap_t *wrap = (wasm3_table_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_table_class_id);
     if (!wrap) return JS_ThrowTypeError(ctx, "Table.grow: invalid table object");
@@ -1648,7 +1648,7 @@ static JSValue wasm3_table_grow(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_table_constructor(JSContext *ctx, JSValueConst new_target,
                                        int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
@@ -1720,7 +1720,7 @@ static JSValue wasm3_table_constructor(JSContext *ctx, JSValueConst new_target,
 
 static JSValue wasm3_global_value_get(JSContext *ctx, JSValueConst this_val)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_global_wrap_t *wrap = (wasm3_global_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_global_class_id);
     if (!wrap) return JS_UNDEFINED;
@@ -1747,7 +1747,7 @@ static JSValue wasm3_global_value_get(JSContext *ctx, JSValueConst this_val)
 static JSValue wasm3_global_value_set(JSContext *ctx, JSValueConst this_val,
                                       JSValueConst val)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     wasm3_global_wrap_t *wrap = (wasm3_global_wrap_t *)JS_GetOpaque(this_val, rt->wasm3_global_class_id);
     if (!wrap) return JS_UNDEFINED;
@@ -1790,7 +1790,7 @@ static JSValue wasm3_global_valueOf(JSContext *ctx, JSValueConst this_val,
 static JSValue wasm3_global_constructor(JSContext *ctx, JSValueConst new_target,
                                         int argc, JSValueConst *argv)
 {
-    am_t *rt = am_get_rt_from_ctx(ctx);
+    qz_t *rt = qz_get_rt_from_ctx(ctx);
     if (!rt) return JS_NULL;
     (void)new_target;
     if (argc < 1) {
@@ -1911,10 +1911,10 @@ static JSValue wasm3_throw_link_error(JSContext *ctx, const char *fmt, ...)
  * Extension hooks
  * ================================================================ */
 
-static int wasm3_ext_init(am_ext_t *ext, am_t *rt)
+static int wasm3_ext_init(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext;
-    JSContext *ctx = am_get_active_jsctx(rt);
+    JSContext *ctx = qz_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     /* Initialize wasm3 environment (per-runtime, once) */
@@ -2017,14 +2017,14 @@ static int wasm3_ext_init(am_ext_t *ext, am_t *rt)
     return 0;
 }
 
-static void wasm3_ext_destroy(am_ext_t *ext, am_t *rt)
+static void wasm3_ext_destroy(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext;
-    /* 注意：不能在这里清空 wasm3_*_class_id——amoib teardown 顺序是
+    /* 注意：不能在这里清空 wasm3_*_class_id——qzjs teardown 顺序是
      * ctx_destroy（含本 destroy）→ JS_FreeRuntime，而 JS_FreeRuntime 内部
      * 的 JS_RunGC 依赖 gc_mark 用 class_id 经 JS_GetOpaque 取 wrap；清零后
      * gc_mark 全部失效 → module↔instance 环不可收集 → 断言 gc_obj_list
-     * 非空。每个 runtime 是全新 am_t（calloc，字段天然 0），JS_NewClassID
+     * 非空。每个 runtime 是全新 qz_t（calloc，字段天然 0），JS_NewClassID
      * 在 register_classes 里重新分配，无需手动重置。 */
     /* Free the wasm3 environment (was previously leaked) */
     if (rt->wasm3_env) {
@@ -2033,20 +2033,20 @@ static void wasm3_ext_destroy(am_ext_t *ext, am_t *rt)
     }
 }
 
-static int wasm3_ext_suspend(am_ext_t *ext, am_t *rt)
+static int wasm3_ext_suspend(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext;
     (void)rt;
     return 0;
 }
 
-static int wasm3_ext_resume(am_ext_t *ext, am_t *rt)
+static int wasm3_ext_resume(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext;
     (void)rt;
     return 0;
 }
-#else /* !AM_WITH_WASM3 — stub implementation */
+#else /* !QZ_WITH_WASM3 — stub implementation */
 
 /* ================================================================
  * Stub WebAssembly implementation — throws "engine not linked"
@@ -2076,9 +2076,9 @@ static JSValue wasm3_stub_constructor(JSContext *ctx, JSValueConst new_target,
     return JS_ThrowTypeError(ctx, "WebAssembly: wasm3 engine not linked");
 }
 
-static int wasm3_ext_init(am_ext_t *ext, am_t *rt)
+static int wasm3_ext_init(qz_ext_t *ext, qz_t *rt)
 {
-    JSContext *ctx = am_get_active_jsctx(rt);
+    JSContext *ctx = qz_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);
@@ -2135,32 +2135,32 @@ static int wasm3_ext_init(am_ext_t *ext, am_t *rt)
     return 0;
 }
 
-static void wasm3_ext_destroy(am_ext_t *ext, am_t *rt)
+static void wasm3_ext_destroy(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext;
     (void)rt;
 }
 
-static int wasm3_ext_suspend(am_ext_t *ext, am_t *rt)
+static int wasm3_ext_suspend(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext;
     (void)rt;
     return 0;
 }
 
-static int wasm3_ext_resume(am_ext_t *ext, am_t *rt)
+static int wasm3_ext_resume(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext;
     (void)rt;
     return 0;
 }
-#endif /* AM_WITH_WASM3 */
+#endif /* QZ_WITH_WASM3 */
 
 /* ================================================================
  * Extension definition
  * ================================================================ */
 
-const am_ext_t am_wasm3_ext = {
+const qz_ext_t qz_wasm3_ext = {
     .name = "wasm3",
     .init = wasm3_ext_init,
     .destroy = wasm3_ext_destroy,

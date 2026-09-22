@@ -1,13 +1,13 @@
 ---
 title: gRPC
-description: The gRPC API in Amoib.js — pure-JS HTTP/2 + HPACK + protobuf client and server, exposed as the global `grpc` object (requires AM_WITH_GRPC=ON).
+description: The gRPC API in Qzjs.js — pure-JS HTTP/2 + HPACK + protobuf client and server, exposed as the global `grpc` object (requires QZ_WITH_GRPC=ON).
 ---
 
 # gRPC
 
 Pure-JS gRPC stack: HTTP/2 frame layer, HPACK, protobuf codec, and the four
 RPC method shapes (unary / server-stream / client-stream / bidi). Exposed as
-the global `grpc` when `AM_WITH_GRPC=ON` (the bundle is opt-in; ~3.5k lines
+the global `grpc` when `QZ_WITH_GRPC=ON` (the bundle is opt-in; ~3.5k lines
 of JS added to the polyfill).
 
 ## Global
@@ -69,5 +69,5 @@ shape matches the RPC contract:
 
 ## Example
 
-See [`examples/grpc-hello`](https://github.com/adam-ikari/amoib/tree/master/examples/grpc-hello)
-for a runnable four-shape demo (unary + streaming, amoib client → amoib server).
+See [`examples/grpc-hello`](https://github.com/adam-ikari/qzjs/tree/master/examples/grpc-hello)
+for a runnable four-shape demo (unary + streaming, qzjs client → qzjs server).

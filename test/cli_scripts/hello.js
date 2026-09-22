@@ -1,1 +1,1 @@
-console.log("hello from amoib")
+console.log("hello from qzjs")

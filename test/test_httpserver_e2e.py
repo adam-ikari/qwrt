@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""amoib HTTP Server end-to-end tests (pure-JS serve() implementation).
+"""qzjs HTTP Server end-to-end tests (pure-JS serve() implementation).
 
-Drives the real amoib CLI (real libuv, AM_BUILD_TESTS=OFF) against the pure-JS serve()
+Drives the real qzjs CLI (real libuv, QZ_BUILD_TESTS=OFF) against the pure-JS serve()
 HTTP/HTTPS/WebSocket listeners on localhost, using only the Python stdlib
 (http.client, ssl, raw sockets with a hand-rolled WebSocket client).
 
@@ -301,13 +301,13 @@ def gen_server_script(port, static_root=None, tls=False, file_root=None,
     opts = "port: %d" % port
     file_routes = ""
     if file_root:
-        # app-layer file serving: handler reads files via amoib.fs.readFileBinary
+        # app-layer file serving: handler reads files via qzjs.fs.readFileBinary
         file_routes = (
             "  if (req.url === '/' || req.url === '/index.html') {"
-            "    return new Response(await amoib.fs.readFileBinary(%r),"
+            "    return new Response(await qzjs.fs.readFileBinary(%r),"
             "      {headers: {'Content-Type': 'text/html'}});}\n"
             "  if (req.url === '/data.bin') {"
-            "    return new Response(await amoib.fs.readFileBinary(%r),"
+            "    return new Response(await qzjs.fs.readFileBinary(%r),"
             "      {headers: {'Content-Type': 'application/octet-stream'}});}\n"
             % (os.path.join(file_root, "index.html"),
                os.path.join(file_root, "data.bin"))
@@ -320,23 +320,23 @@ def gen_server_script(port, static_root=None, tls=False, file_root=None,
         f = os.path.join(fs_root, "f.txt")
         fs_routes = (
             "  if (u.pathname === '/fs/write') {"
-            "    return req.text().then(function(t){ return amoib.fs.writeFile(%r, t); })"
+            "    return req.text().then(function(t){ return qzjs.fs.writeFile(%r, t); })"
             "      .then(function(){ return 'written'; });}\n"
             "  if (u.pathname === '/fs/exists') {"
-            "    return amoib.fs.exists(%r).then(function(e){ return 'exists:' + e; });}\n"
+            "    return qzjs.fs.exists(%r).then(function(e){ return 'exists:' + e; });}\n"
             "  if (u.pathname === '/fs/read') {"
-            "    return amoib.fs.readFile(%r).then(function(d){ return 'read:' + d; });}\n"
+            "    return qzjs.fs.readFile(%r).then(function(d){ return 'read:' + d; });}\n"
             "  if (u.pathname === '/fs/readdir') {"
-            "    return amoib.fs.readdir(%r).then(function(list)"
+            "    return qzjs.fs.readdir(%r).then(function(list)"
             "      { return 'list:' + JSON.stringify(list); });}\n"
             "  if (u.pathname === '/fs/unlink') {"
-            "    return amoib.fs.unlink(%r).then(function(){ return 'unlinked'; });}\n"
+            "    return qzjs.fs.unlink(%r).then(function(){ return 'unlinked'; });}\n"
             % (f, f, f, fs_root, f)
         )
     if tls:
         # Generate self-signed certs on the fly (openssl required)
-        cert = os.path.join(tempfile.gettempdir(), "am_e2e_cert.pem")
-        key = os.path.join(tempfile.gettempdir(), "am_e2e_key.pem")
+        cert = os.path.join(tempfile.gettempdir(), "qz_e2e_cert.pem")
+        key = os.path.join(tempfile.gettempdir(), "qz_e2e_key.pem")
         if not (os.path.exists(cert) and os.path.exists(key)):
             subprocess.run(
                 ["openssl", "req", "-x509", "-newkey", "rsa:2048",
@@ -355,11 +355,11 @@ def gen_server_script(port, static_root=None, tls=False, file_root=None,
                            "fs_routes": fs_routes}
 
 class AmoibServer:
-    """Starts the amoib CLI hosting serve(); kills it on exit."""
+    """Starts the qzjs CLI hosting serve(); kills it on exit."""
 
-    def __init__(self, script, am_bin):
+    def __init__(self, script, qz_bin):
         self.proc = subprocess.Popen(
-            [am_bin, "-e", script],
+            [qz_bin, "-e", script],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.ready = False
         self.err = b""
@@ -380,7 +380,7 @@ class AmoibServer:
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                raise RuntimeError("amoib exited early (%d): %s"
+                raise RuntimeError("qzjs exited early (%d): %s"
                                    % (self.proc.returncode,
                                       self.err.decode(errors="replace")[-800:]))
             try:
@@ -407,9 +407,9 @@ class AmoibServer:
 # ---------------------------------------------------------------------------
 
 @test
-def test_plain_http(am_bin):
+def test_plain_http(qz_bin):
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
 
@@ -444,9 +444,9 @@ def raw_http_headers(hdrs, name):
     return None
 
 @test
-def test_methods_roundtrip(am_bin):
+def test_methods_roundtrip(qz_bin):
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         for m, payload in [("POST", "a=1"), ("PUT", "b=2"),
@@ -458,11 +458,11 @@ def test_methods_roundtrip(am_bin):
         srv.stop()
 
 @test
-def test_streaming_body(am_bin):
+def test_streaming_body(qz_bin):
     """D2: request body streams in as ReadableStream (req.body); text()/
     arrayBuffer() reassemble; handler runs before the body fully arrives."""
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         # req.body is a ReadableStream when a body is present (POST)
@@ -499,12 +499,12 @@ def test_streaming_body(am_bin):
         srv.stop()
 
 @test
-def test_gzip_compression(am_bin):
+def test_gzip_compression(qz_bin):
     """App-layer gzip: handler compresses via CompressionStream and sets
     Content-Encoding; serve() itself must NOT auto-compress (compression
     strategy belongs to the application)."""
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         # app-layer gzip route: /gzip returns gzip-compressed 5000 x's
@@ -529,10 +529,10 @@ def test_gzip_compression(am_bin):
 # ---------------------------------------------------------------------------
 
 @test
-def test_fs_ops(am_bin):
+def test_fs_ops(qz_bin):
     with tempfile.TemporaryDirectory() as root:
         p = free_port()
-        srv = AmoibServer(gen_server_script(p, fs_root=root), am_bin)
+        srv = AmoibServer(gen_server_script(p, fs_root=root), qz_bin)
         try:
             srv.wait_port(p)
             # write
@@ -557,18 +557,18 @@ def test_fs_ops(am_bin):
             srv.stop()
 
 # ---------------------------------------------------------------------------
-# file response (app-layer: handler reads files via amoib.fs.readFileBinary)
+# file response (app-layer: handler reads files via qzjs.fs.readFileBinary)
 # ---------------------------------------------------------------------------
 
 @test
-def test_file_response(am_bin):
+def test_file_response(qz_bin):
     with tempfile.TemporaryDirectory() as root:
         with open(os.path.join(root, "index.html"), "w") as f:
             f.write("<h1>static ok</h1>")
         with open(os.path.join(root, "data.bin"), "wb") as f:
             f.write(b"\x00\x01\x02binary")
         p = free_port()
-        srv = AmoibServer(gen_server_script(p, file_root=root), am_bin)
+        srv = AmoibServer(gen_server_script(p, file_root=root), qz_bin)
         try:
             srv.wait_port(p)
             st, hdrs, body = raw_request(p, "GET", "/")
@@ -586,9 +586,9 @@ def test_file_response(am_bin):
 # ---------------------------------------------------------------------------
 
 @test
-def test_https(am_bin):
+def test_https(qz_bin):
     p = free_port()
-    srv = AmoibServer(gen_server_script(p, tls=True), am_bin)
+    srv = AmoibServer(gen_server_script(p, tls=True), qz_bin)
     try:
         srv.wait_port(p)
         ctx = ssl.create_default_context()
@@ -619,8 +619,8 @@ def tls_client_fixture():
     fixture this one carries a subjectAltName: the client path does real
     hostname verification (VERIFY_REQUIRED + mbedtls_ssl_set_hostname), so
     CN-only matching is not something we want the test to lean on."""
-    cert = os.path.join(tempfile.gettempdir(), "am_e2e_tlscli_cert.pem")
-    key = os.path.join(tempfile.gettempdir(), "am_e2e_tlscli_key.pem")
+    cert = os.path.join(tempfile.gettempdir(), "qz_e2e_tlscli_cert.pem")
+    key = os.path.join(tempfile.gettempdir(), "qz_e2e_tlscli_key.pem")
     if not (os.path.exists(cert) and os.path.exists(key)):
         subprocess.run(
             ["openssl", "req", "-x509", "-newkey", "rsa:2048",
@@ -634,7 +634,7 @@ def tls_client_fixture():
 class TlsEchoServer:
     """One-shot stdlib TLS server: optional ALPN, echoes what it received.
 
-    Used as the peer because amoib's own tlsListen has no server-side ALPN
+    Used as the peer because qzjs's own tlsListen has no server-side ALPN
     (that is Phase 3 / G4) — Python's ssl module negotiates ALPN, so the
     client-side negotiation path is actually exercised."""
 
@@ -708,7 +708,7 @@ def _tls_client_js(port, cert, opts):
 
 
 @test
-def test_tcpconnect_tls_alpn(am_bin):
+def test_tcpconnect_tls_alpn(qz_bin):
     """TLS 客户端握手 + ALPN 'h2' 协商 + 明文字节收发（ondata 收到的是解密后的）。"""
     cert, key = tls_client_fixture()
     p = free_port()
@@ -717,7 +717,7 @@ def test_tcpconnect_tls_alpn(am_bin):
         js = _tls_client_js(p, cert,
                             "{tls: true, servername: 'localhost', "
                             "alpn: ['h2'], ca: %r}" % cert)
-        text, rc = _run_js_until(am_bin, js, (b"TLS-DATA", b"TLS-CONNECT"),
+        text, rc = _run_js_until(qz_bin, js, (b"TLS-DATA", b"TLS-CONNECT"),
                                  settle=12)
         assert "TLS-CONNECT alpn=\"h2\"" in text, text[-500:]
         assert "TLS-DATA PONG:PING" in text, text[-500:]
@@ -729,14 +729,14 @@ def test_tcpconnect_tls_alpn(am_bin):
 
 
 @test
-def test_tcpconnect_tls_no_alpn_peer(am_bin):
+def test_tcpconnect_tls_no_alpn_peer(qz_bin):
     """对端不支持 ALPN → conn.alpn 为 null，握手与数据仍正常（不硬失败）。"""
     cert, key = tls_client_fixture()
     p = free_port()
     srv = TlsEchoServer(p, cert, key, alpn=None)
     try:
         js = _tls_client_js(p, cert, "{tls: true, ca: %r}" % cert)
-        text, rc = _run_js_until(am_bin, js, (b"TLS-DATA", b"TLS-CONNECT"),
+        text, rc = _run_js_until(qz_bin, js, (b"TLS-DATA", b"TLS-CONNECT"),
                                  settle=12)
         assert "TLS-CONNECT alpn=null" in text, text[-500:]
         assert "TLS-DATA PONG:PING" in text, text[-500:]
@@ -746,7 +746,7 @@ def test_tcpconnect_tls_no_alpn_peer(am_bin):
 
 
 @test
-def test_tcpconnect_tls_alpn_disabled_and_validated(am_bin):
+def test_tcpconnect_tls_alpn_disabled_and_validated(qz_bin):
     """`alpn: []` = 客户端不提供 ALPN（即便对端支持）→ conn.alpn 为 null；
     非数组 / 含非字符串 / 超 7 项的 alpn 必须同步抛错，不静默改用缺省值。"""
     cert, key = tls_client_fixture()
@@ -754,7 +754,7 @@ def test_tcpconnect_tls_alpn_disabled_and_validated(am_bin):
     srv = TlsEchoServer(p, cert, key, alpn=("h2",))
     try:
         js = _tls_client_js(p, cert, "{tls: true, alpn: [], ca: %r}" % cert)
-        text, rc = _run_js_until(am_bin, js, (b"TLS-DATA",), settle=12)
+        text, rc = _run_js_until(qz_bin, js, (b"TLS-DATA",), settle=12)
         assert "TLS-CONNECT alpn=null" in text, text[-500:]
         assert "TLS-DATA PONG:PING" in text, text[-500:]
         assert srv.alpn is None, "server negotiated %r though client offered none" % srv.alpn
@@ -766,20 +766,20 @@ def test_tcpconnect_tls_alpn_disabled_and_validated(am_bin):
         js = ("try { __native__.tcpConnect('localhost', 1, {},"
               " {tls: true, alpn: %s}); console.log('ACCEPTED');"
               "} catch (e) { console.log('THROW ' + e.message); }" % bad)
-        out = subprocess.run([am_bin, "-e", js], stdout=subprocess.PIPE,
+        out = subprocess.run([qz_bin, "-e", js], stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, timeout=10).stdout.decode()
         assert "THROW" in out and "ACCEPTED" not in out, (bad, out[:300])
 
 
 @test
-def test_tcpconnect_tls_verify_required(am_bin):
+def test_tcpconnect_tls_verify_required(qz_bin):
     """不给 ca → 用系统 CA 束；自签名证书必须被拒（VERIFY_REQUIRED 不降级）。"""
     cert, key = tls_client_fixture()
     p = free_port()
     srv = TlsEchoServer(p, cert, key, alpn=("h2",))
     try:
         js = _tls_client_js(p, cert, "{tls: true}")
-        text, rc = _run_js_until(am_bin, js, (b"TLS-ERR",), settle=12)
+        text, rc = _run_js_until(qz_bin, js, (b"TLS-ERR",), settle=12)
         assert "TLS-ERR" in text, "untrusted cert accepted; out=%s" % text[-500:]
         assert "TLS-DATA" not in text and "TLS-CONNECT" not in text, text[-500:]
     finally:
@@ -787,7 +787,7 @@ def test_tcpconnect_tls_verify_required(am_bin):
 
 
 @test
-def test_tcpconnect_tls_hostname_mismatch(am_bin):
+def test_tcpconnect_tls_hostname_mismatch(qz_bin):
     """servername 与证书不符 → 主机名校验失败，握手拒绝。"""
     cert, key = tls_client_fixture()
     p = free_port()
@@ -796,7 +796,7 @@ def test_tcpconnect_tls_hostname_mismatch(am_bin):
         js = _tls_client_js(p, cert,
                             "{tls: true, servername: 'not-the-cert-name', "
                             "ca: %r}" % cert)
-        text, rc = _run_js_until(am_bin, js, (b"TLS-ERR",), settle=12)
+        text, rc = _run_js_until(qz_bin, js, (b"TLS-ERR",), settle=12)
         assert "TLS-ERR" in text, "hostname mismatch accepted; out=%s" % text[-500:]
         assert "TLS-DATA" not in text, text[-500:]
     finally:
@@ -804,7 +804,7 @@ def test_tcpconnect_tls_hostname_mismatch(am_bin):
 
 
 @test
-def test_tcpconnect_tls_nested_opts(am_bin):
+def test_tcpconnect_tls_nested_opts(qz_bin):
     """设计文档形状 {tls:{servername,alpn,ca}} 与扁平形状等价。"""
     cert, key = tls_client_fixture()
     p = free_port()
@@ -813,7 +813,7 @@ def test_tcpconnect_tls_nested_opts(am_bin):
         js = _tls_client_js(p, cert,
                             "{tls: {servername: 'localhost', alpn: ['h2'], "
                             "ca: %r}}" % cert)
-        text, rc = _run_js_until(am_bin, js, (b"TLS-DATA",), settle=12)
+        text, rc = _run_js_until(qz_bin, js, (b"TLS-DATA",), settle=12)
         assert "TLS-CONNECT alpn=\"h2\"" in text, text[-500:]
         assert "TLS-DATA PONG:PING" in text, text[-500:]
     finally:
@@ -824,9 +824,9 @@ def test_tcpconnect_tls_nested_opts(am_bin):
 # ---------------------------------------------------------------------------
 
 @test
-def test_websocket_echo(am_bin):
+def test_websocket_echo(qz_bin):
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         ws = WSClient(p, "/echo")
@@ -852,11 +852,11 @@ def test_websocket_echo(am_bin):
         srv.stop()
 
 @test
-def test_websocket_client(am_bin):
-    """JS WebSocket client → amoib server /echo: connect, echo round-trip
+def test_websocket_client(qz_bin):
+    """JS WebSocket client → qzjs server /echo: connect, echo round-trip
     (small + large frame), clean close handshake with code+reason."""
     p = free_port()
-    # Single amoib process: serves /echo AND runs a JS WebSocket client to
+    # Single qzjs process: serves /echo AND runs a JS WebSocket client to
     # itself. The client sends 3 messages (incl. a >126-byte frame), expects
     # echoes, then closes with code 1000 + reason; srv.close() drains the loop.
     js = (
@@ -873,7 +873,7 @@ def test_websocket_client(am_bin):
         "  console.log('WS-CLIENT-OK:' + ev.code + ':' + ev.reason);"
         "  srv.close(); };"
         % (p, p))
-    proc = subprocess.Popen([am_bin, "-e", js],
+    proc = subprocess.Popen([qz_bin, "-e", js],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out, _ = proc.communicate(timeout=15)
     text = out.decode(errors="replace")
@@ -885,11 +885,11 @@ def test_websocket_client(am_bin):
 # F2 覆盖率补测：WebSocket 客户端错误路径（websocket.js 的 _onError/_fail 分支）。
 # 两个场景（连接被拒 / 对非 WS 端点握手）都只触发 onerror（_onError/_fail 置
 # CLOSED 后 onclose 不再触发），断言 onerror 确实被调用。
-def _run_js_until(am_bin, js, markers, settle=2.5):
+def _run_js_until(qz_bin, js, markers, settle=2.5):
     """Run a -e script, read stdout until all markers appear or settle seconds
     elapse, then terminate the process. Returns (text, returncode)."""
     import select
-    proc = subprocess.Popen([am_bin, "-e", js],
+    proc = subprocess.Popen([qz_bin, "-e", js],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = b""
     deadline = time.time() + settle
@@ -913,7 +913,7 @@ def _run_js_until(am_bin, js, markers, settle=2.5):
 
 
 @test
-def test_websocket_client_connect_refused(am_bin):
+def test_websocket_client_connect_refused(qz_bin):
     """WS client to a closed port → tcp connect error → onerror fires.
     (_onError 置 CLOSED，onclose 不再触发 —— 只断言 onerror。)"""
     p = free_port()   # 无人监听
@@ -922,12 +922,12 @@ def test_websocket_client_connect_refused(am_bin):
         "ws.onerror = () => console.log('WS-REFUSED-ERR');"
         "ws.onclose = (ev) => console.log('WS-REFUSED-CLOSE:' + ev.code);" % p
     )
-    text, rc = _run_js_until(am_bin, js, (b"WS-REFUSED-ERR",))
+    text, rc = _run_js_until(qz_bin, js, (b"WS-REFUSED-ERR",))
     assert "WS-REFUSED-ERR" in text, "refused onerror not fired; rc=%d out=%s" % (rc, text[:400])
 
 
 @test
-def test_websocket_client_non_ws_server(am_bin):
+def test_websocket_client_non_ws_server(qz_bin):
     """WS client → plain HTTP endpoint (200, no Upgrade) → handshake parse
     fails → onerror fires. serve() keeps the loop alive; read until the
     timeout marker then terminate."""
@@ -939,14 +939,14 @@ def test_websocket_client_non_ws_server(am_bin):
         "setTimeout(() => { console.log('WS-HTTP-DONE'); srv.close(); }, 1200);"
         % (p, p)
     )
-    text, rc = _run_js_until(am_bin, js, (b"WS-HTTP-ERR", b"WS-HTTP-DONE"))
+    text, rc = _run_js_until(qz_bin, js, (b"WS-HTTP-ERR", b"WS-HTTP-DONE"))
     assert "WS-HTTP-ERR" in text, "handshake-fail onerror not fired; rc=%d out=%s" % (rc, text[:400])
     assert "WS-HTTP-DONE" in text, "script did not reach timeout marker; rc=%d out=%s" % (rc, text[:400])
 @test
-def test_websocket_fragmentation(am_bin):
+def test_websocket_fragmentation(qz_bin):
     """Server reassembles a fragmented (FIN=0 + continuation) text message."""
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         ws = WSClient(p, "/echo")
@@ -961,11 +961,11 @@ def test_websocket_fragmentation(am_bin):
         srv.stop()
 
 @test
-def test_websocket_subprotocol(am_bin):
+def test_websocket_subprotocol(qz_bin):
     """Subprotocol negotiation: server echoes first supported Sec-WebSocket-Protocol."""
     p = free_port()
     srv = AmoibServer(gen_server_script(p, subprotocols=["chat", "superchat"]),
-                     am_bin)
+                     qz_bin)
     try:
         srv.wait_port(p)
         s = socket.create_connection(("127.0.0.1", p), timeout=5)
@@ -990,13 +990,13 @@ def test_websocket_subprotocol(am_bin):
         srv.stop()
 
 @test
-def test_websocket_permessage_deflate(am_bin):
+def test_websocket_permessage_deflate(qz_bin):
     """D4: permessage-deflate negotiation + compressed echo round-trip.
     Client sends RSV1-compressed text; server must inflate it for the
     handler and deflate the echo (RSV1 set), with context takeover
     across messages (RFC 7692)."""
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         ws = WSClient(p, "/echo", extensions="permessage-deflate")
@@ -1035,8 +1035,8 @@ def test_websocket_permessage_deflate(am_bin):
 # ---------------------------------------------------------------------------
 
 @test
-def test_eventsource_client(am_bin):
-    """JS EventSource → amoib server /events：server 返回 text/event-stream 响应体；
+def test_eventsource_client(qz_bin):
+    """JS EventSource → qzjs server /events：server 返回 text/event-stream 响应体；
     客户端解析多 data 行 / 自定义 event 名 / id / 空 data 分发，随后 close() 并
     srv.close() 排空事件循环。"""
     p = free_port()
@@ -1060,14 +1060,14 @@ def test_eventsource_client(am_bin):
         "  es.close();\n"
         "  srv.close();\n"
         "}, 300);\n" % (p, p))
-    text, rc = _run_js_until(am_bin, js, (b"SSE-REC:",), settle=3)
+    text, rc = _run_js_until(qz_bin, js, (b"SSE-REC:",), settle=3)
     assert "SSE-OPEN" in text, "no open; rc=%d out=%s" % (rc, text[:400])
     assert "SSE-REC:C:alpha;beta" in text, text[-400:]
     assert "SSE-REC:" in text and "M:gamma|2;" in text, text[-400:]
 
 
 @test
-def test_websocket_client_eventtarget(am_bin):
+def test_websocket_client_eventtarget(qz_bin):
     """WebSocket extends EventTarget：addEventListener('message') + onmessage 都触发；
     close(code, reason) 的 code/reason/wasClean 传播到 onclose。"""
     p = free_port()
@@ -1085,12 +1085,12 @@ def test_websocket_client_eventtarget(am_bin):
         "  srv.close(); };"
         "setTimeout(() => { ws.close(1000, 'bye'); }, 300);"
         % (p, p))
-    text, rc = _run_js_until(am_bin, js, (b"WS-ET:",), settle=3)
+    text, rc = _run_js_until(qz_bin, js, (b"WS-ET:",), settle=3)
     assert "WS-ET:1000:bye:true:L:echo:hi,O:echo:hi" in text, text[-400:]
 
 
 @test
-def test_websocket_client_binarytype(am_bin):
+def test_websocket_client_binarytype(qz_bin):
     """binaryType：'arraybuffer' → ArrayBuffer；'blob' → Blob（字节完整）。"""
     p = free_port()
     js = (
@@ -1115,7 +1115,7 @@ def test_websocket_client_binarytype(am_bin):
         "};"
         "ws.onclose = (ev) => { console.log('WS-BT-DONE:' + ev.code); srv.close(); };"
         % (p, p))
-    text, rc = _run_js_until(am_bin, js, (b"WS-BT-DONE:",), settle=4)
+    text, rc = _run_js_until(qz_bin, js, (b"WS-BT-DONE:",), settle=4)
     assert "WS-AB:1,2,3" in text, text[-400:]
     assert "WS-BLOB:9,8" in text, text[-400:]
     assert "WS-BT-DONE:1000" in text, text[-400:]
@@ -1143,7 +1143,7 @@ def _raw_ws_handshake(c):
 
 
 @test
-def test_websocket_client_masked_frame_rejected(am_bin):
+def test_websocket_client_masked_frame_rejected(qz_bin):
     """服务端发 masked 帧（RFC 6455 §5.1 客户端不得接受服务端 masked 帧）→
     WebSocket 客户端必须 fail：onerror + onclose(1006, wasClean false)。"""
     p = free_port()
@@ -1175,13 +1175,13 @@ def test_websocket_client_masked_frame_rejected(am_bin):
         "ws.onerror = () => console.log('MASK-ERR');"
         "ws.onclose = (ev) => console.log('MASK-CLOSE:' + ev.code + ':' + ev.wasClean);"
         % p)
-    text, rc = _run_js_until(am_bin, js, (b"MASK-ERR", b"MASK-CLOSE:1006:false"))
+    text, rc = _run_js_until(qz_bin, js, (b"MASK-ERR", b"MASK-CLOSE:1006:false"))
     assert "MASK-ERR" in text, "no onerror; rc=%d out=%s" % (rc, text[:400])
     assert "MASK-CLOSE:1006:false" in text, "no close(1006,false); rc=%d out=%s" % (rc, text[:400])
 
 
 @test
-def test_websocket_client_send_masked(am_bin):
+def test_websocket_client_send_masked(qz_bin):
     """客户端 → 服务端帧必须 mask（RFC 6455 §5.1）。裸 socket 服务端校验首帧
     mask 位与载荷，回一个未掩码 echo 验证客户端可收未掩码帧。"""
     p = free_port()
@@ -1229,7 +1229,7 @@ def test_websocket_client_send_masked(am_bin):
         "ws.onmessage = (ev) => console.log('SEND-ECHO:' + ev.data);"
         "ws.onerror = () => console.log('SEND-ERR');"
         % p)
-    text, rc = _run_js_until(am_bin, js, (b"SEND-ECHO:hello-mask",), settle=3)
+    text, rc = _run_js_until(qz_bin, js, (b"SEND-ECHO:hello-mask",), settle=3)
     assert "SEND-ECHO:hello-mask" in text, "no echo; rc=%d out=%s" % (rc, text[:400])
     assert result.get("masked") is True, "client frame was NOT masked: %r" % result
     assert result.get("opcode") == 0x1, "opcode=%r" % result
@@ -1240,9 +1240,9 @@ def test_websocket_client_send_masked(am_bin):
 # ---------------------------------------------------------------------------
 
 @test
-def test_server_close(am_bin):
+def test_server_close(qz_bin):
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         st, _, body = raw_request(p, "GET", "/close")
@@ -1259,7 +1259,7 @@ def test_server_close(am_bin):
         srv.stop()
 
 @test
-def test_serve_errors(am_bin):
+def test_serve_errors(qz_bin):
     import select
 
     def run_script(js, settle=1.0):
@@ -1267,7 +1267,7 @@ def test_serve_errors(am_bin):
         The CLI stays alive while the listener is active (wait_idle exits only
         when the loop has no pending work), so we read early output and
         terminate instead of waiting for exit."""
-        proc = subprocess.Popen([am_bin, "-e", js],
+        proc = subprocess.Popen([qz_bin, "-e", js],
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT)
         out = b""
@@ -1330,10 +1330,10 @@ def test_serve_errors(am_bin):
 # ---------------------------------------------------------------------------
 
 @test
-def test_keep_alive_reuse(am_bin):
+def test_keep_alive_reuse(qz_bin):
     """HTTP/1.1 keep-alive: reuse the same TCP connection for 2 sequential requests."""
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         s = socket.create_connection(("127.0.0.1", p), timeout=5)
@@ -1359,10 +1359,10 @@ def test_keep_alive_reuse(am_bin):
         srv.stop()
 
 @test
-def test_connection_close_http10(am_bin):
+def test_connection_close_http10(qz_bin):
     """HTTP/1.0 (no keep-alive) → server closes after response."""
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         s = socket.create_connection(("127.0.0.1", p), timeout=5)
@@ -1388,12 +1388,12 @@ def test_connection_close_http10(am_bin):
         srv.stop()
 
 @test
-def test_header_proto_pollution(am_bin):
+def test_header_proto_pollution(qz_bin):
     """F4 security audit: remote headers with '__proto__'/'constructor' names
     must be inert data slots on req.headers — no Object.prototype pollution,
     normal routing unaffected."""
     p = free_port()
-    srv = AmoibServer(gen_server_script(p), am_bin)
+    srv = AmoibServer(gen_server_script(p), qz_bin)
     try:
         srv.wait_port(p)
         # Malicious header block: __proto__ would set Object.prototype.polluted
@@ -1470,14 +1470,14 @@ def _ssl_client_alpn(port, alpn_protos, data=b"ping"):
 
 
 @test
-def test_tcplisten_tls_alpn_h2(am_bin):
+def test_tcplisten_tls_alpn_h2(qz_bin):
     """Server tcpListen with alpn:['h2','http/1.1'] → client offers h2 →
     server negotiates h2 → conn.alpn === 'h2'."""
     cert, key = tls_client_fixture()
     p = free_port()
     js = _tcplisten_tls_js(p, cert, key, ["h2", "http/1.1"])
     import select as _sel
-    proc = subprocess.Popen([am_bin, "-e", js],
+    proc = subprocess.Popen([qz_bin, "-e", js],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = b""
     try:
@@ -1513,14 +1513,14 @@ def test_tcplisten_tls_alpn_h2(am_bin):
 
 
 @test
-def test_tcplisten_tls_alpn_http11(am_bin):
+def test_tcplisten_tls_alpn_http11(qz_bin):
     """Server tcpListen with alpn:['http/1.1'] only → client offers h2+http/1.1 →
     server negotiates http/1.1 → conn.alpn === 'http/1.1'."""
     cert, key = tls_client_fixture()
     p = free_port()
     js = _tcplisten_tls_js(p, cert, key, ["http/1.1"])
     import select as _sel
-    proc = subprocess.Popen([am_bin, "-e", js],
+    proc = subprocess.Popen([qz_bin, "-e", js],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = b""
     try:
@@ -1556,14 +1556,14 @@ def test_tcplisten_tls_alpn_http11(am_bin):
 
 
 @test
-def test_tcplisten_tls_default_no_alpn(am_bin):
+def test_tcplisten_tls_default_no_alpn(qz_bin):
     """Server tcpListen with TLS but no alpn option → backward compat default
     ['http/1.1'] → client offers h2+http/1.1 → negotiates http/1.1."""
     cert, key = tls_client_fixture()
     p = free_port()
     js = _tcplisten_tls_js(p, cert, key, None)  # no alpn option
     import select as _sel
-    proc = subprocess.Popen([am_bin, "-e", js],
+    proc = subprocess.Popen([qz_bin, "-e", js],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = b""
     try:
@@ -1599,7 +1599,7 @@ def test_tcplisten_tls_default_no_alpn(am_bin):
         except subprocess.TimeoutExpired: proc.kill(); proc.wait()
 
 @test
-def test_tcplisten_tls_no_alpn_compat(am_bin):
+def test_tcplisten_tls_no_alpn_compat(qz_bin):
     """Server tcpListen TLS with no alpn field (default ['http/1.1']); client
     does NOT set ALPN → no protocol negotiated → conn.alpn is null; data
     roundtrip still works."""
@@ -1607,7 +1607,7 @@ def test_tcplisten_tls_no_alpn_compat(am_bin):
     p = free_port()
     js = _tcplisten_tls_js(p, cert, key, None)  # no alpn option
     import select as _sel
-    proc = subprocess.Popen([am_bin, "-e", js],
+    proc = subprocess.Popen([qz_bin, "-e", js],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = b""
     try:
@@ -1646,16 +1646,16 @@ def test_tcplisten_tls_no_alpn_compat(am_bin):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--amoib-bin", required=True)
+    ap.add_argument("--qzjs-bin", required=True)
     args = ap.parse_args()
-    assert os.path.exists(args.am_bin), "amoib binary not found: %s" % args.am_bin
+    assert os.path.exists(args.qz_bin), "qzjs binary not found: %s" % args.qz_bin
 
     failed = []
     for fn in TESTS:
         name = fn.__name__
         t0 = time.time()
         try:
-            fn(args.am_bin)
+            fn(args.qz_bin)
             print("PASS %-28s (%.2fs)" % (name, time.time() - t0))
         except unittest.SkipTest as e:
             print("SKIP %-28s (%.2fs) %s" % (name, time.time() - t0, e))

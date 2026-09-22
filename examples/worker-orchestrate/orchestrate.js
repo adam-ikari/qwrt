@@ -1,4 +1,4 @@
-/* amoib example: worker 编排（真线程并行计算）
+/* qzjs example: worker 编排（真线程并行计算）
  *
  * 演示在宿主脚本里用多个真线程 Web Worker 并行计算：
  *
@@ -7,14 +7,14 @@
  *   3. 聚合 — 全部 worker 回包后，父线程汇总结果并输出
  *
  * 运行（仓库根，worker 脚本路径按相对 cwd 解析）：
- *   ./build-ws/amoib examples/worker-orchestrate/orchestrate.js
+ *   ./build-ws/qzjs examples/worker-orchestrate/orchestrate.js
  *
- * 依赖的能力（amoib 内置）：
+ * 依赖的能力（qzjs 内置）：
  *   new Worker('file://...')   — 真线程 worker（仅支持 file://）
  *   w.postMessage / w.onmessage — 双向消息（结构化克隆）
  *   w.terminate()              — 显式回收 worker 线程
  *
- * 注意：amoib CLI 在无待处理异步工作（libuv 句柄）时退出进程
+ * 注意：qzjs CLI 在无待处理异步工作（libuv 句柄）时退出进程
  * （wait_idle 语义），因此示例用保底 setTimeout 让事件循环保持
  * 活跃，直至全部 worker 回包完成。
  */

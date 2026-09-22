@@ -1,5 +1,5 @@
 /*
- * amoib TextCodec Extension
+ * qzjs TextCodec Extension
  *
  * Native UTF-8 encode/decode and Base64 encode/decode.
  * Registers pal.nativeEncodeUtf8, pal.nativeBtoa, pal.nativeAtob on the JS pal object.
@@ -9,9 +9,9 @@
  * per-character JS function call overhead and string concatenation.
  */
 
-#include "am_internal.h"
+#include "qz_internal.h"
 
-#if AM_WITH_TEXTCODEC
+#if QZ_WITH_TEXTCODEC
 
 #include <string.h>
 #include <stdlib.h>
@@ -212,9 +212,9 @@ static JSValue js_pal_native_atob(JSContext *ctx, JSValueConst this_val,
  * Extension hooks
  * ================================================================ */
 
-static int textcodec_ext_init(am_ext_t *ext, am_t *rt)
+static int textcodec_ext_init(qz_ext_t *ext, qz_t *rt)
 {
-    JSContext *ctx = am_get_active_jsctx(rt);
+    JSContext *ctx = qz_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue global = JS_GetGlobalObject(ctx);
@@ -245,32 +245,32 @@ static int textcodec_ext_init(am_ext_t *ext, am_t *rt)
     return 0;
 }
 
-static void textcodec_ext_destroy(am_ext_t *ext, am_t *rt)
+static void textcodec_ext_destroy(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext; (void)rt;
 }
 
-static int textcodec_ext_suspend(am_ext_t *ext, am_t *rt)
-{
-    (void)ext; (void)rt;
-    return 0;
-}
-
-static int textcodec_ext_resume(am_ext_t *ext, am_t *rt)
+static int textcodec_ext_suspend(qz_ext_t *ext, qz_t *rt)
 {
     (void)ext; (void)rt;
     return 0;
 }
 
-#endif /* AM_WITH_TEXTCODEC */
+static int textcodec_ext_resume(qz_ext_t *ext, qz_t *rt)
+{
+    (void)ext; (void)rt;
+    return 0;
+}
+
+#endif /* QZ_WITH_TEXTCODEC */
 
 /* ================================================================
  * Extension definition
  * ================================================================ */
 
-const am_ext_t am_textcodec_ext = {
+const qz_ext_t qz_textcodec_ext = {
     .name = "textcodec",
-#if AM_WITH_TEXTCODEC
+#if QZ_WITH_TEXTCODEC
     .init = textcodec_ext_init,
     .destroy = textcodec_ext_destroy,
     .suspend = textcodec_ext_suspend,

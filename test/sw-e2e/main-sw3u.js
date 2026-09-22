@@ -42,8 +42,8 @@ function waitMsg(sw, data) {
 }
 
 function copyFile(src) {
-  return amoib.fs.readFile(src).then(function (code) {
-    return amoib.fs.writeFile(SW_FILE, code);
+  return qzjs.fs.readFile(src).then(function (code) {
+    return qzjs.fs.writeFile(SW_FILE, code);
   });
 }
 

@@ -2,7 +2,7 @@
 # CTL-1 / CTL-2 e2e — 控制面本地端点 + 跨进程树路由（control-plane-design §6）。
 #
 # 覆盖：
-#   1. LOCAL 端点：amoib-ctl 连运行中 amoib（ISOLATED，宿主→主RT）→ 四命令往返
+#   1. LOCAL 端点：qzjs-ctl 连运行中 qzjs（ISOLATED，宿主→主RT）→ 四命令往返
 #      （eval / inspect / metrics / interrupt），回执 correl 与请求配对。
 #   2. 树路由到 worker（宿主 → 主RT → worker 槽位）：--target <worker 槽位 id>
 #      的命令确实在 worker runtime 上执行（用「worker 设的全局在主RT 不可见」
@@ -13,14 +13,14 @@
 #   3. 无对应槽位的 target → NOT_FOUND 回执（不留无应答）。
 #   4. OFF 档恒拒：control_plane=off 不暴露端点，连接失败。
 #
-# Usage: bash test/test_ctl_e2e.sh [path-to-amoib] [path-to-amoib-ctl]
+# Usage: bash test/test_ctl_e2e.sh [path-to-qzjs] [path-to-qzjs-ctl]
 set -u
-AM="${1:-./build/amoib}"
-AMCTL="${2:-./build/amoib-ctl}"
+AM="${1:-./build/qzjs}"
+QZCTL="${2:-./build/qzjs-ctl}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$DIR/.." && pwd)"
 
-for bin in "$AM" "$AMCTL"; do
+for bin in "$AM" "$QZCTL"; do
   [ -x "$bin" ] || { echo "FAIL: binary not found: $bin"; exit 1; }
 done
 
@@ -30,8 +30,8 @@ QPID=""
 cleanup() {
   [ -n "$QPID" ] && kill -TERM "$QPID" 2>/dev/null
   sleep 0.3
-  pkill -f "amoib-rt --amoib-worker" 2>/dev/null
-  pkill -f "amoib-rt --amoib-rt-server" 2>/dev/null
+  pkill -f "qzjs-rt --qzjs-worker" 2>/dev/null
+  pkill -f "qzjs-rt --qzjs-rt-server" 2>/dev/null
   rm -rf "$FIX"
 }
 trap cleanup EXIT
@@ -40,17 +40,17 @@ fail() { echo "FAIL: $1"; [ -n "${2:-}" ] && { echo "--- got:"; printf '%s\n' "$
 
 WORKER_ID=1001   # 单 worker：procWorkerSeq(1000) 的第一次 ++ —— 见文件头说明
 
-# ── 起一个 ISOLATED 运行中 amoib：主RT 跑脚本并 spawn 一个 PROCESS worker ──
+# ── 起一个 ISOLATED 运行中 qzjs：主RT 跑脚本并 spawn 一个 PROCESS worker ──
 setsid "$AM" --control-plane=local --control-pipe="$SOCK" -e "
 var w = new Worker('file://$ROOT/test/mp1-e2e/worker_echo.js');
 setInterval(function(){}, 100);
-" > "$FIX/amoib.out" 2>&1 &
+" > "$FIX/qzjs.out" 2>&1 &
 QPID=$!
 
 for _ in $(seq 1 50); do [ -S "$SOCK" ] && break; sleep 0.1; done
-[ -S "$SOCK" ] || fail "1 endpoint socket not created" "$(cat "$FIX/amoib.out")"
+[ -S "$SOCK" ] || fail "1 endpoint socket not created" "$(cat "$FIX/qzjs.out")"
 
-ctl() { timeout 10 "$AMCTL" --pipe "$SOCK" "$@"; }
+ctl() { timeout 10 "$QZCTL" --pipe "$SOCK" "$@"; }
 
 # ── 1: 四命令往返 + correl 配对 ──
 OUT="$(ctl --correl e2e-eval eval '1+1')" || fail "1 eval rc" "$OUT"
@@ -106,7 +106,7 @@ sleep 1.5
 if [ -S "$FIX/off.sock" ]; then
   fail "4 OFF tier must not expose an endpoint"
 fi
-if timeout 5 "$AMCTL" --pipe "$FIX/off.sock" metrics >/dev/null 2>&1; then
+if timeout 5 "$QZCTL" --pipe "$FIX/off.sock" metrics >/dev/null 2>&1; then
   fail "4 OFF tier connect must fail"
 fi
 
@@ -118,7 +118,7 @@ fi
 kill -TERM "$QPID" 2>/dev/null; wait "$QPID" 2>/dev/null; QPID=""
 rm -f "$FIX/dap.in" "$FIX/dap.sock"
 mkfifo "$FIX/dap.in"
-AM_DEBUG=1 setsid "$AM" --control-plane=local --control-pipe="$FIX/dap.sock" \
+QZ_DEBUG=1 setsid "$AM" --control-plane=local --control-pipe="$FIX/dap.sock" \
   -e 'setInterval(function(){}, 100)' < "$FIX/dap.in" > "$FIX/dap.out" 2>&1 &
 QPID=$!
 exec 9> "$FIX/dap.in"      # 保持 DAP stdin 打开，会话不因 EOF 结束
@@ -129,7 +129,7 @@ fi
 if grep -q "Content-Length" "$FIX/dap.out" 2>/dev/null; then
   echo "       (5) DAP session active + control endpoint present"
 else
-  echo "       (5) no DAP output (build without AM_DEBUG_SUPPORT?); endpoint present"
+  echo "       (5) no DAP output (build without QZ_DEBUG_SUPPORT?); endpoint present"
 fi
 exec 9>&-
 kill -TERM "$QPID" 2>/dev/null; wait "$QPID" 2>/dev/null; QPID=""

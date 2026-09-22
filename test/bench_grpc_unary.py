@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""amoib gRPC unary performance benchmark (amoib client -> amoib server).
+"""qzjs gRPC unary performance benchmark (qzjs client -> qzjs server).
 
-Starts one amoib process hosting serve({port, grpc}) with the Echo unary
-method, then a second amoib process running a client loop invoking Echo N
+Starts one qzjs process hosting serve({port, grpc}) with the Echo unary
+method, then a second qzjs process running a client loop invoking Echo N
 times over the same persistent channel. Prints one JSON line.
 
-The whole stack is amoib-native (pure-JS HTTP/2 + gRPC client over the C
+The whole stack is qzjs-native (pure-JS HTTP/2 + gRPC client over the C
 transport primitives); node/bun have no equivalent builtin gRPC stack, so
-this is amoib-only — cross-runtime comparison lives in bench_js_api.mjs.
+this is qzjs-only — cross-runtime comparison lives in bench_js_api.mjs.
 
 Usage:
-  python3 test/bench_grpc_unary.py --amoib-bin ./build/amoib [--calls 2000]
+  python3 test/bench_grpc_unary.py --qzjs-bin ./build/qzjs [--calls 2000]
 """
 import argparse
 import json
@@ -63,9 +63,9 @@ def free_port():
     return port
 
 
-def start_server(am_bin, port):
+def start_server(qz_bin, port):
     js = GRPC_SERVER_JS.replace('%PORT%', str(port))
-    proc = subprocess.Popen([am_bin, '-e', js],
+    proc = subprocess.Popen([qz_bin, '-e', js],
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.PIPE)
     deadline = time.time() + 30
@@ -84,15 +84,15 @@ def start_server(am_bin, port):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--amoib-bin', required=True)
+    ap.add_argument('--qzjs-bin', required=True)
     ap.add_argument('--calls', type=int, default=2000)
     args = ap.parse_args()
 
     port = free_port()
-    server = start_server(args.am_bin, port)
+    server = start_server(args.qz_bin, port)
     try:
         js = GRPC_CLIENT_JS.replace('%PORT%', str(port)).replace('%N%', str(args.calls))
-        r = subprocess.run([args.am_bin, '-e', js], capture_output=True,
+        r = subprocess.run([args.qz_bin, '-e', js], capture_output=True,
                            text=True, timeout=180)
         if r.returncode != 0:
             print('FAIL: client rc=%d stderr=%s' % (r.returncode, r.stderr[-300:]),

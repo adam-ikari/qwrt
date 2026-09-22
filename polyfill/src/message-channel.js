@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: MessageChannel, MessagePort, MessageEvent
+ * qzjs polyfill: MessageChannel, MessagePort, MessageEvent
  *
  * TC55/ECMA-429 requires MessageChannel for structured communication
  * between execution contexts. MessagePort extends EventTarget.
@@ -78,7 +78,7 @@ export function setupMessageChannel(pal) {
    * payload 不解码、字节原样（§7.2）。 */
   var redirects = new Map();
   /* 转移钩子：某 port 从本 runtime 移到 destPath（worker.js / boot shim 调用） */
-  globalThis.__am_port_moved__ = function (owner, id, destPath) {
+  globalThis.__qz_port_moved__ = function (owner, id, destPath) {
     redirects.set(portKey(toPath(owner), id), toPath(destPath));
   };
   function pathKey(p) { return p.join(','); }
@@ -144,8 +144,8 @@ export function setupMessageChannel(pal) {
   function forwardFrame(bytes, destPath) {
     if (pathIsPrefix(ownerSelf, destPath)) {
       var next = destPath[ownerSelf.length];
-      if (globalThis.__am_worker_post__)
-        globalThis.__am_worker_post__(next, bytes, 1);
+      if (globalThis.__qz_worker_post__)
+        globalThis.__qz_worker_post__(next, bytes, 1);
       return true;
     }
     if (inWorker) { pal.postMessage(bytes, 1); return true; }
@@ -265,7 +265,7 @@ export function setupMessageChannel(pal) {
         }
       } else {
         /* 跨线程：序列化消息（含 transfer）→ 包装 → 发送 */
-        var bytes = __am_serialize__(message, transfer);
+        var bytes = __qz_serialize__(message, transfer);
         this._sendRemote(bytes);
       }
     }
@@ -273,7 +273,7 @@ export function setupMessageChannel(pal) {
     /* 入站：接收跨线程 port 消息（payload 是序列化字节） */
     _deliverRemote(payloadBytes) {
       var v;
-      try { v = __am_deserialize__(payloadBytes); }
+      try { v = __qz_deserialize__(payloadBytes); }
       catch (err) {
         var errEvent = new MessageEvent('messageerror', { data: err });
         this.dispatchEvent(errEvent);
@@ -328,21 +328,21 @@ export function setupMessageChannel(pal) {
     get port1() { return this._port1; }
     get port2() { return this._port2; }
   }
-  globalThis.__am_port_xfer_frame__ = portXferFrame;
-  globalThis.__am_port_frame_body__ = portFrameBody;
+  globalThis.__qz_port_xfer_frame__ = portXferFrame;
+  globalThis.__qz_port_frame_body__ = portFrameBody;
   globalThis.MessageChannel = MessageChannel;
   globalThis.MessagePort = MessagePort;
   globalThis.MessageEvent = MessageEvent;
 
   /* 供 worker.js / boot shim 查询本地 port（transfer 时更新对端端点） */
-  globalThis.__am_lookup_port__ = lookupPort;
+  globalThis.__qz_lookup_port__ = lookupPort;
 
   /* ================================================================
    * Cross-process routing helpers (used by worker.js / boot shim dispatch)
    * ================================================================ */
   /* PORT_TRANSFER 帧的 op（0 = 不是 port 帧）。接收侧先看 kind=1 + op 再分流：
    * op=1 走端点路由，op=2 是 port 转移列表。 */
-  globalThis.__am_port_frame_op__ = function (bytes) {
+  globalThis.__qz_port_frame_op__ = function (bytes) {
     var u8;
     try { u8 = toU8(bytes); } catch (e) { return 0; }
     if (u8.length < PORT_HDR_MIN) return 0;
@@ -357,7 +357,7 @@ export function setupMessageChannel(pal) {
    *   dest 是本 path 的严格后代 → 下投下一元素；
    *   否则 → 上转父（父继续按同一规则判；LCA 处方向翻转）。
    * 返回 true 表示已消费。目标端点已死/无此 port → 静默丢弃（不抛）。 */
-  globalThis.__am_route_port_message__ = function (bytes) {
+  globalThis.__qz_route_port_message__ = function (bytes) {
     var h = portFrameHeader(bytes);
     if (!h) return false;
     var u8 = toU8(bytes);
@@ -385,7 +385,7 @@ export function setupMessageChannel(pal) {
    *   - 对端在该端点的本地 port：派发 'error' 事件（对端不可达），后续
    *     postMessage 静默丢弃。幂等（重复死亡通知无副作用）。
    * owner 为 §8.2 path 链（数组；数字按单元素 path 归一）。 */
-  globalThis.__am_endpoint_dead__ = function (owner) {
+  globalThis.__qz_endpoint_dead__ = function (owner) {
     var op = toPath(owner);
     /* 该端点死亡 → 以它为落点的路由表项失效（改指目标不可达）。 */
     var stale = [];
@@ -428,7 +428,7 @@ export function setupMessageChannel(pal) {
    * 多跳转移把 port 送回它的出生 runtime 时（父→worker→父）——重建同 runtime
    * 纠缠（双方 _peerThread='local' + _entangledPort 互指），此后两 port 直接
    * 本地分发；否则对端在别的端点，按 info.peerThread 走远程路由。 */
-  globalThis.__am_port_from_ref__ = function (info) {
+  globalThis.__qz_port_from_ref__ = function (info) {
     if (!info || info.id === undefined || info.id === null) {
       throw new DOMException('invalid MessagePort reference', 'DataCloneError');
     }

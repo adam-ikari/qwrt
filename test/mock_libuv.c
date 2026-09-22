@@ -316,7 +316,7 @@ int uv_async_send(uv_async_t *a)
     pthread_once(&g_run_once, g_run_init);
     /* RELEASE pairs with the fire loop's ACQ_REL exchange / idle ACQUIRE load:
      * the queue append (msgq.c, under msg_mutex) happens-before this store, so
-     * the amoib thread seeing pending==1 also sees the message in the queue. */
+     * the qzjs thread seeing pending==1 also sees the message in the queue. */
     /* store + broadcast under g_run_mutex: uv_run's idle path holds the mutex
      * across its due-check and cond_timedwait, so a broadcast issued between
      * them would otherwise be dropped (pending async stranded up to 1s). */

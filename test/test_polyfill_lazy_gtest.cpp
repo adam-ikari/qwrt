@@ -7,7 +7,7 @@
 //   2. 首次访问后：属性退化为数据属性，writable/enumerable/configurable 与
 //      eager 安装逐位一致；再次访问不再触发副作用（身份稳定、引用恒定）。
 //   3. 删除语义：delete 后属性消失且不复活。
-//   4. 宿主对象子属性（amoib.fs / amoib.storage）：宿主对象 eager 空壳，
+//   4. 宿主对象子属性（qzjs.fs / qzjs.storage）：宿主对象 eager 空壳，
 //      子属性 accessor 化，`in` / keys 语义与 eager 一致。
 //   5. 表面等价：期望 descriptor/typeof 表 vs lazy 构建实际值——差异为空。
 //
@@ -68,7 +68,7 @@ const char *kProbeGlobal = R"JS((function () {
   return JSON.stringify(probe('__N'));
 })())JS";
 
-// 宿主对象子属性探测（amoib.fs / amoib.storage）：
+// 宿主对象子属性探测（qzjs.fs / qzjs.storage）：
 //   宿主对象 eager 数据属性；子属性 pre 为 accessor、post 为 data property。
 const char *kProbeProp = R"JS((function () {
   function probe(hostName, propName) {
@@ -106,7 +106,7 @@ const char *kProbeProp = R"JS((function () {
     };
     return { pre: pre, post: post };
   }
-  return JSON.stringify(probe('amoib', '__P'));
+  return JSON.stringify(probe('qzjs', '__P'));
 })())JS";
 
 // 表面等价期望表：每个 lazy API 的 eager 基线 descriptor/typeof。
@@ -149,13 +149,13 @@ const char *kDeleteSemantics = R"JS((function () {
   return JSON.stringify({ URLPattern: del('URLPattern'), caches: del('caches') });
 })())JS";
 
-// 子属性删除语义：delete amoib.fs 后消失且不复活。
+// 子属性删除语义：delete qzjs.fs 后消失且不复活。
 const char *kDeletePropSemantics = R"JS((function () {
-  void globalThis.amoib.fs;
-  delete globalThis.amoib.fs;
-  var gone = !('fs' in globalThis.amoib);
-  var v1 = globalThis.amoib.fs;
-  var v2 = globalThis.amoib.fs;
+  void globalThis.qzjs.fs;
+  delete globalThis.qzjs.fs;
+  var gone = !('fs' in globalThis.qzjs);
+  var v1 = globalThis.qzjs.fs;
+  var v2 = globalThis.qzjs.fs;
   return JSON.stringify({ gone: gone, noResurrect: (v1 === undefined) && (v2 === undefined) });
 })())JS";
 
@@ -226,7 +226,7 @@ TEST_F(PolyfillLazyTest, GlobalNameContractCaches) {
     expectContract(v, "\"typeof\":\"object\"");
 }
 
-// 5. 宿主对象子属性：amoib.fs（宿主 amoib eager 空壳；子属性 accessor→data）
+// 5. 宿主对象子属性：qzjs.fs（宿主 qzjs eager 空壳；子属性 accessor→data）
 TEST_F(PolyfillLazyTest, HostPropContractFs) {
     std::string v = runProbeProp(h, "fs");
     EXPECT_TRUE(has(v, "\"hostData\":true"));
@@ -242,7 +242,7 @@ TEST_F(PolyfillLazyTest, HostPropContractFs) {
     EXPECT_TRUE(has(v, "\"identity\":true"));
 }
 
-// 6. 宿主对象子属性：amoib.storage
+// 6. 宿主对象子属性：qzjs.storage
 TEST_F(PolyfillLazyTest, HostPropContractStorage) {
     std::string v = runProbeProp(h, "storage");
     EXPECT_TRUE(has(v, "\"hostData\":true"));
@@ -266,7 +266,7 @@ TEST_F(PolyfillLazyTest, SurfaceEquivalence) {
 }
 
 // 8. 惰性隔离：仅访问 URLPattern，不得提前 materialize 其他独立单元
-//     （BroadcastChannel / caches / amoib.fs / amoib.storage）——它们仍应是
+//     （BroadcastChannel / caches / qzjs.fs / qzjs.storage）——它们仍应是
 //     accessor。证明 lazy 机制确实懒，且一个单元 setup 不污染另一单元。
 TEST_F(PolyfillLazyTest, LazyIsolation) {
     std::string out;
@@ -277,8 +277,8 @@ TEST_F(PolyfillLazyTest, LazyIsolation) {
         "upData:(function(){var d=Object.getOwnPropertyDescriptor(globalThis,'URLPattern');return !!(d&&('value' in d)&&!d.get);})(),"
         "bcAcc:isAcc(globalThis,'BroadcastChannel'),"
         "cachesAcc:isAcc(globalThis,'caches'),"
-        "fsAcc:isAcc(globalThis.amoib,'fs'),"
-        "stAcc:isAcc(globalThis.amoib,'storage')"
+        "fsAcc:isAcc(globalThis.qzjs,'fs'),"
+        "stAcc:isAcc(globalThis.qzjs,'storage')"
         "})", &out));
     EXPECT_NE(std::string::npos, out.find("\"upData\":true"));
     EXPECT_NE(std::string::npos, out.find("\"bcAcc\":true"));
@@ -295,7 +295,7 @@ TEST_F(PolyfillLazyTest, DeleteSemantics) {
     EXPECT_NE(std::string::npos, out.find("\"noResurrect\":true"));
 }
 
-// 10. 删除语义：子属性 delete amoib.fs → 消失且不复活。
+// 10. 删除语义：子属性 delete qzjs.fs → 消失且不复活。
 TEST_F(PolyfillLazyTest, DeletePropSemantics) {
     std::string out;
     ASSERT_TRUE(host_value(h, kDeletePropSemantics, &out));
@@ -365,16 +365,16 @@ const char *kCascadeWS = R"JS((function () {
   });
 })())JS";
 
-// GRPC OFF 门控面（AM_WITH_GRPC=OFF 构建，本测试随 OFF 变体 ctest 跑）：
+// GRPC OFF 门控面（QZ_WITH_GRPC=OFF 构建，本测试随 OFF 变体 ctest 跑）：
 // lazy 注册式 G 单元在 stub 导入（空函数）下不产生任何面——grpc/protobuf
-// 全局名缺席、amoib.http2 缺席（amoib 空壳 keys 无 http2）；amoib 宿主与 fs
+// 全局名缺席、qzjs.http2 缺席（qzjs 空壳 keys 无 http2）；qzjs 宿主与 fs
 // 子属性 accessor 不受影响。
 const char *kGrpcOffAbsent = R"JS((function () {
-  var q = globalThis.amoib;
+  var q = globalThis.qzjs;
   return JSON.stringify({
     grpcAbsent: !('grpc' in globalThis) && !('protobuf' in globalThis),
     http2Absent: !q || (!('http2' in q) && Object.keys(q).indexOf('http2') < 0),
-    amHost: (typeof q === 'object' && q !== null),
+    qzHost: (typeof q === 'object' && q !== null),
     fsIn: !!q && 'fs' in q
   });
 })())JS";
@@ -408,13 +408,13 @@ TEST_F(PolyfillLazyTest, CascadeWebSocketCryptoSubtle) {
     EXPECT_TRUE(has(out, "\"stable\":true")) << out;
 }
 
-// 14. GRPC OFF 门控：lazy G 单元零注册（grpc/protobuf/amoib.http2 全缺席）。
+// 14. GRPC OFF 门控：lazy G 单元零注册（grpc/protobuf/qzjs.http2 全缺席）。
 TEST_F(PolyfillLazyTest, GrpcOffSurfaceAbsent) {
     std::string out;
     ASSERT_TRUE(host_value(h, kGrpcOffAbsent, &out));
     EXPECT_TRUE(has(out, "\"grpcAbsent\":true")) << out;
     EXPECT_TRUE(has(out, "\"http2Absent\":true")) << out;
-    EXPECT_TRUE(has(out, "\"amHost\":true")) << out;
+    EXPECT_TRUE(has(out, "\"qzHost\":true")) << out;
     EXPECT_TRUE(has(out, "\"fsIn\":true")) << out;
 }
 

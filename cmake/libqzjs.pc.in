@@ -3,9 +3,9 @@ exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 
-Name: amoib
+Name: qzjs
 Description: embeddable QuickJS-ng runtime wrapper in C99
 Version: @PROJECT_VERSION@
-Requires: @_am_pc_requires@
-Libs: -L${libdir} @_am_pc_libs@ -lm
-Cflags: @_am_pc_cflags@
+Requires: @_qz_pc_requires@
+Libs: -L${libdir} @_qz_pc_libs@ -lm
+Cflags: @_qz_pc_cflags@

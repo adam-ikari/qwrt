@@ -22,43 +22,43 @@ target_link_libraries(test_mock_uv_gtest mock_libuv GTest::gtest_main pthread)
 add_test(NAME test_mock_uv_gtest COMMAND test_mock_uv_gtest)
 set_tests_properties(test_mock_uv_gtest PROPERTIES LABELS "offline")
 
-function(add_am_gtest name)
+function(add_qz_gtest name)
     add_executable(${name} ${name}.cpp)
     target_include_directories(${name} PRIVATE
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
-    target_compile_definitions(${name} PRIVATE AM_USE_MOCK_LIBUV)
-    target_link_libraries(${name} amoib mock_libuv GTest::gtest_main pthread)
+    target_compile_definitions(${name} PRIVATE QZ_USE_MOCK_LIBUV)
+    target_link_libraries(${name} qzjs mock_libuv GTest::gtest_main pthread)
     add_test(NAME ${name} COMMAND ${name})
-    if(AM_POLYFILL_MODE STREQUAL "external")
+    if(QZ_POLYFILL_MODE STREQUAL "external")
         set_tests_properties(${name} PROPERTIES
             LABELS "offline"
-            ENVIRONMENT "AM_POLYFILL_FILE=${PROJECT_SOURCE_DIR}/dist/polyfill_default.polyfill")
+            ENVIRONMENT "QZ_POLYFILL_FILE=${PROJECT_SOURCE_DIR}/dist/polyfill_default.polyfill")
     else()
         set_tests_properties(${name} PROPERTIES LABELS "offline")
     endif()
 endfunction()
 
 # Core gtest suites
-add_am_gtest(test_context_gtest)
-add_am_gtest(test_suspend_gtest)
+add_qz_gtest(test_context_gtest)
+add_qz_gtest(test_suspend_gtest)
 target_compile_definitions(test_suspend_gtest PRIVATE TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-add_am_gtest(test_amoib_gtest)
-add_am_gtest(test_control_gtest)          # CTL-0 控制面（进程内基线）
-add_am_gtest(test_ctl_route_gtest)        # CTL-1 信封 CONTROL 树路由
-add_am_gtest(test_multi_instance_gtest)   # M-R1 §13.4 双实例回归
-add_am_gtest(test_worker_gtest)
+add_qz_gtest(test_qzjs_gtest)
+add_qz_gtest(test_control_gtest)          # CTL-0 控制面（进程内基线）
+add_qz_gtest(test_ctl_route_gtest)        # CTL-1 信封 CONTROL 树路由
+add_qz_gtest(test_multi_instance_gtest)   # M-R1 §13.4 双实例回归
+add_qz_gtest(test_worker_gtest)
 target_compile_definitions(test_worker_gtest PRIVATE TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-add_am_gtest(test_bridge_http_gtest)
-add_am_gtest(test_bridge_stream_gtest)
-add_am_gtest(test_fetch_stream_gtest)
-add_am_gtest(test_polyfill_gtest)
-add_am_gtest(test_polyfill_lazy_gtest)
-add_am_gtest(test_host_messaging_gtest)   # host-messaging 边界直接测试（P2-10）
-add_am_gtest(test_ipc_envelope_gtest)
-add_am_gtest(test_context_worker_composition_gtest)   # M-R2 §14.3 组合语义（contexts × workers）
+add_qz_gtest(test_bridge_http_gtest)
+add_qz_gtest(test_bridge_stream_gtest)
+add_qz_gtest(test_fetch_stream_gtest)
+add_qz_gtest(test_polyfill_gtest)
+add_qz_gtest(test_polyfill_lazy_gtest)
+add_qz_gtest(test_host_messaging_gtest)   # host-messaging 边界直接测试（P2-10）
+add_qz_gtest(test_ipc_envelope_gtest)
+add_qz_gtest(test_context_worker_composition_gtest)   # M-R2 §14.3 组合语义（contexts × workers）
 target_compile_definitions(test_context_worker_composition_gtest PRIVATE TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # IPC Envelope wire-format cross-verification (M-P0): the CLI helper is pure
@@ -104,37 +104,37 @@ if(Python3_Interpreter_FOUND)
     endif()
 endif()
 
-if(AM_WITH_CRYPTO_EXT)
-    add_am_gtest(test_crypto_subtle_gtest)
+if(QZ_WITH_CRYPTO_EXT)
+    add_qz_gtest(test_crypto_subtle_gtest)
 endif()
 
-if(AM_WITH_WAMR OR AM_WITH_WASM3)
-    add_am_gtest(test_wasm_streaming_gtest)
-    add_am_gtest(test_wasm_imports_gtest)
+if(QZ_WITH_WAMR OR QZ_WITH_WASM3)
+    add_qz_gtest(test_wasm_streaming_gtest)
+    add_qz_gtest(test_wasm_imports_gtest)
 endif()
 
-if(AM_WITH_WAMR)
-    add_am_gtest(test_wasm_aot_gtest)
+if(QZ_WITH_WAMR)
+    add_qz_gtest(test_wasm_aot_gtest)
 endif()
 
-if(AM_WITH_COMPRESS)
-    add_am_gtest(test_compress_gtest)
-    add_am_gtest(test_compress_consistency_gtest)
+if(QZ_WITH_COMPRESS)
+    add_qz_gtest(test_compress_gtest)
+    add_qz_gtest(test_compress_consistency_gtest)
 endif()
 
-if(AM_BUILD_DEBUGGER)
+if(QZ_BUILD_DEBUGGER)
     # DAP end-to-end (test_dap_gtest.cpp): forks a child embedding host and
     # drives the DAP client over pipes (initialize/setBreakpoints/stopped/
     # stackTrace/scopes/variables/evaluate/continue). Kept out of "offline" —
     # runs only via `ctest -L dap` (the debugger CI job). 30s timeout so a
     # hung child fails via ctest instead of hanging the job.
-    add_am_gtest(test_dap_gtest)
+    add_qz_gtest(test_dap_gtest)
     set_tests_properties(test_dap_gtest PROPERTIES LABELS "dap" TIMEOUT 30)
 endif()
 
 # ============================================================================
 # ctest registration — non-gtest targets only (gtest targets register via
-# add_test inside add_am_gtest above)
+# add_test inside add_qz_gtest above)
 #
 # Tests are labelled so CI can select a subset:
 #   LABELS "offline"   — pure local, no network, deterministic (run always)
@@ -152,7 +152,7 @@ endif()
 # testdir=test262/test, and both are composed against the config file's
 # directory. Absolute paths here would break find_error()'s relative-path
 # matching against the error file.
-# CI 全量 build 默认不产出 runner——顶层以 AM_BUILD_TESTS 条件的 ALL 目标
+# CI 全量 build 默认不产出 runner——顶层以 QZ_BUILD_TESTS 条件的 ALL 目标
 # 显式依赖 run-test262（见 CMakeLists.txt quickjs 段）。
 add_test(NAME test262_quickjs
   COMMAND ${CMAKE_BINARY_DIR}/deps/quickjs-ng/run-test262

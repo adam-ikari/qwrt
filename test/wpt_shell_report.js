@@ -1,5 +1,5 @@
 /*
- * amoib WPT shell report — registered as add_result_callback so each
+ * qzjs WPT shell report — registered as add_result_callback so each
  * test's result is printed immediately when the test completes (does not
  * depend on tests.all_done() or the async ShellTestEnvironment completion).
  *

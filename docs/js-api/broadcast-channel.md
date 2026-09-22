@@ -1,13 +1,13 @@
 ---
 title: BroadcastChannel
-description: The BroadcastChannel API in Amoib.js — same-origin cross-context messaging for isolated contexts in one runtime.
+description: The BroadcastChannel API in Qzjs.js — same-origin cross-context messaging for isolated contexts in one runtime.
 ---
 
 # BroadcastChannel
 
 A named messaging channel that broadcasts to every `BroadcastChannel`
 instance created with the same name. Used to coordinate work between
-spawned contexts inside one amoib runtime.
+spawned contexts inside one qzjs runtime.
 
 ## Global
 

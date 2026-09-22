@@ -1,34 +1,34 @@
 ---
 title: Debugging
-description: Debug Amoib.js with the DAP debugger — breakpoints, step-through, variable inspection, and VS Code integration.
+description: Debug Qzjs.js with the DAP debugger — breakpoints, step-through, variable inspection, and VS Code integration.
 ---
 
-# Debugging amoib programs with VS Code
+# Debugging qzjs programs with VS Code
 
-amoib ships a **DAP (Debug Adapter Protocol)** step-debugger built into the
+qzjs ships a **DAP (Debug Adapter Protocol)** step-debugger built into the
 library itself — no separate debugger binary. When enabled, any program that
-embeds amoib can be step-debugged in VS Code (breakpoints, step over/into/out,
+embeds qzjs can be step-debugged in VS Code (breakpoints, step over/into/out,
 call stack, locals, evaluate).
 
 ## How it works
 
 The debugger is a **library capability**, not a separate process. It lives in
 `src/debugger.c` (debug core) and `src/debugger_dap.c` (DAP protocol layer),
-compiled into `libamoib.a` when `AM_BUILD_DEBUGGER=ON`. A small patch to the
+compiled into `libqzjs.a` when `QZ_BUILD_DEBUGGER=ON`. A small patch to the
 QuickJS-ng engine (`deps/quickjs-ng-debugger.patch`) adds the breakpoint/step
 introspection primitives the core uses.
 
 Activation is **automatic via config or env** — your host code does not
-change. `am_create` checks for debugging and, if enabled, attaches the DAP
+change. `qz_create` checks for debugging and, if enabled, attaches the DAP
 layer (which speaks DAP on stdin/stdout) and pauses at entry. VS Code then
 attaches.
 
 ### Two-layer disable (zero overhead when off)
 
-- `AM_BUILD_DEBUGGER=OFF` (default): the engine patch is **not** applied,
-  `src/debugger.c`/`src/debugger_dap.c` are **not** compiled, and `am_create`
-  has no debug code path. Debugging does not exist; `libamoib.a` is unchanged.
-- `AM_BUILD_DEBUGGER=ON`: the patch is applied and the sources compile in,
+- `QZ_BUILD_DEBUGGER=OFF` (default): the engine patch is **not** applied,
+  `src/debugger.c`/`src/debugger_dap.c` are **not** compiled, and `qz_create`
+  has no debug code path. Debugging does not exist; `libqzjs.a` is unchanged.
+- `QZ_BUILD_DEBUGGER=ON`: the patch is applied and the sources compile in,
   but the engine's per-opcode `DEBUGGER_CHECK` is a no-op (one never-taken
   branch) **unless a debugger is attached at runtime**. Non-debugged runs pay
   essentially nothing.
@@ -36,32 +36,32 @@ attaches.
 ## Build
 
 ```bash
-cmake -B build -DAM_BUILD_DEBUGGER=ON -DAM_BUILD_TESTS=ON
+cmake -B build -DQZ_BUILD_DEBUGGER=ON -DQZ_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 ```
 
 This applies `deps/quickjs-ng-debugger.patch` to the QuickJS-ng submodule
 working tree at configure time (the submodule stays clean in git — the patch
-is the source of truth). `cmake -DAM_BUILD_DEBUGGER=OFF` restores pristine.
+is the source of truth). `cmake -DQZ_BUILD_DEBUGGER=OFF` restores pristine.
 
 ## Enable debugging in your program
 
-**Option A — no code change (env var):** run your program with `AM_DEBUG=1`:
+**Option A — no code change (env var):** run your program with `QZ_DEBUG=1`:
 
 ```bash
-AM_DEBUG=1 ./myapp app.js
+QZ_DEBUG=1 ./myapp app.js
 ```
 
-**Option B — config bit:** set bit 1 of `am_config_t.debug` (bit 0 is the
+**Option B — config bit:** set bit 1 of `qz_config_t.debug` (bit 0 is the
 existing verbose-log flag):
 
 ```c
-am_config_t cfg = { .pal = pal, .debug = 0x2 };  /* bit 1 = debug-enable */
-am_t *rt = am_create(&cfg);
-am_eval(rt, src, NULL);   /* pauses at entry, then at breakpoints */
+qz_config_t cfg = { .pal = pal, .debug = 0x2 };  /* bit 1 = debug-enable */
+qz_t *rt = qz_create(&cfg);
+qz_eval(rt, src, NULL);   /* pauses at entry, then at breakpoints */
 ```
 
-That's it — `am_create` auto-attaches DAP, sends `initialized`, and blocks
+That's it — `qz_create` auto-attaches DAP, sends `initialized`, and blocks
 on the DAP configuration phase (initialize / setBreakpoints /
 configurationDone) before returning. `stop_on_entry` pauses at the first
 statement of your program.
@@ -69,25 +69,25 @@ statement of your program.
 ## VS Code setup
 
 Your program is the debug target — VS Code's `runtimeExecutable` points at
-**your** binary, not a amoib-provided one. Create `.vscode/launch.json`:
+**your** binary, not a qzjs-provided one. Create `.vscode/launch.json`:
 
 ```json
 {
   "version": "0.2.0",
   "configurations": [{
-    "type": "amoib",
+    "type": "qzjs",
     "request": "attach",
-    "name": "amoib: debug",
+    "name": "qzjs: debug",
     "program": "${workspaceFolder}/app.js",
     "runtimeExecutable": "${workspaceFolder}/myapp",
     "runtimeArgs": ["${workspaceFolder}/app.js"],
-    "env": { "AM_DEBUG": "1" }
+    "env": { "QZ_DEBUG": "1" }
   }]
 }
 ```
 
-> **Note:** `type: "amoib"` requires a VS Code extension that registers the
-> `amoib` debug type. Until a packaged extension ships, you can drive the DAP
+> **Note:** `type: "qzjs"` requires a VS Code extension that registers the
+> `qzjs` debug type. Until a packaged extension ships, you can drive the DAP
 > layer directly (the adapter speaks standard DAP over stdio) or use the
 > scripted test (`test/test_dap_debugger.c`) as a reference client. The DAP
 > layer implements: initialize, attach, setBreakpoints, configurationDone,
@@ -122,7 +122,7 @@ step, evaluate watch expressions.
 - **No source maps**, no conditional/logpoint breakpoints, no exception
   breakpoints, no edit-and-continue, no multi-isolate.
 - **`debugger;` keyword** is still a no-op (breakpoints are set from the UI).
-- A packaged VS Code extension registering the `amoib` debug type is a
+- A packaged VS Code extension registering the `qzjs` debug type is a
   follow-up; the DAP layer is complete and tested via the scripted clients.
 
 ## Async support
@@ -130,9 +130,9 @@ step, evaluate watch expressions.
 The debugger **does** advance async JS while paused. When stopped at a
 breakpoint, the DAP layer's `on_stopped` loop polls stdin with a short timeout
 and, between polls, drives one non-blocking iteration of the PAL event loop
-(`pal->run_cycle(0)` + `am_tick`). So `fetch` responses, `setTimeout`
+(`pal->run_cycle(0)` + `qz_tick`). So `fetch` responses, `setTimeout`
 callbacks, etc. continue to fire while you inspect the paused state — all on
-the single JS thread (amoib owns no threads). A re-entrancy guard prevents
+the single JS thread (qzjs owns no threads). A re-entrancy guard prevents
 PAL-driven JS from nesting another stop.
 
 `test/test_dap_async.c` validates this: a uv-backed debuggee schedules a 100ms
@@ -146,8 +146,8 @@ cd build && ctest -R test_dap_debugger --output-on-failure
 ```
 
 `test/test_dap_debugger.c` is an in-process embedding host that forks a child
-running a tiny JS program under `AM_DEBUG=1`, then acts as the VS Code
+running a tiny JS program under `QZ_DEBUG=1`, then acts as the VS Code
 client over a pipe: initialize → setBreakpoints → configurationDone → expects
 `stopped` at the breakpoint → stackTrace/scopes/variables/evaluate → step →
 continue → terminate. It validates the whole stack: engine patch + debug core
-+ DAP layer + the auto-attach path in `am_create`.
++ DAP layer + the auto-attach path in `qz_create`.

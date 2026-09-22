@@ -1,6 +1,6 @@
 ---
 title: CacheStorage
-description: The CacheStorage API in Amoib.js — the global `caches` / `CacheStorage` / `Cache` objects backing the Service Worker fetch interception layer.
+description: The CacheStorage API in Qzjs.js — the global `caches` / `CacheStorage` / `Cache` objects backing the Service Worker fetch interception layer.
 ---
 
 # CacheStorage
@@ -54,4 +54,4 @@ const any = await caches.match('/api/data');  // search across all caches
   usable). See [streams](/js-api/streams) for the tee semantics behind
   `Response.clone()`.
 - CacheStorage backs the Service Worker's offline layer; for general
-  key-value storage use [`amoib.storage`](/js-api/storage).
+  key-value storage use [`qzjs.storage`](/js-api/storage).

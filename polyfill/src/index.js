@@ -1,5 +1,5 @@
 /**
- * amoib Polyfill Bundle - Main Entry Point
+ * qzjs Polyfill Bundle - Main Entry Point
  *
  * This is the entry point for the esbuild bundler.
  * All modules are imported and their setup functions called with the `pal`
@@ -19,7 +19,7 @@
  *   pal.fsWrite(path, data) -> Promise<void>
  *   pal.fsReadSync(path) -> string (sync, throws if missing)
  *   pal.fsWriteSync(path, data) -> void (sync, atomic temp+rename)
- *   pal.localStoragePath() -> string (AM_LOCALSTORAGE_FILE or ~/.amoib/localstorage.json)
+ *   pal.localStoragePath() -> string (QZ_LOCALSTORAGE_FILE or ~/.qzjs/localstorage.json)
  *   pal.fsExists(path) -> Promise<boolean>
  *   pal.fsRemove(path) -> Promise<void>
  *   pal.fsList(path) -> Promise<string> (JSON array)
@@ -35,7 +35,7 @@
  *   （§2.5 消费者无感契约，test/test_polyfill_lazy_gtest.cpp 钉住）。
  *
  * 级联（§2.3）：F→S→B；W→M；SW→W→M；WS→CS；serve→G（serve() 首次执行读
- * amoib.http2 触发）。eager 主线保证 lazy 全部前提就绪。
+ * qzjs.http2 触发）。eager 主线保证 lazy 全部前提就绪。
  */
 
 import { pal } from './pal.js';
@@ -71,17 +71,17 @@ import { setupServiceWorker } from './service-worker.js';
 import { setupWorker } from './worker.js';
 import { setupContext } from './context.js';
 // Virtual module: build.js aliases this to the real gRPC/HTTP2 stack when
-// AM_WITH_GRPC=1, or to an empty stub when it is 0 — which is what keeps
+// QZ_WITH_GRPC=1, or to an empty stub when it is 0 — which is what keeps
 // http2/hpack/protobuf/grpc out of the default bundle.
-import { setupGrpcStack } from '@amoib/grpc-stack';
+import { setupGrpcStack } from '@qzjs/grpc-stack';
 
 // ================================================================
-// 宿主对象 eager 空壳（设计 §3.2）：globalThis.amoib 全局对象替代原
-// fs.js/storage.js/http2.js/grpc.js 各自的 `if (!globalThis.amoib)` 就地创建。
-// amoib.fs / amoib.storage / amoib.http2 子属性均为 lazy getter（见下）。
+// 宿主对象 eager 空壳（设计 §3.2）：globalThis.qzjs 全局对象替代原
+// fs.js/storage.js/http2.js/grpc.js 各自的 `if (!globalThis.qzjs)` 就地创建。
+// qzjs.fs / qzjs.storage / qzjs.http2 子属性均为 lazy getter（见下）。
 // ================================================================
 
-globalThis.amoib = {};
+globalThis.qzjs = {};
 
 // ================================================================
 // Eager（14 单元，启动即 setup）——设计 §2.2
@@ -113,10 +113,10 @@ setupStructuredClone();
 /* M — message-channel（MessageEvent 被 host-messaging dispatch 触发） */
 var ensureM = lazyUnit(
   ['MessageChannel', 'MessagePort', 'MessageEvent',
-   '__am_lookup_port__', '__am_port_from_ref__',
-   '__am_port_frame_op__', '__am_route_port_message__',
-   '__am_port_xfer_frame__', '__am_port_frame_body__',
-   '__am_endpoint_dead__'],
+   '__qz_lookup_port__', '__qz_port_from_ref__',
+   '__qz_port_frame_op__', '__qz_route_port_message__',
+   '__qz_port_xfer_frame__', '__qz_port_frame_body__',
+   '__qz_endpoint_dead__'],
   [],
   function () { setupMessageChannel(pal); });
 
@@ -145,7 +145,7 @@ lazyUnit(
 
 /* W — worker（级联 M） */
 var ensureW = lazyUnit(
-  ['Worker', '__am_worker_post__'],
+  ['Worker', '__qz_worker_post__'],
   [],
   function () { ensureM(); setupWorker(pal); });
 
@@ -155,8 +155,8 @@ lazyUnit(
   [[globalThis.navigator, 'serviceWorker']],
   function () { ensureW(); setupServiceWorker(pal); });
 
-/* G — grpc-stack（grpc/protobuf 全局 + amoib.http2 子属性，注册式）：
- * AM_WITH_GRPC=OFF 时 grpc-stack-stub.js 的 setupGrpcStack 为空函数 →
+/* G — grpc-stack（grpc/protobuf 全局 + qzjs.http2 子属性，注册式）：
+ * QZ_WITH_GRPC=OFF 时 grpc-stack-stub.js 的 setupGrpcStack 为空函数 →
  * 无任何 getter、API 不存在（与现状一致）。 */
 setupGrpcStack();
 
@@ -168,7 +168,7 @@ lazyUnit(
 
 /* CS — crypto.subtle 子属性 + CryptoKey/SubtleCrypto 全局（共享一次 setup）
  * 惰性钩子对齐：setupCryptoSubtle 只注册 pal.__installCryptoSubtle__，
- * 实际安装由 crypto 扩展（AM_WITH_CRYPTO_EXT）的 init 钩子调用。lazy 下
+ * 实际安装由 crypto 扩展（QZ_WITH_CRYPTO_EXT）的 init 钩子调用。lazy 下
  * 扩展 init 跑在 polyfill 注入之后、本 ensure 之前——native 钩子已就位但
  * installer 未注册，故此处先 setupCryptoSubtle 再自行补调 installer（仅当
  * 扩展存在，以 pal.nativeDigest 判定）；扩展缺席时恢复 eager 语义
@@ -210,22 +210,22 @@ lazyUnit(
   [],
   function () { setupURLPattern(); });
 
-/* serve — HTTP/1 server（首次执行读 amoib.http2 触发 G 级联） */
+/* serve — HTTP/1 server（首次执行读 qzjs.http2 触发 G 级联） */
 lazyUnit(
   ['serve'],
   [],
   function () { setupHttpServer(pal); });
 
-/* FS — amoib.fs 子属性 */
+/* FS — qzjs.fs 子属性 */
 lazyUnit(
   [],
-  [[globalThis.amoib, 'fs']],
+  [[globalThis.qzjs, 'fs']],
   function () { setupFS(pal); });
 
-/* ST — amoib.storage 子属性 */
+/* ST — qzjs.storage 子属性 */
 lazyUnit(
   [],
-  [[globalThis.amoib, 'storage']],
+  [[globalThis.qzjs, 'storage']],
   function () { setupStorage(pal); });
 
 /* LS — local-storage / session-storage（同一 setup 物化两域） */

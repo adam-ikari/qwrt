@@ -1,11 +1,11 @@
 #!/bin/bash
 # CI nightly（02:00 cron 触发）：拉起 omp 无头会话，按 docs/CI_FIX_BACKLOG.md
-# 推进一项 CI 修复。日志 /tmp/amoib-ci-nightly/。
+# 推进一项 CI 修复。日志 /tmp/qzjs-ci-nightly/。
 export PATH=/home/gem/.bun/bin:/home/gem/.local/bin:/home/gem/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
 export HOME=/home/gem
-LOGDIR=/tmp/amoib-ci-nightly
+LOGDIR=/tmp/qzjs-ci-nightly
 mkdir -p "$LOGDIR"
-cd /home/gem/project/amoib || exit 1
+cd /home/gem/project/qzjs || exit 1
 log="$LOGDIR/nightly-$(date +%Y%m%d).log"
 echo "[$(date -Is)] nightly start" >> "$log"
 /home/gem/.bun/bin/omp -p --auto-approve --max-time=45m \

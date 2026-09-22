@@ -5,11 +5,11 @@
 # ②overlapping-activation（C2）：A→B（activate 门控）→C，B 激活中途被 supersede
 #   → 无孤儿中间 worker（A、B 均 redundant）、最终 controller 是最后版本 C
 # 脚本副本在 /tmp（mktemp）并以参数传给 main-sw3u.js（I3）——工作树零污染。
-# 期望输出逐行匹配。用法: bash test/service_worker_sw3_update_e2e.sh <path-to-amoib>
+# 期望输出逐行匹配。用法: bash test/service_worker_sw3_update_e2e.sh <path-to-qzjs>
 set -u
-AM="${1:-./build_grpc2/amoib}"
+AM="${1:-./build_grpc2/qzjs}"
 DIR="$(cd "$(dirname "$0")/sw-e2e" && pwd)"
-TMP="$(mktemp --suffix=.js /tmp/amoib-sw3u-run-XXXXXX)"
+TMP="$(mktemp --suffix=.js /tmp/qzjs-sw3u-run-XXXXXX)"
 trap 'rm -f "$TMP"' EXIT
 cp "$DIR/sw-sw3-a.js" "$TMP"
 OUT="$(timeout 20 "$AM" "$DIR/main-sw3u.js" "$TMP" "$DIR" 2>&1)"

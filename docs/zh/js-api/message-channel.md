@@ -1,6 +1,6 @@
 ---
 title: MessageChannel
-description: Amoib.js 中的 MessageChannel API —— 结构化克隆、端口消息传递以及跨上下文通信。
+description: Qzjs.js 中的 MessageChannel API —— 结构化克隆、端口消息传递以及跨上下文通信。
 ---
 
 # MessageChannel / MessagePort
@@ -58,13 +58,13 @@ port.postMessage([1, 2, 3]);
 port.addEventListener('message', (event) => {
     console.log('收到:', event.data);
     // event.data 是克隆后的消息
-    // event.ports 是传输的 MessagePort 数组（在 amoib 中始终为空）
+    // event.ports 是传输的 MessagePort 数组（在 qzjs 中始终为空）
 });
 ```
 
 ### start()
 
-启动端口。在 amoib 中，端口在创建时自动启动——只有 `addEventListener` 在 `postMessage` 之后调用时才需要显式调用 `start()`。
+启动端口。在 qzjs 中，端口在创建时自动启动——只有 `addEventListener` 在 `postMessage` 之后调用时才需要显式调用 `start()`。
 
 ```js
 port.start();
@@ -100,7 +100,7 @@ port.onmessageerror = (event) => {
 
 ## 跨上下文通信
 
-`MessageChannel` 的主要用例是 amoib 上下文之间的通信（多上下文模式）：
+`MessageChannel` 的主要用例是 qzjs 上下文之间的通信（多上下文模式）：
 
 ```js
 // 上下文 A
@@ -111,7 +111,7 @@ channel.port1.addEventListener('message', (event) => {
     console.log('来自上下文 B 的响应:', event.data);
 });
 
-// 上下文 B（在其自己的 amoib 上下文中）
+// 上下文 B（在其自己的 qzjs 上下文中）
 globalThis.addEventListener('message', (event) => {
     let port = event.ports[0];
     console.log('来自上下文 A 的请求:', event.data);

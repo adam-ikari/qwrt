@@ -24,7 +24,7 @@ updated: "2026-09-01T09:15:17"
 
 ```mermaid
 graph LR
-  D[amoib runtime] --> E[QuickJS-ng]
+  D[qzjs runtime] --> E[QuickJS-ng]
   D --> L[libuv]
   D --> X[WAMR/wasm3]
   D --> H[tcp_io: raw TCP/TLS]

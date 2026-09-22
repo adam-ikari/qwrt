@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: URL and URLSearchParams
+ * qzjs polyfill: URL and URLSearchParams
  *
  * WHATWG URL Standard implementation.
  * Pure JS - no PAL primitives needed.

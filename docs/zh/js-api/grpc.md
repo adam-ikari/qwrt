@@ -1,12 +1,12 @@
 ---
 title: gRPC
-description: Amoib.js 的 gRPC API —— 纯 JS 的 HTTP/2 + HPACK + protobuf 客户端与服务端，暴露为全局 `grpc`（需 AM_WITH_GRPC=ON）。
+description: Qzjs.js 的 gRPC API —— 纯 JS 的 HTTP/2 + HPACK + protobuf 客户端与服务端，暴露为全局 `grpc`（需 QZ_WITH_GRPC=ON）。
 ---
 
 # gRPC
 
 纯 JS 的 gRPC 栈，包含 HTTP/2 帧层、HPACK、protobuf 编解码，支持四种 RPC
-形态（unary / 服务端流 / 客户端流 / 双向流）。构建时开启 `AM_WITH_GRPC=ON`
+形态（unary / 服务端流 / 客户端流 / 双向流）。构建时开启 `QZ_WITH_GRPC=ON`
 后会挂上全局 `grpc`（这个 bundle 可选，会给 polyfill 增加约 3.5k 行 JS）。
 
 ## 全局
@@ -65,5 +65,5 @@ serve({ port: 50051, grpc: server }, () => 'not-grpc');
 
 ## 示例
 
-见 [`examples/grpc-hello`](https://github.com/adam-ikari/amoib/tree/master/examples/grpc-hello)
-——四种形态可运行的演示（unary + 流式，amoib 客户端 → amoib 服务端）。
+见 [`examples/grpc-hello`](https://github.com/adam-ikari/qzjs/tree/master/examples/grpc-hello)
+——四种形态可运行的演示（unary + 流式，qzjs 客户端 → qzjs 服务端）。

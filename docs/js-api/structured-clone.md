@@ -1,6 +1,6 @@
 ---
 title: structuredClone
-description: The structuredClone API in Amoib.js — deep cloning of JavaScript objects with transferable support.
+description: The structuredClone API in Qzjs.js — deep cloning of JavaScript objects with transferable support.
 ---
 
 # structuredClone
@@ -153,4 +153,4 @@ console.log(cloned.stack);    // stack trace is preserved
 - `RegExp` flags (`g`, `i`, `m`, `s`, `u`, `y`) are preserved
 - `RegExp.lastIndex` is reset to 0 in the clone
 - `Date` timezone offset is preserved (millisecond precision)
-- No `Blob` or `File` cloning support (these types are limited in amoib)
+- No `Blob` or `File` cloning support (these types are limited in qzjs)

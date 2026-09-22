@@ -1,43 +1,43 @@
 /*
- * amoib Polyfill Bytecode Loader (mode: rodata | compressed | external | host)
+ * qzjs Polyfill Bytecode Loader (mode: rodata | compressed | external | host)
  *
- * Provides the unified interface am_polyfill_load / am_polyfill_unload.
+ * Provides the unified interface qz_polyfill_load / qz_polyfill_unload.
  * Which storage backend is used depends on the compile-time macro
- * AM_POLYFILL_MODE (set by CMake's -DAM_POLYFILL_MODE=<mode>).
+ * QZ_POLYFILL_MODE (set by CMake's -DQZ_POLYFILL_MODE=<mode>).
  *
  *   rodata (default)   — const array in .rodata, no heap allocation.
  *   compressed         — lz4-block-compressed array in .rodata, decompressed
  *                        to heap at load (raw LZ4 block via LZ4_decompress_safe;
  *                        build.js produces the block via cmake target
- *                        am_lz4_compress — same vendored lz4, same format).
+ *                        qz_lz4_compress — same vendored lz4, same format).
  *   external           — external .polyfill file read into heap at load.
- *   host               — delegates to the weak am_polyfill_load_custom().
+ *   host               — delegates to the weak qz_polyfill_load_custom().
  */
 
-#include "am_internal.h"
+#include "qz_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
-#if AM_POLYFILL_MODE == AM_POLYFILL_MODE_COMPRESSED
+#if QZ_POLYFILL_MODE == QZ_POLYFILL_MODE_COMPRESSED
 # include "lz4.h"
 #endif
 
 /* ================================================================
  * Mode C — const array in .rodata (default)
  * ================================================================ */
-#if AM_POLYFILL_MODE == AM_POLYFILL_MODE_RODATA
+#if QZ_POLYFILL_MODE == QZ_POLYFILL_MODE_RODATA
 
-int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
+int qz_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
 {
-    *out    = am_default_polyfill;
-    *out_len = am_default_polyfill_len;
+    *out    = qz_default_polyfill;
+    *out_len = qz_default_polyfill_len;
     *owner  = NULL;
     return 0;
 }
 
-void am_polyfill_unload(void *owner)
+void qz_polyfill_unload(void *owner)
 {
     (void)owner;  /* mode C: no heap allocation, nothing to free */
 }
@@ -45,35 +45,35 @@ void am_polyfill_unload(void *owner)
 /* ================================================================
  * compressed — lz4-block-compressed array → heap decompress
  * ================================================================ */
-#elif AM_POLYFILL_MODE == AM_POLYFILL_MODE_COMPRESSED
+#elif QZ_POLYFILL_MODE == QZ_POLYFILL_MODE_COMPRESSED
 
-int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
+int qz_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
 {
-    uint8_t *decomp = malloc(am_default_polyfill_orig_len);
+    uint8_t *decomp = malloc(qz_default_polyfill_orig_len);
     if (!decomp) {
-        fprintf(stderr, "[amoib] polyfill: lz4 decompress OOM (%zu bytes)\n",
-                am_default_polyfill_orig_len);
-        return AM_ERR_NO_MEMORY;
+        fprintf(stderr, "[qzjs] polyfill: lz4 decompress OOM (%zu bytes)\n",
+                qz_default_polyfill_orig_len);
+        return QZ_ERR_NO_MEMORY;
     }
-    int rc = LZ4_decompress_safe((const char *)am_default_polyfill_compressed,
+    int rc = LZ4_decompress_safe((const char *)qz_default_polyfill_compressed,
                                  (char *)decomp,
-                                 (int)am_default_polyfill_compressed_len,
-                                 (int)am_default_polyfill_orig_len);
-    if (rc < 0 || (size_t)rc != am_default_polyfill_orig_len) {
+                                 (int)qz_default_polyfill_compressed_len,
+                                 (int)qz_default_polyfill_orig_len);
+    if (rc < 0 || (size_t)rc != qz_default_polyfill_orig_len) {
         free(decomp);
-        fprintf(stderr, "[amoib] polyfill: lz4 decompression failed "
+        fprintf(stderr, "[qzjs] polyfill: lz4 decompression failed "
                 "(rc=%d, compressed %zu, expected %zu)\n",
-                rc, am_default_polyfill_compressed_len,
-                am_default_polyfill_orig_len);
-        return AM_ERR_GENERIC;
+                rc, qz_default_polyfill_compressed_len,
+                qz_default_polyfill_orig_len);
+        return QZ_ERR_GENERIC;
     }
     *out    = (const uint8_t *)decomp;
-    *out_len = am_default_polyfill_orig_len;
+    *out_len = qz_default_polyfill_orig_len;
     *owner  = decomp;
     return 0;
 }
 
-void am_polyfill_unload(void *owner)
+void qz_polyfill_unload(void *owner)
 {
     free(owner);
 }
@@ -81,20 +81,20 @@ void am_polyfill_unload(void *owner)
 /* ================================================================
  * Mode B — external .polyfill file
  * ================================================================ */
-#elif AM_POLYFILL_MODE == AM_POLYFILL_MODE_EXTERNAL
+#elif QZ_POLYFILL_MODE == QZ_POLYFILL_MODE_EXTERNAL
 
 /*
  * File path resolution (first match wins):
- *   1. AM_POLYFILL_FILE  environment variable
- *   2. AM_POLYFILL_FILE  compile-time macro (if defined)
+ *   1. QZ_POLYFILL_FILE  environment variable
+ *   2. QZ_POLYFILL_FILE  compile-time macro (if defined)
  *   3. error — no path available
  */
 static const char *polyfill_file_path(void)
 {
-    const char *env = getenv("AM_POLYFILL_FILE");
+    const char *env = getenv("QZ_POLYFILL_FILE");
     if (env && env[0]) return env;
-#ifdef AM_POLYFILL_FILE
-    return AM_POLYFILL_FILE;
+#ifdef QZ_POLYFILL_FILE
+    return QZ_POLYFILL_FILE;
 #else
     return NULL;
 #endif
@@ -192,33 +192,33 @@ static void sha256_hex(const uint8_t digest[32], char out[65])
     out[64] = '\0';
 }
 
-int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
+int qz_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
 {
     const char *path = polyfill_file_path();
     if (!path || !path[0]) {
-        fprintf(stderr, "[amoib] polyfill: AM_POLYFILL_FILE not set "
+        fprintf(stderr, "[qzjs] polyfill: QZ_POLYFILL_FILE not set "
                 "(define the macro or set the environment variable)\n");
-        return AM_ERR_NOT_FOUND;
+        return QZ_ERR_NOT_FOUND;
     }
 
     FILE *f = fopen(path, "rb");
     if (!f) {
-        fprintf(stderr, "[amoib] polyfill: cannot open %s: %s\n",
+        fprintf(stderr, "[qzjs] polyfill: cannot open %s: %s\n",
                 path, strerror(errno));
-        return AM_ERR_NOT_FOUND;
+        return QZ_ERR_NOT_FOUND;
     }
 
     /* Get file size */
     if (fseek(f, 0, SEEK_END) != 0) {
         fclose(f);
-        fprintf(stderr, "[amoib] polyfill: fseek failed on %s\n", path);
-        return AM_ERR_IO;
+        fprintf(stderr, "[qzjs] polyfill: fseek failed on %s\n", path);
+        return QZ_ERR_IO;
     }
     long file_size = ftell(f);
     if (file_size < 0) {
         fclose(f);
-        fprintf(stderr, "[amoib] polyfill: ftell failed on %s\n", path);
-        return AM_ERR_IO;
+        fprintf(stderr, "[qzjs] polyfill: ftell failed on %s\n", path);
+        return QZ_ERR_IO;
     }
     rewind(f);
 
@@ -227,7 +227,7 @@ int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
     uint8_t *buf = (uint8_t *)malloc(sz);
     if (!buf) {
         fclose(f);
-        return AM_ERR_NO_MEMORY;
+        return QZ_ERR_NO_MEMORY;
     }
 
     /* Read contents */
@@ -235,9 +235,9 @@ int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
     fclose(f);
     if (nread != sz) {
         free(buf);
-        fprintf(stderr, "[amoib] polyfill: short read from %s "
+        fprintf(stderr, "[qzjs] polyfill: short read from %s "
                 "(%zu != %zu)\n", path, nread, sz);
-        return AM_ERR_IO;
+        return QZ_ERR_IO;
     }
 
     /* Integrity check — defense in depth against post-deployment tampering.
@@ -251,16 +251,16 @@ int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
         uint8_t digest[32];
         char expected_hex[65], actual_hex[65];
         sha256(buf, sz, digest);
-        if (memcmp(digest, am_polyfill_external_sha256, 32) != 0) {
-            sha256_hex(am_polyfill_external_sha256, expected_hex);
+        if (memcmp(digest, qz_polyfill_external_sha256, 32) != 0) {
+            sha256_hex(qz_polyfill_external_sha256, expected_hex);
             sha256_hex(digest, actual_hex);
-            fprintf(stderr, "[amoib] polyfill: SHA-256 mismatch for %s\n"
+            fprintf(stderr, "[qzjs] polyfill: SHA-256 mismatch for %s\n"
                     "  expected: %s\n"
                     "  actual:   %s\n"
                     "  refusing to load bytecode, it is not the file this "
                     "binary was built with\n", path, expected_hex, actual_hex);
             free(buf);
-            return AM_ERR_PERMISSION;
+            return QZ_ERR_PERMISSION;
         }
     }
 
@@ -270,7 +270,7 @@ int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
     return 0;
 }
 
-void am_polyfill_unload(void *owner)
+void qz_polyfill_unload(void *owner)
 {
     free(owner);
 }
@@ -278,31 +278,31 @@ void am_polyfill_unload(void *owner)
 /* ================================================================
  * Mode D — host-provided custom hook (weak symbols)
  * ================================================================ */
-#else /* AM_POLYFILL_MODE_HOST */
+#else /* QZ_POLYFILL_MODE_HOST */
 
 __attribute__((weak))
-int am_polyfill_load_custom(const uint8_t **out, size_t *out_len, void **owner)
+int qz_polyfill_load_custom(const uint8_t **out, size_t *out_len, void **owner)
 {
     (void)out; (void)out_len; (void)owner;
-    fprintf(stderr, "[amoib] polyfill: mode D but am_polyfill_load_custom "
+    fprintf(stderr, "[qzjs] polyfill: mode D but qz_polyfill_load_custom "
             "is not defined by the host\n");
-    return AM_ERR_NOT_SUPPORTED;
+    return QZ_ERR_NOT_SUPPORTED;
 }
 
 __attribute__((weak))
-void am_polyfill_unload_custom(void *owner)
+void qz_polyfill_unload_custom(void *owner)
 {
     (void)owner;
 }
 
-int am_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
+int qz_polyfill_load(const uint8_t **out, size_t *out_len, void **owner)
 {
-    return am_polyfill_load_custom(out, out_len, owner);
+    return qz_polyfill_load_custom(out, out_len, owner);
 }
 
-void am_polyfill_unload(void *owner)
+void qz_polyfill_unload(void *owner)
 {
-    am_polyfill_unload_custom(owner);
+    qz_polyfill_unload_custom(owner);
 }
 
 #endif

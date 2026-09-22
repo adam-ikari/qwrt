@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for amoib
+about: Suggest a feature for qzjs
 labels: enhancement
 ---
 
@@ -8,7 +8,7 @@ labels: enhancement
 A clear description of what the problem is.
 
 **Describe the solution you'd like**
-What should amoib do?
+What should qzjs do?
 
 **Describe alternatives you've considered**
 Are there other ways to solve this?

@@ -1,6 +1,6 @@
 # 兼容的 npm 包
 
-以下包已在 amoib 运行时中**实际下载并运行**。每个包由 `test/compat_check.py` 通过极简 CommonJS loader 加载，并用真实调用进行测试。
+以下包已在 qzjs 运行时中**实际下载并运行**。每个包由 `test/compat_check.py` 通过极简 CommonJS loader 加载，并用真实调用进行测试。
 
 ## 运行时已验证 ✅
 
@@ -19,14 +19,14 @@
 
 ## CJS 包
 
-很多 npm 包使用 CommonJS（`module.exports`）。amoib 没有内建模块系统。使用 CJS 包时需要先注入 shim：
+很多 npm 包使用 CommonJS（`module.exports`）。qzjs 没有内建模块系统。使用 CJS 包时需要先注入 shim：
 
 ```js
 // 加载包之前：
 var module = { exports: {} };
 var exports = module.exports;
 
-// （compat_check.py 会在真实 amoib 运行时内执行此加载）
+// （compat_check.py 会在真实 qzjs 运行时内执行此加载）
 
 // 访问包：
 var myPkg = module.exports;
@@ -41,7 +41,7 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
   npx esbuild --bundle --format=iife --global-name=nanoid_bundle > nanoid.bundle.js
 ```
 
-然后把 IIFE bundle 作为 `initial_script` 或 `new Worker(url)` 脚本运行 — 没有 `am_eval`。
+然后把 IIFE bundle 作为 `initial_script` 或 `new Worker(url)` 脚本运行 — 没有 `qz_eval`。
 
 ## 选择标准
 
@@ -52,7 +52,7 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
 
 ## 不兼容
 
-以下常用包在 amoib 中无法工作：
+以下常用包在 qzjs 中无法工作：
 
 | 包 | 原因 |
 |----|------|
@@ -67,11 +67,11 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
 
 ## 如何验证
 
-`test/compat_check.py` 结合**静态源码扫描**与 **amoib 真实加载**：
+`test/compat_check.py` 结合**静态源码扫描**与 **qzjs 真实加载**：
 
 1. **静态扫描**：标记源码中的 Node 内置模块与缺失全局，包括加载时不会走到
    的分支里的潜在问题。
-2. **运行时加载**：把包注入 amoib 运行时，通过极简 CommonJS loader 真实加载
+2. **运行时加载**：把包注入 qzjs 运行时，通过极简 CommonJS loader 真实加载
    主入口。
 
 ```bash
@@ -82,7 +82,7 @@ python3 test/compat_check.py lodash --json    # 机器可读
 
 运行时判定是决定性的：CJS 包能加载并返回导出 → 兼容；`require` 了 Node 内置
 或外部 npm 依赖的包 → 在 require 处失败；ESM-only 包（`"type": "module"`）
-→ 报告需用 esbuild 转成 IIFE（amoib 没有 ESM loader）。静态扫描补充加载测试
+→ 报告需用 esbuild 转成 IIFE（qzjs 没有 ESM loader）。静态扫描补充加载测试
 看不到的潜在风险警告。
 
 运行时加载失败时退出码为 1，可用作 CI 门控。

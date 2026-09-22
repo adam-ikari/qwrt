@@ -1,6 +1,6 @@
 # Website Guidelines
 
-How to build, edit, and deploy the Amoib.js documentation website.
+How to build, edit, and deploy the Qzjs.js documentation website.
 
 ## Tech Stack
 
@@ -14,7 +14,7 @@ How to build, edit, and deploy the Amoib.js documentation website.
 ```bash
 cd docs
 npm install        # first time only
-npm run dev        # dev server at http://localhost:5173/amoib/
+npm run dev        # dev server at http://localhost:5173/qzjs/
 npm run build      # production build → .vitepress/dist/
 npm run preview    # preview production build
 ```
@@ -67,7 +67,7 @@ const sidebar = {
 const nav = [
   { text: 'Guide', link: '/guide/' },
   { text: 'JS API', link: '/js-api/' },
-  { text: 'GitHub', link: 'https://github.com/adam-ikari/amoib' },
+  { text: 'GitHub', link: 'https://github.com/adam-ikari/qzjs' },
 ]
 ```
 
@@ -94,7 +94,7 @@ When editing `polyfill/src/*.js`:
 cd polyfill
 QJSC=../build/deps/quickjs-ng/qjsc npm run build
 # This regenerates src/polyfill_<mode>.c (rodata default: src/polyfill_default.c)
-# Then rebuild amoib: cmake --build build
+# Then rebuild qzjs: cmake --build build
 ```
 
 ## Pre-commit Checklist

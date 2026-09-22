@@ -1,6 +1,6 @@
 ---
 title: TextEncoder / TextDecoder
-description: The Encoding API in Amoib.js — TextEncoder, TextDecoder, UTF-8 encoding/decoding, streaming decode, and fatal error mode.
+description: The Encoding API in Qzjs.js — TextEncoder, TextDecoder, UTF-8 encoding/decoding, streaming decode, and fatal error mode.
 ---
 
 # TextEncoder / TextDecoder

@@ -1,6 +1,6 @@
 ---
 title: streams
-description: The Streams API in Amoib.js — ReadableStream, WritableStream, TransformStream, piping, and backpressure.
+description: The Streams API in Qzjs.js — ReadableStream, WritableStream, TransformStream, piping, and backpressure.
 ---
 
 # ReadableStream / WritableStream
@@ -28,7 +28,7 @@ let stream = new ReadableStream({
     },
     pull(controller) {
         // Called when the consumer wants more data.
-        // Not implemented in amoib's WinterTC modules.
+        // Not implemented in qzjs's WinterTC modules.
     },
     cancel(reason) {
         // Called when the consumer cancels the stream.

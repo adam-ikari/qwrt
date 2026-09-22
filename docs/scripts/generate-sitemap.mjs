@@ -5,7 +5,7 @@
 import { readdirSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const BASE = 'https://adam-ikari.github.io/amoib';
+const BASE = 'https://adam-ikari.github.io/qzjs';
 const DIST = '.vitepress/dist';
 
 function walk(dir, base = '') {

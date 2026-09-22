@@ -1,12 +1,12 @@
-# amoib fetch-proxy Example
+# qzjs fetch-proxy Example
 
-演示 amoib `fetch()` 的**出站代理**能力：`HTTP_PROXY` / `HTTPS_PROXY` /
+演示 qzjs `fetch()` 的**出站代理**能力：`HTTP_PROXY` / `HTTPS_PROXY` /
 `NO_PROXY` 环境变量（含小写、`*` 通配、后缀匹配）。代理逻辑由 C 层透明
 实现——http 走绝对式请求行（RFC 7230 §5.3.2），https 走 CONNECT 隧道后
 TLS 端到端；JS 侧零感知，fetch 调用方式不变。
 
 示例自带一个用 `serve()` + `fetch()` 写的极简转发代理（协议在 JS，
-amoib 只提供原语），本地即可跑通，无需外部代理软件。
+qzjs 只提供原语），本地即可跑通，无需外部代理软件。
 
 ## 运行
 
@@ -15,11 +15,11 @@ amoib 只提供原语），本地即可跑通，无需外部代理软件。
 cmake -S . -B build_rel -DCMAKE_BUILD_TYPE=Release && cmake --build build_rel -j
 
 # 终端 1：启动转发代理（干净环境启动，模拟网络中的代理）
-./build_rel/amoib examples/fetch-proxy/main.js proxy 18082
+./build_rel/qzjs examples/fetch-proxy/main.js proxy 18082
 
 # 终端 2：启动客户端 + 本地源站（带代理环境变量）
 HTTP_PROXY=http://127.0.0.1:18082 NO_PROXY=127.0.0.1,example.com \
-  ./build_rel/amoib examples/fetch-proxy/main.js client
+  ./build_rel/qzjs examples/fetch-proxy/main.js client
 ```
 
 客户端跑完自动退出；代理 `Ctrl-C` 停止。端口可换（ORIGIN_PORT 固定
@@ -31,7 +31,7 @@ HTTP_PROXY=http://127.0.0.1:18082 NO_PROXY=127.0.0.1,example.com \
 
 ```
 [origin] GET /hello
-[client] via-proxy : status=200  x-proxied-by=amoib-fetch-proxy-example  body=origin-hello
+[client] via-proxy : status=200  x-proxied-by=qzjs-fetch-proxy-example  body=origin-hello
 [origin] GET /direct
 [client] direct    : status=200  x-proxied-by=null  body=origin-hello
 [client] internet  : status=200  len=<可变>  (NO_PROXY 直连)   # 网络可用时
@@ -55,7 +55,7 @@ HTTP_PROXY=http://127.0.0.1:18082 NO_PROXY=127.0.0.1,example.com \
   plain-http 转发；对接真实代理（squid 等）时配 `HTTPS_PROXY` 即可，
   TLS 证书仍对源站校验。离线环境该行打印不可达，属正常。
 
-## 依赖的能力（amoib 内置）
+## 依赖的能力（qzjs 内置）
 
 | 能力 | 说明 |
 |---|---|

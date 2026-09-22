@@ -284,7 +284,7 @@ set_tests_properties(test_mock_uv_gtest PROPERTIES LABELS "offline")
 
 - [ ] **Step 6: 构建 + 跑自测**
 
-Run: `cmake -B build -DCMAKE_BUILD_TYPE=Debug -DAM_BUILD_TESTS=ON && cmake --build build -j$(nproc) && cd build && ctest -R test_mock_uv_gtest --output-on-failure`
+Run: `cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON && cmake --build build -j$(nproc) && cd build && ctest -R test_mock_uv_gtest --output-on-failure`
 Expected: 编译通过；自测 PASS（timer 到期触发、async 唤醒 uv_run、NOWAIT 一趟返回）。
 
 - [ ] **Step 7: 报告变更**
@@ -871,7 +871,7 @@ TEST(host_, message_thread_safety) {
 - [ ] **Step 11: 重新生成 polyfill 字节码 + 构建 + 跑核心测试**
 
 Run: `cd polyfill && npm install && npm run build && cd ..`
-Run: `cmake -B build -DCMAKE_BUILD_TYPE=Debug -DAM_BUILD_TESTS=ON && cmake --build build -j$(nproc)`
+Run: `cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON && cmake --build build -j$(nproc)`
 Run: `cd build && ctest -L offline --output-on-failure`
 Expected: 编译通过（`-Wall -Wextra -Werror` 零告警）；`test_am_gtest` 全过；其余暂留套件通过（不含被摘除的 I/O/context 套件）。
 
@@ -1385,7 +1385,7 @@ CLAUDE.md：Build & Test 节——`AM_PAL_*` 移除、测试链接说明改 `amo
 
 - [ ] **Step 6: 全量构建 + 离线测试 + 内存检查**
 
-Run: `cmake -B build -DCMAKE_BUILD_TYPE=Debug -DAM_BUILD_TESTS=ON && cmake --build build -j$(nproc)`
+Run: `cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON && cmake --build build -j$(nproc)`
 Run: `cd build && ctest -L offline --output-on-failure`
 Run: `valgrind --leak-check=full ./build/test/test_am_gtest`（若 valgrind 可用）
 Expected: 全绿；零告警；无泄漏报告；`grep -rn "am_pal\|AM_PAL" .`（排除 .git/build）无命中。

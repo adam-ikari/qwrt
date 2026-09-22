@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: URLPattern
+ * qzjs polyfill: URLPattern
  *
  * TC55/ECMA-429 requires URLPattern for URL matching.
  *
@@ -7,11 +7,11 @@
  * MIT，零依赖），官方 WHATWG URLPattern 实现。
  *
  * 入口走子路径 'urlpattern-polyfill/urlpattern'（dist/urlpattern.js，纯导出）：
- * 包根 index.js 会把 URLPattern 直接挂到 globalThis，破坏 amoib 的 lazy 语义，
+ * 包根 index.js 会把 URLPattern 直接挂到 globalThis，破坏 qzjs 的 lazy 语义，
  * 故不走根入口。
  *
  * 运行时依赖全局 URL/URLSearchParams（canonicalizeHostname 等以
- * `new URL('https://example.com')` 做 base 解析）——amoib 中 URL 是 lazy getter，
+ * `new URL('https://example.com')` 做 base 解析）——qzjs 中 URL 是 lazy getter，
  * 首次访问自动加载，无需额外处理。
  *
  * 行为差异（自研 regex 子集 → 规范实现）：
@@ -24,8 +24,8 @@
  */
 import { URLPattern } from 'urlpattern-polyfill/urlpattern';
 
-function AMURLPattern(pattern, baseURL) {
-  /* 相对字符串 pattern（以 '/' 开头）无 base：官方实现抛 TypeError。amoib 自研
+function QZURLPattern(pattern, baseURL) {
+  /* 相对字符串 pattern（以 '/' 开头）无 base：官方实现抛 TypeError。qzjs 自研
    * 语义为相对 pattern 匹配任意 host → 转对象形式（组件缺省 = 通配），语义一致。 */
   if (typeof pattern === 'string' && baseURL === undefined &&
       pattern.length > 0 && pattern[0] === '/') {
@@ -35,5 +35,5 @@ function AMURLPattern(pattern, baseURL) {
 }
 
 export function setupURLPattern() {
-  globalThis.URLPattern = AMURLPattern;
+  globalThis.URLPattern = QZURLPattern;
 }

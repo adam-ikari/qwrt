@@ -2,7 +2,7 @@
 //
 // 覆盖 test/wpt/crypto/subtle-digest.any.js 的测试向量：SHA-256 digest、
 // HMAC sign/verify/importKey/exportKey/generateKey、PBKDF2 deriveBits。
-// crypto.subtle 由 crypto 扩展（ext_crypto.c，AM_WITH_CRYPTO_EXT=ON）在
+// crypto.subtle 由 crypto 扩展（ext_crypto.c，QZ_WITH_CRYPTO_EXT=ON）在
 // runtime 初始化时安装，所有操作返回 Promise，测试用全局变量 + 轮询断言。
 #include "test_host.h"
 #include <cstdio>

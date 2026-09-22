@@ -1,21 +1,21 @@
 ---
 title: 扩展
-description: Amoib.js 构建时原生 C 扩展 — am_ext_t 接口、AM_EXTENSIONS 宏、生命周期钩子和每运行时数据。
+description: Qzjs.js 构建时原生 C 扩展 — qz_ext_t 接口、QZ_EXTENSIONS 宏、生命周期钩子和每运行时数据。
 ---
 
 # 扩展
 
-扩展是为 JS 上下文添加全局对象和函数的原生 C 模块。它们实现了带有生命周期钩子的 `am_ext_t` 接口。
+扩展是为 JS 上下文添加全局对象和函数的原生 C 模块。它们实现了带有生命周期钩子的 `qz_ext_t` 接口。
 
 ## 内置扩展
 
 | 扩展 | 选项 | JS API |
 |-----------|--------|-------|
-| `ext_compress` | `AM_WITH_COMPRESS` | gzip/zlib/deflate 压缩 |
-| `ext_crypto` | `AM_WITH_CRYPTO_EXT` | SHA、HMAC、PBKDF2、AES-GCM |
-| `ext_textcodec` | `AM_WITH_TEXTCODEC` | UTF-8、Base64 编解码 |
-| `ext_wamr` | `AM_WITH_WAMR` | 通过 WAMR 的 WebAssembly（默认） |
-| `ext_wasm3` | `AM_WITH_WASM3` | 通过 wasm3 的 WebAssembly（可选） |
+| `ext_compress` | `QZ_WITH_COMPRESS` | gzip/zlib/deflate 压缩 |
+| `ext_crypto` | `QZ_WITH_CRYPTO_EXT` | SHA、HMAC、PBKDF2、AES-GCM |
+| `ext_textcodec` | `QZ_WITH_TEXTCODEC` | UTF-8、Base64 编解码 |
+| `ext_wamr` | `QZ_WITH_WAMR` | 通过 WAMR 的 WebAssembly（默认） |
+| `ext_wasm3` | `QZ_WITH_WASM3` | 通过 wasm3 的 WebAssembly（可选） |
 
 **注意：** `ext_wamr` 和 `ext_wasm3` 互斥 — 两者都注册 `WebAssembly` 全局对象，因此每次构建只能启用其中一个。
 
@@ -24,25 +24,25 @@ description: Amoib.js 构建时原生 C 扩展 — am_ext_t 接口、AM_EXTENSIO
 ## 扩展接口
 
 ```c
-typedef struct am_ext_t {
+typedef struct qz_ext_t {
     const char *name;          // 人类可读的名称，用于诊断
-    int (*init)(am_ext_t *ext, am_t *rt);      // 上下文创建时调用
-    void (*destroy)(am_ext_t *ext, am_t *rt);   // 上下文销毁时调用
-    int (*suspend)(am_ext_t *ext, am_t *rt);    // 上下文挂起时调用
-    int (*resume)(am_ext_t *ext, am_t *rt);     // 上下文恢复时调用
+    int (*init)(qz_ext_t *ext, qz_t *rt);      // 上下文创建时调用
+    void (*destroy)(qz_ext_t *ext, qz_t *rt);   // 上下文销毁时调用
+    int (*suspend)(qz_ext_t *ext, qz_t *rt);    // 上下文挂起时调用
+    int (*resume)(qz_ext_t *ext, qz_t *rt);     // 上下文恢复时调用
     void *user_data;           // 不透明的扩展状态
-} am_ext_t;
+} qz_ext_t;
 ```
 
 ## 编写自定义扩展
 
 ```c
-#include <amoib/amoib.h>
+#include <qzjs/qzjs.h>
 #include <quickjs.h>
-#include "am_internal.h"   // am_get_active_jsctx（内部辅助）
+#include "qz_internal.h"   // qz_get_active_jsctx（内部辅助）
 
-static int my_ext_init(am_ext_t *ext, am_t *rt) {
-    JSContext *ctx = am_get_active_jsctx(rt);
+static int my_ext_init(qz_ext_t *ext, qz_t *rt) {
+    JSContext *ctx = qz_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     // 添加全局函数
@@ -54,22 +54,22 @@ static int my_ext_init(am_ext_t *ext, am_t *rt) {
     return 0;  // 成功
 }
 
-static void my_ext_destroy(am_ext_t *ext, am_t *rt) {
+static void my_ext_destroy(qz_ext_t *ext, qz_t *rt) {
     // 清理扩展资源
-    // JSContext 的清理由 amoib 处理
+    // JSContext 的清理由 qzjs 处理
 }
 
-static int my_ext_suspend(am_ext_t *ext, am_t *rt) {
+static int my_ext_suspend(qz_ext_t *ext, qz_t *rt) {
     // 保存状态、关闭连接等
     return 0;
 }
 
-static int my_ext_resume(am_ext_t *ext, am_t *rt) {
+static int my_ext_resume(qz_ext_t *ext, qz_t *rt) {
     // 恢复状态、重新打开连接等
     return 0;
 }
 
-am_ext_t my_extension = {
+qz_ext_t my_extension = {
     .name = "my_extension",
     .init = my_ext_init,
     .destroy = my_ext_destroy,
@@ -81,56 +81,56 @@ am_ext_t my_extension = {
 
 ## 注册扩展
 
-扩展在**构建时**通过 `AM_EXTENSIONS` 宏（定义在
-`include/amoib/am_ext_registry.h` 中）注册。没有运行时注册 API —
-扩展集在编译 amoib 库时固定。
+扩展在**构建时**通过 `QZ_EXTENSIONS` 宏（定义在
+`include/qzjs/qz_ext_registry.h` 中）注册。没有运行时注册 API —
+扩展集在编译 qzjs 库时固定。
 
 ### 内置扩展
 
-内置扩展（compress/crypto/textcodec/wamr）在其 `AM_WITH_*` CMake 选项开启时自动注册。
-它们作为条件槽出现在 `AM_DEFAULT_EXTENSIONS` 中
+内置扩展（compress/crypto/textcodec/wamr）在其 `QZ_WITH_*` CMake 选项开启时自动注册。
+它们作为条件槽出现在 `QZ_DEFAULT_EXTENSIONS` 中
 （禁用的内置扩展变为 NULL 槽，在初始化时被跳过）。
 
 ### 添加自定义扩展（非侵入式）
 
-父项目可以**不修改 amoib 源码**来添加自己的扩展：将扩展的 `.c` 编译进 amoib 目标
-（使其 `&my_extension` 符号对 `context.c` 可见），并将其追加到 `AM_EXTENSIONS`：
+父项目可以**不修改 qzjs 源码**来添加自己的扩展：将扩展的 `.c` 编译进 qzjs 目标
+（使其 `&my_extension` 符号对 `context.c` 可见），并将其追加到 `QZ_EXTENSIONS`：
 
 ```cmake
-# 在父项目的 CMakeLists.txt 中，在 add_subdirectory(amoib) 之前：
-set(AM_EXTENSIONS "AM_DEFAULT_EXTENSIONS, &my_extension")
-set(AM_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
-add_subdirectory(deps/amoib)
+# 在父项目的 CMakeLists.txt 中，在 add_subdirectory(qzjs) 之前：
+set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS, &my_extension")
+set(QZ_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
+add_subdirectory(deps/qzjs)
 ```
 
-`AM_EXTRA_SOURCES` 将源文件添加到 `amoib` 目标；`AM_EXTENSIONS`
+`QZ_EXTRA_SOURCES` 将源文件添加到 `qzjs` 目标；`QZ_EXTENSIONS`
 覆盖表格以在默认集之后追加 `&my_extension`。要**裁剪**内置扩展，
-只需列出你需要的条目，而不是 `AM_DEFAULT_EXTENSIONS`。
+只需列出你需要的条目，而不是 `QZ_DEFAULT_EXTENSIONS`。
 
 ## 生命周期钩子
 
-- **`init`** — 在扩展注册到上下文时调用（`am_create` 时，或创建 worker 上下文时）。注册 JS 全局对象，分配资源。成功返回 0，失败返回 <0。
+- **`init`** — 在扩展注册到上下文时调用（`qz_create` 时，或创建 worker 上下文时）。注册 JS 全局对象，分配资源。成功返回 0，失败返回 <0。
 - **`destroy`** — 在上下文销毁时调用。释放扩展资源。JSContext 清理是自动的 — 你只需要释放自己的分配。
 - **`suspend`** — 在上下文挂起时调用。保存状态、暂停定时器、关闭连接。
 - **`resume`** — 在上下文恢复时调用。恢复状态、恢复定时器、重新打开连接。
 
-所有钩子都接收扩展和运行时。通过 `am_get_active_jsctx(rt)` 获取活跃的 `JSContext*`（内部辅助，声明于 `src/am_internal.h`）。
+所有钩子都接收扩展和运行时。通过 `qz_get_active_jsctx(rt)` 获取活跃的 `JSContext*`（内部辅助，声明于 `src/qz_internal.h`）。
 
 ### init 中的每运行时数据
 
-`am_ext_t.user_data` 字段位于**共享的编译时**扩展结构体上 — 它不是每实例的。
-要在 `init` 中获取每运行时数据（`init` 在 `am_create` 期间运行，此时宿主尚未获得 `rt`），
-在 `am_create` 之前设置 `config.host_data` 并通过
-`am_get_runtime_data(rt)` 读取：
+`qz_ext_t.user_data` 字段位于**共享的编译时**扩展结构体上 — 它不是每实例的。
+要在 `init` 中获取每运行时数据（`init` 在 `qz_create` 期间运行，此时宿主尚未获得 `rt`），
+在 `qz_create` 之前设置 `config.host_data` 并通过
+`qz_get_runtime_data(rt)` 读取：
 
 ```c
 /* 宿主端： */
-am_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
-am_t *rt = am_create(&cfg);
+qz_config_t cfg = { .pal = pal, .host_data = my_per_rt_state };
+qz_t *rt = qz_create(&cfg);
 
 /* 扩展 init： */
-static int my_ext_init(am_ext_t *ext, am_t *rt) {
-    my_state_t *st = (my_state_t *)am_get_runtime_data(rt);
+static int my_ext_init(qz_ext_t *ext, qz_t *rt) {
+    my_state_t *st = (my_state_t *)qz_get_runtime_data(rt);
     /* st 是宿主通过 config 设置的每实例数据 */
     ...
 }

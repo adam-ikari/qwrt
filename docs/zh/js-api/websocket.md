@@ -1,11 +1,11 @@
 ---
 title: WebSocket
-description: Amoib.js 的 WebSocket API —— 全局 `WebSocket` 客户端与 serve() WebSocket 路由，RFC 6455 over raw TCP。
+description: Qzjs.js 的 WebSocket API —— 全局 `WebSocket` 客户端与 serve() WebSocket 路由，RFC 6455 over raw TCP。
 ---
 
 # WebSocket
 
-amoib 提供 WebSocket 的客户端和服务端：
+qzjs 提供 WebSocket 的客户端和服务端：
 
 - **客户端**：全局 `WebSocket` 类（RFC 6455 客户端，跑在裸 TCP 上）
 - **服务端**：在 `serve()` 监听器上注册的 WebSocket 路由（见

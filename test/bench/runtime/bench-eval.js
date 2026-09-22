@@ -1,11 +1,11 @@
-/* amoib runtime-perf harness — R6 eval throughput (integer add / closure call
+/* qzjs runtime-perf harness — R6 eval throughput (integer add / closure call
  * / string concat). Driven by test/bench_runtime.py; prints one JSON line.
  *
  * Pure CPU micro-benchmarks: CPU-dense work is backend-independent by the
  * multi-process model's judgment table §1.4, so a single backend suffices.
  * Each op: warmup 3 discarded runs + 5 sampled runs, median M ops/s.
  *
- * Usage: amoib test/bench/runtime/bench-eval.js [iterations] [samples]
+ * Usage: qzjs test/bench/runtime/bench-eval.js [iterations] [samples]
  */
 var ITERS = globalThis.arguments[0] ? parseInt(globalThis.arguments[0], 10) : 1000000;
 var SAMPLES = globalThis.arguments[1] ? parseInt(globalThis.arguments[1], 10) : 5;

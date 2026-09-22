@@ -122,7 +122,7 @@ set(AM_EXTENSIONS "AM_DEFAULT_EXTENSIONS,&my_foo_ext")
 add_subdirectory(deps/amoib)   # amoib 检测到父工程已设 AM_EXTENSIONS，采用之
 ```
 
-或命令行：`cmake -DAM_EXTENSIONS="&am_compress_ext" ...`。
+或命令行：`cmake -DQZ_EXTENSIONS="&am_compress_ext" ...`。
 
 使用者添加自己的扩展 = 在自己工程里写 `ext_foo.c` 暴露
 `const am_ext_t am_foo_ext`，并把该源文件**编入 amoib 静态库**
@@ -298,6 +298,6 @@ endif()
 - `test/test_extension_gtest.cpp`：删去重/动态注册用例；保留默认集注册、
   init/destroy 正常。
 - `AM_EXTENSIONS` 覆盖用例：以**独立翻译单元/独立 CMake target** 验证
-  （单独 `.c` + `-DAM_EXTENSIONS=...`），避免与主 TU 宏冲突。
+  （单独 `.c` + `-DQZ_EXTENSIONS=...`），避免与主 TU 宏冲突。
 - wamr 默认构建：CI job 验证 wamr 默认 ON 时 `WebAssembly` 可用且 wasm3 不在
   默认集。

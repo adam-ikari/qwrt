@@ -1,6 +1,6 @@
 ---
 title: AbortController
-description: Amoib.js 中的 AbortController API —— AbortController、AbortSignal、fetch 取消以及超时模式。
+description: Qzjs.js 中的 AbortController API —— AbortController、AbortSignal、fetch 取消以及超时模式。
 ---
 
 # AbortController / AbortSignal / DOMException

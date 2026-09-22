@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: Event and EventTarget
+ * qzjs polyfill: Event and EventTarget
  *
  * Standard DOM Event model implementation.
  * Pure JS - no PAL primitives needed.

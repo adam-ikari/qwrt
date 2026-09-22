@@ -13,7 +13,7 @@ updated: "2026-08-27T08:16:16"
 
 - WAMR 的 `thread_signal_inited` 是**线程局部**（`os_thread_local_attribute`）状态，
   而 `wasm_runtime_init()` 是进程级单例（ext_wamr 的 `g_wamr_state` 保证只 init 一次）。
-- 每个 amoib 实例跑在自己的 worker 线程（`am_create` → `uv_thread_create`）。第二个
+- 每个 qzjs 实例跑在自己的 worker 线程（`qz_create` → `uv_thread_create`）。第二个
   及以后的实例（新线程）直接调 wasm 函数会报 "thread signal env not inited"。
 - **必须**在每个实例初始化时调 `wasm_runtime_init_thread_env()`（幂等）；销毁时调
   `wasm_runtime_destroy_thread_env()` —— 后者卸载 SIGSEGV/SIGBUS handler、恢复栈
@@ -21,7 +21,7 @@ updated: "2026-08-27T08:16:16"
   `os_thread_signal_init` 的 `touch_pages` 里撞上遗留的 PROT_NONE 页直接 SIGSEGV
   （gdb 确认 SEGV_ACCERR）。
 - 对称位置：`wamr_ext_init`（worker 线程内，context 创建时）/ `wamr_ext_destroy`
-  （`am_thread_teardown` → `am_ctx_destroy`，同一线程）。
+  （`qz_thread_teardown` → `qz_ctx_destroy`，同一线程）。
 
 # Streaming API（v1 语义等价）
 
@@ -51,6 +51,6 @@ updated: "2026-08-27T08:16:16"
 
 - time: 2026-08-27T08:16:16
   kind: decision
-  summary: "wasm3 streaming 对等 + 引擎注册根因修复（C1）：ext_wasm3.c 补 compileStreaming/instantiateStreaming（镜像 WAMR 的 JS_Eval async IIFE，magic 0/1 区分）；修复 AM_DEFAULT_EXTENSIONS 从不注册 wasm3 的 bug（wasm3 构建下 WebAssembly 全局缺失），新增 AM_EXT_IF_WITH(WASM3) 槽位（CMake 已保证 WAMR/WASM3 互斥）；streaming 测试门控 WAMR OR WASM3。验证：wasm3 3/3 + WAMR 回归 3/3 + 真实 libuv CLI 端到端 instantiateStreaming add(20,22)=42。"
+  summary: "wasm3 streaming 对等 + 引擎注册根因修复（C1）：ext_wasm3.c 补 compileStreaming/instantiateStreaming（镜像 WAMR 的 JS_Eval async IIFE，magic 0/1 区分）；修复 QZ_DEFAULT_EXTENSIONS 从不注册 wasm3 的 bug（wasm3 构建下 WebAssembly 全局缺失），新增 QZ_EXT_IF_WITH(WASM3) 槽位（CMake 已保证 WAMR/WASM3 互斥）；streaming 测试门控 WAMR OR WASM3。验证：wasm3 3/3 + WAMR 回归 3/3 + 真实 libuv CLI 端到端 instantiateStreaming add(20,22)=42。"
   source: "C1: wasm3 streaming parity + registration fix"
   affects: [wasm-engine-integration]

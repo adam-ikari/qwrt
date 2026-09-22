@@ -1,6 +1,6 @@
 ---
 title: console
-description: The console API in Amoib.js — console.log, console.error, console.warn, and structured logging.
+description: The console API in Qzjs.js — console.log, console.error, console.warn, and structured logging.
 ---
 
 # console API
@@ -72,8 +72,8 @@ Each method maps to a numeric log level included in the output prefix:
 
 ## Implementation
 
-`console.*` runs on amoib's internal thread and writes to the host process's
-standard error, formatted as `[amoib:<level>] <message>`. There is no host
+`console.*` runs on qzjs's internal thread and writes to the host process's
+standard error, formatted as `[qzjs:<level>] <message>`. There is no host
 callback for console — output goes straight to stderr.
 
 ## Formatting

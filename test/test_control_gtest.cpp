@@ -1,20 +1,20 @@
 // test_control_gtest.cpp — CTL-0 控制面进程内基线测试
-// 验证 am_control / am_control_dispatch 的核心契约：
+// 验证 qz_control / qz_control_dispatch 的核心契约：
 // eval/inspect/metrics 操作、异常处理、OFF 档拒绝、未知 op、超时回收。
 #include "test_host.h"
 #include <cstring>
 
 // 启用控制面的 host 工厂（control_plane=IN_PROC）。
-// 与 host_create 相同，但 cfg.control_plane = AM_CONTROL_IN_PROC。
+// 与 host_create 相同，但 cfg.control_plane = QZ_CONTROL_IN_PROC。
 static HostCtx *host_create_ctl() {
     auto *h = new HostCtx();
     uv_mutex_init(&h->m); uv_cond_init(&h->c);
-    am_config_t cfg = {};
+    qz_config_t cfg = {};
     cfg.initial_script = kTestBootstrap;
     cfg.message_cb = host_msg_cb;
     cfg.host_data = h;
-    cfg.control_plane = AM_CONTROL_IN_PROC;
-    h->rt = am_create(&cfg);
+    cfg.control_plane = QZ_CONTROL_IN_PROC;
+    h->rt = qz_create(&cfg);
     if (!h->rt) { delete h; return nullptr; }
     return h;
 }
@@ -72,7 +72,7 @@ TEST(control_, metrics_ok) {
     host_destroy(h);
 }
 
-// 5. OFF 档：am_control 恒返回 -1（不入队、无回执）
+// 5. OFF 档：qz_control 恒返回 -1（不入队、无回执）
 TEST(control_, off_rejected) {
     HostCtx *h = host_create();   // 默认 control_plane=OFF
     ASSERT_NE(nullptr, h);
@@ -103,7 +103,7 @@ TEST(control_, timeout) {
     int id = ++h->eval_id;
     std::string block = "{\"cmd\":\"eval\",\"id\":" + std::to_string(id) +
                         ",\"code\":" + JSON_string("var i=0;while(i<5000000)i++;1") + "}";
-    ASSERT_EQ(0, am_post_message(h->rt, block.data(), block.size()));
+    ASSERT_EQ(0, qz_post_message(h->rt, block.data(), block.size()));
     EXPECT_EQ(0, host_control(h, R"({"op":"metrics","correl":"c7","timeout_ms":1})"));
     std::string out;
     ASSERT_TRUE(host_wait_ctl(h, "c7", &out, 10000)) << out;

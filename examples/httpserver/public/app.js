@@ -1,4 +1,4 @@
-/* amoib example http server — 前端小脚本（演示静态文件服务） */
+/* qzjs example http server — 前端小脚本（演示静态文件服务） */
 (function () {
   'use strict';
 

@@ -14,12 +14,12 @@ continue-on-error already; the table is for human eyeballing across runs.
 
 Usage:
   python3 test/compare_perf.py --baseline test/perf_baselines/js-api.json \
-      --out /tmp/js-api-amoib.out [--section amoib]
+      --out /tmp/js-api-qzjs.out [--section qzjs]
   python3 test/compare_perf.py --baseline test/perf_baselines/tls-ws-grpc.json \
       --out /tmp/tls.out [--section tls]
 
 If --section is given, compares only that top-level key of the baseline
-(e.g. 'amoib' for js-api, 'tls' for tls-ws-grpc). Without --section the
+(e.g. 'qzjs' for js-api, 'tls' for tls-ws-grpc). Without --section the
 script compares every top-level section.
 """
 import argparse
@@ -83,7 +83,7 @@ def main():
         return 0
 
     if args.section:
-        # baseline file wraps per-runtime/per-section (e.g. {amoib:{...}}).
+        # baseline file wraps per-runtime/per-section (e.g. {qzjs:{...}}).
         # The bench .out is single-runtime, so the current JSON itself is
         # the section content — flatten it whole.
         section = args.section

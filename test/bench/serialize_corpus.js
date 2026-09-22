@@ -1,6 +1,6 @@
-/* __am_serialize__/__am_deserialize__ 字节等价性语料测试：
+/* __qz_serialize__/__qz_deserialize__ 字节等价性语料测试：
  * 新旧 polyfill 对同一语料库应产出完全相同字节（hex），且往返一致。
- * 用法：./build/amoib test/bench/serialize_corpus.js
+ * 用法：./build/qzjs test/bench/serialize_corpus.js
  */
 function hex(buf) {
   var u = new Uint8Array(buf);
@@ -39,8 +39,8 @@ corpus[corpus.length - 1].cyc = corpus[corpus.length - 1];
 var lines = [];
 for (var i = 0; i < corpus.length; i++) {
   try {
-    var bytes = __am_serialize__(corpus[i]);
-    var back = __am_deserialize__(bytes);
+    var bytes = __qz_serialize__(corpus[i]);
+    var back = __qz_deserialize__(bytes);
     lines.push(i + ': ' + hex(bytes));
   } catch (e) {
     lines.push(i + ': ERR ' + e.name + ':' + e.message);

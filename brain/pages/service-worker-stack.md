@@ -10,9 +10,9 @@ updated: "2026-09-07T08:44:50"
 <!-- compiled_truth -->
 # Service Worker 栈（SW-0/1/2/3）
 
-amoib SW 子集：fetch 客户端拦截 + 离线缓存 + 消息通信，SW 跑在独立 Worker 线程（复用 am_worker_create）。四阶段全部落地：
+qzjs SW 子集：fetch 客户端拦截 + 离线缓存 + 消息通信，SW 跑在独立 Worker 线程（复用 qz_worker_create）。四阶段全部落地：
 - SW-0（commit 1d7003d3）：注册/生命周期状态机 + 基础 API 面
-- SW-1（commit 836a73ff）：fetch 拦截（doRequest 钩子 __am_sw_intercept__）+ 30s 超时回退 + 防递归（__am_sw_mode__）
+- SW-1（commit 836a73ff）：fetch 拦截（doRequest 钩子 __qz_sw_intercept__）+ 30s 超时回退 + 防递归（__qz_sw_mode__）
 - SW-2（commit 8ee35a44）：Cache API 集成（cache.addAll、caches.match、Response.clone tee）
 - SW-3（commit d3e1e053）：更新机制——register()/update() 同步读 SW 脚本（pal.fsReadSync）与活跃/等待 SW 字节对比，同 URL 字节未变跳过安装；字节变化才 install
 
@@ -39,6 +39,6 @@ failSW 的 flushPendingFetches 仅当失败者就是当前 controller 才 flush�
 
 - time: 2026-09-07T08:44:50
   kind: decision
-  summary: "SW-3 更新机制落地并合入 master（commit d3e1e053）：register()/update() 字节对比（同 URL 字节未变跳过安装，不触发 install/superseded）；controller/active 切换从 install_done 延到 activate_done——新 SW install/activating 期间旧 SW 保持拦截（无控制真空），failSW 仅当失败者为当前 controller 才 flush 在途 fetch。验证：SW-0/1/2/3 e2e 4/4 PASS（CI binary ./build/amoib）+ httpserver 34/34 + fetch-proxy 9/9 + revert 还原 SW-2 复跑 SW-3 用例精确命中两缺陷（测试非空转）。"
+  summary: "SW-3 更新机制落地并合入 master（commit d3e1e053）：register()/update() 字节对比（同 URL 字节未变跳过安装，不触发 install/superseded）；controller/active 切换从 install_done 延到 activate_done——新 SW install/activating 期间旧 SW 保持拦截（无控制真空），failSW 仅当失败者为当前 controller 才 flush 在途 fetch。验证：SW-0/1/2/3 e2e 4/4 PASS（CI binary ./build/qzjs）+ httpserver 34/34 + fetch-proxy 9/9 + revert 还原 SW-2 复跑 SW-3 用例精确命中两缺陷（测试非空转）。"
   source: "sw3-impl 里程碑会话 commit d3e1e053"
   affects: [service-worker-stack]

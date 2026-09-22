@@ -1,6 +1,6 @@
 ---
 title: EventSource
-description: Amoib.js 的 EventSource API —— 带自动重连的 Server-Sent Events（SSE）客户端。
+description: Qzjs.js 的 EventSource API —— 带自动重连的 Server-Sent Events（SSE）客户端。
 ---
 
 # EventSource

@@ -1,15 +1,15 @@
-/* amoib CJS mini-loader for compat_check.
+/* qzjs CJS mini-loader for compat_check.
  *
  * Loads a package's main entry exactly the way Node would (relative require,
  * module/exports, __dirname/__filename), then reports whether it loads
- * without referencing Node built-ins or external npm deps amoib cannot resolve.
+ * without referencing Node built-ins or external npm deps qzjs cannot resolve.
  *
  * This is a real execution, not a static scan — if the package's top-level
  * code runs and its exports come back, it is compatible; if it throws
  * (missing require, Node built-in, syntax error for ESM-only packages), it
  * is not. That is as accurate as a load-time check can get.
  *
- * Usage:  amoib run.js <package-root-dir>  (run.js = injected __module_map__ + this)
+ * Usage:  qzjs run.js <package-root-dir>  (run.js = injected __module_map__ + this)
  *   (compat_check.py builds that run.js; not meant for direct use.)
  * Output: one JSON line on stdout (last line):
  *   {"ok":true,"type":"object","keys":["..."]}
@@ -19,7 +19,7 @@
 function main() {
   var args = (typeof globalThis.arguments !== 'undefined' && globalThis.arguments) || [];
   var pkgDir = args[0];
-  if (!pkgDir) { console.error('usage: amoib compat_loader.js <package-dir>'); return; }
+  if (!pkgDir) { console.error('usage: qzjs compat_loader.js <package-dir>'); return; }
 
   var cache = {};
   var currentDir = pkgDir;
@@ -41,7 +41,7 @@ function main() {
     }
     return (abs ? '/' : '') + out.join('/');
   }
-  // amoib has no synchronous fs (readFileSync is unsupported), so file
+  // qzjs has no synchronous fs (readFileSync is unsupported), so file
   // contents are injected up-front into globalThis.__module_map__ by
   // compat_check.py (keyed by absolute path). Look up there only.
   function loadSource(p) {
@@ -107,7 +107,7 @@ function main() {
   // a string; `browser` may also be a mapping object ({"./index.js":
   // "./index.browser.js"}) — only a string is usable as an entry. The modern
   // `exports` field is read for the browser / require / default / import
-  // conditions (amoib has browser globals and a CJS loader, so browser and
+  // conditions (qzjs has browser globals and a CJS loader, so browser and
   // require are preferred). Multiple candidates are tried in order so a
   // Node-only entry that fails on `node:crypto` can fall back to a browser
   // entry that uses the crypto global.

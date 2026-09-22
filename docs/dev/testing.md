@@ -1,6 +1,6 @@
 # Testing
 
-Amoib.js has a comprehensive multi-layer test suite.
+Qzjs.js has a comprehensive multi-layer test suite.
 
 ## Test Layers
 
@@ -22,7 +22,7 @@ Amoib.js has a comprehensive multi-layer test suite.
 
 ```bash
 # Configure with tests
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DAM_BUILD_TESTS=ON
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 
 # All offline tests (includes WinterTC Web API gtest suites)
@@ -55,7 +55,7 @@ cd build && ctest -R test262
 | test262 (quickjs runner) | 1 | 1 | 0 | 0 | 100% |
 
 ¹ WASM streaming 3 用例来自 `test/test_wasm_streaming_gtest.cpp`：compileStreaming/instantiateStreaming 语义等价实现 + 非法 source 拒绝。
-² CLI end-to-end 来自 `test/test_cli_gtest.cpp`（fork 真实 amoib 可执行文件，断言 stdout/stderr/退出码）。
+² CLI end-to-end 来自 `test/test_cli_gtest.cpp`（fork 真实 qzjs 可执行文件，断言 stdout/stderr/退出码）。
 ³ HTTPServer e2e 来自 `test/test_httpserver_e2e.py`（真实 libuv 构建 + 纯 JS serve() listener）。
 
 ## Memory Safety
@@ -66,17 +66,17 @@ Valgrind confirms zero bytes definitely lost.
 
 ## Writing Tests
 
-Tests use GoogleTest (C++), linked against `amoib` + `mock_libuv` — a
+Tests use GoogleTest (C++), linked against `qzjs` + `mock_libuv` — a
 deterministic in-process fake of the libuv API (see `test/mock_libuv.{c,h}`) —
-and are built with `-DAM_USE_MOCK_LIBUV`. Tests drive the runtime through
-the `HostCtx` harness in `test/test_host.h`: `host_create` starts a amoib
+and are built with `-DQZ_USE_MOCK_LIBUV`. Tests drive the runtime through
+the `HostCtx` harness in `test/test_host.h`: `host_create` starts a qzjs
 runtime and installs a bootstrap `onmessage` command channel
 (`{cmd:'eval'}`, `{cmd:'echo'}`); `host_eval`/`host_value` evaluate JS and
 return the result; `host_poll_until_value` polls until an async condition
 (timer, promise, storage) is met.
 
 ```cpp
-#include <amoib/amoib.h>
+#include <qzjs/qzjs.h>
 #include "test_host.h"   // HostCtx harness + mock_libuv
 #include <gtest/gtest.h>
 

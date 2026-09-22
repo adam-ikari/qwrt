@@ -1,11 +1,11 @@
 /**
- * amoib polyfill: Streams API
+ * qzjs polyfill: Streams API
  *
  * 三大流类全套（ReadableStream / WritableStream / TransformStream 及其
  * 控制器、Reader / Writer、两个 QueuingStrategy）委托
  * web-streams-polyfill@4.3.0（https://github.com/MattiasBuelens/web-streams-polyfill，
  * MIT，零依赖）。走 ponyfill 入口（主入口导出即纯工厂、无 globalThis 副作用），
- * 保住 amoib 的 lazy 加载语义。
+ * 保住 qzjs 的 lazy 加载语义。
  *
  * 保留自研（wsp 不含）：
  *   - CompressionStream / DecompressionStream：委托 pal.nativeCompress /

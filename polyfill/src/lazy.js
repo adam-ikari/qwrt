@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: lazy installation primitives
+ * qzjs polyfill: lazy installation primitives
  *
  * 惰性注册机制（设计文档 §3.1/§3.2）：installLazy 在 globalThis 上定义
  * configurable+enumerable 的 getter。首次访问时单元 ensure 先 `delete` 该属性
@@ -46,7 +46,7 @@ export function installLazy(name, ensure) {
   });
 }
 
-/* 宿主对象子属性惰性 getter（amoib.fs / navigator.serviceWorker / crypto.subtle）。 */
+/* 宿主对象子属性惰性 getter（qzjs.fs / navigator.serviceWorker / crypto.subtle）。 */
 export function installLazyProp(obj, prop, ensure) {
   Object.defineProperty(obj, prop, {
     configurable: true,

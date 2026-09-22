@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""amoib npm package compatibility checker — static scan + amoib runtime load.
+"""qzjs npm package compatibility checker — static scan + qzjs runtime load.
 
 Combines two complementary checks on the same package:
 
-1. STATIC scan: reads the source and flags Node built-ins and globals amoib
+1. STATIC scan: reads the source and flags Node built-ins and globals qzjs
    does not provide, even in branches that never run. Catches latent
    incompatibilities a load test would miss (a `require('fs')` behind a flag
    that isn't taken at load time still breaks when the flag is flipped).
 
-2. RUNTIME load: injects the package into a amoib runtime through a minimal
+2. RUNTIME load: injects the package into a qzjs runtime through a minimal
    CommonJS loader and actually loads the main entry. A CJS package that
    loads and returns its exports is compatible; one that requires a Node
    built-in or external npm dep fails; an ESM-only package reports that it
-   needs bundling to an IIFE with esbuild (amoib has no ESM loader).
+   needs bundling to an IIFE with esbuild (qzjs has no ESM loader).
 
 The runtime verdict is decisive; the static scan adds warnings the load test
 cannot see.
@@ -21,7 +21,7 @@ Usage:
   python3 test/compat_check.py lodash
   python3 test/compat_check.py express uuid          # multiple packages
   python3 test/compat_check.py lodash --json          # machine-readable
-  python3 test/compat_check.py lodash --amoib-bin ./build_cli/amoib
+  python3 test/compat_check.py lodash --qzjs-bin ./build_cli/qzjs
 
 Exit code: 1 if any package fails to load at runtime, 0 otherwise (CI gate).
 """
@@ -56,9 +56,9 @@ NODE_BUILTINS = {
 
 # The (?<![\w$.]) lookbehind only flags a bare global access — `root.process`,
 # `self.document`, `globalThis.Buffer` are optional feature-detect property
-# reads and must not count. Anything amoib provides (WebSocket, localStorage,
+# reads and must not count. Anything qzjs provides (WebSocket, localStorage,
 # addEventListener on EventTarget, CompressionStream, WebAssembly,
-# crypto.randomUUID, amoib.fs, ...) is deliberately absent.
+# crypto.randomUUID, qzjs.fs, ...) is deliberately absent.
 MISSING_GLOBALS = [
     (re.compile(r"(?<![\w$.])process\."), "process"),
     (re.compile(r"(?<![\w$.])(?:new Buffer\b|Buffer\.)"), "Buffer"),
@@ -150,37 +150,37 @@ def scan_static(pkg_root):
     for gname, hit in sorted(global_hits.items()):
         sample = ", ".join(hit["files"][:2])
         extra = " (%d files)" % hit["count"] if hit["count"] > 2 else ""
-        issues.append("%s used in %s%s — not available in amoib" % (gname, sample, extra))
+        issues.append("%s used in %s%s — not available in qzjs" % (gname, sample, extra))
     for dep, dep_files in sorted(hard_node.items()):
         extra = " (%d files)" % len(dep_files) if len(dep_files) > 1 else ""
-        issues.append('requires Node built-in "%s" (%s%s) — amoib has no module system'
+        issues.append('requires Node built-in "%s" (%s%s) — qzjs has no module system'
                       % (dep, dep_files[0], extra))
     for dep in sorted(guarded_node):
         notes.append('references Node built-in "%s" behind a feature check — fine unless that branch runs' % dep)
     for dep in sorted(npm_deps):
-        notes.append('depends on npm package "%s" — verify it runs on amoib' % dep)
+        notes.append('depends on npm package "%s" — verify it runs on qzjs' % dep)
     if not issues and not notes:
         notes.append("no Node built-ins or missing globals detected in the source")
     return {"issues": issues, "notes": notes}
 
 
 # ---------------------------------------------------------------------------
-# Runtime load via amoib
+# Runtime load via qzjs
 # ---------------------------------------------------------------------------
 
 def find_amoib(explicit):
     if explicit:
         return explicit
-    for cand in ("build/amoib", "build_cli/amoib"):
+    for cand in ("build/qzjs", "build_cli/qzjs"):
         if os.path.isfile(cand):
             return cand
     raise SystemExit(
-        "amoib binary not found (tried build/amoib, build_cli/amoib). "
-        "Build it or pass --amoib-bin.")
+        "qzjs binary not found (tried build/qzjs, build_cli/qzjs). "
+        "Build it or pass --qzjs-bin.")
 
 
 def fetch_bytes(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "amoib-compat-check"})
+    req = urllib.request.Request(url, headers={"User-Agent": "qzjs-compat-check"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read()
 
@@ -219,19 +219,19 @@ def build_run_script(module_map, loader_src):
             % (json.dumps(module_map, ensure_ascii=False), loader_src))
 
 
-def scan_runtime(pkg_root, am_bin):
-    """Load the package's main entry in a real amoib runtime. Returns
+def scan_runtime(pkg_root, qz_bin):
+    """Load the package's main entry in a real qzjs runtime. Returns
     {ok, error, type, keys}."""
     loader_src = open(LOADER_PATH, encoding="utf-8").read()
     run_script = build_run_script(collect_module_map(pkg_root), loader_src)
-    run_path = os.path.join(pkg_root, ".amoib-run.js")
+    run_path = os.path.join(pkg_root, ".qzjs-run.js")
     with open(run_path, "w", encoding="utf-8") as f:
         f.write(run_script)
     try:
-        r = subprocess.run([am_bin, run_path, pkg_root],
+        r = subprocess.run([qz_bin, run_path, pkg_root],
                            capture_output=True, text=True, timeout=120)
     except FileNotFoundError:
-        raise RuntimeError("amoib binary not found: %s" % am_bin)
+        raise RuntimeError("qzjs binary not found: %s" % qz_bin)
     finally:
         try:
             os.remove(run_path)
@@ -242,7 +242,7 @@ def scan_runtime(pkg_root, am_bin):
         data = json.loads(lines[-1])
     except (ValueError, IndexError):
         data = {"ok": False,
-                "error": "amoib produced no result line (exit %s): %s"
+                "error": "qzjs produced no result line (exit %s): %s"
                          % (r.returncode, (r.stdout + r.stderr)[-300:])}
     return {"ok": data.get("ok"), "error": data.get("error"),
             "type": data.get("type"), "keys": data.get("keys")}
@@ -250,17 +250,17 @@ def scan_runtime(pkg_root, am_bin):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="amoib npm package compatibility checker (static scan + amoib runtime load)")
+        description="qzjs npm package compatibility checker (static scan + qzjs runtime load)")
     ap.add_argument("packages", nargs="+", metavar="PKG", help="npm package name(s)")
-    ap.add_argument("--amoib-bin", default=None, help="path to the amoib CLI binary")
+    ap.add_argument("--qzjs-bin", default=None, help="path to the qzjs CLI binary")
     ap.add_argument("--json", action="store_true", help="machine-readable JSON output")
     args = ap.parse_args()
 
-    am_bin = find_amoib(args.am_bin)
+    qz_bin = find_amoib(args.qz_bin)
     failed = 0
     results = []
     for pkg in args.packages:
-        tmpdir = tempfile.mkdtemp(prefix="amoib-compat-")
+        tmpdir = tempfile.mkdtemp(prefix="qzjs-compat-")
         try:
             try:
                 meta = json.loads(fetch_bytes(REGISTRY + pkg).decode("utf-8"))
@@ -273,7 +273,7 @@ def main():
                 if not os.path.isdir(pkg_root):
                     pkg_root = tmpdir
                 static = scan_static(pkg_root)
-                runtime = scan_runtime(pkg_root, am_bin)
+                runtime = scan_runtime(pkg_root, qz_bin)
             except Exception as e:
                 version = None
                 static = {"issues": [], "notes": []}

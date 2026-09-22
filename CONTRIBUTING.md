@@ -1,4 +1,4 @@
-# Contributing to amoib
+# Contributing to qzjs
 
 ## AI Assistant Guidance
 
@@ -12,19 +12,19 @@ For Claude Code (claude.ai/code) or other AI assistants working with this codeba
 ## Development Setup
 
 ```bash
-git clone --recursive https://github.com/adam-ikari/amoib.git
-cd amoib
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DAM_BUILD_TESTS=ON
+git clone --recursive https://github.com/adam-ikari/qzjs.git
+cd qzjs
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
 
 ## Code Style
 
-- **C99**: `set(CMAKE_C_STANDARD 99)` — no C11 features in amoib core
+- **C99**: `set(CMAKE_C_STANDARD 99)` — no C11 features in qzjs core
 - **Indentation**: 4 spaces (no tabs)
 - **Naming**: `snake_case` for functions/variables, `SHOUTING_CASE` for macros
-- **Headers**: `#pragma once` not used; use `#ifndef AM_..._H` guards
+- **Headers**: `#pragma once` not used; use `#ifndef QZ_..._H` guards
 - **Comments**: `/* ... */` style (not `//`) for C source
 
 ## Commit Messages
@@ -32,7 +32,7 @@ cd build && ctest --output-on-failure
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-feat(amoib): add timer handle leak protection on HTTP abort
+feat(qzjs): add timer handle leak protection on HTTP abort
 fix(uv_io): fix chunked response decode boundary case
 docs: update libuv-native execution model documentation
 test: add escape_for_js property-based tests
@@ -41,18 +41,18 @@ refactor: unify WASM engine initialization
 
 ## Adding a New Extension
 
-1. Create `src/ext_<name>.c` and `include/amoib/ext_<name>.h`
-2. Implement `am_ext_t` (at minimum: `init` + `destroy`)
+1. Create `src/ext_<name>.c` and `include/qzjs/ext_<name>.h`
+2. Implement `qz_ext_t` (at minimum: `init` + `destroy`)
 3. Register JS functions via `JS_SetPropertyStr` in `init`
-4. Add CMake option `AM_WITH_<NAME>`
-5. Add to the default extensions list in `am_create`
+4. Add CMake option `QZ_WITH_<NAME>`
+5. Add to the default extensions list in `qz_create`
 
 ## Adding a New Polyfill Module
 
 1. Create `polyfill/src/<module>.js`
 2. Export globals via `globalThis.<name> = ...`
 3. Add to `polyfill/src/index.js` imports
-4. Run `cd polyfill && npm run build` to bundle (esbuild) → compile to bytecode (qjsc) → regenerate the generated C file for the active `AM_POLYFILL_MODE`: `src/polyfill_default.c` in the default `rodata` mode, `src/polyfill_<mode>.c` in the other modes (those per-mode files are untracked)
+4. Run `cd polyfill && npm run build` to bundle (esbuild) → compile to bytecode (qjsc) → regenerate the generated C file for the active `QZ_POLYFILL_MODE`: `src/polyfill_default.c` in the default `rodata` mode, `src/polyfill_<mode>.c` in the other modes (those per-mode files are untracked)
 5. Test via the host harness: `host_value(h, "typeof <global> !== 'undefined'", &out)` (see `test/test_host.h`)
 
 ## Third-Party Library Policy
@@ -88,11 +88,11 @@ The current baseline and per-module verdicts live in
 - [ ] No tabs in source files (spaces only)
 - [ ] No trailing whitespace
 - [ ] Commit messages follow Conventional Commits
-- [ ] No references to upper-layer applications — amoib is standalone
+- [ ] No references to upper-layer applications — qzjs is standalone
 
 ## Release Process
 
-1. Update version in `CMakeLists.txt` (`project(amoib VERSION x.y.z)`)
+1. Update version in `CMakeLists.txt` (`project(qzjs VERSION x.y.z)`)
 2. Update `CHANGELOG.md`
 3. Tag: `git tag v0.y.z`
 4. Push tag: `git push origin v0.y.z`

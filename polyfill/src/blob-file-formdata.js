@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: Blob, File, FormData
+ * qzjs polyfill: Blob, File, FormData
  *
  * TC55/ECMA-429 requires these for file/data handling.
  *

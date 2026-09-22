@@ -1,39 +1,39 @@
-// test_am_gtest.cpp — 宿主契约核心套件（执行模型 A）
-// 通过新 public API（am_create / am_post_message / am_destroy）驱动
-// 真实 amoib 线程 + mock_libuv loop，消息经 message_cb 回传。
+// test_qz_gtest.cpp — 宿主契约核心套件（执行模型 A）
+// 通过新 public API（qz_create / qz_post_message / qz_destroy）驱动
+// 真实 qzjs 线程 + mock_libuv loop，消息经 message_cb 回传。
 #include "test_host.h"
 #include <thread>
 #include <vector>
 #include <set>
 #include <cstdlib>
 
-TEST(am_create, creates_ready_runtime) {
+TEST(qz_create, creates_ready_runtime) {
     HostCtx *h = host_create();       // 无脚本：只验证 create 不阻塞不失败
     ASSERT_NE(nullptr, h);
     host_destroy(h);
 }
 
-TEST(am_create, null_config_rejected) {
-    EXPECT_EQ(nullptr, am_create(nullptr));
+TEST(qz_create, null_config_rejected) {
+    EXPECT_EQ(nullptr, qz_create(nullptr));
 }
 
-TEST(am_create, initial_script_exception_fails_create) {
-    am_config_t cfg = {}; cfg.initial_script = "throw new Error('boom');";
-    EXPECT_EQ(nullptr, am_create(&cfg));   // eval 异常 → ready_err → NULL
+TEST(qz_create, initial_script_exception_fails_create) {
+    qz_config_t cfg = {}; cfg.initial_script = "throw new Error('boom');";
+    EXPECT_EQ(nullptr, qz_create(&cfg));   // eval 异常 → ready_err → NULL
 }
 
-TEST(am_post_message, host_message_roundtrip) {
+TEST(qz_post_message, host_message_roundtrip) {
     HostCtx *h = host_create();
     ASSERT_NE(nullptr, h);
     const char *json = "{\"cmd\":\"echo\",\"data\":{\"a\":1}}";
-    ASSERT_EQ(0, am_post_message(h->rt, json, strlen(json)));
+    ASSERT_EQ(0, qz_post_message(h->rt, json, strlen(json)));
     std::string out;
     ASSERT_TRUE(host_wait_msg(h, &out));
     ASSERT_EQ("{\"a\":1}", out);              // echo 原样回
     host_destroy(h);
 }
 
-TEST(am_post_message, eval_via_command_channel) {
+TEST(qz_post_message, eval_via_command_channel) {
     HostCtx *h = host_create();
     ASSERT_NE(nullptr, h);
     std::string out;
@@ -58,7 +58,7 @@ TEST(host_, message_thread_safety) {
     for (int i = 0; i < N; i++) ts.emplace_back([h, i, &push_fail]{
         for (int k = 0; k < PER; k++) {
             std::string s = "{\"cmd\":\"echo\",\"data\":" + std::to_string(i*PER+k) + "}";
-            if (am_post_message(h->rt, s.data(), s.size()) != 0) push_fail++;
+            if (qz_post_message(h->rt, s.data(), s.size()) != 0) push_fail++;
         }
     });
     /* 收集所有 echo 回复。多槽 inbox 保证每条都消费；内容校验 = 每个 0..1599
@@ -106,22 +106,22 @@ TEST(pal_fs, read_sync_rejects_traversal) {
 /* 验证 wait_idle 的 API 存在且与 destroy 共存安全：请求 idle 退出后，线程
  * 在 loop 空时自动 teardown，destroy 侧 join 立即返回（shutting_down 已置位），
  * 无死锁/无双重释放。异步退出语义的端到端断言由 CLI 级 fork 测试覆盖。 */
-TEST(am_wait_idle, api_available_and_teardown_safe) {
+TEST(qz_wait_idle, api_available_and_teardown_safe) {
     HostCtx *h = host_create();
     ASSERT_NE(nullptr, h);
-    am_wait_idle(h->rt);          /* 请求 idle 退出 */
+    qz_wait_idle(h->rt);          /* 请求 idle 退出 */
     host_destroy(h);                /* destroy 与 wait_idle 共存：join 安全 */
     SUCCEED();
 }
 
-/* F4 security audit:am_msg_push 的分配大小 (sizeof + len + 1) 必须拒绝
+/* F4 security audit:qz_msg_push 的分配大小 (sizeof + len + 1) 必须拒绝
  * 溢出——len 理论可达 SIZE_MAX,若被接受会 malloc 小块后 memcpy 越界写。 */
-TEST(am_msg_push, rejects_alloc_overflow) {
+TEST(qz_msg_push, rejects_alloc_overflow) {
     HostCtx *h = host_create();
     ASSERT_NE(nullptr, h);
-    EXPECT_EQ(-1, am_msg_push(h->rt, "x", (size_t)-1, 0, 0));
-    EXPECT_EQ(-1, am_msg_push(h->rt, "x", (size_t)-2, 0, 0));
+    EXPECT_EQ(-1, qz_msg_push(h->rt, "x", (size_t)-1, 0, 0));
+    EXPECT_EQ(-1, qz_msg_push(h->rt, "x", (size_t)-2, 0, 0));
     /* 正常小消息仍入队成功 */
-    EXPECT_EQ(0, am_msg_push(h->rt, "ok", 2, 0, 0));
+    EXPECT_EQ(0, qz_msg_push(h->rt, "ok", 2, 0, 0));
     host_destroy(h);
 }

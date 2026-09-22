@@ -1,8 +1,8 @@
 /**
- * Compression Benchmark — amoib vs Node.js
+ * Compression Benchmark — qzjs vs Node.js
  *
  * Run on Node.js:  node bench_compress.js
- * Run on amoib:     via C test harness (test_compress_bench)
+ * Run on qzjs:     via C test harness (test_compress_bench)
  *
  * Two measurement modes:
  *   1. Sync (pal.nativeCompress/nativeDecompress) — pure zlib throughput
@@ -101,16 +101,16 @@ function decompressStream(data, format) {
   });
 }
 
-/* Check if native sync API is available (amoib only) */
+/* Check if native sync API is available (qzjs only) */
 var hasNative = (typeof globalThis !== 'undefined' && typeof globalThis.__native__ !== 'undefined' && typeof globalThis.__native__.nativeCompress === 'function');
 
 var runtime = 'unknown';
 if (typeof process !== 'undefined') {
   runtime = 'Node.js ' + process.version;
 } else if (hasNative) {
-  runtime = 'amoib (native+zlib)';
+  runtime = 'qzjs (native+zlib)';
 } else {
-  runtime = 'amoib (stream only)';
+  runtime = 'qzjs (stream only)';
 }
 
 var formats = ['deflate-raw', 'deflate', 'gzip'];
@@ -131,7 +131,7 @@ var results = [];
 async function main() {
   console.log('=== Compression Benchmark: ' + runtime + ' ===\n');
 
-  /* --- Section 1: Sync native throughput (amoib only) --- */
+  /* --- Section 1: Sync native throughput (qzjs only) --- */
   if (hasNative) {
     console.log('=== 1. Native Sync Throughput (pal.nativeCompress/nativeDecompress) ===');
     var pal = globalThis.__native__;

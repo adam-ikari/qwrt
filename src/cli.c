@@ -1,11 +1,11 @@
 /*
- * amoib CLI — standalone WinterTC runtime
- * 用法: amoib [options] [script.js [args...]] | amoib -e 'code'
- *       amoib（无参数）→ REPL
+ * qzjs CLI — standalone WinterTC runtime
+ * 用法: qzjs [options] [script.js [args...]] | qzjs -e 'code'
+ *       qzjs（无参数）→ REPL
  */
 #define _POSIX_C_SOURCE 200809L
 
-#include <amoib/amoib.h>
+#include <qzjs/qzjs.h>
 #include <uv.h>
 #include <sched.h>
 #include <stdio.h>
@@ -14,26 +14,26 @@
 #include <unistd.h>
 #include <signal.h>
 
-#define AM_CLI_VERSION "amoib 0.2.0"
+#define QZ_CLI_VERSION "qzjs 0.2.0"
 
 /* CTL-2：控制面档位 / 端点路径（--control-plane / --control-pipe，main 解析、
- * run_code 应用到 am_config_t）。-1 = 缺省（OFF）。 */
+ * run_code 应用到 qz_config_t）。-1 = 缺省（OFF）。 */
 static int g_control_plane = -1;
 static const char *g_control_pipe = NULL;
 
 static void usage(FILE *out) {
     fprintf(out,
-        "Usage: amoib [options] [script.js [args...]]\n"
-        "       amoib -e 'code' [args...]\n"
-        "       amoib            (start REPL)\n"
+        "Usage: qzjs [options] [script.js [args...]]\n"
+        "       qzjs -e 'code' [args...]\n"
+        "       qzjs            (start REPL)\n"
         "\n"
         "Options:\n"
         "  -e, --eval <code>   evaluate <code> and exit\n"
         "  --control-plane=<off|in-proc|local>\n"
         "                      control-plane tier (default off); local exposes\n"
-        "                      an AF_UNIX endpoint (see amoib-ctl)\n"
+        "                      an AF_UNIX endpoint (see qzjs-ctl)\n"
         "  --control-pipe=<path>\n"
-        "                      endpoint path (default /tmp/amoib-<pid>-<n>.ctl)\n"
+        "                      endpoint path (default /tmp/qzjs-<pid>-<n>.ctl)\n"
         "  -h, --help          show this help\n"
         "  -v, --version       show version\n"
         "\n"
@@ -44,8 +44,8 @@ static void usage(FILE *out) {
 /* ── host state and message channel ── */
 
 typedef struct {
-    int done;           /* atomic: eval finished (incl. error) — amoib thread writes, main spins */
-    int exit_code;      /* script error → 1 (amoib thread writes, main reads after done) */
+    int done;           /* atomic: eval finished (incl. error) — qzjs thread writes, main spins */
+    int exit_code;      /* script error → 1 (qzjs thread writes, main reads after done) */
     int reported;       /* main thread: exit_code/result 已打印过（防 wait_idle 崩溃上报重复） */
     char result[8192];  /* eval result: the "v" value (ok) or "e" message (error), decoded */
 } cli_host_t;
@@ -56,7 +56,7 @@ typedef struct {
  * of the {"ok":...,"v":...,"e":...} eval envelope for the REPL.
  *
  * 为何留在 CLI（不引 cJSON、不走 JS_ParseJSON）：cli.c 刻意
- * 只 include 公共头 amoib/amoib.h，是 libamoib 的 dogfood 宿主（引擎内部
+ * 只 include 公共头 qzjs/qzjs.h，是 libqzjs 的 dogfood 宿主（引擎内部
  * API 与库内部依赖均不可见）；message_cb 在宿主回调窗口，不在引擎内。
  * 裁决：docs/architecture/c-js-layering.md §6.6。 */
 static int json_unescape(const char *s, char *out, size_t out_cap) {
@@ -115,20 +115,20 @@ static int json_unescape(const char *s, char *out, size_t out_cap) {
     return (int)n;
 }
 
-/* message_cb: runs on the amoib thread; CLI receives eval results.
+/* message_cb: runs on the qzjs thread; CLI receives eval results.
  * json: {"ok":true,"v":"..."} or {"ok":false,"e":"..."}.
  * Decodes the v/e payload into host->result for printing by the caller
  * (script mode prints errors to stderr; the REPL prints every result). */
-static void cli_message_cb(am_t *rt, const char *json, size_t len, void *data) {
+static void cli_message_cb(qz_t *rt, const char *json, size_t len, void *data) {
     (void)data;
-    cli_host_t *h = (cli_host_t *)am_get_runtime_data(rt);
+    cli_host_t *h = (cli_host_t *)qz_get_runtime_data(rt);
     if (!h) return;
     /* 精确判断：信封由 JSON.stringify 生成，无空格，恒以 {"ok":true 或
      * {"ok":false 开头。不能用 strstr 子串匹配 —— 错误消息/成功值的正文里
      * 可能含 "ok":false 字样导致误判。
      * M-P4 §9.3：主RT 意外退出时 message_cb 收 {"type":"error","error":<msg>}
      * （rt_host.c 崩溃检测）——同样精确前缀判定，如实上抛（打印 + 退出码 1），
-     * 与 bad-json 路径（am_dispatch_message）同形。 */
+     * 与 bad-json 路径（qz_dispatch_message）同形。 */
     if (strncmp(json, "{\"type\":\"error\"", 14) == 0) {
         const char *ef = strstr(json, "\"error\":");
         if (ef && json_unescape(ef + 8, h->result, sizeof(h->result)) >= 0) {
@@ -189,9 +189,9 @@ static const char *kCliBootstrap =
 /* C string → JSON string literal (with surrounding quotes; escapes backslash,
  * quotes, control chars). Returns a malloc'd string; same semantics as
  * test_host.h's JSON_string.
- * 留在 C 的原因：调用点 build_bootstrap/run_code/repl 在 am_create 之前
+ * 留在 C 的原因：调用点 build_bootstrap/run_code/repl 在 qz_create 之前
  * 构造 bootstrap——此刻引擎尚不存在（循环依赖），JS.stringify 不可用；
- * 且 CLI 是不摸引擎内部 API 的 dogfood 宿主——cJSON 是 libamoib 的内部
+ * 且 CLI 是不摸引擎内部 API 的 dogfood 宿主——cJSON 是 libqzjs 的内部
  * 依赖（不出公共接口），示例宿主不引它（见 json_unescape 注释、§6.6）。 */
 static char *json_escape(const char *s) {
     size_t n = strlen(s) * 6 + 3;
@@ -278,24 +278,24 @@ static char *build_bootstrap(const char *const *args, int nargs) {
 }
 
 /* shared execution path: create runtime → eval code → wait for result →
- * wait_idle → destroy. host is bound to rt via am_set_runtime_data;
- * cli_message_cb fetches it with am_get_runtime_data(rt) (callable
+ * wait_idle → destroy. host is bound to rt via qz_set_runtime_data;
+ * cli_message_cb fetches it with qz_get_runtime_data(rt) (callable
  * repeatedly; host is not shared). */
-/* e2e/test hook: AM_WORKER_BACKEND=process|thread 覆盖 worker 后端（缺省随编译
+/* e2e/test hook: QZ_WORKER_BACKEND=process|thread 覆盖 worker 后端（缺省随编译
  * 模型：ISOLATED 编译 = PROCESS，THREAD 编译 = THREAD）。THREAD 覆盖用于 §1.5
  * 双后端 parity：同一脚本两后端跑一遍，stdout 逐行比对。 */
-static void apply_worker_backend(am_config_t *cfg) {
-    const char *wb = getenv("AM_WORKER_BACKEND");
+static void apply_worker_backend(qz_config_t *cfg) {
+    const char *wb = getenv("QZ_WORKER_BACKEND");
     if (!wb) return;
     if (strcmp(wb, "process") == 0)
-        cfg->worker_backend = AM_WORKER_BACKEND_PROCESS;
+        cfg->worker_backend = QZ_WORKER_BACKEND_PROCESS;
     else if (strcmp(wb, "thread") == 0)
-        cfg->worker_backend = AM_WORKER_BACKEND_THREAD;
+        cfg->worker_backend = QZ_WORKER_BACKEND_THREAD;
 }
 
 /* CTL-2：把 main 解析到的 --control-plane/--control-pipe 应用到配置。
  * LOCAL 档让 runtime 暴露本地端点（ISOLATED 下由主RT 监听）。 */
-static void apply_control_plane(am_config_t *cfg) {
+static void apply_control_plane(qz_config_t *cfg) {
     if (g_control_plane >= 0) cfg->control_plane = g_control_plane;
     cfg->control_pipe_path = g_control_pipe;
 }
@@ -304,25 +304,25 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     cli_host_t host = {0};
 
     char *bootstrap = build_bootstrap(args, nargs);
-    am_config_t cfg;
+    qz_config_t cfg;
     memset(&cfg, 0, sizeof cfg);
     cfg.message_cb = cli_message_cb;
     cfg.initial_script = bootstrap;
     apply_worker_backend(&cfg);
     apply_control_plane(&cfg);
 
-    am_t *rt = am_create(&cfg);
+    qz_t *rt = qz_create(&cfg);
     free(bootstrap);
     if (!rt) {
-        fprintf(stderr, "amoib: runtime init failed\n");
+        fprintf(stderr, "qzjs: runtime init failed\n");
         return 1;
     }
-    am_set_runtime_data(rt, &host);
+    qz_set_runtime_data(rt, &host);
     char *cmd_json = json_escape(code);
     if (!cmd_json) {
-        fprintf(stderr, "amoib: out of memory\n");
-        am_wait_idle(rt);
-        am_free(rt);
+        fprintf(stderr, "qzjs: out of memory\n");
+        qz_wait_idle(rt);
+        qz_free(rt);
         return 1;
     }
     /* json_escape 上界 strlen*6+3，故按 cmd_json 实际长度 + 固定信封开销
@@ -331,9 +331,9 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     char *cmd = malloc(cmd_cap);
     if (!cmd) {
         free(cmd_json);
-        fprintf(stderr, "amoib: out of memory\n");
-        am_wait_idle(rt);
-        am_free(rt);
+        fprintf(stderr, "qzjs: out of memory\n");
+        qz_wait_idle(rt);
+        qz_free(rt);
         return 1;
     }
     int wrote = snprintf(cmd, cmd_cap, "{\"cmd\":\"eval\",\"code\":%s}",
@@ -341,15 +341,15 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     free(cmd_json);
     if (wrote < 0 || (size_t)wrote >= cmd_cap) {
         free(cmd);
-        fprintf(stderr, "amoib: out of memory\n");
-        am_wait_idle(rt);
-        am_free(rt);
+        fprintf(stderr, "qzjs: out of memory\n");
+        qz_wait_idle(rt);
+        qz_free(rt);
         return 1;
     }
-    am_post_message(rt, cmd, strlen(cmd));
+    qz_post_message(rt, cmd, strlen(cmd));
     free(cmd);
 
-    /* lock-free wait: spin on done (amoib thread release-stores, acquire-load here) */
+    /* lock-free wait: spin on done (qzjs thread release-stores, acquire-load here) */
     while (!__atomic_load_n(&host.done, __ATOMIC_ACQUIRE))
         sched_yield();
     int exit_code = host.exit_code;
@@ -361,44 +361,44 @@ static int run_code(const char *code, const char *const *args, int nargs) {
 
     /* wait for pending async work (fetch/timer) to complete; the runtime
      * auto-exits when the loop is empty and the thread is joined here. Do not
-     * call am_destroy after this (would double-join); free the struct only.
+     * call qz_destroy after this (would double-join); free the struct only.
      * M-P4 §9.3：主RT 在此期间崩溃（kill -9 / 段错误）→ 宿主 message_cb 收
      * {type:'error'}（rt_host.c）——此刻补报（脚本自身错误已在上面打过，
      * reported 去重），退出码取最终值（非零，宿主感知崩溃）。 */
-    am_wait_idle(rt);
+    qz_wait_idle(rt);
     if (host.exit_code && !host.reported) {
         fprintf(stderr, "%s\n", host.result);
         host.reported = 1;
     }
     exit_code = host.exit_code;
-    am_free(rt);
+    qz_free(rt);
     return exit_code;
 }
 
 /* ── Task 6: interactive REPL (no script / no -e) ──
  * Banner → read a line → eval over the onmessage channel → print the result
  * (the decoded "v" or "e") → repeat; Ctrl-D/EOF exits. The runtime stays
- * alive for the whole session (no wait_idle); am_destroy on exit. */
+ * alive for the whole session (no wait_idle); qz_destroy on exit. */
 static int repl_loop(void) {
     cli_host_t host = {0};
 
     char *bootstrap = build_bootstrap(NULL, 0);
-    am_config_t cfg;
+    qz_config_t cfg;
     memset(&cfg, 0, sizeof cfg);
     cfg.message_cb = cli_message_cb;
     cfg.initial_script = bootstrap;
     apply_worker_backend(&cfg);
     apply_control_plane(&cfg);
 
-    am_t *rt = am_create(&cfg);
+    qz_t *rt = qz_create(&cfg);
     free(bootstrap);
     if (!rt) {
-        fprintf(stderr, "amoib: runtime init failed\n");
+        fprintf(stderr, "qzjs: runtime init failed\n");
         return 1;
     }
-    am_set_runtime_data(rt, &host);
+    qz_set_runtime_data(rt, &host);
     printf("%s (WinterTC runtime) — type JS, Ctrl-D to exit\n",
-           AM_CLI_VERSION);
+           QZ_CLI_VERSION);
     fflush(stdout);
 
     char line[8192];
@@ -412,7 +412,7 @@ static int repl_loop(void) {
         __atomic_store_n(&host.done, 0, __ATOMIC_RELEASE);
         char *escaped = json_escape(line);
         if (!escaped) {
-            fprintf(stderr, "amoib: out of memory\n");
+            fprintf(stderr, "qzjs: out of memory\n");
             exit_code = 1;
             continue;
         }
@@ -422,7 +422,7 @@ static int repl_loop(void) {
         char *cmd = malloc(cmd_cap);
         if (!cmd) {
             free(escaped);
-            fprintf(stderr, "amoib: out of memory\n");
+            fprintf(stderr, "qzjs: out of memory\n");
             exit_code = 1;
             continue;
         }
@@ -431,11 +431,11 @@ static int repl_loop(void) {
         free(escaped);
         if (wrote < 0 || (size_t)wrote >= cmd_cap) {
             free(cmd);
-            fprintf(stderr, "amoib: out of memory\n");
+            fprintf(stderr, "qzjs: out of memory\n");
             exit_code = 1;
             continue;
         }
-        am_post_message(rt, cmd, strlen(cmd));
+        qz_post_message(rt, cmd, strlen(cmd));
         free(cmd);
         while (!__atomic_load_n(&host.done, __ATOMIC_ACQUIRE))
             sched_yield();
@@ -448,7 +448,7 @@ static int repl_loop(void) {
     }
     printf("\n");
 
-    am_destroy(rt);
+    qz_destroy(rt);
     return exit_code;
 }
 
@@ -466,9 +466,9 @@ int main(int argc, char **argv) {
         }
         if (!strncmp(argv[i], "--control-plane=", 16)) {
             const char *v = argv[i] + 16;
-            if (!strcmp(v, "off")) g_control_plane = AM_CONTROL_OFF;
-            else if (!strcmp(v, "in-proc")) g_control_plane = AM_CONTROL_IN_PROC;
-            else if (!strcmp(v, "local")) g_control_plane = AM_CONTROL_LOCAL;
+            if (!strcmp(v, "off")) g_control_plane = QZ_CONTROL_OFF;
+            else if (!strcmp(v, "in-proc")) g_control_plane = QZ_CONTROL_IN_PROC;
+            else if (!strcmp(v, "local")) g_control_plane = QZ_CONTROL_LOCAL;
             else { usage(stderr); return 2; }
             continue;
         }
@@ -477,7 +477,7 @@ int main(int argc, char **argv) {
             continue;
         }
         if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--version")) {
-            printf("%s\n", AM_CLI_VERSION);
+            printf("%s\n", QZ_CLI_VERSION);
             return 0;
         }
         if (!strcmp(argv[i], "-e") || !strcmp(argv[i], "--eval")) {
@@ -496,25 +496,25 @@ int main(int argc, char **argv) {
     if (script_path) {
         /* ── script mode ── */
         FILE *f = fopen(script_path, "rb");
-        if (!f) { fprintf(stderr, "amoib: cannot open '%s'\n", script_path); return 1; }
+        if (!f) { fprintf(stderr, "qzjs: cannot open '%s'\n", script_path); return 1; }
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
         fseek(f, 0, SEEK_SET);
         if (sz < 0) {
             /* ftell 失败（如管道/非普通文件）—— sz=-1 转 size_t 后为
              * SIZE_MAX，malloc 巨大缓冲并 fread 崩溃。 */
-            fprintf(stderr, "amoib: cannot size '%s'\n", script_path);
+            fprintf(stderr, "qzjs: cannot size '%s'\n", script_path);
             fclose(f);
             return 1;
         }
         char *code = malloc((size_t)sz + 1);
         if (!code) {
-            fprintf(stderr, "amoib: out of memory\n");
+            fprintf(stderr, "qzjs: out of memory\n");
             fclose(f);
             return 1;
         }
         if (fread(code, 1, (size_t)sz, f) != (size_t)sz) {
-            fprintf(stderr, "amoib: read error\n");
+            fprintf(stderr, "qzjs: read error\n");
             fclose(f);
             free(code);
             return 1;

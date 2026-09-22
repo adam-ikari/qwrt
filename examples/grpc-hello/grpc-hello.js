@@ -1,4 +1,4 @@
-/* amoib example: gRPC 四形态自连（unary / 服务端流式 / 客户端流式 / 双向流式）
+/* qzjs example: gRPC 四形态自连（unary / 服务端流式 / 客户端流式 / 双向流式）
  *
  * 单个进程里 serve() 起 gRPC 服务端（h2c 明文，免证书），再用客户端连自己，
  * 把四种 RPC 形态各跑一遍并核对结果：
@@ -8,10 +8,10 @@
  *   客户端流式    Collect  连续 N 个请求 → 一个响应
  *   双向流式      Chat     连续 N 个请求 → 连续 N 个响应
  *
- * 运行（仓库根；需要 AM_WITH_GRPC=ON 构建，example 本身不编入默认构建）：
- *   ./build_grpc/amoib examples/grpc-hello/grpc-hello.js
+ * 运行（仓库根；需要 QZ_WITH_GRPC=ON 构建，example 本身不编入默认构建）：
+ *   ./build_grpc/qzjs examples/grpc-hello/grpc-hello.js
  *
- * 依赖的能力（amoib 内置）：
+ * 依赖的能力（qzjs 内置）：
  *   grpc.loadProto(text)          — 解析 .proto → 方法注册表
  *   grpc.createServer()/addService — gRPC 服务端（四形态 handler）
  *   grpc.createInsecureChannel()  — 明文客户端
@@ -92,8 +92,8 @@ function check(label, got, want) {
 /* ── 4) 四形态各跑一遍并核对 ── */
 (async function () {
   /* unary：Echo */
-  var echo = await ch.invoke(Echo, { text: 'hi amoib' });
-  check('unary Echo', echo, { text: 'echo: hi amoib' });
+  var echo = await ch.invoke(Echo, { text: 'hi qzjs' });
+  check('unary Echo', echo, { text: 'echo: hi qzjs' });
 
   /* 服务端流式：CountUp，invokeStream 一次收全，期望 3 帧 1..3 */
   var up = (await ch.invokeStream(CountUp, { to: 3 })).map(function (m) { return m.n; });

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""amoib HTTP server performance benchmark (wrk-based).
+"""qzjs HTTP server performance benchmark (wrk-based).
 
-Starts the real amoib CLI hosting serve() on localhost, then drives it with
+Starts the real qzjs CLI hosting serve() on localhost, then drives it with
 wrk across several scenarios and prints a machine-readable summary.
 
 Scenarios:
@@ -11,7 +11,7 @@ Scenarios:
   post   : 8-byte body echo via POST               — request-body path
 
 Usage:
-  python3 test/bench_httpserver.py --amoib-bin ./build-ws/amoib [--duration 5]
+  python3 test/bench_httpserver.py --qzjs-bin ./build-ws/qzjs [--duration 5]
 
 Exit code 0 always unless infrastructure fails; thresholds are reported but
 not enforced here (the CI job decides what to do with the numbers).
@@ -92,7 +92,7 @@ def parse_wrk(out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--amoib-bin", required=True)
+    ap.add_argument("--qzjs-bin", required=True)
     ap.add_argument("--duration", type=int, default=5)
     args = ap.parse_args()
 
@@ -108,12 +108,12 @@ def main():
         "});" % port
     )
     # stdout=DEVNULL: 服务端任何输出都不能回压到管道（PIPE 从不读会在 64 KiB
-    # 写满后阻塞 amoib 的 write()，把「服务端偶发日志」变成测量死锁）。
-    proc = subprocess.Popen([args.am_bin, "-e", js],
+    # 写满后阻塞 qzjs 的 write()，把「服务端偶发日志」变成测量死锁）。
+    proc = subprocess.Popen([args.qz_bin, "-e", js],
                             stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     try:
         if not wait_port(port):
-            print("FAIL: amoib did not listen on %d" % port, file=sys.stderr)
+            print("FAIL: qzjs did not listen on %d" % port, file=sys.stderr)
             try:
                 proc.kill()
             except Exception:

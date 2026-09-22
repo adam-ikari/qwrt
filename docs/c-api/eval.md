@@ -1,85 +1,85 @@
 # JS Evaluation
 
-Amoib.js provides three ways to execute JavaScript, plus a bytecode compilation API.
+Qzjs.js provides three ways to execute JavaScript, plus a bytecode compilation API.
 
-## `am_eval`
+## `qz_eval`
 
 ```c
-int am_eval(am_t *rt, const char *code, char **result);
+int qz_eval(qz_t *rt, const char *code, char **result);
 ```
 
 Evaluates JS source code on the active context. The WinterTC runtime (fetch, console, timers, etc.) is auto-injected into new contexts before first eval.
 
 - `code` — null-terminated JavaScript source string
-- `result` — if non-NULL, receives a `malloc`'d stringified result (JSON). Free with `am_free()`
+- `result` — if non-NULL, receives a `malloc`'d stringified result (JSON). Free with `qz_free()`
 - Returns 0 on success, <0 on JS exception
 
 ```c
 char *result = NULL;
-if (am_eval(rt, "JSON.stringify({hello: 'world'})", &result) == 0) {
+if (qz_eval(rt, "JSON.stringify({hello: 'world'})", &result) == 0) {
     printf("%s\n", result);  // {"hello":"world"}
-    am_free(result);
+    qz_free(result);
 }
 ```
 
-## `am_eval_bytecode`
+## `qz_eval_bytecode`
 
 ```c
-int am_eval_bytecode(am_t *rt, const uint8_t *bytecode, size_t len,
+int qz_eval_bytecode(qz_t *rt, const uint8_t *bytecode, size_t len,
                        char **result);
 ```
 
-Evaluates precompiled QuickJS bytecode. Same result/return semantics as `am_eval`. Use `am_compile` to produce bytecode from source.
+Evaluates precompiled QuickJS bytecode. Same result/return semantics as `qz_eval`. Use `qz_compile` to produce bytecode from source.
 
 ```c
 size_t bc_len = 0;
-uint8_t *bc = am_compile(rt, "1 + 1", 5, &bc_len);
+uint8_t *bc = qz_compile(rt, "1 + 1", 5, &bc_len);
 char *result = NULL;
-am_eval_bytecode(rt, bc, bc_len, &result);
-am_free(bc);
-am_free(result);
+qz_eval_bytecode(rt, bc, bc_len, &result);
+qz_free(bc);
+qz_free(result);
 ```
 
-## `am_call`
+## `qz_call`
 
 ```c
-int am_call(am_t *rt, const char *func,
+int qz_call(qz_t *rt, const char *func,
               const char *args_json, char **result);
 ```
 
-Calls a global JS function with JSON-encoded arguments. Result semantics match `am_eval`.
+Calls a global JS function with JSON-encoded arguments. Result semantics match `qz_eval`.
 
 ```c
 // Equivalent to: myFunc(1, "hello", true)
 char *result = NULL;
-am_call(rt, "myFunc", "[1,\"hello\",true]", &result);
+qz_call(rt, "myFunc", "[1,\"hello\",true]", &result);
 ```
 
-## `am_compile`
+## `qz_compile`
 
 ```c
-uint8_t *am_compile(am_t *rt, const char *code, size_t code_len,
+uint8_t *qz_compile(qz_t *rt, const char *code, size_t code_len,
                       size_t *out_len);
 ```
 
-Compiles JS source to QuickJS bytecode. Returns an allocated buffer (free with `am_free`) and writes the length to `*out_len`. Returns `NULL` on error.
+Compiles JS source to QuickJS bytecode. Returns an allocated buffer (free with `qz_free`) and writes the length to `*out_len`. Returns `NULL` on error.
 
-## `am_compile_module`
+## `qz_compile_module`
 
 ```c
-uint8_t *am_compile_module(am_t *rt, const char *code, size_t code_len,
+uint8_t *qz_compile_module(qz_t *rt, const char *code, size_t code_len,
                              size_t *out_len);
 ```
 
-Same as `am_compile` but treats the source as an ES module.
+Same as `qz_compile` but treats the source as an ES module.
 
-## `am_free`
+## `qz_free`
 
 ```c
-void am_free(void *ptr);
+void qz_free(void *ptr);
 ```
 
-Frees memory returned by `am_eval`, `am_call`, `am_compile`, or `am_compile_module`. NULL-safe.
+Frees memory returned by `qz_eval`, `qz_call`, `qz_compile`, or `qz_compile_module`. NULL-safe.
 
 ## Error Handling
 
@@ -87,8 +87,8 @@ All evaluation functions return 0 on success or a negative value on failure. Whe
 
 ```c
 char *result = NULL;
-if (am_eval(rt, "throw new Error('oops')", &result) < 0) {
+if (qz_eval(rt, "throw new Error('oops')", &result) < 0) {
     printf("JS error: %s\n", result);  // Error: oops
-    am_free(result);
+    qz_free(result);
 }
 ```

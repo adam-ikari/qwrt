@@ -1,11 +1,11 @@
 /**
- * Compression Benchmark — amoib vs Node.js (sync native only)
+ * Compression Benchmark — qzjs vs Node.js (sync native only)
  *
  * Measures pal.nativeCompress / pal.nativeDecompress throughput
- * on amoib (native zlib) and compares with Node.js zlib.
+ * on qzjs (native zlib) and compares with Node.js zlib.
  *
  * Run on Node.js:  node bench_compress_sync.js
- * Run on amoib:     via test_compress_bench
+ * Run on qzjs:     via test_compress_bench
  */
 
 function now_ns() {
@@ -81,7 +81,7 @@ function nativeDecompress(data, format) {
 
 var runtime = 'unknown';
 if (isNode) runtime = 'Node.js ' + process.version + ' (zlib)';
-else if (hasNative) runtime = 'amoib (zlib)';
+else if (hasNative) runtime = 'qzjs (zlib)';
 
 var formats = ['deflate-raw', 'deflate', 'gzip'];
 var sizes = [

@@ -1,6 +1,6 @@
 ---
 title: fetch
-description: The fetch API in Amoib.js — HTTP and HTTPS requests, headers, streaming responses, AbortController, and WinterTC compatibility.
+description: The fetch API in Qzjs.js — HTTP and HTTPS requests, headers, streaming responses, AbortController, and WinterTC compatibility.
 ---
 
 # fetch API

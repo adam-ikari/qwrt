@@ -1,6 +1,6 @@
 #!/bin/bash
 # M-P3 跨进程 MessagePort e2e（§11 M-P3 验证门 / §8.2 peerEndpoint 路由）
-# 真进程路径（AM_WORKER_BACKEND=process，缺省 ISOLATED 构建）：
+# 真进程路径（QZ_WORKER_BACKEND=process，缺省 ISOLATED 构建）：
 #   1. 主RT↔worker 进程 port 往返——一端在主RT、一端在 worker 进程，转移后双向
 #      收发；附 PID 证据（宿主/主RT/worker 三个不同进程，非推断）
 #   2. sibling 接力：ch.port1→w1、ch.port2→w2，消息由主RT（二者 LCA）按帧头
@@ -8,11 +8,11 @@
 #   3. 崩溃清表：SIGKILL worker 进程 → 主RT 侧对端 port 收一次 error；死后
 #      postMessage 静默不抛；主RT 存活并能 spawn 新 worker + 新 port 完成往返
 #      （无 stale 路由命中新进程）
-# Usage: bash test/test_mp3_port_e2e.sh <path-to-amoib>
+# Usage: bash test/test_mp3_port_e2e.sh <path-to-qzjs>
 set -u
-AM="${1:-./build/amoib}"
+AM="${1:-./build/qzjs}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-export AM_WORKER_BACKEND=process
+export QZ_WORKER_BACKEND=process
 
 FIX="$(mktemp -d)"
 OUT=""
@@ -23,7 +23,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[ -x "$AM" ] || { echo "FAIL: amoib binary not found at '$AM'"; exit 1; }
+[ -x "$AM" ] || { echo "FAIL: qzjs binary not found at '$AM'"; exit 1; }
 fail() { echo "FAIL: $1"; [ -n "${2:-}" ] && { echo "--- got:"; printf '%s\n' "$2"; }; exit 1; }
 
 # 进程后端可用性探针：THREAD 编译下 processSpawn 显式报错（不静默降级），本 e2e
@@ -86,7 +86,7 @@ w.postMessage('init', [ch.port1]);
 console.log('READY');
 EOF
 
-# 不能包 timeout：$HOSTPID 必须是 amoib 本身，否则 pgrep -P 找到的是 timeout 的子进程。
+# 不能包 timeout：$HOSTPID 必须是 qzjs 本身，否则 pgrep -P 找到的是 timeout 的子进程。
 "$AM" "$FIX/p13.js" > "$FIX/p13.out" 2>&1 &
 HOSTPID=$!
 
@@ -99,8 +99,8 @@ OUT="$(cat "$FIX/p13.out" 2>/dev/null)"
 printf '%s\n' "$OUT" | grep -q "port2:ready" || fail "1 port transfer to worker process" "$OUT"
 printf '%s\n' "$OUT" | grep -q "port2:echo:ping" || fail "1 port round-trip mainRT<->worker" "$OUT"
 
-# PID 证据：宿主 → 主RT（--amoib-rt-server）→ worker 进程，三者互不相同
-MAINPID="$(pgrep -P "$HOSTPID" -f 'amoib-rt' 2>/dev/null | head -1)"
+# PID 证据：宿主 → 主RT（--qzjs-rt-server）→ worker 进程，三者互不相同
+MAINPID="$(pgrep -P "$HOSTPID" -f 'qzjs-rt' 2>/dev/null | head -1)"
 WKPID=""
 [ -n "$MAINPID" ] && WKPID="$(pgrep -P "$MAINPID" 2>/dev/null | head -1)"
 [ -n "$MAINPID" ] || fail "PID evidence: no mainRT child of host $HOSTPID" "$OUT"

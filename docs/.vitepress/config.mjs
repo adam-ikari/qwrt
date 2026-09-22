@@ -4,7 +4,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 
 // Sitemap generation — called after each page build
-const SITE_URL = 'https://adam-ikari.github.io/amoib'
+const SITE_URL = 'https://adam-ikari.github.io/qzjs'
 const sitemapUrls = new Set()
 
 function generateSitemap(outDir) {
@@ -36,14 +36,14 @@ ${sorted.map(url => {
 const SCHEMA_LD = JSON.stringify({
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Amoib.js',
+  name: 'Qzjs.js',
   applicationCategory: 'DeveloperApplication',
-  description: 'Embeddable JS + Wasm runtime in C99 — WinterCG-compatible, libuv-native',
+  description: 'Embeddable WinterTC runtime in C99 — WinterCG-compatible, libuv-native',
   url: SITE_URL,
   license: 'https://opensource.org/licenses/MIT',
   operatingSystem: 'Linux, macOS',
   programmingLanguage: 'C99, JavaScript (ES2023)',
-  author: { '@type': 'Organization', name: 'Amoib.js' },
+  author: { '@type': 'Organization', name: 'Qzjs.js' },
 })
 
 // Navigation structure
@@ -153,7 +153,7 @@ const sidebar = {
 const nav = [
   { text: 'Guide', link: '/guide/' },
   { text: 'JS API', link: '/js-api/' },
-  { text: 'GitHub', link: 'https://github.com/adam-ikari/amoib' },
+  { text: 'GitHub', link: 'https://github.com/adam-ikari/qzjs' },
 ]
 
 // Chinese sidebar with translated labels
@@ -258,31 +258,31 @@ const zhSidebar = {
 const zhNav = [
   { text: '指南', link: '/zh/guide/' },
   { text: 'JS API', link: '/zh/js-api/' },
-  { text: 'GitHub', link: 'https://github.com/adam-ikari/amoib' },
+  { text: 'GitHub', link: 'https://github.com/adam-ikari/qzjs' },
 ]
 
 export default withMermaid(
 defineConfig({
-  title: 'Amoib.js',
-  description: 'Embeddable JS + Wasm Runtime — C99, WinterCG-compatible, libuv-native',
-  base: '/amoib/',
+  title: 'Qzjs.js',
+  description: 'Embeddable WinterTC Runtime — C99, WinterCG-compatible, libuv-native',
+  base: '/qzjs/',
   lastUpdated: true,
   cleanUrls: true,
 
   head: [
-    ['link', { rel: 'icon', href: '/amoib/favicon.ico' }],
+    ['link', { rel: 'icon', href: '/qzjs/favicon.ico' }],
     ['meta', { name: 'theme-color', content: '#58a6ff' }],
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'Amoib.js — Embeddable JS + Wasm Runtime' }],
-    ['meta', { property: 'og:description', content: 'Embeddable JS + Wasm runtime in C99 — WinterCG-compatible, libuv-native' }],
+    ['meta', { property: 'og:title', content: 'Qzjs.js — Embeddable WinterTC Runtime' }],
+    ['meta', { property: 'og:description', content: 'Embeddable WinterTC runtime in C99 — WinterCG-compatible, libuv-native' }],
     ['meta', { property: 'og:url', content: SITE_URL }],
     ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:locale:alternate', content: 'zh_CN' }],
     // Twitter Card
     ['meta', { name: 'twitter:card', content: 'summary' }],
-    ['meta', { name: 'twitter:title', content: 'Amoib.js — Embeddable JS + Wasm Runtime' }],
-    ['meta', { name: 'twitter:description', content: 'Embeddable JS + Wasm runtime in C99 — WinterCG-compatible, libuv-native' }],
+    ['meta', { name: 'twitter:title', content: 'Qzjs.js — Embeddable WinterTC Runtime' }],
+    ['meta', { name: 'twitter:description', content: 'Embeddable WinterTC runtime in C99 — WinterCG-compatible, libuv-native' }],
   ],
 
   // Collect URLs for sitemap during build
@@ -309,11 +309,11 @@ defineConfig({
         },
         outline: { level: [2, 3], label: 'On this page' },
         editLink: {
-          pattern: 'https://github.com/adam-ikari/amoib/edit/master/docs/:path',
+          pattern: 'https://github.com/adam-ikari/qzjs/edit/master/docs/:path',
         },
         footer: {
           message: 'MIT Licensed',
-          copyright: 'Amoib.js — Embeddable JS + Wasm Runtime',
+          copyright: 'Qzjs.js — Embeddable WinterTC Runtime',
         },
       },
     },
@@ -330,11 +330,11 @@ defineConfig({
         },
         outline: { level: [2, 3], label: '本页目录' },
         editLink: {
-          pattern: 'https://github.com/adam-ikari/amoib/edit/master/docs/:path',
+          pattern: 'https://github.com/adam-ikari/qzjs/edit/master/docs/:path',
         },
         footer: {
           message: 'MIT 许可证',
-          copyright: 'Amoib.js — 可嵌入的 JS + Wasm 运行时',
+          copyright: 'Qzjs.js — 可嵌入的 WinterTC 运行时',
         },
         lastUpdatedText: '最后更新',
         docFooter: { prev: '上一页', next: '下一页' },
@@ -348,9 +348,9 @@ defineConfig({
 
   themeConfig: {
     logo: false,
-    siteTitle: 'Amoib.js',
+    siteTitle: 'Qzjs.js',
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/adam-ikari/amoib' },
+      { icon: 'github', link: 'https://github.com/adam-ikari/qzjs' },
     ],
     search: {
       provider: 'local',

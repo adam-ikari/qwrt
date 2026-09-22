@@ -166,8 +166,8 @@ async function pingPong(w, buf, iters) {
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DAM_BUILD_TESTS=OFF \
-            -DAM_WITH_TLS=ON
+            -DQZ_BUILD_TESTS=OFF \
+            -DQZ_WITH_TLS=ON
       - name: Build
         run: cmake --build build --parallel
       - name: Benchmark runtime

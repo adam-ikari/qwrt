@@ -1,5 +1,5 @@
 /**
- * amoib Polyfill Build Script
+ * qzjs Polyfill Build Script
  *
  * Bundles all polyfill modules into a single IIFE using esbuild,
  * then post-processes the output so `pal` is received as a closure
@@ -11,25 +11,25 @@
  *      `pal` is a defined module variable (not an undefined global),
  *      preventing it from being treated as an external.
  *   2. esbuild bundles with format:'iife' + globalName, producing:
- *      var am_polyfill = (() => {
+ *      var qz_polyfill = (() => {
  *        var pal = globalThis.__native_inject__;
  *        function setupConsole(pal2) { ... }  // renamed to avoid shadowing
  *        setupConsole(pal);
  *        ...
  *      })();
  *   3. Post-process:
- *      - Strip "var am_polyfill = " prefix
+ *      - Strip "var qz_polyfill = " prefix
  *      - Replace arrow IIFE with named function: (() => { ... })()
  *        becomes (function(pal) { ... })(__native_inject__);
  *      - Remove "var pal = globalThis.__native_inject__;" since pal
  *        now comes from the IIFE parameter
  *
  * Outputs:
- *   amoib/src/polyfill_default.c  — compiled polyfill bytecode (AM_POLYFILL_MODE=rodata)
- *   amoib/src/polyfill_<mode>.c   — same, for compressed|external|host (untracked, must match CMake)
- *   amoib/dist/polyfill.bytecode  — raw bytecode file (for tests)
- *   amoib/src/worker_boot_default.c — worker boot shim bytecode (am_default_worker_boot)
- *   amoib/dist/worker-boot.bytecode — raw worker boot bytecode file
+ *   qzjs/src/polyfill_default.c  — compiled polyfill bytecode (QZ_POLYFILL_MODE=rodata)
+ *   qzjs/src/polyfill_<mode>.c   — same, for compressed|external|host (untracked, must match CMake)
+ *   qzjs/dist/polyfill.bytecode  — raw bytecode file (for tests)
+ *   qzjs/src/worker_boot_default.c — worker boot shim bytecode (qz_default_worker_boot)
+ *   qzjs/dist/worker-boot.bytecode — raw worker boot bytecode file
  *   (polyfill.js is a temporary file used as qjsc input, not for distribution)
  */
 
@@ -76,15 +76,15 @@ function qjscVersion(qjsc) {
 }
 
 
-// Polyfill embedding mode (matches CMake AM_POLYFILL_MODE):
+// Polyfill embedding mode (matches CMake QZ_POLYFILL_MODE):
 //   rodata (default) | compressed | external | host
 // Legacy single letters C/A/B/D are normalised for backward compatibility.
-const _modeRaw = (process.env.AM_POLYFILL_MODE || 'rodata').trim();
+const _modeRaw = (process.env.QZ_POLYFILL_MODE || 'rodata').trim();
 const _modeLower = _modeRaw.toLowerCase();
 const _modeLegacy = { c: 'rodata', a: 'compressed', b: 'external', d: 'host' };
-const AM_POLYFILL_MODE = _modeLegacy[_modeLower] || _modeLower;
-if (!['rodata', 'compressed', 'external', 'host'].includes(AM_POLYFILL_MODE)) {
-  console.error(`[amoib] invalid AM_POLYFILL_MODE '${_modeRaw}' (expected rodata|compressed|external|host)`);
+const QZ_POLYFILL_MODE = _modeLegacy[_modeLower] || _modeLower;
+if (!['rodata', 'compressed', 'external', 'host'].includes(QZ_POLYFILL_MODE)) {
+  console.error(`[qzjs] invalid QZ_POLYFILL_MODE '${_modeRaw}' (expected rodata|compressed|external|host)`);
   process.exit(1);
 }
 // Generated C output — one file per mode, must match CMake's _polyfill_gen_c:
@@ -92,23 +92,23 @@ if (!['rodata', 'compressed', 'external', 'host'].includes(AM_POLYFILL_MODE)) {
 //            compiles without the polyfill toolchain)
 //   others → src/polyfill_<mode>.c (untracked, regenerated per build)
 const OUT_C = path.join(ROOT_DIR, 'src',
-  AM_POLYFILL_MODE === 'rodata' ? 'polyfill_default.c' : 'polyfill_' + AM_POLYFILL_MODE + '.c');
-const AM_WITH_NONUTF_ENCODINGS = process.env.AM_WITH_NONUTF_ENCODINGS === '1';
+  QZ_POLYFILL_MODE === 'rodata' ? 'polyfill_default.c' : 'polyfill_' + QZ_POLYFILL_MODE + '.c');
+const QZ_WITH_NONUTF_ENCODINGS = process.env.QZ_WITH_NONUTF_ENCODINGS === '1';
 // gRPC/HTTP2 stack (http2.js + hpack.js + protobuf.js + grpc.js).
 // Off by default: it is ~3.5k lines of JS that only upstream-calling scripts use.
-const AM_WITH_GRPC = process.env.AM_WITH_GRPC === '1';
+const QZ_WITH_GRPC = process.env.QZ_WITH_GRPC === '1';
 
 /*
- * AM_WITH_GRPC gates the gRPC/HTTP2 stack (grpc.js + http2.js + hpack.js +
+ * QZ_WITH_GRPC gates the gRPC/HTTP2 stack (grpc.js + http2.js + hpack.js +
  * protobuf.js, ~3.5k lines) by swapping the virtual
- * `@amoib/grpc-stack` module for an empty stub.
+ * `@qzjs/grpc-stack` module for an empty stub.
  *
- * A `define` + `if (AM_WITH_GRPC)` guard is not enough: esbuild keeps the
+ * A `define` + `if (QZ_WITH_GRPC)` guard is not enough: esbuild keeps the
  * `if (false) { … }` body verbatim unless minifying, so the imports stay
  * referenced and the whole stack ships in every build. `alias` removes it from
  * the module graph instead (and works with buildSync, unlike `plugins`).
  */
-const grpcStackEntry = AM_WITH_GRPC
+const grpcStackEntry = QZ_WITH_GRPC
   ? path.join(__dirname, 'src', 'grpc-stack.js')
   : path.join(__dirname, 'src', 'grpc-stack-stub.js');
 
@@ -118,20 +118,20 @@ const esbuildOptions = {
   absWorkingDir: __dirname, // stable per-module comments (// src/xxx.js) regardless of how build.js is invoked
   bundle: true,
   format: 'iife',
-  globalName: 'am_polyfill',
+  globalName: 'qz_polyfill',
   target: ['es2020'],
   minify: true,
   define: {
-    'AM_WITH_NONUTF_ENCODINGS': AM_WITH_NONUTF_ENCODINGS ? '1' : '0',
+    'QZ_WITH_NONUTF_ENCODINGS': QZ_WITH_NONUTF_ENCODINGS ? '1' : '0',
   },
-  alias: { '@amoib/grpc-stack': grpcStackEntry },
+  alias: { '@qzjs/grpc-stack': grpcStackEntry },
 };
 
 /**
  * Post-process the esbuild IIFE output:
  *
  * Input (esbuild raw):
- *   var am_polyfill = (() => {
+ *   var qz_polyfill = (() => {
  *     var pal = globalThis.__native_inject__;
  *     ...
  *   })();
@@ -142,8 +142,8 @@ const esbuildOptions = {
  *   })(__native_inject__);
  */
 function postProcess(js) {
-  // 1. Strip "var am_polyfill = " prefix
-  js = js.replace(/^var am_polyfill\s*=\s*/, '');
+  // 1. Strip "var qz_polyfill = " prefix
+  js = js.replace(/^var qz_polyfill\s*=\s*/, '');
 
   // 2. Replace the arrow IIFE opening with a named function that takes `pal`
   //    After step 1, the string starts with: (() => {
@@ -196,13 +196,13 @@ if (isWatch) {
   // Generate bytecode using qjsc, then inline as C header
   const QJSC = process.env.QJSC;
   if (!QJSC) {
-    console.error('[amoib] ERROR: $QJSC not set. CMake passes it automatically; ' +
+    console.error('[qzjs] ERROR: $QJSC not set. CMake passes it automatically; ' +
       'for manual builds: QJSC=<path-to-qjsc> node build.js');
     process.exit(1);
   }
   const _qjscVer = qjscVersion(QJSC);
   if (_qjscVer && !_qjscVer.startsWith('0.16.')) {
-    console.error('[amoib] WARNING: ' + QJSC + ' is version ' + _qjscVer +
+    console.error('[qzjs] WARNING: ' + QJSC + ' is version ' + _qjscVer +
       ', expected 0.16.x (BC_VERSION 27). Bytecode may be rejected by the engine.');
   }
 
@@ -237,21 +237,21 @@ if (isWatch) {
       polyfillJsPath,
       path.join(DIST_DIR, 'polyfill.bytecode'));
 
-    if (AM_POLYFILL_MODE === 'rodata') {
+    if (QZ_POLYFILL_MODE === 'rodata') {
       // Mode C: const array baked into .rodata (default)
       writeCArray(OUT_C,
-        'am_default_polyfill', polyfillBytes);
-    } else if (AM_POLYFILL_MODE === 'compressed') {
+        'qz_default_polyfill', polyfillBytes);
+    } else if (QZ_POLYFILL_MODE === 'compressed') {
       // compressed: lz4 raw-block via the vendored-lz4 build tool
-      // (cmake target am_lz4_compress; same lz4 as the C decoder).
+      // (cmake target qz_lz4_compress; same lz4 as the C decoder).
       // $QJSC-independent: tool binary path from CMake cache is passed as
-      // AM_LZ4_COMPRESS (set in CMakeLists), fall back to repo tool path.
-      let tool = process.env.AM_LZ4_COMPRESS;
+      // QZ_LZ4_COMPRESS (set in CMakeLists), fall back to repo tool path.
+      let tool = process.env.QZ_LZ4_COMPRESS;
       if (!tool) {
         // Best-effort default: build tree tool (cmake --build <dir> --target
-        // am_lz4_compress) — the polyfill_rebuild custom target guarantees
+        // qz_lz4_compress) — the polyfill_rebuild custom target guarantees
         // it exists before this runs in a CMake-driven build.
-        tool = 'am_lz4_compress';
+        tool = 'qz_lz4_compress';
       }
       const compressed = execSync(
         (fs.existsSync(tool) ? `"${tool}"` : tool),
@@ -261,17 +261,17 @@ if (isWatch) {
       cSrc += '#include <stdint.h>\n';
       cSrc += '#include <stddef.h>\n\n';
       cSrc += '/* lz4-block-compressed polyfill bytecode (raw block, no frame) */\n';
-      cSrc += 'const uint8_t am_default_polyfill_compressed[] = {\n';
+      cSrc += 'const uint8_t qz_default_polyfill_compressed[] = {\n';
       for (let i = 0; i < compressed.length; i++) {
         cSrc += '0x' + compressed[i].toString(16).padStart(2, '0') + ',';
         if ((i + 1) % 16 === 0) cSrc += '\n';
       }
       cSrc += '\n};\n\n';
-      cSrc += 'const size_t am_default_polyfill_compressed_len = ' + compressed.length + ';\n';
-      cSrc += 'const size_t am_default_polyfill_orig_len = ' + origLen + ';\n';
+      cSrc += 'const size_t qz_default_polyfill_compressed_len = ' + compressed.length + ';\n';
+      cSrc += 'const size_t qz_default_polyfill_orig_len = ' + origLen + ';\n';
       fs.writeFileSync(OUT_C, cSrc);
       console.log('Written: ' + OUT_C + ' (lz4 ' + compressed.length + ' -> ' + origLen + ' bytes)');
-    } else if (AM_POLYFILL_MODE === 'external') {
+    } else if (QZ_POLYFILL_MODE === 'external') {
       // Mode B: external .polyfill file — no embedded bytecode, but the
       // SHA-256 of the official bytecode IS embedded as the compile-time
       // integrity anchor: the loader (external mode) refuses any file whose
@@ -281,13 +281,13 @@ if (isWatch) {
       let cSrc = '/* Auto-generated by polyfill/build.js — do not edit */\n';
       cSrc += '#include <stdint.h>\n';
       cSrc += '#include <stddef.h>\n';
-      cSrc += '/* AM_POLYFILL_MODE=external: bytecode loaded at runtime from\n';
+      cSrc += '/* QZ_POLYFILL_MODE=external: bytecode loaded at runtime from\n';
       cSrc += ' * external .polyfill file.  No embedded data. */\n\n';
       cSrc += '/* SHA-256 of the official external polyfill bytecode\n';
       cSrc += ' * (dist/polyfill_default.polyfill). The external-mode loader\n';
       cSrc += ' * rejects any file that does not match this digest.\n';
       cSrc += ' * Custom polyfill builds: regenerate with build.js. */\n';
-      cSrc += 'const uint8_t am_polyfill_external_sha256[32] = {\n';
+      cSrc += 'const uint8_t qz_polyfill_external_sha256[32] = {\n';
       for (let i = 0; i < 32; i++) {
         cSrc += '0x' + digest[i].toString(16).padStart(2, '0') + ',';
         if ((i + 1) % 8 === 0) cSrc += '\n';
@@ -299,17 +299,17 @@ if (isWatch) {
       const polyfillPath = path.join(DIST_DIR, 'polyfill_default.polyfill');
       fs.writeFileSync(polyfillPath, polyfillBytes);
       console.log('Written: ' + polyfillPath + ' (' + polyfillBytes.length + ' bytes)');
-    } else if (AM_POLYFILL_MODE === 'host') {
+    } else if (QZ_POLYFILL_MODE === 'host') {
       // Mode D: host-provided via custom hook — no embedded bytecode
       let cSrc = '/* Auto-generated by polyfill/build.js — do not edit */\n';
       cSrc += '#include <stdint.h>\n';
       cSrc += '#include <stddef.h>\n';
-      cSrc += '/* AM_POLYFILL_MODE=host: bytecode provided by host via\n';
-      cSrc += ' * am_polyfill_load_custom().  No embedded data. */\n';
+      cSrc += '/* QZ_POLYFILL_MODE=host: bytecode provided by host via\n';
+      cSrc += ' * qz_polyfill_load_custom().  No embedded data. */\n';
       fs.writeFileSync(OUT_C, cSrc);
       console.log('Written: ' + OUT_C + ' (D mode placeholder)');
     } else {
-      console.error('Unknown AM_POLYFILL_MODE: ' + AM_POLYFILL_MODE + ' (expected rodata|compressed|external|host)');
+      console.error('Unknown QZ_POLYFILL_MODE: ' + QZ_POLYFILL_MODE + ' (expected rodata|compressed|external|host)');
       process.exit(1);
     }
 
@@ -318,7 +318,7 @@ if (isWatch) {
       path.join(__dirname, 'src', 'worker-boot.js'),
       path.join(DIST_DIR, 'worker-boot.bytecode'));
     writeCArray(path.join(ROOT_DIR, 'src', 'worker_boot_default.c'),
-      'am_default_worker_boot', bootBytes);
+      'qz_default_worker_boot', bootBytes);
   } catch (e) {
     console.error('Error: qjsc not found, cannot generate bytecode header: ' + e.message);
     process.exit(1);

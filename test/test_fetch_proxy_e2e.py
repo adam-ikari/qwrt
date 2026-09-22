@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""amoib fetch() outbound-proxy end-to-end tests (ROADMAP B2 剩余项).
+"""qzjs fetch() outbound-proxy end-to-end tests (ROADMAP B2 剩余项).
 
-Drives the real amoib CLI (real libuv + mbedTLS) through a stdlib-socket HTTP
+Drives the real qzjs CLI (real libuv + mbedTLS) through a stdlib-socket HTTP
 proxy implemented here (absolute-form GET forwarding + CONNECT tunneling),
 against a stdlib origin HTTP server.
 
@@ -17,14 +17,14 @@ Coverage:
   CONNECT refused      : proxy replies 403 -> fetch rejects with a network
                          error mentioning the proxy
 
-TLS note: amoib always verifies certificates against the system CA store
+TLS note: qzjs always verifies certificates against the system CA store
 (VERIFY_REQUIRED, hardcoded for security), so a full https-through-tunnel
 success round-trip is impossible in an offline test with a self-signed origin.
 The CONNECT tests therefore assert the tunnel mechanics (exact CONNECT
 request line seen by the proxy, 200/403 gating, post-200 TLS handshake
 attempt against the origin) instead of a verified TLS session.
 
-Env: standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY (lowercase accepted by amoib).
+Env: standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY (lowercase accepted by qzjs).
 """
 
 import argparse
@@ -210,8 +210,8 @@ class Proxy:
             return list(self.log)
 
 
-def run_am_fetch(am_bin, js, proxy_port=None, no_proxy=None):
-    """Run `js` under amoib with proxy env; return (exitcode, output)."""
+def run_qz_fetch(qz_bin, js, proxy_port=None, no_proxy=None):
+    """Run `js` under qzjs with proxy env; return (exitcode, output)."""
     env = dict(os.environ)
     env.pop("HTTP_PROXY", None); env.pop("http_proxy", None)
     env.pop("HTTPS_PROXY", None); env.pop("https_proxy", None)
@@ -222,7 +222,7 @@ def run_am_fetch(am_bin, js, proxy_port=None, no_proxy=None):
         env["HTTPS_PROXY"] = purl
     if no_proxy:
         env["NO_PROXY"] = no_proxy
-    p = subprocess.run([am_bin, "-e", js], env=env, timeout=20,
+    p = subprocess.run([qz_bin, "-e", js], env=env, timeout=20,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     return p.returncode, p.stdout.decode("utf-8", "replace")
 
@@ -232,14 +232,14 @@ def run_am_fetch(am_bin, js, proxy_port=None, no_proxy=None):
 # ---------------------------------------------------------------------------
 
 @test
-def test_http_via_proxy(am_bin):
+def test_http_via_proxy(qz_bin):
     origin = Origin()
     proxy = Proxy()
     try:
         js = ("fetch('http://127.0.0.1:%d/hello').then(function(r){return r.text();})"
               ".then(function(t){console.log('GOT:'+t);},"
               "function(e){console.log('ERR:'+e);});" % origin.port)
-        rc, out = run_am_fetch(am_bin, js, proxy_port=proxy.port)
+        rc, out = run_qz_fetch(qz_bin, js, proxy_port=proxy.port)
         assert "GOT:hello-via-origin" in out, out
         assert rc == 0, (rc, out)
         # proxy must have seen the absolute-form target
@@ -253,14 +253,14 @@ def test_http_via_proxy(am_bin):
 
 
 @test
-def test_no_proxy_bypass(am_bin):
+def test_no_proxy_bypass(qz_bin):
     origin = Origin()
     proxy = Proxy()
     try:
         js = ("fetch('http://127.0.0.1:%d/hello').then(function(r){return r.text();})"
               ".then(function(t){console.log('GOT:'+t);},"
               "function(e){console.log('ERR:'+e);});" % origin.port)
-        rc, out = run_am_fetch(am_bin, js, proxy_port=proxy.port,
+        rc, out = run_qz_fetch(qz_bin, js, proxy_port=proxy.port,
                                  no_proxy="127.0.0.1")
         assert "GOT:hello-via-origin" in out, out
         time.sleep(0.2)
@@ -271,7 +271,7 @@ def test_no_proxy_bypass(am_bin):
 
 
 @test
-def test_no_proxy_bracketed_ipv6_bypass(am_bin):
+def test_no_proxy_bracketed_ipv6_bypass(qz_bin):
     """NO_PROXY='[::1]' must bypass the proxy for http://[::1]:port/ —
     hosts are stored bare, so bracketed entries must be bracket-stripped."""
     origin = Origin(host="::1")
@@ -280,7 +280,7 @@ def test_no_proxy_bracketed_ipv6_bypass(am_bin):
         js = ("fetch('http://[::1]:%d/hello').then(function(r){return r.text();})"
               ".then(function(t){console.log('GOT:'+t);},"
               "function(e){console.log('ERR:'+e);});" % origin.port)
-        rc, out = run_am_fetch(am_bin, js, proxy_port=proxy.port,
+        rc, out = run_qz_fetch(qz_bin, js, proxy_port=proxy.port,
                                  no_proxy="[::1]")
         assert "GOT:hello-via-origin" in out, out
         time.sleep(0.2)
@@ -291,14 +291,14 @@ def test_no_proxy_bracketed_ipv6_bypass(am_bin):
 
 
 @test
-def test_no_proxy_ipv6_nonmatch_uses_proxy(am_bin):
+def test_no_proxy_ipv6_nonmatch_uses_proxy(qz_bin):
     """An IPv6 origin NOT covered by NO_PROXY still goes through the proxy
     (the request line must appear in the proxy log)."""
     proxy = Proxy()
     try:
         js = ("fetch('http://[::1]:%d/hello').then(function(r){console.log('UNEXPECTED');},"
               "function(e){console.log('ERR:'+e);});" % (proxy.port - 1))
-        rc, out = run_am_fetch(am_bin, js, proxy_port=proxy.port,
+        rc, out = run_qz_fetch(qz_bin, js, proxy_port=proxy.port,
                                  no_proxy="example.com")
         assert proxy.seen and proxy.seen[0].startswith(
             "GET http://[::1]:%d/hello HTTP/1.1" % (proxy.port - 1)), proxy.seen
@@ -307,14 +307,14 @@ def test_no_proxy_ipv6_nonmatch_uses_proxy(am_bin):
 
 
 @test
-def test_proxy_wildcard_no_proxy(am_bin):
+def test_proxy_wildcard_no_proxy(qz_bin):
     origin = Origin()
     proxy = Proxy()
     try:
         js = ("fetch('http://127.0.0.1:%d/hello').then(function(r){return r.text();})"
               ".then(function(t){console.log('GOT:'+t);},"
               "function(e){console.log('ERR:'+e);});" % origin.port)
-        rc, out = run_am_fetch(am_bin, js, proxy_port=proxy.port,
+        rc, out = run_qz_fetch(qz_bin, js, proxy_port=proxy.port,
                                  no_proxy="*")
         assert "GOT:hello-via-origin" in out, out
         time.sleep(0.2)
@@ -326,7 +326,7 @@ def test_proxy_wildcard_no_proxy(am_bin):
 
 
 @test
-def test_streaming_via_proxy(am_bin):
+def test_streaming_via_proxy(qz_bin):
     origin = Origin(body=b"chunk0-chunk1-chunk2")
     proxy = Proxy()
     try:
@@ -342,7 +342,7 @@ def test_streaming_via_proxy(am_bin):
               "  return pump();"
               "}).then(function(all){console.log('STREAM:'+all);},"
               "function(e){console.log('ERR:'+e);});" % origin.port)
-        rc, out = run_am_fetch(am_bin, js, proxy_port=proxy.port)
+        rc, out = run_qz_fetch(qz_bin, js, proxy_port=proxy.port)
         assert "STREAM:" in out, out
         assert out.split("STREAM:")[1].split("\n")[0].replace("|", "") == "chunk0-chunk1-chunk2", out
         assert proxy.seen, proxy.seen
@@ -382,8 +382,8 @@ def make_tls_sink():
 
 
 @test
-def test_https_connect_tunnel(am_bin):
-    """HTTPS_PROXY -> CONNECT request; proxy 200; amoib then attempts TLS.
+def test_https_connect_tunnel(qz_bin):
+    """HTTPS_PROXY -> CONNECT request; proxy 200; qzjs then attempts TLS.
 
     The origin here is a plain TCP socket (no TLS), so after the tunnel opens
     the mbedTLS handshake must fail against non-TLS bytes. That failure is the
@@ -397,7 +397,7 @@ def test_https_connect_tunnel(am_bin):
         js = ("fetch('https://localhost:%d/x').then("
               "function(r){console.log('UNEXPECTED');},"
               "function(e){console.log('REJ:'+e);});" % sink_port)
-        rc, out = run_am_fetch(am_bin, js, proxy_port=proxy.port)
+        rc, out = run_qz_fetch(qz_bin, js, proxy_port=proxy.port)
         assert "REJ:" in out, out
         assert "UNEXPECTED" not in out, out
         assert proxy.seen and proxy.seen[0] == "CONNECT localhost:%d HTTP/1.1" % sink_port, proxy.seen
@@ -408,14 +408,14 @@ def test_https_connect_tunnel(am_bin):
 
 
 @test
-def test_https_connect_refused(am_bin):
+def test_https_connect_refused(qz_bin):
     """Proxy refuses CONNECT with 403 -> fetch rejects, origin never dialed."""
     proxy = Proxy(mode="refuse_connect")
     try:
         js = ("fetch('https://localhost:9/x').then("
               "function(r){console.log('UNEXPECTED');},"
               "function(e){console.log('REJ:'+e);});")
-        rc, out = run_am_fetch(am_bin, js, proxy_port=proxy.port)
+        rc, out = run_qz_fetch(qz_bin, js, proxy_port=proxy.port)
         assert "REJ:" in out, out
         assert "UNEXPECTED" not in out, out
         assert proxy.seen and proxy.seen[0].startswith("CONNECT localhost:9 "), proxy.seen
@@ -424,7 +424,7 @@ def test_https_connect_refused(am_bin):
 
 
 @test
-def test_malformed_proxy_url_fails_closed(am_bin):
+def test_malformed_proxy_url_fails_closed(qz_bin):
     origin = Origin()
     try:
         env = dict(os.environ)
@@ -434,7 +434,7 @@ def test_malformed_proxy_url_fails_closed(am_bin):
         js = ("fetch('http://127.0.0.1:%d/hello').then("
               "function(r){console.log('UNEXPECTED');},"
               "function(e){console.log('REJ:'+e);});" % origin.port)
-        p = subprocess.run([am_bin, "-e", js], env=env, timeout=20,
+        p = subprocess.run([qz_bin, "-e", js], env=env, timeout=20,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         out = p.stdout.decode("utf-8", "replace")
         assert "REJ:" in out, out
@@ -445,17 +445,17 @@ def test_malformed_proxy_url_fails_closed(am_bin):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--amoib-bin", required=True)
+    ap.add_argument("--qzjs-bin", required=True)
     args = ap.parse_args()
-    am_bin = os.path.abspath(args.am_bin)
-    assert os.path.exists(am_bin), "amoib binary not found: %s" % am_bin
+    qz_bin = os.path.abspath(args.qz_bin)
+    assert os.path.exists(qz_bin), "qzjs binary not found: %s" % qz_bin
 
     failed = []
     for fn in TESTS:
         name = fn.__name__
         t0 = time.time()
         try:
-            fn(am_bin)
+            fn(qz_bin)
             print("PASS %-36s (%.1fs)" % (name, time.time() - t0))
         except AssertionError as e:
             failed.append(name)

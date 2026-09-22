@@ -1,12 +1,12 @@
 #!/bin/bash
 # SW-1 e2e — fetch 拦截三场景：SW 合成响应（respondWith）/ SW 内 fetch
 # 透传（防重入 + 真实网络回退 serve()）/ 未 respondWith 回退网络。
-# 期望输出逐行匹配。用法: bash test/service_worker_sw1_e2e.sh <path-to-amoib>
+# 期望输出逐行匹配。用法: bash test/service_worker_sw1_e2e.sh <path-to-qzjs>
 set -u
-AM="${1:-./build_grpc2/amoib}"
+AM="${1:-./build_grpc2/qzjs}"
 DIR="$(cd "$(dirname "$0")/sw-e2e" && pwd)"
 
-TMP="$(mktemp /tmp/amoib-sw1.XXXXXX.js)" || exit 1
+TMP="$(mktemp /tmp/qzjs-sw1.XXXXXX.js)" || exit 1
 trap 'rm -f "$TMP"' EXIT
 sed "s|__SW_DIR__|$DIR|g" "$DIR/main-sw1.js" > "$TMP"
 OUT="$(timeout 20 "$AM" "$TMP" 2>&1)"

@@ -1,11 +1,11 @@
 ---
 title: Standalone CLI
-description: Use amoib as a standalone WinterTC runtime — run JavaScript scripts, one-liners, or an interactive REPL without embedding or Node.js.
+description: Use qzjs as a standalone WinterTC runtime — run JavaScript scripts, one-liners, or an interactive REPL without embedding or Node.js.
 ---
 
 # Standalone CLI
 
-amoib ships a standalone runtime executable (built by default with `AM_BUILD_CLI=ON`)
+qzjs ships a standalone runtime executable (built by default with `QZ_BUILD_CLI=ON`)
 that runs the full WinterTC Web API surface directly — no Node.js APIs
 (`process`, `require`, `Buffer`) by design.
 
@@ -15,24 +15,24 @@ The CLI is part of the default build:
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)   # produces build/amoib
+cmake --build build -j$(nproc)   # produces build/qzjs
 ```
 
 ## Usage
 
 ```bash
-amoib script.js [args...]   # run a script file
-amoib -e 'code' [args...]   # evaluate an expression / statement
-amoib                       # interactive REPL (Ctrl-D to exit)
-amoib --help                # usage
-amoib --version             # version string
+qzjs script.js [args...]   # run a script file
+qzjs -e 'code' [args...]   # evaluate an expression / statement
+qzjs                       # interactive REPL (Ctrl-D to exit)
+qzjs --help                # usage
+qzjs --version             # version string
 ```
 
 ### Script mode
 
 ```bash
-./build/amoib hello.js
-# hello from amoib
+./build/qzjs hello.js
+# hello from qzjs
 ```
 
 Script args are exposed as `globalThis.arguments` (WinterCG
@@ -40,23 +40,23 @@ Script args are exposed as `globalThis.arguments` (WinterCG
 executable name and script path are excluded):
 
 ```bash
-./build/amoib -e 'console.log(JSON.stringify(globalThis.arguments))' a b c
+./build/qzjs -e 'console.log(JSON.stringify(globalThis.arguments))' a b c
 # ["a","b","c"]
 ```
 
 ### -e eval mode
 
 ```bash
-./build/amoib -e 'const r = await fetch("https://example.com"); console.log(r.status)'
+./build/qzjs -e 'const r = await fetch("https://example.com"); console.log(r.status)'
 ```
 
 ### REPL
 
-Run `amoib` with no arguments for an interactive session:
+Run `qzjs` with no arguments for an interactive session:
 
 ```text
-$ amoib
-amoib 0.2.0 (WinterTC runtime) — type JS, Ctrl-D to exit
+$ qzjs
+qzjs 0.2.0 (WinterTC runtime) — type JS, Ctrl-D to exit
 1 + 2
 3
 ```
@@ -72,7 +72,7 @@ amoib 0.2.0 (WinterTC runtime) — type JS, Ctrl-D to exit
 - **Exit codes** — `0` success; `1` script threw (message on stderr) or the file
   was unreadable; `2` unknown flag / bad `-e` usage.
 
-## Control plane (`amoib-ctl`)
+## Control plane (`qzjs-ctl`)
 
 With `--control-plane=local`, the running runtime exposes a local AF_UNIX
 endpoint (0600, peer-uid checked via `SO_PEERCRED`) that accepts one JSON
@@ -80,17 +80,17 @@ control command per line and writes back one receipt per command:
 
 ```bash
 # start a runtime that exposes an endpoint
-amoib --control-plane=local --control-pipe=/tmp/my-amoib.ctl app.js
+qzjs --control-plane=local --control-pipe=/tmp/my-qzjs.ctl app.js
 
 # in another shell: send commands, print receipts
-amoib-ctl --pipe /tmp/my-amoib.ctl eval '1 + 1'
-amoib-ctl --pipe /tmp/my-amoib.ctl inspect '({a: 1})'
-amoib-ctl --pipe /tmp/my-amoib.ctl metrics
-amoib-ctl --pipe /tmp/my-amoib.ctl interrupt
+qzjs-ctl --pipe /tmp/my-qzjs.ctl eval '1 + 1'
+qzjs-ctl --pipe /tmp/my-qzjs.ctl inspect '({a: 1})'
+qzjs-ctl --pipe /tmp/my-qzjs.ctl metrics
+qzjs-ctl --pipe /tmp/my-qzjs.ctl interrupt
 
 # address another node of the process tree (worker slot id), or send raw JSON
-amoib-ctl --pipe /tmp/my-amoib.ctl --target 1001 metrics
-amoib-ctl --pipe /tmp/my-amoib.ctl --json '{"op":"metrics","correl":"c1"}'
+qzjs-ctl --pipe /tmp/my-qzjs.ctl --target 1001 metrics
+qzjs-ctl --pipe /tmp/my-qzjs.ctl --json '{"op":"metrics","correl":"c1"}'
 ```
 
 Commands are `eval` / `inspect` / `metrics` / `interrupt`. `--target N` routes
@@ -99,14 +99,14 @@ the command through the process tree (CTL-1): `1` is the main runtime (default),
 under the isolated build gets slot id 1001, 1002, …). Receipts are paired by
 `correl`; the exit code is `0` when the receipt says `ok:true`, `1` otherwise.
 The default path when `--control-pipe` is omitted is
-`/tmp/amoib-<pid>-<n>.ctl`. `off` (the default) exposes nothing; `in-proc`
+`/tmp/qzjs-<pid>-<n>.ctl`. `off` (the default) exposes nothing; `in-proc`
 allows in-process commands only.
 
 ## No Node.js API
 
 The CLI intentionally exposes **no** Node-style globals — there is no `process`,
 no `require`, no `Buffer`, no CommonJS. Scripts use the same WinterTC Web APIs
-that embedded amoib offers (fetch, console, crypto.subtle, ReadableStream,
+that embedded qzjs offers (fetch, console, crypto.subtle, ReadableStream,
 timers, URL, TextEncoder, …).
 
 ## Next Steps

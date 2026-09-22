@@ -1,6 +1,6 @@
 ---
 title: structuredClone
-description: Amoib.js 中的 structuredClone API —— 支持可转移对象的 JavaScript 深层克隆。
+description: Qzjs.js 中的 structuredClone API —— 支持可转移对象的 JavaScript 深层克隆。
 ---
 
 # structuredClone
@@ -153,4 +153,4 @@ console.log(cloned.stack);    // 堆栈跟踪被保留
 - `RegExp` 标志（`g`、`i`、`m`、`s`、`u`、`y`）被保留
 - `RegExp.lastIndex` 在克隆中被重置为 0
 - `Date` 时区偏移被保留（毫秒精度）
-- 不支持 `Blob` 或 `File` 克隆（这些类型在 amoib 中有限制）
+- 不支持 `Blob` 或 `File` 克隆（这些类型在 qzjs 中有限制）

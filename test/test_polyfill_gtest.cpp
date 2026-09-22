@@ -37,7 +37,7 @@ TEST_F(PolyfillTest, Timer) {
 
 TEST_F(PolyfillTest, Encoding) {
     std::string v;
-#if AM_WITH_TEXTCODEC
+#if QZ_WITH_TEXTCODEC
     ASSERT_TRUE(host_value(h, "btoa('hello')", &v));
     EXPECT_NE(std::string::npos, v.find("aGVsbG8="));
     ASSERT_TRUE(host_value(h, "atob('aGVsbG8=')", &v));
@@ -49,7 +49,7 @@ TEST_F(PolyfillTest, Encoding) {
         "try { btoa('hello'); } catch(e) { errs.push(String(e)); }\n"
         "try { atob('aGVsbG8='); } catch(e) { errs.push(String(e)); }\n"
         "JSON.stringify(errs)", &v));
-    EXPECT_NE(std::string::npos, v.find("AM_WITH_TEXTCODEC")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("QZ_WITH_TEXTCODEC")) << "got: " << v;
 #endif
 }
 
@@ -222,31 +222,31 @@ TEST_F(PolyfillTest, Storage) {
     std::string v;
     ASSERT_TRUE(host_eval(h,
         "var _setOk = null; var _got = null; var _delOk = null;\n"
-        "amoib.storage.set('pf_key', 'pf_value').then(function(){ _setOk = 'yes'; });\n"
+        "qzjs.storage.set('pf_key', 'pf_value').then(function(){ _setOk = 'yes'; });\n"
         "0", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_setOk", "yes", &v));
 
     ASSERT_TRUE(host_eval(h,
-        "amoib.storage.get('pf_key').then(function(v){ _got = v; });\n"
+        "qzjs.storage.get('pf_key').then(function(v){ _got = v; });\n"
         "0", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_got", "pf_value", &v));
 
     ASSERT_TRUE(host_eval(h,
-        "amoib.storage.delete('pf_key').then(function(){ _delOk = 'yes'; });\n"
+        "qzjs.storage.delete('pf_key').then(function(){ _delOk = 'yes'; });\n"
         "0", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_delOk", "yes", &v));
 }
 
 /* localStorage（Web Storage Storage 接口，同步 + 持久化）。
- * 用 AM_LOCALSTORAGE_FILE 指向独立临时文件，避免触碰默认 ~/.amoib/
+ * 用 QZ_LOCALSTORAGE_FILE 指向独立临时文件，避免触碰默认 ~/.qzjs/
  * localstorage.json。 */
 TEST_F(PolyfillTest, LocalStorageBasic) {
-    char tmpl[] = "/tmp/am_ls_basic_XXXXXX";
+    char tmpl[] = "/tmp/qz_ls_basic_XXXXXX";
     int fd = ::mkstemp(tmpl);
     ASSERT_GE(fd, 0);
     ::close(fd);
     ::remove(tmpl);   /* 从空文件开始（mkstemp 建的空文件，读空串解析失败→空） */
-    setenv("AM_LOCALSTORAGE_FILE", tmpl, 1);
+    setenv("QZ_LOCALSTORAGE_FILE", tmpl, 1);
     /* runtime 在 polyfill 注入时解析持久化路径，必须先设好 env 再建 host */
     host_destroy(h);
     h = host_create();
@@ -283,37 +283,37 @@ TEST_F(PolyfillTest, LocalStorageBasic) {
         "JSON.stringify([localStorage.length, localStorage.getItem('k3')])", &v));
     EXPECT_EQ("[0,null]", v) << "got: " << v;
 
-    unsetenv("AM_LOCALSTORAGE_FILE");
+    unsetenv("QZ_LOCALSTORAGE_FILE");
     ::remove(tmpl);
 }
 
-/* M-P4 §10.2：所有者侧 storage 请求处理（__am_storage_dispatch__）——
+/* M-P4 §10.2：所有者侧 storage 请求处理（__qz_storage_dispatch__）——
  * worker 经 kind=STORAGE 信封发来的 op 编排在这里执行。进程往返本身由
  * test/test_mp4_storage_crash_e2e.sh 覆盖（真两进程）；本用例单测所有者
  * 编排的语义与回包线格式（op 执行、异常封装、kind=4/source 回显），不需要
  * 进程后端——THREAD 基线上直接驱动。 */
 TEST_F(PolyfillTest, StorageOwnerDispatch) {
-    char tmpl[] = "/tmp/am_ls_dispatch_XXXXXX";
+    char tmpl[] = "/tmp/qz_ls_dispatch_XXXXXX";
     int fd = ::mkstemp(tmpl);
     ASSERT_GE(fd, 0);
     ::close(fd);
     ::remove(tmpl);
-    setenv("AM_LOCALSTORAGE_FILE", tmpl, 1);
+    setenv("QZ_LOCALSTORAGE_FILE", tmpl, 1);
     host_destroy(h);
     h = host_create();
     ASSERT_NE(nullptr, h);
     std::string v;
 
     ASSERT_TRUE(host_value(h,
-        /* 截获回包（进程路径里 __am_worker_post__ 由 worker.js 注册；这里
+        /* 截获回包（进程路径里 __qz_worker_post__ 由 worker.js 注册；这里
          * 直接替换为记录器，观察所有者发出的帧） */
         "globalThis.__replies = [];\n"
-        "globalThis.__am_worker_post__ = function (src, bytes, kind) {\n"
-        "  __replies.push({s: src, k: kind, r: __am_deserialize__(bytes)});\n"
+        "globalThis.__qz_worker_post__ = function (src, bytes, kind) {\n"
+        "  __replies.push({s: src, k: kind, r: __qz_deserialize__(bytes)});\n"
         "};\n"
         "function req(op, key, value, domain) {\n"
-        "  __am_storage_dispatch__(\n"
-        "    __am_serialize__({ op: op, key: key, value: value,\n"
+        "  __qz_storage_dispatch__(\n"
+        "    __qz_serialize__({ op: op, key: key, value: value,\n"
         "                         storageDomain: domain || 'localStorage' }), 1001);\n"
         "  return __replies[__replies.length - 1];\n"
         "}\n"
@@ -354,18 +354,18 @@ TEST_F(PolyfillTest, StorageOwnerDispatch) {
         "JSON.stringify(out)", &v));
     EXPECT_EQ("[\"ss\",\"ls\",1,null,null,\"ls\"]", v) << "got: " << v;
 
-    unsetenv("AM_LOCALSTORAGE_FILE");
+    unsetenv("QZ_LOCALSTORAGE_FILE");
     ::remove(tmpl);
 }
 
 /* 持久化：setItem 后销毁 runtime，用同一文件重建 → 数据仍在（跨重启）。 */
 TEST_F(PolyfillTest, LocalStoragePersistsAcrossRestart) {
-    char tmpl[] = "/tmp/am_ls_persist_XXXXXX";
+    char tmpl[] = "/tmp/qz_ls_persist_XXXXXX";
     int fd = ::mkstemp(tmpl);
     ASSERT_GE(fd, 0);
     ::close(fd);
     ::remove(tmpl);
-    setenv("AM_LOCALSTORAGE_FILE", tmpl, 1);
+    setenv("QZ_LOCALSTORAGE_FILE", tmpl, 1);
     /* runtime 在 polyfill 注入时解析持久化路径，必须先设好 env 再建 host */
     host_destroy(h);
     h = host_create();
@@ -397,18 +397,18 @@ TEST_F(PolyfillTest, LocalStoragePersistsAcrossRestart) {
     buf[n] = '\0';
     EXPECT_NE(std::string::npos, std::string(buf).find("\"pk\":\"pv\"")) << "got: " << buf;
 
-    unsetenv("AM_LOCALSTORAGE_FILE");
+    unsetenv("QZ_LOCALSTORAGE_FILE");
     ::remove(tmpl);
 }
 
 /* 配额（5 MiB 键+值 code units）：超限抛 QuotaExceededError，状态不变、不落盘。 */
 TEST_F(PolyfillTest, LocalStorageQuotaExceeded) {
-    char tmpl[] = "/tmp/am_ls_quota_XXXXXX";
+    char tmpl[] = "/tmp/qz_ls_quota_XXXXXX";
     int fd = ::mkstemp(tmpl);
     ASSERT_GE(fd, 0);
     ::close(fd);
     ::remove(tmpl);
-    setenv("AM_LOCALSTORAGE_FILE", tmpl, 1);
+    setenv("QZ_LOCALSTORAGE_FILE", tmpl, 1);
     /* runtime 在 polyfill 注入时解析持久化路径，必须先设好 env 再建 host */
     host_destroy(h);
     h = host_create();
@@ -437,19 +437,19 @@ TEST_F(PolyfillTest, LocalStorageQuotaExceeded) {
         "JSON.stringify([name2, localStorage.length, localStorage.getItem('a') !== null])", &v));
     EXPECT_EQ("[\"QuotaExceededError\",2,true]", v) << "got: " << v;
 
-    unsetenv("AM_LOCALSTORAGE_FILE");
+    unsetenv("QZ_LOCALSTORAGE_FILE");
     ::remove(tmpl);
 }
 /* sessionStorage：独立域（纯内存区，生命周期 = runtime 会话）——与 localStorage
  * 同 key 完全隔离、全 op 语义一致、超限同 QUOTA（5 MiB）、不落盘（数据不写进
  * localStorage 持久文件）。 */
 TEST_F(PolyfillTest, SessionStorageBasic) {
-    char tmpl[] = "/tmp/am_ss_basic_XXXXXX";
+    char tmpl[] = "/tmp/qz_ss_basic_XXXXXX";
     int fd = ::mkstemp(tmpl);
     ASSERT_GE(fd, 0);
     ::close(fd);
     ::remove(tmpl);
-    setenv("AM_LOCALSTORAGE_FILE", tmpl, 1);
+    setenv("QZ_LOCALSTORAGE_FILE", tmpl, 1);
     host_destroy(h);
     h = host_create();
     ASSERT_NE(nullptr, h);
@@ -498,25 +498,25 @@ TEST_F(PolyfillTest, SessionStorageBasic) {
     EXPECT_EQ(std::string::npos, contents.find("ss-v"))
         << "session data leaked into localStorage file: " << contents;
 
-    unsetenv("AM_LOCALSTORAGE_FILE");
+    unsetenv("QZ_LOCALSTORAGE_FILE");
     ::remove(tmpl);
 }
 
-/* 默认持久化路径：无 AM_LOCALSTORAGE_FILE → $HOME/.amoib/localstorage.json；
- * HOME 缺失 → 当前目录 .amoib-localstorage.json。 */
+/* 默认持久化路径：无 QZ_LOCALSTORAGE_FILE → $HOME/.qzjs/localstorage.json；
+ * HOME 缺失 → 当前目录 .qzjs-localstorage.json。 */
 TEST_F(PolyfillTest, LocalStorageDefaultPath) {
-    unsetenv("AM_LOCALSTORAGE_FILE");
+    unsetenv("QZ_LOCALSTORAGE_FILE");
     std::string v;
     ASSERT_TRUE(host_value(h,
         "var p = __native__.localStoragePath();\n"
-        "JSON.stringify([typeof localStorage, p.indexOf('.amoib/localstorage.json') >= 0])", &v));
+        "JSON.stringify([typeof localStorage, p.indexOf('.qzjs/localstorage.json') >= 0])", &v));
     EXPECT_EQ("[\"object\",true]", v) << "got: " << v;
 
     const char *home = getenv("HOME");
     if (home) {
         unsetenv("HOME");
         ASSERT_TRUE(host_value(h, "__native__.localStoragePath()", &v));
-        EXPECT_EQ(".amoib-localstorage.json", v) << "got: " << v;
+        EXPECT_EQ(".qzjs-localstorage.json", v) << "got: " << v;
         setenv("HOME", home, 1);
     }
 }
@@ -659,7 +659,7 @@ TEST_F(PolyfillTest, ByobRequestRespond) {
 // Crypto / Performance constructor exposure (ECMA-429 WEBCRYPTO / HR-TIME)
 // ================================================================
 
-#if AM_WITH_CRYPTO_EXT
+#if QZ_WITH_CRYPTO_EXT
 TEST_F(PolyfillTest, CryptoGlobals) {
     std::string v;
     /* Crypto / SubtleCrypto 构造函数暴露为 globalThis，且实例关系正确。
@@ -1555,7 +1555,7 @@ TEST_F(PolyfillTest, QueueMicrotask) {
 }
 
 TEST_F(PolyfillTest, BtoaAtobEdgeCases) {
-#if AM_WITH_TEXTCODEC
+#if QZ_WITH_TEXTCODEC
     std::string v;
     /* 1. btoa 非 Latin1 字符抛错（> 0xFF） */
     ASSERT_TRUE(host_value(h,
@@ -1589,7 +1589,7 @@ TEST_F(PolyfillTest, BtoaAtobEdgeCases) {
         "try { btoa('hi'); } catch(e) { errs.push(String(e)); }\n"
         "try { atob('aGk='); } catch(e) { errs.push(String(e)); }\n"
         "JSON.stringify(errs)", &v));
-    EXPECT_NE(std::string::npos, v.find("AM_WITH_TEXTCODEC")) << "got: " << v;
+    EXPECT_NE(std::string::npos, v.find("QZ_WITH_TEXTCODEC")) << "got: " << v;
 #endif
 }
 
@@ -1728,7 +1728,7 @@ TEST_F(PolyfillTest, PerformanceObserver) {
 TEST_F(PolyfillTest, CacheStorageEdgeCases) {
     std::string v;
     /* 1. caches 全局存在。CacheStorage 是纯 JS lazy 模块（index.js lazyUnit
-     * 无条件注册），无 AM_WITH_* 编译开关、任何构建恒存在——无条件硬断言，
+     * 无条件注册），无 QZ_WITH_* 编译开关、任何构建恒存在——无条件硬断言，
      * 不做运行时探测 skip。 */
     ASSERT_TRUE(host_value(h, "JSON.stringify(typeof caches)", &v));
     EXPECT_NE(std::string::npos, v.find("\"object\"")) << "got: " << v;
@@ -1780,7 +1780,7 @@ TEST_F(PolyfillTest, EventSourceParsing) {
         "});\n"
         "JSON.stringify(typeof EventSource)", &v));
     /* EventSource 是纯 JS lazy 模块（index.js lazyUnit 无条件注册），无
-     * AM_WITH_* 编译开关、任何构建恒存在——无条件硬断言，不做运行时探测。 */
+     * QZ_WITH_* 编译开关、任何构建恒存在——无条件硬断言，不做运行时探测。 */
     EXPECT_NE(std::string::npos, v.find("\"function\"")) << "got: " << v;
 
     /* 200 + 分块喂入：BOM / 注释 / CRLF / CR / LF / 多 data 行 / 空 data /
@@ -2356,10 +2356,10 @@ TEST_F(PolyfillTest, MessageChannelMessaging) {
 }
 
 // ================================================================
-// amoib.fs — 异步文件系统 API 覆盖（ROADMAP A1）
+// qzjs.fs — 异步文件系统 API 覆盖（ROADMAP A1）
 // 异步原语走 uv_io_*；mock_libuv 在 uv_fs_* 调用点同步执行真实文件系统并
 // 立即回调，promise 在下一轮 host_eval（跑 loop + 冲刷微任务）后可见。
-// 临时路径 /tmp/am_fs_<tag>_<pid>_<id>：唯一且绝对（guard 只拒 ".." 组件）。
+// 临时路径 /tmp/qz_fs_<tag>_<pid>_<id>：唯一且绝对（guard 只拒 ".." 组件）。
 // ================================================================
 
 #include <unistd.h>
@@ -2370,7 +2370,7 @@ namespace {
 std::string fs_tmp(const char *tag) {
     static std::atomic<int> n{0};
     int id = n.fetch_add(1) + 1;
-    return std::string("/tmp/am_fs_") + tag + "_" +
+    return std::string("/tmp/qz_fs_") + tag + "_" +
            std::to_string((long)getpid()) + "_" + std::to_string(id);
 }
 }
@@ -2379,9 +2379,9 @@ TEST_F(PolyfillTest, FsApiSurface) {
     std::string v;
     /* 6 个 async fs API 全部挂载 */
     ASSERT_TRUE(host_value(h,
-        "JSON.stringify([typeof amoib.fs.readFile, typeof amoib.fs.readFileBinary,\n"
-        "  typeof amoib.fs.writeFile, typeof amoib.fs.exists,\n"
-        "  typeof amoib.fs.readdir, typeof amoib.fs.unlink])", &v));
+        "JSON.stringify([typeof qzjs.fs.readFile, typeof qzjs.fs.readFileBinary,\n"
+        "  typeof qzjs.fs.writeFile, typeof qzjs.fs.exists,\n"
+        "  typeof qzjs.fs.readdir, typeof qzjs.fs.unlink])", &v));
     int cnt = 0;
     std::string::size_type p = 0;
     while ((p = v.find("\"function\"", p)) != std::string::npos) { cnt++; p += 10; }
@@ -2389,7 +2389,7 @@ TEST_F(PolyfillTest, FsApiSurface) {
 
     /* readFileSync 是显式拒绝的同步别名 */
     ASSERT_TRUE(host_value(h,
-        "(() => { try { amoib.fs.readFileSync('/etc/hostname'); return 'NO_THROW'; }"
+        "(() => { try { qzjs.fs.readFileSync('/etc/hostname'); return 'NO_THROW'; }"
         " catch (e) { return e.message; } })()", &v));
     EXPECT_NE(std::string::npos, v.find("not supported")) << "got: " << v;
 }
@@ -2402,12 +2402,12 @@ TEST_F(PolyfillTest, FsWriteReadRoundtrip) {
     std::string plit = JSON_string(path.c_str());
     std::string out, v;
 
-    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; amoib.fs.writeFile(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qzjs.fs.writeFile(" + plit +
         ", 'hello fs world').then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
 
     /* 异步 readFile 往返 */
-    ASSERT_TRUE(host_eval(h, ("globalThis._rd = 'pending'; amoib.fs.readFile(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._rd = 'pending'; qzjs.fs.readFile(" + plit +
         ").then(function(d){ globalThis._rd = d; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_rd", "hello fs world", &v));
 
@@ -2416,7 +2416,7 @@ TEST_F(PolyfillTest, FsWriteReadRoundtrip) {
     EXPECT_NE(std::string::npos, v.find("hello fs world")) << "got: " << v;
 
     /* 清理 */
-    ASSERT_TRUE(host_eval(h, ("globalThis._del = 'pending'; amoib.fs.unlink(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._del = 'pending'; qzjs.fs.unlink(" + plit +
         ").then(function(){ globalThis._del = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_del", "done", &v));
 }
@@ -2427,23 +2427,23 @@ TEST_F(PolyfillTest, FsExistsUnlink) {
     std::string out, v;
 
     /* 不存在 → false */
-    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; amoib.fs.exists(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qzjs.fs.exists(" + plit +
         ").then(function(b){ globalThis._e = b; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_e", "false", &v));
 
     /* 写入 → true */
-    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; amoib.fs.writeFile(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qzjs.fs.writeFile(" + plit +
         ", 'x').then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
-    ASSERT_TRUE(host_eval(h, ("globalThis._e2 = 'pending'; amoib.fs.exists(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._e2 = 'pending'; qzjs.fs.exists(" + plit +
         ").then(function(b){ globalThis._e2 = b; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_e2", "true", &v));
 
     /* unlink → false */
-    ASSERT_TRUE(host_eval(h, ("globalThis._u = 'pending'; amoib.fs.unlink(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._u = 'pending'; qzjs.fs.unlink(" + plit +
         ").then(function(){ globalThis._u = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_u", "done", &v));
-    ASSERT_TRUE(host_eval(h, ("globalThis._e3 = 'pending'; amoib.fs.exists(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._e3 = 'pending'; qzjs.fs.exists(" + plit +
         ").then(function(b){ globalThis._e3 = b; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_e3", "false", &v));
 }
@@ -2454,17 +2454,17 @@ TEST_F(PolyfillTest, FsReadFileBinary) {
     std::string out, v;
 
     /* 二进制往返：NUL + 0x7f（<0x80 保证 UTF-8 单字节映射，字节精确） */
-    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; amoib.fs.writeFile(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qzjs.fs.writeFile(" + plit +
         ", '\\x00\\x01\\x02\\x7f').then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
 
     /* readFileBinary → ArrayBuffer → Uint8Array 逐字节核对 */
-    ASSERT_TRUE(host_eval(h, ("globalThis._b = 'pending'; amoib.fs.readFileBinary(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._b = 'pending'; qzjs.fs.readFileBinary(" + plit +
         ").then(function(ab){ globalThis._b = Array.from(new Uint8Array(ab)); }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "JSON.stringify(_b)", "0,1,2,127", &v));
 
     /* 清理 */
-    ASSERT_TRUE(host_eval(h, ("globalThis._del = 'pending'; amoib.fs.unlink(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._del = 'pending'; qzjs.fs.unlink(" + plit +
         ").then(function(){ globalThis._del = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_del", "done", &v));
 }
@@ -2476,24 +2476,24 @@ TEST_F(PolyfillTest, FsReaddir) {
     ASSERT_EQ(0, ::mkdir(dir.c_str(), 0700));
     std::string out, v;
 
-    ASSERT_TRUE(host_eval(h, ("globalThis._w1 = 'pending'; amoib.fs.writeFile(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._w1 = 'pending'; qzjs.fs.writeFile(" +
         JSON_string(f1.c_str()) + ", '1').then(function(){ globalThis._w1 = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_w1", "done", &v));
-    ASSERT_TRUE(host_eval(h, ("globalThis._w2 = 'pending'; amoib.fs.writeFile(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._w2 = 'pending'; qzjs.fs.writeFile(" +
         JSON_string(f2.c_str()) + ", '2').then(function(){ globalThis._w2 = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_w2", "done", &v));
 
     /* readdir 列出两个文件（顺序无关，逐个断言存在） */
-    ASSERT_TRUE(host_eval(h, ("globalThis._dl = 'pending'; amoib.fs.readdir(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._dl = 'pending'; qzjs.fs.readdir(" +
         JSON_string(dir.c_str()) + ").then(function(a){ globalThis._dl = a.join(','); }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_dl", "one.txt", &v));
     ASSERT_TRUE(host_poll_until_value(h, "_dl", "two.txt", &v));
 
     /* 清理：unlink 两文件 + 移除目录 */
-    ASSERT_TRUE(host_eval(h, ("globalThis._d1 = 'pending'; amoib.fs.unlink(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._d1 = 'pending'; qzjs.fs.unlink(" +
         JSON_string(f1.c_str()) + ").then(function(){ globalThis._d1 = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_d1", "done", &v));
-    ASSERT_TRUE(host_eval(h, ("globalThis._d2 = 'pending'; amoib.fs.unlink(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._d2 = 'pending'; qzjs.fs.unlink(" +
         JSON_string(f2.c_str()) + ").then(function(){ globalThis._d2 = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_d2", "done", &v));
     ASSERT_EQ(0, ::rmdir(dir.c_str()));
@@ -2503,12 +2503,12 @@ TEST_F(PolyfillTest, FsTraversalGuard) {
     std::string out, v;
     /* 全部异步 fs op 都在调用点拒绝 ".." 组件（同步 throw → async 包装变 rejection） */
     const char *ops[] = {
-        "amoib.fs.writeFile('../q_x', 'x')",
-        "amoib.fs.readFile('../q_x')",
-        "amoib.fs.readFileBinary('../q_x')",
-        "amoib.fs.exists('../q_x')",
-        "amoib.fs.readdir('../q_x')",
-        "amoib.fs.unlink('../q_x')",
+        "qzjs.fs.writeFile('../q_x', 'x')",
+        "qzjs.fs.readFile('../q_x')",
+        "qzjs.fs.readFileBinary('../q_x')",
+        "qzjs.fs.exists('../q_x')",
+        "qzjs.fs.readdir('../q_x')",
+        "qzjs.fs.unlink('../q_x')",
     };
     for (size_t i = 0; i < sizeof(ops) / sizeof(ops[0]); i++) {
         char gname[24];
@@ -2539,13 +2539,13 @@ TEST_F(PolyfillTest, FsReadFileMissing) {
     std::string out, v;
 
     /* 读不存在的文件 → rejection "file not found"（uv_io_fs_read_open_cb NOT_FOUND 分支） */
-    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; amoib.fs.readFile(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qzjs.fs.readFile(" + plit +
         ").then(function(){ globalThis._e = 'ok'; },"
         " function(e){ globalThis._e = 'rej:' + e; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_e", "rej:file not found", &v)) << "got: " << v;
 
     /* readFileBinary 同路径 */
-    ASSERT_TRUE(host_eval(h, ("globalThis._b = 'pending'; amoib.fs.readFileBinary(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._b = 'pending'; qzjs.fs.readFileBinary(" + plit +
         ").then(function(){ globalThis._b = 'ok'; },"
         " function(e){ globalThis._b = 'rej:' + e; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_b", "rej:file not found", &v)) << "got: " << v;
@@ -2555,7 +2555,7 @@ TEST_F(PolyfillTest, FsWriteToMissingDir) {
     /* 写不存在的目录 → open 失败 "cannot open file for writing"（uv_io_fs_write_open_cb） */
     std::string path = fs_tmp("no_dir") + "/x.txt";
     std::string out, v;
-    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; amoib.fs.writeFile(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qzjs.fs.writeFile(" +
         JSON_string(path.c_str()) + ", 'x').then(function(){ globalThis._e = 'ok'; },"
         " function(e){ globalThis._e = 'rej:' + e; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_e", "rej:cannot open file for writing", &v))
@@ -2566,7 +2566,7 @@ TEST_F(PolyfillTest, FsReaddirMissingDir) {
     /* 不存在的目录 → scandir 失败 "scandir error"（uv_io_fs_list_cb result<0） */
     std::string dir = fs_tmp("no_dir2");
     std::string out, v;
-    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; amoib.fs.readdir(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qzjs.fs.readdir(" +
         JSON_string(dir.c_str()) + ").then(function(){ globalThis._e = 'ok'; },"
         " function(e){ globalThis._e = 'rej:' + e; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_e", "rej:scandir error", &v)) << "got: " << v;
@@ -2576,7 +2576,7 @@ TEST_F(PolyfillTest, FsUnlinkMissing) {
     /* unlink 不存在文件 → "not found"（uv_io_fs_remove_cb ENOENT 分支） */
     std::string path = fs_tmp("no_unlink");
     std::string out, v;
-    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; amoib.fs.unlink(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._e = 'pending'; qzjs.fs.unlink(" +
         JSON_string(path.c_str()) + ").then(function(){ globalThis._e = 'ok'; },"
         " function(e){ globalThis._e = 'rej:' + e; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_e", "rej:not found", &v)) << "got: " << v;
@@ -2591,17 +2591,17 @@ TEST_F(PolyfillTest, FsReadLargeFileMultiChunk) {
     std::string dlit = JSON_string(data.c_str());
     std::string out, v;
 
-    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; amoib.fs.writeFile(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qzjs.fs.writeFile(" + plit +
         ", " + dlit + ").then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
 
     /* 读回：长度精确 + 首尾字节正确（无截断/错位） */
-    ASSERT_TRUE(host_eval(h, ("globalThis._r = 'pending'; amoib.fs.readFile(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._r = 'pending'; qzjs.fs.readFile(" + plit +
         ").then(function(d){ globalThis._r = d.length + ':' + d[0] + d[d.length-1]; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_r", "30000:zz", &v)) << "got: " << v;
 
     /* 清理 */
-    ASSERT_TRUE(host_eval(h, ("globalThis._d = 'pending'; amoib.fs.unlink(" + plit +
+    ASSERT_TRUE(host_eval(h, ("globalThis._d = 'pending'; qzjs.fs.unlink(" + plit +
         ").then(function(){ globalThis._d = 'done'; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_d", "done", &v));
 }
@@ -2619,17 +2619,17 @@ TEST_F(PolyfillTest, FsReaddirManyEntries) {
     }
     std::string out, v;
     for (int i = 0; i < N; i++) {
-        ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; amoib.fs.writeFile(" +
+        ASSERT_TRUE(host_eval(h, ("globalThis._w = 'pending'; qzjs.fs.writeFile(" +
             JSON_string(files[i].c_str()) + ", 'x').then(function(){ globalThis._w = 'done'; }); 0").c_str(), &out));
         ASSERT_TRUE(host_poll_until_value(h, "_w", "done", &v));
     }
     /* 36 个条目全列出 */
-    ASSERT_TRUE(host_eval(h, ("globalThis._dl = 'pending'; amoib.fs.readdir(" +
+    ASSERT_TRUE(host_eval(h, ("globalThis._dl = 'pending'; qzjs.fs.readdir(" +
         JSON_string(dir.c_str()) + ").then(function(a){ globalThis._dl = a.length; }); 0").c_str(), &out));
     ASSERT_TRUE(host_poll_until_value(h, "_dl", "36", &v)) << "got: " << v;
     /* 清理 */
     for (int i = 0; i < N; i++) {
-        ASSERT_TRUE(host_eval(h, ("globalThis._d = 'pending'; amoib.fs.unlink(" +
+        ASSERT_TRUE(host_eval(h, ("globalThis._d = 'pending'; qzjs.fs.unlink(" +
             JSON_string(files[i].c_str()) + ").then(function(){ globalThis._d = 'done'; }); 0").c_str(), &out));
         ASSERT_TRUE(host_poll_until_value(h, "_d", "done", &v));
     }
@@ -2673,7 +2673,7 @@ TEST_F(PolyfillTest, CloneTruncatedLengthGuard) {
     /* 1. 对象键声明超长字符串长度（tag 0x1D + count 1 + key len=0xFFFFFFFF）→ str() 越界拒绝。 */
     ASSERT_TRUE(host_value(h,
         "var b = new Uint8Array([0x1D, 1,0,0,0, 0xFF,0xFF,0xFF,0xFF]);\n"
-        "var r; try { __am_deserialize__(b.buffer); r = 'no-throw'; }\n"
+        "var r; try { __qz_deserialize__(b.buffer); r = 'no-throw'; }\n"
         "catch (e) { r = e.name + ':' + (e.message || ''); }\n"
         "r.indexOf('DataCloneError') >= 0 ? 'guarded' : 'leak:' + r", &v));
     EXPECT_EQ("guarded", v) << "got: " << v;
@@ -2681,7 +2681,7 @@ TEST_F(PolyfillTest, CloneTruncatedLengthGuard) {
     /* 2. TypedArray 声明巨量字节长度（tag 0x0D + len=0xFFFFFFFF）→ bytes() 拒绝。 */
     ASSERT_TRUE(host_value(h,
         "var b = new Uint8Array([0x0D, 0xFF,0xFF,0xFF,0xFF]);\n"
-        "var r; try { __am_deserialize__(b.buffer); r = 'no-throw'; }\n"
+        "var r; try { __qz_deserialize__(b.buffer); r = 'no-throw'; }\n"
         "catch (e) { r = e.name; }\n"
         "r === 'DataCloneError' ? 'guarded' : 'leak:' + r", &v));
     EXPECT_EQ("guarded", v) << "got: " << v;
@@ -2694,13 +2694,13 @@ TEST_F(PolyfillTest, CloneTruncatedLengthGuard) {
 }
 
 /* ================================================================
- * External 模式（AM_POLYFILL_MODE=external）加载契约：磁盘 bytecode 必须与
+ * External 模式（QZ_POLYFILL_MODE=external）加载契约：磁盘 bytecode 必须与
  * 编译期内嵌的 SHA-256 一致（「固定版防篡改」，见
  * brain/pages/polyfill-bundling-policy.md）。篡改任意一比特必须被拒，且不得
  * 把字节码交给 JS_ReadObject；未篡改的官方文件必须照常装载。
  * 仅 external 构建编译——其余模式 bytecode 编进二进制，无此攻击面。
  * ================================================================ */
-#if AM_POLYFILL_MODE == AM_POLYFILL_MODE_EXTERNAL
+#if QZ_POLYFILL_MODE == QZ_POLYFILL_MODE_EXTERNAL
 
 /* 篡改方式：翻转一个比特位。任何位变化都会改变 SHA-256，故加载器必拒。 */
 static const uint8_t kTamperFlipMask = 0x01;
@@ -2708,23 +2708,23 @@ static const uint8_t kTamperFlipMask = 0x01;
 /* 合法 polyfill bytecode 的下界；短于此说明基线产物异常、测试无意义。 */
 static const size_t kMinPlausibleBytecodeBytes = 64;
 
-/* 把 AM_POLYFILL_FILE 指向 path 后再加载一次——加载器只从环境变量取路径，
+/* 把 QZ_POLYFILL_FILE 指向 path 后再加载一次——加载器只从环境变量取路径，
  * 用例三处（官方 / 篡改副本 / 恢复官方）共用此入口，免得重复 setenv 样板。
- * 返回 am_polyfill_load 的状态码；setenv 失败（仅 ENOMEM/EINVAL 可能）先记
+ * 返回 qz_polyfill_load 的状态码；setenv 失败（仅 ENOMEM/EINVAL 可能）先记
  * 一条断言失败，再由调用点按状态码判定。 */
 static int load_polyfill_at(const char *path, const uint8_t **out_bytes,
                             size_t *out_len, void **out_owner)
 {
-    EXPECT_EQ(0, setenv("AM_POLYFILL_FILE", path, 1))
-        << "setenv(AM_POLYFILL_FILE) 失败，路径: " << path;
-    return am_polyfill_load(out_bytes, out_len, out_owner);
+    EXPECT_EQ(0, setenv("QZ_POLYFILL_FILE", path, 1))
+        << "setenv(QZ_POLYFILL_FILE) 失败，路径: " << path;
+    return qz_polyfill_load(out_bytes, out_len, out_owner);
 }
 
 TEST(PolyfillExternalTest, TamperRejectedAndIntactAccepted)
 {
-    const char *intact_path = getenv("AM_POLYFILL_FILE");
+    const char *intact_path = getenv("QZ_POLYFILL_FILE");
     ASSERT_NE(nullptr, intact_path)
-        << "AM_POLYFILL_FILE 未设置：ctest 为其注入官方 bytecode 路径 "
+        << "QZ_POLYFILL_FILE 未设置：ctest 为其注入官方 bytecode 路径 "
            "(test/CMakeLists.txt external 分支)";
 
     /* 1) 未篡改：官方 bytecode 正常装载。 */
@@ -2739,7 +2739,7 @@ TEST(PolyfillExternalTest, TamperRejectedAndIntactAccepted)
     ASSERT_GE(intact_len, kMinPlausibleBytecodeBytes)
         << "官方 bytecode 只有 " << intact_len << " 字节（下界 "
         << kMinPlausibleBytecodeBytes << "），基线产物可疑，路径: " << intact_path;
-    am_polyfill_unload(intact_owner);
+    qz_polyfill_unload(intact_owner);
 
     /* 2) 篡改副本：翻转中间一比特后写入临时文件，仓库内的官方文件不被改动。
      * 临时路径的命名与唯一性交给 mkstemp（本文件其余临时文件用例同款）。 */
@@ -2751,7 +2751,7 @@ TEST(PolyfillExternalTest, TamperRejectedAndIntactAccepted)
         << kMinPlausibleBytecodeBytes << "），篡改点无意义，路径: " << intact_path;
     tampered_bytes[tampered_bytes.size() / 2] ^= kTamperFlipMask;
 
-    char tampered_path_template[] = "/tmp/am_polyfill_tampered_XXXXXX";
+    char tampered_path_template[] = "/tmp/qz_polyfill_tampered_XXXXXX";
     const int tampered_fd = ::mkstemp(tampered_path_template);
     ASSERT_GE(tampered_fd, 0) << "mkstemp 失败，模板: " << tampered_path_template;
     ::close(tampered_fd);
@@ -2765,9 +2765,9 @@ TEST(PolyfillExternalTest, TamperRejectedAndIntactAccepted)
     const int tampered_status = load_polyfill_at(tampered_path.c_str(),
                                                  &rejected_bytes, &rejected_len,
                                                  &rejected_owner);
-    EXPECT_EQ(AM_ERR_PERMISSION, tampered_status)
-        << "哈希不匹配的 bytecode 必须拒绝（期望 AM_ERR_PERMISSION="
-        << (int)AM_ERR_PERMISSION << "），实际 " << tampered_status
+    EXPECT_EQ(QZ_ERR_PERMISSION, tampered_status)
+        << "哈希不匹配的 bytecode 必须拒绝（期望 QZ_ERR_PERMISSION="
+        << (int)QZ_ERR_PERMISSION << "），实际 " << tampered_status
         << "，文件: " << tampered_path;
     EXPECT_EQ(nullptr, rejected_bytes)
         << "被拒时不得交出字节码指针，文件: " << tampered_path;
@@ -2783,7 +2783,7 @@ TEST(PolyfillExternalTest, TamperRejectedAndIntactAccepted)
     EXPECT_EQ(0, load_polyfill_at(intact_path, &restored_bytes, &restored_len,
                                   &restored_owner))
         << "恢复官方 bytecode 后应重新可装载，路径: " << intact_path;
-    am_polyfill_unload(restored_owner);
+    qz_polyfill_unload(restored_owner);
 
     remove(tampered_path.c_str());
 }

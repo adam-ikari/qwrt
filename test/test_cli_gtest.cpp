@@ -1,6 +1,6 @@
-// test_cli_gtest.cpp — amoib CLI 端到端（fork 子进程断言 stdout/stderr/退出码）
+// test_cli_gtest.cpp — qzjs CLI 端到端（fork 子进程断言 stdout/stderr/退出码）
 //
-// 驱动真实的 amoib 可执行文件（AM_CLI_BIN），覆盖：
+// 驱动真实的 qzjs 可执行文件（QZ_CLI_BIN），覆盖：
 //   - 脚本 / -e / REPL 顶层执行与 console 输出流
 //   - 异步任务等待（timer 触发后才退出）
 //   - 脚本抛错 → 退出码 1 + stderr
@@ -17,8 +17,8 @@
 #include <string>
 #include <vector>
 
-#ifndef AM_CLI_BIN
-#define AM_CLI_BIN "amoib"
+#ifndef QZ_CLI_BIN
+#define QZ_CLI_BIN "qzjs"
 #endif
 
 #ifndef CLI_SCRIPTS_DIR
@@ -46,12 +46,12 @@ CliResult run_cli(const std::vector<std::string>& args) {
         close(out_pipe[1]);
         close(err_pipe[0]);
         close(err_pipe[1]);
-        std::vector<std::string> argv0 = {AM_CLI_BIN};
+        std::vector<std::string> argv0 = {QZ_CLI_BIN};
         argv0.insert(argv0.end(), args.begin(), args.end());
         std::vector<char*> cargv;
         for (auto& a : argv0) cargv.push_back(const_cast<char*>(a.c_str()));
         cargv.push_back(nullptr);
-        execv(AM_CLI_BIN, cargv.data());
+        execv(QZ_CLI_BIN, cargv.data());
         _exit(127); /* exec 失败 */
     }
     /* parent: 读管道 → waitpid */
@@ -79,15 +79,15 @@ std::string script(const char* name) {
 }  // namespace
 
 TEST(CliTest, HelloWorld) {
-    auto r = run_cli({"-e", "console.log('hello from amoib')"});
+    auto r = run_cli({"-e", "console.log('hello from qzjs')"});
     EXPECT_EQ(0, r.exit_code);
-    EXPECT_NE(std::string::npos, r.out.find("hello from amoib"));
+    EXPECT_NE(std::string::npos, r.out.find("hello from qzjs"));
 }
 
 TEST(CliTest, ScriptFile) {
     auto r = run_cli({script("hello.js")});
     EXPECT_EQ(0, r.exit_code);
-    EXPECT_NE(std::string::npos, r.out.find("hello from amoib"));
+    EXPECT_NE(std::string::npos, r.out.find("hello from qzjs"));
 }
 
 TEST(CliTest, AsyncTimerWaits) {
@@ -119,7 +119,7 @@ TEST(CliTest, HelpExitZero) {
 TEST(CliTest, VersionPrintsVersion) {
     auto r = run_cli({"--version"});
     EXPECT_EQ(0, r.exit_code);
-    EXPECT_NE(std::string::npos, r.out.find("amoib"));
+    EXPECT_NE(std::string::npos, r.out.find("qzjs"));
 }
 
 TEST(CliTest, ArgsInjected) {

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * amoib WebSocket server echo benchmark.
+ * qzjs WebSocket server echo benchmark.
  *
- * Starts a amoib CLI hosting serve({ port, ws: { '/echo': echo-handler } }),
+ * Starts a qzjs CLI hosting serve({ port, ws: { '/echo': echo-handler } }),
  * then drives it with N concurrent client connections sending K messages
  * each, measuring round-trip messages/second.
  *
- * Uses the global WebSocket client available on node 22+ / bun / (amoib's
+ * Uses the global WebSocket client available on node 22+ / bun / (qzjs's
  * own WebSocket implementation when the bench is driven from node, since the
- * client connects to amoib's server port+1).
+ * client connects to qzjs's server port+1).
  *
  * Single-connection burst measures the server's per-connection echo
  * throughput; multi-connection burst measures scheduling across connections.
@@ -16,17 +16,17 @@
  * Output: one JSON line on stdout, last line.
  *
  * Usage:
- *   node test/bench_ws_server.mjs --amoib-bin ./build/amoib \
+ *   node test/bench_ws_server.mjs --qzjs-bin ./build/qzjs \
  *       [--messages 1000] [--connections 1|8] [--duration 5]
  */
 const { spawn } = await import('node:child_process');
 const net = await import('node:net');
 
 function parseArgs() {
-  const a = { amoibBin: './build_cli/amoib', messages: 1000, connections: 1 };
+  const a = { amoibBin: './build_cli/qzjs', messages: 1000, connections: 1 };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--amoib-bin') a.amoibBin = argv[++i];
+    if (argv[i] === '--qzjs-bin') a.amoibBin = argv[++i];
     else if (argv[i] === '--messages') a.messages = parseInt(argv[++i], 10);
     else if (argv[i] === '--connections') a.connections = parseInt(argv[++i], 10);
       }
@@ -45,7 +45,7 @@ function freePort() {
   });
 }
 
-const AM_WS_SERVER = `
+const QZ_WS_SERVER = `
 function main() {
   serve({ port: %PORT%, ws: { '/echo': function (ws) { ws.onmessage = function (e) { ws.send('echo:' + e.data); }; } } }, function () { return 'not-ws'; });
 }
@@ -53,7 +53,7 @@ main();
 `;
 
 async function startAmoibServer(args, port) {
-  const js = AM_WS_SERVER.replace('%PORT%', String(port));
+  const js = QZ_WS_SERVER.replace('%PORT%', String(port));
   const proc = spawn(args.amoibBin, ['-e', js], { stdio: ['ignore', 'pipe', 'pipe'] });
   // wait for the HTTP (and thus ws) accept
   const httpPort = port;
@@ -66,7 +66,7 @@ async function startAmoibServer(args, port) {
         proc.on('close', () => r(buf));
         setTimeout(() => r(buf), 500);
       });
-      throw new Error('amoib exited early: ' + err.slice(-400));
+      throw new Error('qzjs exited early: ' + err.slice(-400));
     }
     await new Promise((r) => setTimeout(r, 80));
     try {
@@ -78,7 +78,7 @@ async function startAmoibServer(args, port) {
     } catch (e) { /* retry */ }
   }
   proc.kill('SIGKILL');
-  throw new Error('amoib ws server never came up on port ' + port);
+  throw new Error('qzjs ws server never came up on port ' + port);
 }
 
 function connectAndBurst(wsPort, messages) {

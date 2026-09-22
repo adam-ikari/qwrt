@@ -31,7 +31,7 @@
 - **T1.3** `am_ext_registry.h`: add
   `AM_EXT_IF_WITH(HTTPSERVER, &am_http_server_ext)`; PUBLIC definitions
   `AM_WITH_HTTPSERVER=$<BOOL:...>`.
-- **Verification:** `cmake -B build_httpserver -DAM_BUILD_TESTS=OFF` configures
+- **Verification:** `cmake -B build_httpserver -DQZ_BUILD_TESTS=OFF` configures
   and `cmake --build` links with all features ON; OFF build excludes uvhttp
   symbols (`nm` check).
 

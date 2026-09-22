@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: gRPC server — unary semantics on top of the h2 server engine.
+ * qzjs polyfill: gRPC server — unary semantics on top of the h2 server engine.
  *
  * HTTP/2 + gRPC Phase 3. The server half of the gRPC wire model:
  *
@@ -25,7 +25,7 @@
  * an array of decoded request objects) and returns a single reply object. A
  * bidi handler receives the whole request array the same way and returns the
  * whole response iterable — unlike grpc-js's event style (call.on('data') /
- * call.write()), amoib collects the full request stream before invoking the
+ * call.write()), qzjs collects the full request stream before invoking the
  * handler, then sends the full response stream. Message compression is a
  * later phase.
  */

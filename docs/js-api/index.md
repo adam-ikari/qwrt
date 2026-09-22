@@ -1,11 +1,11 @@
 ---
 title: JS API Reference
-description: Complete JavaScript API reference for Amoib.js — WinterTC-compatible Web APIs including fetch, crypto, streams, timers, URL, and more.
+description: Complete JavaScript API reference for Qzjs.js — WinterTC-compatible Web APIs including fetch, crypto, streams, timers, URL, and more.
 ---
 
 # JS API Reference
 
-amoib provides a WinterTC-compatible JavaScript API. The globals listed here are available in any JS that runs in the runtime (`initial_script`, message handlers, and code invoked via `am_post_message`), without requiring `require()` or `import`.
+qzjs provides a WinterTC-compatible JavaScript API. The globals listed here are available in any JS that runs in the runtime (`initial_script`, message handlers, and code invoked via `qz_post_message`), without requiring `require()` or `import`.
 
 ## Architecture
 
@@ -14,11 +14,11 @@ flowchart TB
     A["Your JS code"] --> B
     subgraph B["WinterTC runtime"]
         direction LR
-        C["fetch<br/>console<br/>URL<br/>amoib.fs"]
-        D["crypto<br/>timers<br/>Blob<br/>amoib.store"]
+        C["fetch<br/>console<br/>URL<br/>qzjs.fs"]
+        D["crypto<br/>timers<br/>Blob<br/>qzjs.store"]
         E["streams<br/>TextEncoder<br/>EventTarget<br/>navigator"]
     end
-    B --> G["libuv loop on amoib's internal thread"]
+    B --> G["libuv loop on qzjs's internal thread"]
 ```
 
 ## API Categories
@@ -27,7 +27,7 @@ APIs fall into three groups by the standard they come from.
 
 ### WinterTC (WinterCG standard)
 
-The WinterCG-compatible subset of Web APIs amoib implements.
+The WinterCG-compatible subset of Web APIs qzjs implements.
 
 | API | Global |
 |-----|--------|
@@ -61,21 +61,21 @@ Browser-standard APIs beyond the WinterCG core.
 | [Service Worker](/js-api/service-worker) | `navigator.serviceWorker` |
 | [localStorage](/js-api/storage#localstorage) | `localStorage`, `sessionStorage` |
 
-### amoib Platform Extensions
+### qzjs Platform Extensions
 
-amoib-specific APIs, not part of any Web standard. Their style is close to
+qzjs-specific APIs, not part of any Web standard. Their style is close to
 Node.js but they are not Node APIs (`process`, `require`, `Buffer` are absent).
 
 | API | Global | Notes |
 |-----|--------|-------|
-| [fs](/js-api/fs) | `amoib.fs` | Filesystem operations |
-| [storage](/js-api/storage) | `amoib.storage` | Key-value storage |
+| [fs](/js-api/fs) | `qzjs.fs` | Filesystem operations |
+| [storage](/js-api/storage) | `qzjs.storage` | Key-value storage |
 | [serve](/js-api/serve) | `serve()` | HTTP / WebSocket / gRPC server |
-| [grpc](/js-api/grpc) | `grpc` | gRPC client + server (`AM_WITH_GRPC=ON`) |
+| [grpc](/js-api/grpc) | `grpc` | gRPC client + server (`QZ_WITH_GRPC=ON`) |
 
 ## Standards Compliance
 
-amoib targets [WinterTC](https://wintercg.org/) compatibility — the same subset of Web APIs used by Cloudflare Workers, Deno, and other server-side runtimes. DOM-specific APIs (`document`, `window`, `HTMLElement`) are intentionally excluded.
+qzjs targets [WinterTC](https://wintercg.org/) compatibility — the same subset of Web APIs used by Cloudflare Workers, Deno, and other server-side runtimes. DOM-specific APIs (`document`, `window`, `HTMLElement`) are intentionally excluded.
 
 ### Not Included
 
@@ -85,7 +85,7 @@ These browser APIs are explicitly excluded:
 - **CSS**: `CSSStyleSheet`, `getComputedStyle`, CSSOM
 - **Layout**: `requestAnimationFrame`, `IntersectionObserver`, `ResizeObserver`
 - **Media**: `WebRTC`, `AudioContext`
-- **Storage**: `indexedDB` (use `amoib.storage`)
+- **Storage**: `indexedDB` (use `qzjs.storage`)
 
 ## Usage
 
@@ -93,7 +93,7 @@ All globals are available immediately — no imports needed:
 
 ```js
 // Core APIs
-console.log('Hello from amoib');
+console.log('Hello from qzjs');
 setTimeout(() => console.log('tick'), 1000);
 
 // fetch with streaming
@@ -109,8 +109,8 @@ let url = new URL('https://example.com/path?key=value');
 console.log(url.searchParams.get('key')); // "value"
 
 // Filesystem (platform extension)
-let content = await amoib.fs.read('/app/config.json');
+let content = await qzjs.fs.read('/app/config.json');
 
 // Storage (platform extension)
-await amoib.storage.set('session_token', 'abc123');
+await qzjs.storage.set('session_token', 'abc123');
 ```

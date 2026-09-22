@@ -1,35 +1,35 @@
 ---
 title: 主机集成
-description: 在 C 应用中嵌入 amoib 的主机集成路径 —— create、JSON 消息契约、向 JavaScript 出借能力、优雅销毁。
+description: 在 C 应用中嵌入 qzjs 的主机集成路径 —— create、JSON 消息契约、向 JavaScript 出借能力、优雅销毁。
 ---
 
 # 主机集成
 
-在 C 应用里嵌入 amoib 分五步。注意 amoib 没有 `am_eval`，也没有 `am_tick`：
+在 C 应用里嵌入 qzjs 分五步。注意 qzjs 没有 `qz_eval`，也没有 `qz_tick`：
 宿主和运行时只通过 JSON 消息通信。
 
 ## 五步
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. create      am_create(&cfg)   — 线程 + 循环 + JS 就绪    │
+│ 1. create      qz_create(&cfg)   — 线程 + 循环 + JS 就绪    │
 │ 2. script      initial_script            — JS 先跑什么        │
-│ 3. communicate am_post_message ⇄ message_cb  — JSON 契约   │
+│ 3. communicate qz_post_message ⇄ message_cb  — JSON 契约   │
 │ 4. lend        暴露 C 函数、serve/fs/worker/crypto 给 JS      │
-│ 5. destroy     am_destroy(rt)    — 优雅销毁                 │
+│ 5. destroy     qz_destroy(rt)    — 优雅销毁                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## 1. Create
 
-[`am_create`](/zh/c-api/runtime) 启动 amoib 内部线程、拉起 libuv 循环、执行
+[`qz_create`](/zh/c-api/runtime) 启动 qzjs 内部线程、拉起 libuv 循环、执行
 `cfg.initial_script`。它阻塞到就绪才返回，这时运行时已活、`initial_script` 已跑完。
 
 ```c
-am_config_t cfg = {0};
+qz_config_t cfg = {0};
 cfg.initial_script = "postMessage({ready: true});";
 cfg.message_cb = on_message;      // 出站 JS→host
-am_t *rt = am_create(&cfg);   // 阻塞直到就绪
+qz_t *rt = qz_create(&cfg);   // 阻塞直到就绪
 ```
 
 ## 2. 选择 JS 先跑什么
@@ -37,37 +37,37 @@ am_t *rt = am_create(&cfg);   // 阻塞直到就绪
 喂给运行时初始脚本有三种方式：
 
 - **`initial_script`** —— 小字符串，适合引导逻辑
-- **`initial_script`** — 一个小子串，适合引导逻辑。amoib 在内部把自身的 WinterTC polyfill 编译为字节码；宿主以源码提供 JS，而非字节码 blob（见 [字节码](/zh/guide/bytecode)）
-- **`am_post_message`** —— 创建后一切由消息驱动
+- **`initial_script`** — 一个小子串，适合引导逻辑。qzjs 在内部把自身的 WinterTC polyfill 编译为字节码；宿主以源码提供 JS，而非字节码 blob（见 [字节码](/zh/guide/bytecode)）
+- **`qz_post_message`** —— 创建后一切由消息驱动
 
 ## 3. 消息契约
 
 宿主和 JS 双向都以 JSON 字符串交换数据：不传指针，不共享内存对象。
 
-amoib 自己管线程和循环。宿主不调用 JS 让它运行，运行时也不阻塞宿主线程。
+qzjs 自己管线程和循环。宿主不调用 JS 让它运行，运行时也不阻塞宿主线程。
 
 | 方向 | 机制 | 线程 |
 |-----------|-----------|--------|
-| 主机 → JS | `am_post_message(rt, json, len)` | 线程安全，任意线程可调 |
-| JS → 主机 | `cfg.message_cb(rt, json, len, data)` | 在 amoib 线程上触发 |
+| 主机 → JS | `qz_post_message(rt, json, len)` | 线程安全，任意线程可调 |
+| JS → 主机 | `cfg.message_cb(rt, json, len, data)` | 在 qzjs 线程上触发 |
 
 规则：
 
 - **两个方向都是 JSON 字符串。** 不传指针，不共享内存对象，只传可序列化的数据。
-- **`am_post_message` 线程安全。** 可从任意主机线程调用；它入队到 amoib 的入站队列。
-- **`message_cb` 在 amoib 线程上运行。** 保持快速且线程安全，它和事件循环、所有 JS 共享这个线程。
+- **`qz_post_message` 线程安全。** 可从任意主机线程调用；它入队到 qzjs 的入站队列。
+- **`message_cb` 在 qzjs 线程上运行。** 保持快速且线程安全，它和事件循环、所有 JS 共享这个线程。
 - **有界队列。** 运行时忙（或者 JS 一直不读）时，入站消息会在队列边界积压。
-  你的主机代码要能接受 `am_post_message` 不会马上排空。
+  你的主机代码要能接受 `qz_post_message` 不会马上排空。
 
 ```c
-static void on_message(am_t *rt, const char *json, size_t len, void *data) {
+static void on_message(qz_t *rt, const char *json, size_t len, void *data) {
     (void)rt; (void)data;
     // json 是完整 JSON 字符串；在主机侧解析并分发
     handle_json(json, len);
 }
 
 // 任意主机线程：
-am_post_message(rt, "{\"cmd\":\"start\",\"n\":42}", 22);
+qz_post_message(rt, "{\"cmd\":\"start\",\"n\":42}", 22);
 ```
 
 反方向（JS 调 C）也一样：JS 里 `postMessage` 会落到 `message_cb`，或者把 C 函数
@@ -92,7 +92,7 @@ globalThis.onmessage = function (e) {
 
 ```c
 // 宿主侧——发送要执行的代码
-am_post_message(rt, "{\"cmd\":\"eval\",\"code\":\"2 + 2\"}", 26);
+qz_post_message(rt, "{\"cmd\":\"eval\",\"code\":\"2 + 2\"}", 26);
 // message_cb 收到：{"result":4}
 ```
 
@@ -108,7 +108,7 @@ am_post_message(rt, "{\"cmd\":\"eval\",\"code\":\"2 + 2\"}", 26);
 
 ## 5. Destroy
 
-[`am_destroy`](/zh/c-api/runtime) 执行优雅关闭：通知内部线程、排空待处理工作、
+[`qz_destroy`](/zh/c-api/runtime) 执行优雅关闭：通知内部线程、排空待处理工作、
 释放运行时。运行时不再需要时从宿主调用。完整生命周期与内存模型见
 [运行时生命周期](/zh/guide/lifecycle)。
 

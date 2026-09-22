@@ -1,11 +1,11 @@
 ---
 title: Service Worker
-description: The Service Worker subset in Amoib.js — registration, fetch interception with Cache API, and update mechanism. Exposed as navigator.serviceWorker.
+description: The Service Worker subset in Qzjs.js — registration, fetch interception with Cache API, and update mechanism. Exposed as navigator.serviceWorker.
 ---
 
 # Service Worker
 
-A amoib subset of the Service Worker platform: a worker that runs in its own
+A qzjs subset of the Service Worker platform: a worker that runs in its own
 thread, intercepts `fetch` requests from the runtime, serves cached
 responses from `CacheStorage`, and falls back to the network with a bounded
 timeout.
@@ -17,7 +17,7 @@ await navigator.serviceWorker.register('/sw.js');
 ```
 
 Registration loads `/sw.js` as a real `Worker` (its own thread), bootstraps
-the SW lifecycle, and installs `__am_sw_intercept__` as the fetch hook.
+the SW lifecycle, and installs `__qz_sw_intercept__` as the fetch hook.
 
 ## Lifecycle states
 
@@ -26,10 +26,10 @@ the SW lifecycle, and installs `__am_sw_intercept__` as the fetch hook.
 - **Install**: the SW runs its `install` handler; if it completes, the SW
   is ready to activate.
 - **Activate**: after install, the SW becomes the controller; `skipWaiting`
-  shortens the wait (amoib installs and activates immediately — there is no
+  shortens the wait (qzjs installs and activates immediately — there is no
   old-controller handover needed in a single-runtime embed).
 - **Fetch interception**: once activated, every `fetch()` in the runtime
-  goes through `__am_sw_intercept__`; the SW's `fetch` handler decides
+  goes through `__qz_sw_intercept__`; the SW's `fetch` handler decides
   whether to serve from `caches`, hit the network, or synthesize a
   response.
 
@@ -58,6 +58,6 @@ keeps intercepting during install/activate — no control vacuum).
 ## Notes
 
 - Global registration: there is exactly one SW per runtime; `scope` is
-  accepted but ignored (amoib treats the runtime as one origin).
+  accepted but ignored (qzjs treats the runtime as one origin).
 - For offline-first patterns, the SW and [CacheStorage](/js-api/cache-storage)
   work as a pair: the SW routes to caches, caches store the responses.

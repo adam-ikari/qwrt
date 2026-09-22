@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
-project(amoib
+project(qzjs
     VERSION 0.2.0
     DESCRIPTION "Embeddable QuickJS-ng runtime wrapper (libuv-native)"
-    HOMEPAGE_URL "https://github.com/adam-ikari/amoib"
+    HOMEPAGE_URL "https://github.com/adam-ikari/qzjs"
     LANGUAGES C CXX
 )
 
@@ -13,31 +13,31 @@ set(CMAKE_C_EXTENSIONS OFF)   # pure -std=c99, no GNU extensions (deps use their
 # ============================================================================
 # Options
 # ============================================================================
-# Build profile — preset bundles of the AM_WITH_* feature toggles.
+# Build profile — preset bundles of the QZ_WITH_* feature toggles.
 # Every named profile satisfies the full ECMA-429 WinterTC mandatory set:
 # "standard" is all-ON; "minimal" still satisfies ECMA-429 (only TLS is cut).
 # Empty (default) = no preset: the options below behave exactly as before.
-# Explicit -DAM_WITH_X=... always wins over the profile preset.
+# Explicit -DQZ_WITH_X=... always wins over the profile preset.
 # ============================================================================
-set(AM_PROFILE "" CACHE STRING
-    "Build profile: minimal | standard (empty = individual AM_WITH_* options)")
-string(TOLOWER "${AM_PROFILE}" _am_profile)
-if(_am_profile AND NOT _am_profile MATCHES "^(minimal|standard)$")
-    message(FATAL_ERROR "AM_PROFILE must be minimal|standard or empty (got '${AM_PROFILE}')")
+set(QZ_PROFILE "" CACHE STRING
+    "Build profile: minimal | standard (empty = individual QZ_WITH_* options)")
+string(TOLOWER "${QZ_PROFILE}" _qz_profile)
+if(_qz_profile AND NOT _qz_profile MATCHES "^(minimal|standard)$")
+    message(FATAL_ERROR "QZ_PROFILE must be minimal|standard or empty (got '${QZ_PROFILE}')")
 endif()
 # Profile preset defaults, resolved BEFORE option() so an explicit
-# -DAM_WITH_X on the command line is already in the cache and wins.
-if(_am_profile STREQUAL "minimal" OR _am_profile STREQUAL "standard")
+# -DQZ_WITH_X on the command line is already in the cache and wins.
+if(_qz_profile STREQUAL "minimal" OR _qz_profile STREQUAL "standard")
     set(_prof_wamr ON)
     set(_prof_tls ON)
     set(_prof_compress ON)
     set(_prof_crypto_ext ON)
     set(_prof_textcodec ON)
 endif()
-if(_am_profile STREQUAL "minimal")
+if(_qz_profile STREQUAL "minimal")
     set(_prof_tls OFF)   # only cut vs standard; ECMA-429 has no HTTPS requirement
 endif()
-if(NOT _am_profile)
+if(NOT _qz_profile)
     # Empty profile: preserve the historical per-option defaults bit-for-bit.
     set(_prof_wamr ON)
     set(_prof_tls ON)
@@ -45,38 +45,38 @@ if(NOT _am_profile)
     set(_prof_crypto_ext ON)
     set(_prof_textcodec ON)
 endif()
-option(AM_WITH_GRPC "Embed gRPC/HTTP2 stack in polyfill bundle (~3.5k lines JS; needs polyfill rebuild toolchain)" OFF)
-option(AM_BUILD_TESTS "Build tests" OFF)
-option(AM_BUILD_DEBUGGER "Build the DAP step-debugger (applies the QuickJS-ng debugger patch; adds src/debugger.c + src/debugger_dap.c to libamoib)" OFF)
+option(QZ_WITH_GRPC "Embed gRPC/HTTP2 stack in polyfill bundle (~3.5k lines JS; needs polyfill rebuild toolchain)" OFF)
+option(QZ_BUILD_TESTS "Build tests" OFF)
+option(QZ_BUILD_DEBUGGER "Build the DAP step-debugger (applies the QuickJS-ng debugger patch; adds src/debugger.c + src/debugger_dap.c to libqzjs)" OFF)
 
-option(AM_WITH_WAMR "Link WAMR WASM engine (default; enables real WebAssembly via WAMR with Fast Interp + AOT)" "${_prof_wamr}")
-option(AM_WITH_WASM3 "Link wasm3 WASM engine (alternative, more portable)" "${_prof_wasm3}")
-option(AM_WITH_TLS "Build with mbedTLS for HTTPS support" "${_prof_tls}")
-option(AM_WITH_COMPRESS "Enable native compression via miniz" "${_prof_compress}")
-# 关闭 AM_WITH_CRYPTO_EXT / AM_WITH_TEXTCODEC 时，polyfill 无 JS 回退实现：
+option(QZ_WITH_WAMR "Link WAMR WASM engine (default; enables real WebAssembly via WAMR with Fast Interp + AOT)" "${_prof_wamr}")
+option(QZ_WITH_WASM3 "Link wasm3 WASM engine (alternative, more portable)" "${_prof_wasm3}")
+option(QZ_WITH_TLS "Build with mbedTLS for HTTPS support" "${_prof_tls}")
+option(QZ_WITH_COMPRESS "Enable native compression via miniz" "${_prof_compress}")
+# 关闭 QZ_WITH_CRYPTO_EXT / QZ_WITH_TEXTCODEC 时，polyfill 无 JS 回退实现：
 # btoa/atob 抛 TypeError，HTTP serve 的 WebSocket 握手（Sec-WebSocket-Accept）抛
 # Error——CI 全 OFF 矩阵据此断言缺失路径，见 Test/test_polyfill_gtest.cpp。
-option(AM_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" "${_prof_crypto_ext}")
-option(AM_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" "${_prof_textcodec}")
-option(AM_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
-option(AM_BUILD_EXAMPLES "Build example programs" OFF)
+option(QZ_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" "${_prof_crypto_ext}")
+option(QZ_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" "${_prof_textcodec}")
+option(QZ_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
+option(QZ_BUILD_EXAMPLES "Build example programs" OFF)
 
 # 应用模型（多进程模型 §2.1，M-P2）：ISOLATED = 宿主与主RT 各跑独立进程（缺省，
-# 目标形态）；THREAD = 单进程多线程（回退档）。宏 AM_PROCESS_MODEL_ISOLATED 是
+# 目标形态）；THREAD = 单进程多线程（回退档）。宏 QZ_PROCESS_MODEL_ISOLATED 是
 # 源码 #if 选择的唯一依据。翻转历史：P1-P3 期间缺省 THREAD（增量提交期基线不被
 # 未就绪路径污染），P4 端到端两进程 e2e + 双后端 parity 全绿后翻为 ISOLATED。
-set(AM_PROCESS_MODEL "ISOLATED" CACHE STRING
+set(QZ_PROCESS_MODEL "ISOLATED" CACHE STRING
     "Application model: ISOLATED (host and main RT in separate processes) | THREAD (single process, one thread per runtime)")
-set_property(CACHE AM_PROCESS_MODEL PROPERTY STRINGS ISOLATED THREAD)
-if(NOT AM_PROCESS_MODEL STREQUAL "ISOLATED" AND NOT AM_PROCESS_MODEL STREQUAL "THREAD")
-    message(FATAL_ERROR "AM_PROCESS_MODEL must be ISOLATED or THREAD (got '${AM_PROCESS_MODEL}')")
+set_property(CACHE QZ_PROCESS_MODEL PROPERTY STRINGS ISOLATED THREAD)
+if(NOT QZ_PROCESS_MODEL STREQUAL "ISOLATED" AND NOT QZ_PROCESS_MODEL STREQUAL "THREAD")
+    message(FATAL_ERROR "QZ_PROCESS_MODEL must be ISOLATED or THREAD (got '${QZ_PROCESS_MODEL}')")
 endif()
 
-set(AM_POLYFILL_MODE "rodata" CACHE STRING
-    "Polyfill bytecode embedding: rodata=const .rodata array (default) | compressed=lz4-compressed .rodata, decompressed to heap at load | external=external .polyfill file (AM_POLYFILL_FILE), loader rejects any file whose SHA-256 != the hash embedded at build time | host=host hook am_polyfill_load_custom()")
+set(QZ_POLYFILL_MODE "rodata" CACHE STRING
+    "Polyfill bytecode embedding: rodata=const .rodata array (default) | compressed=lz4-compressed .rodata, decompressed to heap at load | external=external .polyfill file (QZ_POLYFILL_FILE), loader rejects any file whose SHA-256 != the hash embedded at build time | host=host hook qz_polyfill_load_custom()")
 
 # Normalise: accept legacy single letters (C/A/B/D) and any case.
-string(TOLOWER "${AM_POLYFILL_MODE}" _polyfill_mode)
+string(TOLOWER "${QZ_POLYFILL_MODE}" _polyfill_mode)
 if(_polyfill_mode STREQUAL "c")
     set(_polyfill_mode rodata)
 elseif(_polyfill_mode STREQUAL "a")
@@ -88,9 +88,9 @@ elseif(_polyfill_mode STREQUAL "d")
 endif()
 
 if(NOT _polyfill_mode MATCHES "^(rodata|compressed|external|host)$")
-    message(FATAL_ERROR "AM_POLYFILL_MODE must be rodata|compressed|external|host (got '${AM_POLYFILL_MODE}')")
+    message(FATAL_ERROR "QZ_POLYFILL_MODE must be rodata|compressed|external|host (got '${QZ_POLYFILL_MODE}')")
 endif()
-set(AM_POLYFILL_MODE "${_polyfill_mode}")
+set(QZ_POLYFILL_MODE "${_polyfill_mode}")
 
 # Generated polyfill C file per mode (polyfill/build.js uses the same mapping).
 # rodata lands in the tracked baseline src/polyfill_default.c so a fresh clone
@@ -104,11 +104,11 @@ else()
 endif()
 
 # sanitizer 构建检测（ASan/UBSan/TSan）：CMAKE_C_FLAGS 显式注入
-# -fsanitize=* 的配置视为 sanitizer 档。注入 AM_SANITIZE_BUILD，供
-# amoib.c 等提升 JS 栈预算（sanitizer 帧放大易误报 QuickJS stack overflow）。
+# -fsanitize=* 的配置视为 sanitizer 档。注入 QZ_SANITIZE_BUILD，供
+# qzjs.c 等提升 JS 栈预算（sanitizer 帧放大易误报 QuickJS stack overflow）。
 if(CMAKE_C_FLAGS MATCHES "-fsanitize=" OR CMAKE_C_FLAGS_DEBUG MATCHES "-fsanitize=")
-    add_compile_definitions(AM_SANITIZE_BUILD=1)
-    message(STATUS "Sanitizer build detected — AM_SANITIZE_BUILD=1")
+    add_compile_definitions(QZ_SANITIZE_BUILD=1)
+    message(STATUS "Sanitizer build detected — QZ_SANITIZE_BUILD=1")
     # clang 的 -fsanitize=function 对 quickjs-ng 的函数指针类型混用
     # （js_realloc 经 DynBuf realloc_func 的 size_t 声明链路）系统性误报
     # （UrlSearchParams 等路径实测触发）——编译期豁免该单项，其余 undefined
@@ -118,82 +118,82 @@ if(CMAKE_C_FLAGS MATCHES "-fsanitize=" OR CMAKE_C_FLAGS_DEBUG MATCHES "-fsanitiz
     endif()
 endif()
 # Map mode name to integer for the compile-time define
-if(AM_POLYFILL_MODE STREQUAL "rodata")
-    set(_am_polyfill_mode_num 0)
-elseif(AM_POLYFILL_MODE STREQUAL "compressed")
-    set(_am_polyfill_mode_num 1)
-elseif(AM_POLYFILL_MODE STREQUAL "external")
-    set(_am_polyfill_mode_num 2)
-elseif(AM_POLYFILL_MODE STREQUAL "host")
-    set(_am_polyfill_mode_num 3)
+if(QZ_POLYFILL_MODE STREQUAL "rodata")
+    set(_qz_polyfill_mode_num 0)
+elseif(QZ_POLYFILL_MODE STREQUAL "compressed")
+    set(_qz_polyfill_mode_num 1)
+elseif(QZ_POLYFILL_MODE STREQUAL "external")
+    set(_qz_polyfill_mode_num 2)
+elseif(QZ_POLYFILL_MODE STREQUAL "host")
+    set(_qz_polyfill_mode_num 3)
 endif()
 
 # compressed mode requires the vendored lz4 (decoder + build-time compressor)
-if(AM_POLYFILL_MODE STREQUAL "compressed" AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/lz4/lib/lz4.c")
-    message(FATAL_ERROR "AM_POLYFILL_MODE=compressed requires vendored lz4 (deps/lz4/lib/lz4.c missing — run: git submodule update --init deps/lz4)")
+if(QZ_POLYFILL_MODE STREQUAL "compressed" AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/lz4/lib/lz4.c")
+    message(FATAL_ERROR "QZ_POLYFILL_MODE=compressed requires vendored lz4 (deps/lz4/lib/lz4.c missing — run: git submodule update --init deps/lz4)")
 endif()
 
-if(AM_POLYFILL_MODE STREQUAL "external")
-    message(STATUS "Polyfill mode external: bytecode loaded from external .polyfill file (AM_POLYFILL_FILE); SHA-256 anchored at build time (see the generated src/polyfill_external.c)")
+if(QZ_POLYFILL_MODE STREQUAL "external")
+    message(STATUS "Polyfill mode external: bytecode loaded from external .polyfill file (QZ_POLYFILL_FILE); SHA-256 anchored at build time (see the generated src/polyfill_external.c)")
 endif()
 
 # WAMR and wasm3 are mutually exclusive (both register the WebAssembly global)
-if(AM_WITH_WAMR AND AM_WITH_WASM3)
+if(QZ_WITH_WAMR AND QZ_WITH_WASM3)
     message(FATAL_ERROR
-        "AM_WITH_WAMR=ON and AM_WITH_WASM3=ON are mutually exclusive. "
+        "QZ_WITH_WAMR=ON and QZ_WITH_WASM3=ON are mutually exclusive. "
         "Enable only one:\n"
-        "  wamr  (default): -DAM_WITH_WAMR=ON\n"
-        "  wasm3:            -DAM_WITH_WASM3=ON -DAM_WITH_WAMR=OFF")
+        "  wamr  (default): -DQZ_WITH_WAMR=ON\n"
+        "  wasm3:            -DQZ_WITH_WASM3=ON -DQZ_WITH_WAMR=OFF")
 endif()
 
 # TLS requires the crypto extension: both use mbedTLS, and a TLS client
 # without crypto.subtle (no cert hashing, no WebCrypto key derivation) is not
-# a complete WinterCG runtime. So AM_WITH_TLS=ON forces
-# AM_WITH_CRYPTO_EXT=ON. (The reverse is allowed: crypto-ext without TLS.)
-if(AM_WITH_TLS AND NOT AM_WITH_CRYPTO_EXT)
-    message(STATUS "AM_WITH_TLS=ON forces AM_WITH_CRYPTO_EXT=ON (TLS requires crypto)")
-    set(AM_WITH_CRYPTO_EXT ON CACHE BOOL "Enable native crypto.subtle via mbedTLS" FORCE)
+# a complete WinterCG runtime. So QZ_WITH_TLS=ON forces
+# QZ_WITH_CRYPTO_EXT=ON. (The reverse is allowed: crypto-ext without TLS.)
+if(QZ_WITH_TLS AND NOT QZ_WITH_CRYPTO_EXT)
+    message(STATUS "QZ_WITH_TLS=ON forces QZ_WITH_CRYPTO_EXT=ON (TLS requires crypto)")
+    set(QZ_WITH_CRYPTO_EXT ON CACHE BOOL "Enable native crypto.subtle via mbedTLS" FORCE)
 endif()
 # ----------------------------------------------------------------------------
 # Profile switch detection — re-running configure in the same build dir with a
-# different AM_PROFILE. option() only populates the cache on the FIRST
-# configure, so stale AM_WITH_* values would silently win. Recalculate the
-# per-profile defaults into the cache. AM_WITH_WASM3 is never a profile
-# default (OFF in every preset). NOTE: explicit -DAM_WITH_X values do NOT
+# different QZ_PROFILE. option() only populates the cache on the FIRST
+# configure, so stale QZ_WITH_* values would silently win. Recalculate the
+# per-profile defaults into the cache. QZ_WITH_WASM3 is never a profile
+# default (OFF in every preset). NOTE: explicit -DQZ_WITH_X values do NOT
 # survive a profile switch — use a fresh build dir when mixing.
 # ----------------------------------------------------------------------------
-if(NOT AM_PROFILE_LAST STREQUAL _am_profile)
-    message(STATUS "AM_PROFILE changed: '${AM_PROFILE_LAST}' -> '${_am_profile}' — recalculating AM_WITH_* cache defaults")
-    if(_am_profile STREQUAL "minimal")
-        set(AM_WITH_WAMR       ON  CACHE BOOL "" FORCE)
-        set(AM_WITH_TLS        OFF CACHE BOOL "" FORCE)
-        set(AM_WITH_COMPRESS   ON  CACHE BOOL "" FORCE)
-        set(AM_WITH_CRYPTO_EXT ON  CACHE BOOL "" FORCE)
-        set(AM_WITH_TEXTCODEC  ON  CACHE BOOL "" FORCE)
+if(NOT QZ_PROFILE_LAST STREQUAL _qz_profile)
+    message(STATUS "QZ_PROFILE changed: '${QZ_PROFILE_LAST}' -> '${_qz_profile}' — recalculating QZ_WITH_* cache defaults")
+    if(_qz_profile STREQUAL "minimal")
+        set(QZ_WITH_WAMR       ON  CACHE BOOL "" FORCE)
+        set(QZ_WITH_TLS        OFF CACHE BOOL "" FORCE)
+        set(QZ_WITH_COMPRESS   ON  CACHE BOOL "" FORCE)
+        set(QZ_WITH_CRYPTO_EXT ON  CACHE BOOL "" FORCE)
+        set(QZ_WITH_TEXTCODEC  ON  CACHE BOOL "" FORCE)
     else() # standard and empty: historical all-ON defaults
-        set(AM_WITH_WAMR       ON  CACHE BOOL "" FORCE)
-        set(AM_WITH_TLS        ON  CACHE BOOL "" FORCE)
-        set(AM_WITH_COMPRESS   ON  CACHE BOOL "" FORCE)
-        set(AM_WITH_CRYPTO_EXT ON  CACHE BOOL "" FORCE)
-        set(AM_WITH_TEXTCODEC  ON  CACHE BOOL "" FORCE)
+        set(QZ_WITH_WAMR       ON  CACHE BOOL "" FORCE)
+        set(QZ_WITH_TLS        ON  CACHE BOOL "" FORCE)
+        set(QZ_WITH_COMPRESS   ON  CACHE BOOL "" FORCE)
+        set(QZ_WITH_CRYPTO_EXT ON  CACHE BOOL "" FORCE)
+        set(QZ_WITH_TEXTCODEC  ON  CACHE BOOL "" FORCE)
     endif()
-    set(AM_WITH_WASM3 OFF CACHE BOOL "" FORCE)
+    set(QZ_WITH_WASM3 OFF CACHE BOOL "" FORCE)
     # Keep the TLS→crypto-ext invariant across a switch (the check above ran
     # against the pre-switch cache).
-    if(AM_WITH_TLS AND NOT AM_WITH_CRYPTO_EXT)
-        set(AM_WITH_CRYPTO_EXT ON CACHE BOOL "" FORCE)
+    if(QZ_WITH_TLS AND NOT QZ_WITH_CRYPTO_EXT)
+        set(QZ_WITH_CRYPTO_EXT ON CACHE BOOL "" FORCE)
     endif()
-    set(AM_PROFILE_LAST "${_am_profile}" CACHE STRING "" FORCE)
+    set(QZ_PROFILE_LAST "${_qz_profile}" CACHE STRING "" FORCE)
 endif()
 
 
-if(AM_WITH_TLS)
+if(QZ_WITH_TLS)
     set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/mbedtls")
     set(MBEDTLS_INCLUDE_DIR "${MBEDTLS_SRC_DIR}/include")
 
     if(EXISTS "${MBEDTLS_SRC_DIR}/CMakeLists.txt")
         # mbedTLS via add_subdirectory. Its CMake already sets CMAKE_C_STANDARD
-        # 99 + CMAKE_C_EXTENSIONS OFF (matching amoib), so no isolation needed.
+        # 99 + CMAKE_C_EXTENSIONS OFF (matching qzjs), so no isolation needed.
         # Disable programs/tests/shared; link the *_static targets.
         set(ENABLE_PROGRAMS               OFF CACHE BOOL "" FORCE)
         set(ENABLE_TESTING                OFF CACHE BOOL "" FORCE)
@@ -219,7 +219,7 @@ if(AM_WITH_TLS)
         message(STATUS "TLS support enabled (mbedTLS, source-built via add_subdirectory)")
     else()
         set(MBEDTLS_FOUND FALSE)
-        message(FATAL_ERROR "AM_WITH_TLS=ON but mbedTLS source not found. "
+        message(FATAL_ERROR "QZ_WITH_TLS=ON but mbedTLS source not found. "
             "Run: git submodule update --init deps/mbedtls")
     endif()
 endif()
@@ -227,7 +227,7 @@ endif()
 # ============================================================================
 # miniz dependency (compression extension)
 # ============================================================================
-if(AM_WITH_COMPRESS)
+if(QZ_WITH_COMPRESS)
     set(MINIZ_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/miniz")
     # Set PIC globally so miniz (added via add_subdirectory) compiles with -fPIC,
     # needed when linked into a shared library.
@@ -250,8 +250,8 @@ if(EXISTS "${LZ4_SRC_DIR}/lz4.c")
     # lz4.h warns about unused Kxx constants at -Wall -Wextra -Werror paths
     target_compile_options(lz4_static PRIVATE -w)
     # 压缩器 CLI（构建期工具，供 polyfill/build.js 调用；不进安装面）
-    add_executable(am_lz4_compress EXCLUDE_FROM_ALL "${LZ4_SRC_DIR}/lz4.c" cmake/lz4_compress_main.c)
-    target_include_directories(am_lz4_compress PRIVATE "${LZ4_SRC_DIR}")
+    add_executable(qz_lz4_compress EXCLUDE_FROM_ALL "${LZ4_SRC_DIR}/lz4.c" cmake/lz4_compress_main.c)
+    target_include_directories(qz_lz4_compress PRIVATE "${LZ4_SRC_DIR}")
     message(STATUS "lz4 vendored (${LZ4_SRC_DIR}) — polyfill compressed mode + build tool")
 else()
     message(STATUS "lz4 not vendored (deps/lz4/lib/lz4.c missing) — polyfill compressed mode unavailable")
@@ -270,14 +270,14 @@ message(STATUS "cJSON vendored (deps/cjson, v1.7.19) — C-layer JSON")
 # ============================================================================
 # Crypto extension (mbedTLS for native crypto.subtle)
 #
-# Reuses the mbedTLS source build from the AM_WITH_TLS block above. If TLS
+# Reuses the mbedTLS source build from the QZ_WITH_TLS block above. If TLS
 # is OFF but crypto-ext is ON, build just libmbedcrypto from the same source.
 # ============================================================================
-if(AM_WITH_CRYPTO_EXT)
-    # crypto-ext needs mbedcrypto. If AM_WITH_TLS is ON, the TLS block above
+if(QZ_WITH_CRYPTO_EXT)
+    # crypto-ext needs mbedcrypto. If QZ_WITH_TLS is ON, the TLS block above
     # already added mbedtls via add_subdirectory and set MBEDCRYPTO_LIB to the
     # mbedcrypto_static target. Otherwise add the subdir here for crypto-only.
-    if(NOT AM_WITH_TLS)
+    if(NOT QZ_WITH_TLS)
         set(MBEDTLS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/mbedtls")
         set(MBEDCRYPTO_INCLUDE_DIR "${MBEDTLS_SRC_DIR}/include")
 
@@ -292,7 +292,7 @@ if(AM_WITH_CRYPTO_EXT)
             add_subdirectory(${MBEDTLS_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/mbedtls EXCLUDE_FROM_ALL)
             set(MBEDCRYPTO_LIB mbedcrypto)
         else()
-            message(FATAL_ERROR "AM_WITH_CRYPTO_EXT=ON but mbedTLS source not found. "
+            message(FATAL_ERROR "QZ_WITH_CRYPTO_EXT=ON but mbedTLS source not found. "
                 "Run: git submodule update --init deps/mbedtls")
         endif()
     endif()
@@ -304,14 +304,14 @@ endif()
 # QuickJS-NG dependency — built from source via add_subdirectory (not a system
 # lib). quickjs-ng's CMake mutates global CMAKE_C_STANDARD (→11) / CMAKE_BUILD_TYPE
 # and adds install rules, so we save+restore those around the add_subdirectory
-# and disable its install/programs/tests/CLI to keep amoib's build clean.
+# and disable its install/programs/tests/CLI to keep qzjs's build clean.
 # ============================================================================
 set(QUICKJS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng")
 
-set(_am_saved_c_standard       ${CMAKE_C_STANDARD})
-set(_am_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
-set(_am_saved_c_visibility     ${CMAKE_C_VISIBILITY_PRESET})
-set(_am_saved_build_type       ${CMAKE_BUILD_TYPE})
+set(_qz_saved_c_standard       ${CMAKE_C_STANDARD})
+set(_qz_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
+set(_qz_saved_c_visibility     ${CMAKE_C_VISIBILITY_PRESET})
+set(_qz_saved_build_type       ${CMAKE_BUILD_TYPE})
 
 set(QJS_ENABLE_INSTALL       OFF CACHE BOOL "" FORCE)
 set(QJS_BUILD_EXAMPLES       OFF CACHE BOOL "" FORCE)
@@ -323,18 +323,18 @@ set(BUILD_SHARED_LIBS        OFF CACHE BOOL "" FORCE)
 # quickjs-c-atomics.h already has a GCC_BUILTIN_ATOMICS path that maps the
 # atomic_* ops to GCC/Clang __atomic_* builtins and #defines _Atomic to empty
 # — i.e. no C11 needed. The path is only taken on old GCC; this patch forces
-# it on for all GCC/Clang, so quickjs-ng compiles under -std=c99 (amoib's
+# it on for all GCC/Clang, so quickjs-ng compiles under -std=c99 (qzjs's
 # standard). Applied unconditionally (working-tree-only; submodule stays clean).
-set(AM_QUICKJS_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-c99-atomics.patch")
-if(EXISTS "${AM_QUICKJS_C99_PATCH}")
+set(QZ_QUICKJS_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-c99-atomics.patch")
+if(EXISTS "${QZ_QUICKJS_C99_PATCH}")
     execute_process(
-        COMMAND patch -p1 --dry-run -f -i "${AM_QUICKJS_C99_PATCH}"
+        COMMAND patch -p1 --dry-run -f -i "${QZ_QUICKJS_C99_PATCH}"
         WORKING_DIRECTORY "${QUICKJS_DIR}"
         RESULT_VARIABLE _c99_patch_dry
         OUTPUT_QUIET ERROR_QUIET)
     if(_c99_patch_dry EQUAL 0)
         execute_process(
-            COMMAND patch -p1 -f -i "${AM_QUICKJS_C99_PATCH}"
+            COMMAND patch -p1 -f -i "${QZ_QUICKJS_C99_PATCH}"
             WORKING_DIRECTORY "${QUICKJS_DIR}"
             RESULT_VARIABLE _c99_patch_apply ERROR_QUIET)
         if(NOT _c99_patch_apply EQUAL 0)
@@ -356,20 +356,20 @@ if(EXISTS "${AM_QUICKJS_C99_PATCH}")
 endif()
 
 # ── QuickJS-ng per-ctx job drain patch ────────────────────────────────────
-# Adds JS_DrainPendingJobsForContext(): am_ctx_destroy needs to remove a
+# Adds JS_DrainPendingJobsForContext(): qz_ctx_destroy needs to remove a
 # freed context's pending jobs from rt->job_list before JS_FreeContext, or
 # the next JS_ExecutePendingJob dereferences a dangling ctx pointer (UAF).
 # Applied unconditionally (working-tree-only; submodule stays clean).
-set(AM_QUICKJS_DRAIN_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-drain-jobs.patch")
-if(EXISTS "${AM_QUICKJS_DRAIN_PATCH}")
+set(QZ_QUICKJS_DRAIN_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-drain-jobs.patch")
+if(EXISTS "${QZ_QUICKJS_DRAIN_PATCH}")
     execute_process(
-        COMMAND patch -p1 --dry-run -f -i "${AM_QUICKJS_DRAIN_PATCH}"
+        COMMAND patch -p1 --dry-run -f -i "${QZ_QUICKJS_DRAIN_PATCH}"
         WORKING_DIRECTORY "${QUICKJS_DIR}"
         RESULT_VARIABLE _drain_patch_dry
         OUTPUT_QUIET ERROR_QUIET)
     if(_drain_patch_dry EQUAL 0)
         execute_process(
-            COMMAND patch -p1 -f -i "${AM_QUICKJS_DRAIN_PATCH}"
+            COMMAND patch -p1 -f -i "${QZ_QUICKJS_DRAIN_PATCH}"
             WORKING_DIRECTORY "${QUICKJS_DIR}"
             RESULT_VARIABLE _drain_patch_apply ERROR_QUIET)
         if(NOT _drain_patch_apply EQUAL 0)
@@ -400,16 +400,16 @@ endif()
 # count exceeding the allocated array → failure-path free walked garbage
 # atoms (SEGV). Hardens all of it; upstream master is identical (unfixed).
 # Applied unconditionally (working-tree-only; submodule stays clean).
-set(AM_QUICKJS_BCH_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-bc-reader-hardening.patch")
-if(EXISTS "${AM_QUICKJS_BCH_PATCH}")
+set(QZ_QUICKJS_BCH_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-bc-reader-hardening.patch")
+if(EXISTS "${QZ_QUICKJS_BCH_PATCH}")
     execute_process(
-        COMMAND patch -p1 --dry-run -f -i "${AM_QUICKJS_BCH_PATCH}"
+        COMMAND patch -p1 --dry-run -f -i "${QZ_QUICKJS_BCH_PATCH}"
         WORKING_DIRECTORY "${QUICKJS_DIR}"
         RESULT_VARIABLE _bch_patch_dry
         OUTPUT_QUIET ERROR_QUIET)
     if(_bch_patch_dry EQUAL 0)
         execute_process(
-            COMMAND patch -p1 -f -i "${AM_QUICKJS_BCH_PATCH}"
+            COMMAND patch -p1 -f -i "${QZ_QUICKJS_BCH_PATCH}"
             WORKING_DIRECTORY "${QUICKJS_DIR}"
             RESULT_VARIABLE _bch_patch_apply)
         if(NOT _bch_patch_apply EQUAL 0)
@@ -432,25 +432,25 @@ if(EXISTS "${AM_QUICKJS_BCH_PATCH}")
 endif()
 
 # ── QuickJS-ng debugger patch ──────────────────────────────────────────────
-# When AM_BUILD_DEBUGGER is ON, apply deps/quickjs-ng-debugger.patch to the
+# When QZ_BUILD_DEBUGGER is ON, apply deps/quickjs-ng-debugger.patch to the
 # quickjs-ng submodule working tree BEFORE add_subdirectory so the patched
 # sources compile. The patch is the source of truth; the submodule stays clean
 # in git (working-tree-only modification). Patch failure = FATAL_ERROR with a
-# regenerate hint. AM_DEBUG_SUPPORT is defined on the qjs target below.
-if(AM_BUILD_DEBUGGER)
-    set(AM_QUICKJS_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-debugger.patch")
-    if(NOT EXISTS "${AM_QUICKJS_PATCH}")
-        message(FATAL_ERROR "AM_BUILD_DEBUGGER=ON but deps/quickjs-ng-debugger.patch is missing")
+# regenerate hint. QZ_DEBUG_SUPPORT is defined on the qjs target below.
+if(QZ_BUILD_DEBUGGER)
+    set(QZ_QUICKJS_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng-debugger.patch")
+    if(NOT EXISTS "${QZ_QUICKJS_PATCH}")
+        message(FATAL_ERROR "QZ_BUILD_DEBUGGER=ON but deps/quickjs-ng-debugger.patch is missing")
     endif()
     execute_process(
-        COMMAND patch -p1 --dry-run -f -i "${AM_QUICKJS_PATCH}"
+        COMMAND patch -p1 --dry-run -f -i "${QZ_QUICKJS_PATCH}"
         WORKING_DIRECTORY "${QUICKJS_DIR}"
         RESULT_VARIABLE _patch_dry
         OUTPUT_VARIABLE _patch_out
         ERROR_VARIABLE _patch_err)
     if(_patch_dry EQUAL 0)
         execute_process(
-            COMMAND patch -p1 -f -i "${AM_QUICKJS_PATCH}"
+            COMMAND patch -p1 -f -i "${QZ_QUICKJS_PATCH}"
             WORKING_DIRECTORY "${QUICKJS_DIR}"
             RESULT_VARIABLE _patch_apply)
         if(NOT _patch_apply EQUAL 0)
@@ -475,7 +475,7 @@ if(AM_BUILD_DEBUGGER)
                 "deps/quickjs-ng revision.")
         endif()
     endif()
-    set(AM_DEBUG_SUPPORT_DEFINE AM_DEBUG_SUPPORT)
+    set(QZ_DEBUG_SUPPORT_DEFINE QZ_DEBUG_SUPPORT)
 endif()
 
 add_subdirectory(${QUICKJS_DIR} ${CMAKE_BINARY_DIR}/deps/quickjs-ng EXCLUDE_FROM_ALL)
@@ -483,20 +483,20 @@ add_subdirectory(${QUICKJS_DIR} ${CMAKE_BINARY_DIR}/deps/quickjs-ng EXCLUDE_FROM
 # test262 runner：quickjs-ng 子目录 EXCLUDE_FROM_ALL → 全量 build 默认不产出
 # run-test262（ctest test262_quickjs 会 "Not Run"）。测试开启时显式挂 ALL 依赖，
 # CI/本地默认构建即包含 runner。
-if(AM_BUILD_TESTS AND TARGET run-test262)
-  add_custom_target(am_test262_runner ALL DEPENDS run-test262)
+if(QZ_BUILD_TESTS AND TARGET run-test262)
+  add_custom_target(qz_test262_runner ALL DEPENDS run-test262)
 endif()
 
-# Expose AM_DEBUG_SUPPORT on the qjs target so the engine's DEBUGGER_CHECK
+# Expose QZ_DEBUG_SUPPORT on the qjs target so the engine's DEBUGGER_CHECK
 # dispatch hook compiles in (it's a no-op when the macro is undefined).
-if(AM_BUILD_DEBUGGER AND TARGET qjs)
-    target_compile_definitions(qjs PUBLIC ${AM_DEBUG_SUPPORT_DEFINE})
+if(QZ_BUILD_DEBUGGER AND TARGET qjs)
+    target_compile_definitions(qjs PUBLIC ${QZ_DEBUG_SUPPORT_DEFINE})
 endif()
 
-set(CMAKE_C_STANDARD         ${_am_saved_c_standard})
-set(CMAKE_C_EXTENSIONS       ${_am_saved_c_extensions})
-set(CMAKE_C_VISIBILITY_PRESET ${_am_saved_c_visibility})
-set(CMAKE_BUILD_TYPE         ${_am_saved_build_type})
+set(CMAKE_C_STANDARD         ${_qz_saved_c_standard})
+set(CMAKE_C_EXTENSIONS       ${_qz_saved_c_extensions})
+set(CMAKE_C_VISIBILITY_PRESET ${_qz_saved_c_visibility})
+set(CMAKE_BUILD_TYPE         ${_qz_saved_build_type})
 
 # qjs is the static lib target quickjs-ng produces (libqjs.a).
 if(NOT TARGET qjs)
@@ -511,13 +511,13 @@ set_target_properties(qjs PROPERTIES C_STANDARD 99 C_EXTENSIONS OFF)
 
 # qjsc — quickjs-ng's bytecode compiler (target qjsc). EXCLUDE_FROM_ALL means it
 # isn't built by default; pull it in only when something needs JS→bytecode.
-# am_compile_js(<out_var> <input.js>) compiles a JS source to a QuickJS
+# qz_compile_js(<out_var> <input.js>) compiles a JS source to a QuickJS
 # bytecode file (qjsc -C -b) at configure time, returning the output path. The
 # generated .bc is added to a custom target so it rebuilds when the JS changes.
-function(am_compile_js out_var js_file)
+function(qz_compile_js out_var js_file)
     cmake_parse_arguments(ARG "" "TARGET" "" ${ARGN})
     if(NOT TARGET qjsc)
-        message(FATAL_ERROR "am_compile_js needs the 'qjsc' target (quickjs-ng)")
+        message(FATAL_ERROR "qz_compile_js needs the 'qjsc' target (quickjs-ng)")
     endif()
     get_filename_component(_js_abs "${js_file}" ABSOLUTE)
     set(_bc "${CMAKE_CURRENT_BINARY_DIR}/${ARG_TARGET}.bc")
@@ -534,48 +534,48 @@ function(am_compile_js out_var js_file)
 endfunction()
 
 # ============================================================================
-# Polyfill rebuild — triggered when AM_WITH_NONUTF_ENCODINGS changes.
+# Polyfill rebuild — triggered when QZ_WITH_NONUTF_ENCODINGS changes.
 # The polyfill is precompiled to bytecode via npm run build; this custom
 # target regenerates it when the option is toggled.
 # ============================================================================
-if(AM_WITH_NONUTF_ENCODINGS)
+if(QZ_WITH_NONUTF_ENCODINGS)
     message(STATUS "Non-UTF encoding support ENABLED (Latin-1, replacement)")
-    set(_polyfill_env AM_WITH_NONUTF_ENCODINGS=1)
+    set(_polyfill_env QZ_WITH_NONUTF_ENCODINGS=1)
 else()
-    set(_polyfill_env AM_WITH_NONUTF_ENCODINGS=0)
+    set(_polyfill_env QZ_WITH_NONUTF_ENCODINGS=0)
 endif()
 find_program(NPM_EXECUTABLE npm)
 if(NPM_EXECUTABLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/polyfill/node_modules/esbuild" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/quickjs-ng/qjsc.c")
     set(_polyfill_rebuild_enabled TRUE)
     # 源依赖：polyfill/src/** 变更必须触发 rebuild，否则旧字节码静默进产物
-    file(GLOB_RECURSE AM_POLYFILL_SRC "${CMAKE_SOURCE_DIR}/polyfill/src/*.js")
+    file(GLOB_RECURSE QZ_POLYFILL_SRC "${CMAKE_SOURCE_DIR}/polyfill/src/*.js")
     # qjsc 必须由 CMake 决定：当前 build 目录自编译的 qjsc 与引擎版本
     # 必然一致（QJSC=$<TARGET_FILE:qjsc>）。否则 build.js 回落 fs 扫描，
     # readdir 顺序不确定，撞上残留旧版 qjsc（如 0.15.1 → BC_VERSION 26）
     # 会静默产出引擎拒读的字节码：JS_ReadObject: invalid version(26
-    # expected=27) → am_create 返回 NULL → host_create 测试全挂。
+    # expected=27) → qz_create 返回 NULL → host_create 测试全挂。
     #
     # 产物走 add_custom_command(OUTPUT)，不是 custom target 的隐式副作用：非
     # rodata 模式产物 untracked，fresh clone/CI 在 configure 期根本没有该文件，
     # 普通源文件列表会直接 "Cannot find source file"；OUTPUT 声明让构建系统既
-    # 知道从哪里生成、又只在真缺文件时才触发。qjsc / am_lz4_compress 直接进
+    # 知道从哪里生成、又只在真缺文件时才触发。qjsc / qz_lz4_compress 直接进
     # DEPENDS（add_custom_command 里的跨目录目标依赖有效，见上面的
-    # am_compile_js），比 add_dependencies 更早锁住顺序，避免并行构建 race。
+    # qz_compile_js），比 add_dependencies 更早锁住顺序，避免并行构建 race。
     set(_polyfill_rebuild_tools qjsc)
-    if(TARGET am_lz4_compress)   # compressed 产物压缩器（EXCLUDE_FROM_ALL）
-        list(APPEND _polyfill_rebuild_tools am_lz4_compress)
+    if(TARGET qz_lz4_compress)   # compressed 产物压缩器（EXCLUDE_FROM_ALL）
+        list(APPEND _polyfill_rebuild_tools qz_lz4_compress)
     endif()
     # 选项变化必须触发再生：custom target 永不过期，OUTPUT 规则只看依赖新旧。
     # 三个 env 选项编进 stamp 文件名（file(GENERATE) 在构建期落一个空文件），
     # 任一选项一变 stamp 名就变 → 依赖缺失 → 立即再生。
-    set(_polyfill_stamp "${CMAKE_CURRENT_BINARY_DIR}/polyfill_${_polyfill_mode}_nonutf${AM_WITH_NONUTF_ENCODINGS}_grpc${AM_WITH_GRPC}.stamp")
+    set(_polyfill_stamp "${CMAKE_CURRENT_BINARY_DIR}/polyfill_${_polyfill_mode}_nonutf${QZ_WITH_NONUTF_ENCODINGS}_grpc${QZ_WITH_GRPC}.stamp")
     file(GENERATE OUTPUT "${_polyfill_stamp}" CONTENT "")
     add_custom_command(
         OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/${_polyfill_gen_c}"
                "${CMAKE_CURRENT_SOURCE_DIR}/src/worker_boot_default.c"
-        COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} AM_WITH_GRPC=$<BOOL:${AM_WITH_GRPC}> AM_POLYFILL_MODE=${AM_POLYFILL_MODE} AM_LZ4_COMPRESS=${CMAKE_BINARY_DIR}/am_lz4_compress QJSC=$<TARGET_FILE:qjsc> npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
-        DEPENDS ${AM_POLYFILL_SRC} ${_polyfill_rebuild_tools} "${_polyfill_stamp}"
-        COMMENT "Rebuilding polyfill with AM_WITH_NONUTF_ENCODINGS=${AM_WITH_NONUTF_ENCODINGS} AM_WITH_GRPC=${AM_WITH_GRPC} AM_POLYFILL_MODE=${AM_POLYFILL_MODE}"
+        COMMAND ${CMAKE_COMMAND} -E env ${_polyfill_env} QZ_WITH_GRPC=$<BOOL:${QZ_WITH_GRPC}> QZ_POLYFILL_MODE=${QZ_POLYFILL_MODE} QZ_LZ4_COMPRESS=${CMAKE_BINARY_DIR}/qz_lz4_compress QJSC=$<TARGET_FILE:qjsc> npm --prefix "${CMAKE_CURRENT_SOURCE_DIR}/polyfill" run build
+        DEPENDS ${QZ_POLYFILL_SRC} ${_polyfill_rebuild_tools} "${_polyfill_stamp}"
+        COMMENT "Rebuilding polyfill with QZ_WITH_NONUTF_ENCODINGS=${QZ_WITH_NONUTF_ENCODINGS} QZ_WITH_GRPC=${QZ_WITH_GRPC} QZ_POLYFILL_MODE=${QZ_POLYFILL_MODE}"
         VERBATIM
     )
     # Phony handle: `--target polyfill_rebuild` 仍可用，其他 target 也能对它排序。
@@ -589,12 +589,12 @@ else()
     if(NOT _polyfill_mode STREQUAL "rodata"
        AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_polyfill_gen_c}")
         message(FATAL_ERROR
-            "AM_POLYFILL_MODE=${_polyfill_mode} needs the polyfill toolchain: "
+            "QZ_POLYFILL_MODE=${_polyfill_mode} needs the polyfill toolchain: "
             "${_polyfill_gen_c} is generated, untracked, and absent. "
             "Run `npm --prefix polyfill ci` (creates node_modules/esbuild), then re-configure.")
     endif()
-    if(AM_WITH_GRPC)
-        message(WARNING "AM_WITH_GRPC=ON but polyfill toolchain missing; gRPC stack will NOT be embedded")
+    if(QZ_WITH_GRPC)
+        message(WARNING "QZ_WITH_GRPC=ON but polyfill toolchain missing; gRPC stack will NOT be embedded")
     endif()
     add_custom_target(polyfill_rebuild
         COMMAND ${CMAKE_COMMAND} -E echo "polyfill_rebuild: skipped (esbuild/node_modules missing — using pre-generated ${_polyfill_gen_c})"
@@ -608,18 +608,18 @@ endif()
 # ============================================================================
 # WAMR-2.4.5: Fast Interpreter + AOT. Target vmlib → libiwasm.a.
 # C99-compatible out-of-the-box (no atomics patch needed — asm removed since
-# 1.3.3, _Atomic only in WASI which amoib doesn't build).
-if(AM_WITH_WAMR)
+# 1.3.3, _Atomic only in WASI which qzjs doesn't build).
+if(QZ_WITH_WAMR)
     set(WAMR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/wamr")
     if(NOT EXISTS "${WAMR_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "AM_WITH_WAMR=ON but WAMR source not found. "
+        message(FATAL_ERROR "QZ_WITH_WAMR=ON but WAMR source not found. "
             "Run: git submodule update --init deps/wamr")
     endif()
     set(WAMR_BUILD_INTERP 1)
     set(WAMR_BUILD_AOT 1)
     set(WAMR_BUILD_JIT 0)
     # fast-jit/lazy-jit compile asmjit (C++) into libiwasm.a, forcing consumers
-    # to link a C++ runtime. amoib only needs the Fast Interpreter + AOT (both
+    # to link a C++ runtime. qzjs only needs the Fast Interpreter + AOT (both
     # pure C) — keep vmlib linkable by a plain C compiler.
     set(WAMR_BUILD_FAST_JIT 0)
     set(WAMR_BUILD_LAZY_JIT 0)
@@ -627,12 +627,12 @@ if(AM_WITH_WAMR)
     set(WAMR_BUILD_WASM_C_API 1)
     set(WAMR_BUILD_LIBC_BUILTIN 1)
     set(WAMR_BUILD_LIBC_WASI 0)
-    # WAMR's Linux platform needs _GNU_SOURCE (pthread_rwlock_t). amoib's
+    # WAMR's Linux platform needs _GNU_SOURCE (pthread_rwlock_t). qzjs's
     # -std=c99 would hide it; inject for the subdirectory only.
-    set(_am_saved_c_flags ${CMAKE_C_FLAGS})
+    set(_qz_saved_c_flags ${CMAKE_C_FLAGS})
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_GNU_SOURCE")
     add_subdirectory(${WAMR_DIR} ${CMAKE_BINARY_DIR}/deps/wamr EXCLUDE_FROM_ALL)
-    set(CMAKE_C_FLAGS ${_am_saved_c_flags})
+    set(CMAKE_C_FLAGS ${_qz_saved_c_flags})
     # Relax warnings on vmlib (WAMR has some shadow/unused-parameter warnings)
     if(TARGET vmlib)
         target_compile_options(vmlib PRIVATE -Wno-error -Wno-unused-parameter -Wno-shadow)
@@ -650,11 +650,11 @@ endif()
 # ============================================================================
 # wasm3 dependency (optional) — built from source via add_subdirectory
 # ============================================================================
-if(AM_WITH_WASM3)
+if(QZ_WITH_WASM3)
     set(WASM3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/wasm3")
     set(WASM3_SRC_DIR "${WASM3_DIR}/source")
     if(EXISTS "${WASM3_SRC_DIR}/CMakeLists.txt")
-        # amoib's wasm3 ext is a pure-sandbox model — no WASI, no host APIs.
+        # qzjs's wasm3 ext is a pure-sandbox model — no WASI, no host APIs.
         # BUILD_WASI unset (not simple/metawasi/uvwasi) leaves d_m3HasWASI
         # undefined, so m3_api_wasi.c compiles to nothing and needs no POSIX
         # feature macros.
@@ -667,24 +667,24 @@ if(AM_WITH_WASM3)
             target_compile_definitions(m3 PRIVATE _POSIX_C_SOURCE=200809L)
         endif()
     else()
-        message(FATAL_ERROR "AM_WITH_WASM3=ON but wasm3 source not found. "
+        message(FATAL_ERROR "QZ_WITH_WASM3=ON but wasm3 source not found. "
             "Run: git submodule update --init deps/wasm3")
     endif()
 endif()
 
 # ============================================================================
-# Core library (amoib.c + bridge.c)
+# Core library (qzjs.c + bridge.c)
 #
 # Source files that are always compiled (no feature toggle):
-#   amoib.c, bridge.c, context.c, extension.c, polyfill_*.c (mode-dependent),
+#   qzjs.c, bridge.c, context.c, extension.c, polyfill_*.c (mode-dependent),
 #   worker_boot_default.c, thread.c (执行模型 A 自持线程主循环), msgq.c
 #   (入站消息 FIFO), ipc_envelope.c (M-P0 进程信封 fb 编解码)
-# Extension sources are guarded by AM_WITH_* feature toggles so they are
+# Extension sources are guarded by QZ_WITH_* feature toggles so they are
 # only compiled when the corresponding feature is enabled. This avoids wasting
 # compile time on dead code (e.g. ext_wasm3.c when WASM3=OFF).
 # ============================================================================
-set(_am_core_sources
-    src/amoib.c
+set(_qz_core_sources
+    src/qzjs.c
     src/bridge.c
     src/context.c
     src/extension.c
@@ -698,109 +698,114 @@ set(_am_core_sources
     src/worker.c
     src/control.c
 )
-if(AM_WITH_WAMR)
-    list(APPEND _am_core_sources src/ext_wamr.c)
+if(QZ_WITH_WAMR)
+    list(APPEND _qz_core_sources src/ext_wamr.c)
 endif()
-if(AM_WITH_WASM3)
-    list(APPEND _am_core_sources src/ext_wasm3.c)
+if(QZ_WITH_WASM3)
+    list(APPEND _qz_core_sources src/ext_wasm3.c)
 endif()
-if(AM_WITH_COMPRESS)
-    list(APPEND _am_core_sources src/ext_compress.c)
+if(QZ_WITH_COMPRESS)
+    list(APPEND _qz_core_sources src/ext_compress.c)
 endif()
-if(NOT AM_BUILD_TESTS)
+if(NOT QZ_BUILD_TESTS)
     # M-P1 IPC process channel (src/ipc_process.c) uses real-libuv pipe APIs
     # (uv_pipe_t/uv_fileno) that mock_libuv does not implement, and its spawn
     # path is only exercisable by real-process e2e (design §10.1). Test builds
-    # (AM_BUILD_TESTS) compile the core against mock_libuv.h and exclude it.
-    list(APPEND _am_core_sources src/ipc_process.c)
+    # (QZ_BUILD_TESTS) compile the core against mock_libuv.h and exclude it.
+    list(APPEND _qz_core_sources src/ipc_process.c)
 
     # CTL-2 本地控制端点（src/control_endpoint.c）：uv_pipe + SO_PEERCRED，
     # 与 ipc_process.c 同款——mock 构建无 uv_pipe，mock 下 LOCAL 档由
     # control.c 的 no-op stub 兜底（端点不可用，命令仍走进程内路径）。
-    list(APPEND _am_core_sources src/control_endpoint.c)
+    list(APPEND _qz_core_sources src/control_endpoint.c)
 
 endif()
-if(AM_PROCESS_MODEL STREQUAL "ISOLATED" AND NOT AM_BUILD_TESTS)
+if(QZ_PROCESS_MODEL STREQUAL "ISOLATED" AND NOT QZ_BUILD_TESTS)
     # M-P2：宿主↔主RT 进程分离（src/rt_host.c）。THREAD 编译不编该路径——语义门见
     # §1.4：THREAD 编译下显式 worker_backend=PROCESS 求值报错。（§2.1「THREAD 不
     # 编入 ipc_*.c」的源级排除延后：先达成语义门，偏差记于 plan 状态。）
-    list(APPEND _am_core_sources src/rt_host.c)
+    list(APPEND _qz_core_sources src/rt_host.c)
 endif()
-if(AM_WITH_CRYPTO_EXT)
-    list(APPEND _am_core_sources src/ext_crypto.c)
+if(QZ_WITH_CRYPTO_EXT)
+    list(APPEND _qz_core_sources src/ext_crypto.c)
 endif()
-if(AM_WITH_TEXTCODEC)
-    list(APPEND _am_core_sources src/ext_textcodec.c)
+if(QZ_WITH_TEXTCODEC)
+    list(APPEND _qz_core_sources src/ext_textcodec.c)
 endif()
 
 # TCP socket PAL — always available (excluded from mock-libuv test builds)
-if(NOT AM_BUILD_TESTS)
-    list(APPEND _am_core_sources src/tcp_io.c)
+if(NOT QZ_BUILD_TESTS)
+    list(APPEND _qz_core_sources src/tcp_io.c)
 endif()
 
-if(AM_BUILD_DEBUGGER)
-    list(APPEND _am_core_sources src/debugger.c src/debugger_dap.c)
+if(QZ_BUILD_DEBUGGER)
+    list(APPEND _qz_core_sources src/debugger.c src/debugger_dap.c)
 endif()
 
 
-add_library(amoib STATIC ${_am_core_sources})
+add_library(qzjs STATIC ${_qz_core_sources})
 
-# ISOLATED 编译的定义（源码 #if 选择的唯一依据）。PUBLIC：消费者（含 amoib-rt 与
-# 宿主二进制）必须与库看到同一宏——include/amoib/amoib.h 的 worker_backend 枚举值
+# ISOLATED 编译的定义（源码 #if 选择的唯一依据）。PUBLIC：消费者（含 qzjs-rt 与
+# 宿主二进制）必须与库看到同一宏——include/qzjs/qzjs.h 的 worker_backend 枚举值
 # 随该宏条件编译（§2.1「C 枚举字段可以条件编译」）。
-if(AM_PROCESS_MODEL STREQUAL "ISOLATED")
-    target_compile_definitions(amoib PUBLIC AM_PROCESS_MODEL_ISOLATED=1)
+if(QZ_PROCESS_MODEL STREQUAL "ISOLATED")
+    target_compile_definitions(qzjs PUBLIC QZ_PROCESS_MODEL_ISOLATED=1)
 endif()
 
-# ${_polyfill_gen_c} 是生成产物（build.js 按 AM_POLYFILL_MODE /
-# AM_WITH_NONUTF_ENCODINGS 产出不同符号面）；polyfill_rebuild 这个 phony target
-# 让 amoib 排在它之后，真正的生成规则是上面 add_custom_command(OUTPUT ...)（源文件
-# 本身也直接触发该规则，见 _am_core_sources）。
+# ${_polyfill_gen_c} 是生成产物（build.js 按 QZ_POLYFILL_MODE /
+# QZ_WITH_NONUTF_ENCODINGS 产出不同符号面）；polyfill_rebuild 这个 phony target
+# 让 qzjs 排在它之后，真正的生成规则是上面 add_custom_command(OUTPUT ...)（源文件
+# 本身也直接触发该规则，见 _qz_core_sources）。
 if(_polyfill_rebuild_enabled)
-    add_dependencies(amoib polyfill_rebuild)
+    add_dependencies(qzjs polyfill_rebuild)
 endif()
 
-# Let a parent project add its own extension sources to the amoib target so
-# &my_foo_ext is visible to context.c (which instantiates the AM_EXTENSIONS
-# table). Non-invasive: set(AM_EXTRA_SOURCES ...) before add_subdirectory(amoib).
-if(DEFINED AM_EXTRA_SOURCES)
-    target_sources(amoib PRIVATE ${AM_EXTRA_SOURCES})
+# Let a parent project add its own extension sources to the qzjs target so
+# &my_foo_ext is visible to context.c (which instantiates the QZ_EXTENSIONS
+# table). Non-invasive: set(QZ_EXTRA_SOURCES ...) before add_subdirectory(qzjs).
+if(DEFINED QZ_EXTRA_SOURCES)
+    target_sources(qzjs PRIVATE ${QZ_EXTRA_SOURCES})
+endif()
+if(DEFINED QZ_EXTRA_HEADERS)
+    # 自定义扩展声明（extern qz_ext_t ...）强制预包含，context.c 展开
+    # QZ_EXTENSIONS 表时可见自定义扩展符号。
+    target_compile_options(qzjs PRIVATE -include ${QZ_EXTRA_HEADERS})
 endif()
 
 # Let a parent project override the extension set at build time. The value is a
-# macro expression (e.g. "AM_DEFAULT_EXTENSIONS, &my_foo_ext") resolved by
-# am_ext_registry.h at compile time. context.c #includes that header, so
-# AM_DEFAULT_EXTENSIONS is available even in an override.
-if(DEFINED AM_EXTENSIONS)
-    target_compile_definitions(amoib PRIVATE AM_EXTENSIONS=${AM_EXTENSIONS})
+# macro expression (e.g. "QZ_DEFAULT_EXTENSIONS, &my_foo_ext") resolved by
+# qz_ext_registry.h at compile time. context.c #includes that header, so
+# QZ_DEFAULT_EXTENSIONS is available even in an override.
+if(DEFINED QZ_EXTENSIONS)
+    target_compile_definitions(qzjs PRIVATE QZ_EXTENSIONS=${QZ_EXTENSIONS})
 endif()
 
-target_include_directories(amoib PUBLIC
+target_include_directories(qzjs PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# Vendored headers reach amoib's TUs as -isystem: the -Wall -Wextra -Wpedantic
-# -Werror gate below judges amoib's own sources only, and libuv's uv.h is not
+# Vendored headers reach qzjs's TUs as -isystem: the -Wall -Wextra -Wpedantic
+# -Werror gate below judges qzjs's own sources only, and libuv's uv.h is not
 # C99-clean under -Wpedantic (unnamed structs/unions). This only changes the
 # header search path — every dep is a separate target that keeps its own flags.
-target_include_directories(amoib SYSTEM PUBLIC
+target_include_directories(qzjs SYSTEM PUBLIC
     ${QUICKJS_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/include
     ${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/src
 )
 
-# Test builds compile the core against mock_libuv.h: am_t embeds uv_loop_t
+# Test builds compile the core against mock_libuv.h: qz_t embeds uv_loop_t
 # BY VALUE, so the struct layout must match the uv implementation the tests
 # link (mock_libuv, not the system libuv). Production builds omit this define
 # and use real libuv's uv.h.
-if(AM_BUILD_TESTS)
-    target_compile_definitions(amoib PRIVATE AM_USE_MOCK_LIBUV)
-    target_include_directories(amoib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+if(QZ_BUILD_TESTS)
+    target_compile_definitions(qzjs PRIVATE QZ_USE_MOCK_LIBUV)
+    target_include_directories(qzjs PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
 endif()
 
 # ext_compress.c includes the vendored miniz.h, whose static-inline helpers
 # (zError/crc32/inflate/…) trigger -Wunused-function under our -Werror. Relax
-# just that warning for this one file (third-party header, not amoib code).
+# just that warning for this one file (third-party header, not qzjs code).
 set_source_files_properties(src/ext_compress.c PROPERTIES
     COMPILE_OPTIONS "-Wno-unused-function")
 
@@ -809,104 +814,104 @@ set_source_files_properties(src/ext_compress.c PROPERTIES
 set_source_files_properties(src/polyfill_load.c PROPERTIES
     COMPILE_OPTIONS "-Wno-unused-function")
 
-# Warn-hardening + strict C99 for amoib's own sources.
+# Warn-hardening + strict C99 for qzjs's own sources.
 #
 # Isolation (src vs deps): this function is the ONE place -Werror is set and
 # it is PRIVATE to the target, so no flag propagates into vendored code built
 # by add_subdirectory (miniz, quickjs-ng, mbedtls, wamr) or into libuv's own
 # targets - they keep their own warning flags and C standard. In the other
 # direction, vendored *headers* included by src/ are reached as -isystem (see
-# the amoib include-directories block above), so the compiler treats them as
+# the qzjs include-directories block above), so the compiler treats them as
 # system headers and -Wpedantic judges src/ code only: uv.h's unnamed
 # structs/unions (not C99) stay silent, while a real src/ pedantic defect
 # still fails the build.
 #
 # -Wpedantic enforces the "no GNU extensions" promise in CMAKE_C_EXTENSIONS
 # rather than merely declaring it. _POSIX_C_SOURCE exposes strdup/putenv/etc.
-# that amoib uses, since pure -std=c99 hides them. bridge.c marks QuickJS
-# callback fixed-signature params with AM_UNUSED.
-function(am_enable_warnings target)
+# that qzjs uses, since pure -std=c99 hides them. bridge.c marks QuickJS
+# callback fixed-signature params with QZ_UNUSED.
+function(qz_enable_warnings target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_definitions(${target} PRIVATE _POSIX_C_SOURCE=200809L)
 endfunction()
-am_enable_warnings(amoib)
+qz_enable_warnings(qzjs)
 
-# AM_DEBUG_SUPPORT gates the debugger code in src/debugger.c, src/debugger_dap.c
-# and the auto-attach path in amoib.c. The engine patch's DEBUGGER_CHECK hook is
+# QZ_DEBUG_SUPPORT gates the debugger code in src/debugger.c, src/debugger_dap.c
+# and the auto-attach path in qzjs.c. The engine patch's DEBUGGER_CHECK hook is
 # also gated on this macro (it's a no-op when undefined). Only defined when
-# AM_BUILD_DEBUGGER=ON, so non-debugger builds have zero debug overhead.
-if(AM_BUILD_DEBUGGER)
-    target_compile_definitions(amoib PUBLIC AM_DEBUG_SUPPORT)
+# QZ_BUILD_DEBUGGER=ON, so non-debugger builds have zero debug overhead.
+if(QZ_BUILD_DEBUGGER)
+    target_compile_definitions(qzjs PUBLIC QZ_DEBUG_SUPPORT)
 endif()
 
 # Conditional wasm3 includes
-# All AM_WITH_* are defined as 0 or 1 (not just defined when ON) so the
-# AM_EXT_IF_WITH conditional macro in am_ext_registry.h can resolve a
+# All QZ_WITH_* are defined as 0 or 1 (not just defined when ON) so the
+# QZ_EXT_IF_WITH conditional macro in qz_ext_registry.h can resolve a
 # disabled built-in to a NULL slot. PUBLIC so consumers (tests, examples) can
 # see which extensions are compiled in.
-target_compile_definitions(amoib PUBLIC
-    AM_WITH_WAMR=$<BOOL:${AM_WITH_WAMR}>
-    AM_WITH_WASM3=$<BOOL:${AM_WITH_WASM3}>
-    AM_WITH_COMPRESS=$<BOOL:${AM_WITH_COMPRESS}>
-    AM_WITH_CRYPTO_EXT=$<BOOL:${AM_WITH_CRYPTO_EXT}>
-    AM_WITH_TEXTCODEC=$<BOOL:${AM_WITH_TEXTCODEC}>
-    AM_WITH_TLS=$<BOOL:${AM_WITH_TLS}>
-    AM_WITH_NONUTF_ENCODINGS=$<BOOL:${AM_WITH_NONUTF_ENCODINGS}>
-    AM_POLYFILL_MODE=${_am_polyfill_mode_num}
+target_compile_definitions(qzjs PUBLIC
+    QZ_WITH_WAMR=$<BOOL:${QZ_WITH_WAMR}>
+    QZ_WITH_WASM3=$<BOOL:${QZ_WITH_WASM3}>
+    QZ_WITH_COMPRESS=$<BOOL:${QZ_WITH_COMPRESS}>
+    QZ_WITH_CRYPTO_EXT=$<BOOL:${QZ_WITH_CRYPTO_EXT}>
+    QZ_WITH_TEXTCODEC=$<BOOL:${QZ_WITH_TEXTCODEC}>
+    QZ_WITH_TLS=$<BOOL:${QZ_WITH_TLS}>
+    QZ_WITH_NONUTF_ENCODINGS=$<BOOL:${QZ_WITH_NONUTF_ENCODINGS}>
+    QZ_POLYFILL_MODE=${_qz_polyfill_mode_num}
 )
-if(AM_WITH_WAMR)
-    target_include_directories(amoib PUBLIC
+if(QZ_WITH_WAMR)
+    target_include_directories(qzjs PUBLIC
         ${WAMR_DIR}/core/iwasm/include
     )
 endif()
-if(AM_WITH_CRYPTO_EXT)
-    target_include_directories(amoib PUBLIC
+if(QZ_WITH_CRYPTO_EXT)
+    target_include_directories(qzjs PUBLIC
         ${MBEDCRYPTO_INCLUDE_DIR}
     )
 endif()
 
 # Core link libraries — qjs (QuickJS-ng) and libm are always needed.
 # pthread and dl are POSIX-specific; libuv (uv_a) is deliberately NOT linked
-# here — the amoib static lib compiles against libuv headers only, and uv
-# symbols resolve at the final target (tests: mock_libuv; am_full: uv_a).
-set(_am_core_libs qjs m)
+# here — the qzjs static lib compiles against libuv headers only, and uv
+# symbols resolve at the final target (tests: mock_libuv; qz_full: uv_a).
+set(_qz_core_libs qjs m)
 if(UNIX AND NOT ESP_PLATFORM)
-    list(APPEND _am_core_libs pthread dl)
+    list(APPEND _qz_core_libs pthread dl)
 endif()
-target_link_libraries(amoib PUBLIC ${_am_core_libs})
+target_link_libraries(qzjs PUBLIC ${_qz_core_libs})
 
 
-if(AM_POLYFILL_MODE STREQUAL "compressed")
-    target_link_libraries(amoib PUBLIC lz4_static)
+if(QZ_POLYFILL_MODE STREQUAL "compressed")
+    target_link_libraries(qzjs PUBLIC lz4_static)
 endif()
 # C-layer JSON (control/ipc/DAP sites, see c-js-layering §6.6)
-target_link_libraries(amoib PUBLIC cjson)
+target_link_libraries(qzjs PUBLIC cjson)
 # Conditional WASM engine linking
-if(AM_WITH_WAMR)
-    target_link_libraries(amoib PUBLIC vmlib)
+if(QZ_WITH_WAMR)
+    target_link_libraries(qzjs PUBLIC vmlib)
 endif()
-if(AM_WITH_WASM3)
-    target_link_libraries(amoib PUBLIC m3)
+if(QZ_WITH_WASM3)
+    target_link_libraries(qzjs PUBLIC m3)
 endif()
-if(AM_WITH_COMPRESS)
-    target_link_libraries(amoib PUBLIC miniz)
+if(QZ_WITH_COMPRESS)
+    target_link_libraries(qzjs PUBLIC miniz)
 endif()
-if(AM_WITH_CRYPTO_EXT)
-    target_link_libraries(amoib PUBLIC ${MBEDCRYPTO_LIB})
+if(QZ_WITH_CRYPTO_EXT)
+    target_link_libraries(qzjs PUBLIC ${MBEDCRYPTO_LIB})
 endif()
-if(AM_WITH_TLS)
-    # uv_io.c（编进 amoib 核心）用 mbedTLS SSL API 做 HTTPS；链接全部三个
+if(QZ_WITH_TLS)
+    # uv_io.c（编进 qzjs 核心）用 mbedTLS SSL API 做 HTTPS；链接全部三个
     # mbedTLS 归档，消费方才能解析 mbedtls_ssl_*。
-    target_link_libraries(amoib PUBLIC ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB})
+    target_link_libraries(qzjs PUBLIC ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB})
 endif()
 
 # ============================================================================
 # libuv — hard dependency (sole event-loop backend)
 #
 # Built from source (vendored as the libuv/ submodule) — never linked against
-# the system libuv. libuv is a hard dependency: amoib embeds uv_loop_t BY VALUE
-# in am_t and runs its own thread on uv_run, so without it nothing compiles.
-# The amoib static lib compiles against libuv headers but does NOT link uv_a —
+# the system libuv. libuv is a hard dependency: qzjs embeds uv_loop_t BY VALUE
+# in qz_t and runs its own thread on uv_run, so without it nothing compiles.
+# The qzjs static lib compiles against libuv headers but does NOT link uv_a —
 # uv symbols resolve at the final target (tests resolve them via mock_libuv).
 # ============================================================================
 set(LIBUV_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv")
@@ -920,15 +925,15 @@ endif()
 # atomic_* ops + _Atomic qualifier to GCC/Clang __atomic_* builtins
 # (in uv-common.h, which all libuv sources include), so it compiles
 # under -std=c99. Working-tree-only; submodule stays clean.
-set(AM_LIBUV_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv-c99-atomics.patch")
-if(EXISTS "${AM_LIBUV_C99_PATCH}")
+set(QZ_LIBUV_C99_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv-c99-atomics.patch")
+if(EXISTS "${QZ_LIBUV_C99_PATCH}")
     execute_process(
-        COMMAND patch -p1 --dry-run -f -i "${AM_LIBUV_C99_PATCH}"
+        COMMAND patch -p1 --dry-run -f -i "${QZ_LIBUV_C99_PATCH}"
         WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
         RESULT_VARIABLE _luv_dry OUTPUT_QUIET ERROR_QUIET)
     if(_luv_dry EQUAL 0)
         execute_process(
-            COMMAND patch -p1 -f -i "${AM_LIBUV_C99_PATCH}"
+            COMMAND patch -p1 -f -i "${QZ_LIBUV_C99_PATCH}"
             WORKING_DIRECTORY "${LIBUV_SRC_DIR}"
             RESULT_VARIABLE _luv_apply ERROR_QUIET)
         if(NOT _luv_apply EQUAL 0)
@@ -949,10 +954,10 @@ if(EXISTS "${AM_LIBUV_C99_PATCH}")
 endif()
 
 # libuv via add_subdirectory. Its CMake mutates global CMAKE_C_STANDARD
-# (→11) and CMAKE_EXPORT_COMPILE_COMMANDS; save+restore to keep amoib C99.
-set(_am_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
-set(_am_saved_c_standard       ${CMAKE_C_STANDARD})
-set(_am_saved_export_cc        ${CMAKE_EXPORT_COMPILE_COMMANDS})
+# (→11) and CMAKE_EXPORT_COMPILE_COMMANDS; save+restore to keep qzjs C99.
+set(_qz_saved_c_extensions     ${CMAKE_C_EXTENSIONS})
+set(_qz_saved_c_standard       ${CMAKE_C_STANDARD})
+set(_qz_saved_export_cc        ${CMAKE_EXPORT_COMPILE_COMMANDS})
 
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS  OFF CACHE BOOL "" FORCE)
@@ -961,9 +966,9 @@ set(LIBUV_BUILD_BENCH  OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(${LIBUV_SRC_DIR} ${CMAKE_BINARY_DIR}/deps/libuv EXCLUDE_FROM_ALL)
 
-set(CMAKE_C_EXTENSIONS           ${_am_saved_c_extensions})
-set(CMAKE_C_STANDARD             ${_am_saved_c_standard})
-set(CMAKE_EXPORT_COMPILE_COMMANDS ${_am_saved_export_cc})
+set(CMAKE_C_EXTENSIONS           ${_qz_saved_c_extensions})
+set(CMAKE_C_STANDARD             ${_qz_saved_c_standard})
+set(CMAKE_EXPORT_COMPILE_COMMANDS ${_qz_saved_export_cc})
 
 if(NOT TARGET uv_a)
     message(FATAL_ERROR "libuv add_subdirectory did not define target 'uv_a'")
@@ -978,25 +983,25 @@ set(LIBUV_INCLUDE_DIRS "${LIBUV_SRC_DIR}/include")
 set(LIBUV_LIBRARIES uv_a rt dl pthread)
 
 # ============================================================================
-# Full library (amoib + real libuv + extensions, bundled)
+# Full library (qzjs + real libuv + extensions, bundled)
 #
-# A single static archive aggregating the amoib core with real libuv (uv_a).
-# uv symbols are NOT resolved inside amoib — the amoib static lib compiles
-# against libuv headers only; am_full supplies uv_a so a consumer linking
-# one archive resolves everything. amoib's PUBLIC links already pull in
+# A single static archive aggregating the qzjs core with real libuv (uv_a).
+# uv symbols are NOT resolved inside qzjs — the qzjs static lib compiles
+# against libuv headers only; qz_full supplies uv_a so a consumer linking
+# one archive resolves everything. qzjs's PUBLIC links already pull in
 # qjs/m/pthread/dl and the enabled extensions (vmlib/miniz/mbedcrypto/
 # mbedtls/…), which flow through transitively.
 # ============================================================================
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/am_full_stub.c "")
-add_library(am_full STATIC ${CMAKE_CURRENT_BINARY_DIR}/am_full_stub.c)
-target_include_directories(am_full PUBLIC
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/qz_full_stub.c "")
+add_library(qz_full STATIC ${CMAKE_CURRENT_BINARY_DIR}/qz_full_stub.c)
+target_include_directories(qz_full PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${QUICKJS_DIR}
     ${LIBUV_INCLUDE_DIRS}
 )
-target_link_libraries(am_full PUBLIC amoib ${LIBUV_LIBRARIES})
-if(AM_BUILD_DEBUGGER)
-    target_compile_definitions(am_full PUBLIC AM_DEBUG_SUPPORT)
+target_link_libraries(qz_full PUBLIC qzjs ${LIBUV_LIBRARIES})
+if(QZ_BUILD_DEBUGGER)
+    target_compile_definitions(qz_full PUBLIC QZ_DEBUG_SUPPORT)
 endif()
 
 
@@ -1004,144 +1009,144 @@ endif()
 # Subdirectories
 # ============================================================================
 
-if(AM_BUILD_TESTS)
+if(QZ_BUILD_TESTS)
     enable_testing()
     add_subdirectory(test)
 endif()
 
-if(AM_BUILD_EXAMPLES)
+if(QZ_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
 # ============================================================================
-# CLI — standalone WinterTC runtime (dogfoods the amoib C API)
+# CLI — standalone WinterTC runtime (dogfoods the qzjs C API)
 # ============================================================================
-option(AM_BUILD_CLI "Build the amoib CLI" ON)
-if(AM_BUILD_CLI)
-    add_executable(am_cli src/cli.c)
-    set_target_properties(am_cli PROPERTIES OUTPUT_NAME amoib)
-    if(AM_BUILD_TESTS)
-        # Test builds compile the amoib core against mock_libuv.h
-        # (AM_USE_MOCK_LIBUV), so the CLI must link mock_libuv too. Linking
-        # am_full (real uv_a) makes the real-libuv functions operate on
+option(QZ_BUILD_CLI "Build the qzjs CLI" ON)
+if(QZ_BUILD_CLI)
+    add_executable(qz_cli src/cli.c)
+    set_target_properties(qz_cli PROPERTIES OUTPUT_NAME qzjs)
+    if(QZ_BUILD_TESTS)
+        # Test builds compile the qzjs core against mock_libuv.h
+        # (QZ_USE_MOCK_LIBUV), so the CLI must link mock_libuv too. Linking
+        # qz_full (real uv_a) makes the real-libuv functions operate on
         # mock-sized structs and overwrite the queue fields — the old
-        # "free(): invalid pointer" abort on `amoib -e 'console.log(1+1)'`.
+        # "free(): invalid pointer" abort on `qzjs -e 'console.log(1+1)'`.
         # Mock libuv's loop drives timers/asyncs/threads, so basic scripts
-        # evaluate correctly; real networking needs a AM_BUILD_TESTS=OFF
+        # evaluate correctly; real networking needs a QZ_BUILD_TESTS=OFF
         # build (e.g. build_cli).
-        target_link_libraries(am_cli PRIVATE amoib mock_libuv)
+        target_link_libraries(qz_cli PRIVATE qzjs mock_libuv)
     else()
-        target_link_libraries(am_cli PRIVATE am_full)
+        target_link_libraries(qz_cli PRIVATE qz_full)
     endif()
-am_enable_warnings(am_cli)
+qz_enable_warnings(qz_cli)
 endif()
 # ============================================================================
-# amoib-rt — standalone worker process binary (M-P1 multi-process model)
-# Spawned by am_proc_spawn via fork+exec. Uses real-libuv pipe APIs, so it
+# qzjs-rt — standalone worker process binary (M-P1 multi-process model)
+# Spawned by qz_proc_spawn via fork+exec. Uses real-libuv pipe APIs, so it
 # only builds in non-test builds (mock_libuv has no pipe API — design §10.1).
 # ============================================================================
-if(AM_BUILD_CLI AND NOT AM_BUILD_TESTS)
-    add_executable(am_rt src/rt_main.c)
-    set_target_properties(am_rt PROPERTIES OUTPUT_NAME amoib-rt)
-    # Same -Wall -Wextra -Werror + _POSIX_C_SOURCE discipline as the amoib lib
+if(QZ_BUILD_CLI AND NOT QZ_BUILD_TESTS)
+    add_executable(qz_rt src/rt_main.c)
+    set_target_properties(qz_rt PROPERTIES OUTPUT_NAME qzjs-rt)
+    # Same -Wall -Wextra -Werror + _POSIX_C_SOURCE discipline as the qzjs lib
     # (review I8): rt_main.c is core runtime code, not an exception.
-    am_enable_warnings(am_rt)
-    target_link_libraries(am_rt PRIVATE am_full)
+    qz_enable_warnings(qz_rt)
+    target_link_libraries(qz_rt PRIVATE qz_full)
 endif()
 
 # ============================================================================
-# amoib-ctl — control-plane endpoint client (CTL-2)
-# 纯 POSIX socket + stdio（不依赖 libuv / amoib 库）；只在真实构建产出
+# qzjs-ctl — control-plane endpoint client (CTL-2)
+# 纯 POSIX socket + stdio（不依赖 libuv / qzjs 库）；只在真实构建产出
 # （test 构建无控制面端点）。
 # ============================================================================
-if(AM_BUILD_CLI AND NOT AM_BUILD_TESTS)
-    add_executable(am_ctl src/ctl_cli.c)
-    set_target_properties(am_ctl PROPERTIES OUTPUT_NAME amoib-ctl)
-    am_enable_warnings(am_ctl)
+if(QZ_BUILD_CLI AND NOT QZ_BUILD_TESTS)
+    add_executable(qz_ctl src/ctl_cli.c)
+    set_target_properties(qz_ctl PROPERTIES OUTPUT_NAME qzjs-ctl)
+    qz_enable_warnings(qz_ctl)
 endif()
 # ============================================================================
 # Install
 # ============================================================================
-set(_am_install_targets amoib am_full)
-install(TARGETS ${_am_install_targets}
+set(_qz_install_targets qzjs qz_full)
+install(TARGETS ${_qz_install_targets}
     ARCHIVE DESTINATION lib
 )
-install(DIRECTORY include/amoib
+install(DIRECTORY include/qzjs
     DESTINATION include
 )
-install(FILES include/amoib/ext_wasm3.h DESTINATION include/amoib)
-# Vendored dependency archives. The amoib static lib deliberately does not
+install(FILES include/qzjs/ext_wasm3.h DESTINATION include/qzjs)
+# Vendored dependency archives. The qzjs static lib deliberately does not
 # bundle uv/qjs/extensions — their symbols resolve at the final link — so
-# install the archives alongside libamoib.a for non-CMake consumers
+# install the archives alongside libqzjs.a for non-CMake consumers
 # (pkg-config, plain -L<prefix>/lib).
-set(_am_dep_install_targets uv_a qjs)
-if(AM_WITH_WAMR)
-    list(APPEND _am_dep_install_targets vmlib)
+set(_qz_dep_install_targets uv_a qjs)
+if(QZ_WITH_WAMR)
+    list(APPEND _qz_dep_install_targets vmlib)
 endif()
-if(AM_WITH_WASM3)
-    list(APPEND _am_dep_install_targets m3)
+if(QZ_WITH_WASM3)
+    list(APPEND _qz_dep_install_targets m3)
 endif()
-if(AM_WITH_COMPRESS)
-    list(APPEND _am_dep_install_targets miniz)
+if(QZ_WITH_COMPRESS)
+    list(APPEND _qz_dep_install_targets miniz)
 endif()
-if(AM_WITH_TLS)
-    list(APPEND _am_dep_install_targets
+if(QZ_WITH_TLS)
+    list(APPEND _qz_dep_install_targets
         ${MBEDTLS_LIB} ${MBEDX509_LIB} ${MBEDCRYPTO_LIB})
-elseif(AM_WITH_CRYPTO_EXT)
-    list(APPEND _am_dep_install_targets ${MBEDCRYPTO_LIB})
+elseif(QZ_WITH_CRYPTO_EXT)
+    list(APPEND _qz_dep_install_targets ${MBEDCRYPTO_LIB})
 endif()
-install(TARGETS ${_am_dep_install_targets}
+install(TARGETS ${_qz_dep_install_targets}
     ARCHIVE DESTINATION lib
 )
 
 # ============================================================================
-# pkg-config & CMake config for find_package(amoib) consumers
+# pkg-config & CMake config for find_package(qzjs) consumers
 # ============================================================================
 include(CMakePackageConfigHelpers)
 
-# amoib-config.cmake — exported by install, consumed by find_package(amoib)
-set(_am_cmake_config_dir "lib/cmake/amoib")
+# qzjs-config.cmake — exported by install, consumed by find_package(qzjs)
+set(_qz_cmake_config_dir "lib/cmake/qzjs")
 
 # Write the version file (uses project version from project() call above)
 write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/amConfigVersion.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/qzConfigVersion.cmake"
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
 install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/amConfigVersion.cmake"
-    DESTINATION "${_am_cmake_config_dir}"
+    "${CMAKE_CURRENT_BINARY_DIR}/qzConfigVersion.cmake"
+    DESTINATION "${_qz_cmake_config_dir}"
 )
 
-# Generate a pkg-config .pc file for amoib (amoib.pc)
-set(_am_pc_dir "lib/pkgconfig")
-set(_am_pc_libs "-lam -luv -lqjs")
-if(AM_WITH_WAMR)
-    string(APPEND _am_pc_libs " -liwasm")
+# Generate a pkg-config .pc file for qzjs (qzjs.pc)
+set(_qz_pc_dir "lib/pkgconfig")
+set(_qz_pc_libs "-lam -luv -lqjs")
+if(QZ_WITH_WAMR)
+    string(APPEND _qz_pc_libs " -liwasm")
 endif()
-if(AM_WITH_WASM3)
-    string(APPEND _am_pc_libs " -lm3")
+if(QZ_WITH_WASM3)
+    string(APPEND _qz_pc_libs " -lm3")
 endif()
-if(AM_WITH_COMPRESS)
-    string(APPEND _am_pc_libs " -lminiz")
+if(QZ_WITH_COMPRESS)
+    string(APPEND _qz_pc_libs " -lminiz")
 endif()
-if(AM_WITH_TLS)
-    string(APPEND _am_pc_libs " -lmbedtls -lmbedx509 -lmbedcrypto")
-elseif(AM_WITH_CRYPTO_EXT)
-    string(APPEND _am_pc_libs " -lmbedcrypto")
+if(QZ_WITH_TLS)
+    string(APPEND _qz_pc_libs " -lmbedtls -lmbedx509 -lmbedcrypto")
+elseif(QZ_WITH_CRYPTO_EXT)
+    string(APPEND _qz_pc_libs " -lmbedcrypto")
 endif()
 if(UNIX AND NOT ESP_PLATFORM)
-    string(APPEND _am_pc_libs " -lpthread -ldl -lrt")
+    string(APPEND _qz_pc_libs " -lpthread -ldl -lrt")
 endif()
-set(_am_pc_requires "")
-set(_am_pc_cflags "-I\${includedir}")
+set(_qz_pc_requires "")
+set(_qz_pc_cflags "-I\${includedir}")
 
 configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libamoib.pc.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/amoib.pc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/libqzjs.pc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/qzjs.pc"
     @ONLY
 )
 install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/amoib.pc"
-    DESTINATION "${_am_pc_dir}"
+    "${CMAKE_CURRENT_BINARY_DIR}/qzjs.pc"
+    DESTINATION "${_qz_pc_dir}"
 )

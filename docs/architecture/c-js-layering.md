@@ -2,9 +2,9 @@
 
 > 状态：架构级标准（active）
 > 日期：2026-09-09
-> 范围：amoib 运行时（QuickJS-ng 嵌入式/边缘）——"这该进 C 还是 JS"的唯一裁决依据，供所有新模块/新能力归类时引用。
+> 范围：qzjs 运行时（QuickJS-ng 嵌入式/边缘）——"这该进 C 还是 JS"的唯一裁决依据，供所有新模块/新能力归类时引用。
 > 背景：用户指令——**C 与 JS 分层需要有原则和标准**。本文从第一性原理 + 现有实现（协议栈先例、spawn 分层化、信封/队列归类）归纳，将 ROADMAP §二.1 的单一表述（"能力原语 vs 协议策略"）展开为可逐条引用的判据、灰区决策流程与全量模块归类清单。
-> 依据：ROADMAP §二.1；`docs/archive/plans/2026-09-03-grpc-http2-design.md` §2.2-2.4；`docs/archive/plans/2026-09-04-multi-process-model.md` §4；commit `606acb81`（spawn 分层化）；`polyfill/src/*.js`；`src/msgq.c`、`src/ipc_envelope.c`；brain `[[oss-library-policy]]`、`[[amoib-positioning]]`、`[[httpserver-ws-fixes]]`、`[[wpt-runner-removed]]`。
+> 依据：ROADMAP §二.1；`docs/archive/plans/2026-09-03-grpc-http2-design.md` §2.2-2.4；`docs/archive/plans/2026-09-04-multi-process-model.md` §4；commit `606acb81`（spawn 分层化）；`polyfill/src/*.js`；`src/msgq.c`、`src/ipc_envelope.c`；brain `[[oss-library-policy]]`、`[[qzjs-positioning]]`、`[[httpserver-ws-fixes]]`、`[[wpt-runner-removed]]`。
 > 冲突处置：本文件与 brain 决策页冲突时，以 brain 为准修订本文件（ROADMAP §二.9 SSOT 分工同款）。
 
 **核心结论（TL;DR）**
@@ -20,14 +20,14 @@
 
 ## 1.1 角色定义
 
-- **C 层 = 宿主层**：链接 libamoib 的应用是设备固件/边缘服务（C99 宿主，嵌入式目标平台 FreeRTOS/ESP32 等，ROADMAP §二.6）。C 层含引擎核心（QuickJS-ng/libuv/wasm）与能力原语（tcp/fs/crypto/compress）。
-- **JS 层 = 可编程逻辑层**：polyfill bundle（字节码注入 JSRuntime）+ 应用代码。可升级（换 bundle）、可替换（按 `AM_WITH_GRPC` 等开关裁剪组成）、可审计（源码即规范面）。
+- **C 层 = 宿主层**：链接 libqzjs 的应用是设备固件/边缘服务（C99 宿主，嵌入式目标平台 FreeRTOS/ESP32 等，ROADMAP §二.6）。C 层含引擎核心（QuickJS-ng/libuv/wasm）与能力原语（tcp/fs/crypto/compress）。
+- **JS 层 = 可编程逻辑层**：polyfill bundle（字节码注入 JSRuntime）+ 应用代码。可升级（换 bundle）、可替换（按 `QZ_WITH_GRPC` 等开关裁剪组成）、可审计（源码即规范面）。
 
 ## 1.2 分层的四条第一性约束
 
 分层不是风格偏好，是以下约束的必然结果：
 
-1. **宿主主导权（嵌入式确定性）**：C 层必须自持，不能依赖 JS 层存在——设备固件可在无 polyfill/无应用 JS 的情况下初始化、跑事件循环、提供原语。小内存/快启动/确定性是护城河（[[amoib-positioning]]）。→ 引擎与系统能力只能进 C。
+1. **宿主主导权（嵌入式确定性）**：C 层必须自持，不能依赖 JS 层存在——设备固件可在无 polyfill/无应用 JS 的情况下初始化、跑事件循环、提供原语。小内存/快启动/确定性是护城河（[[qzjs-positioning]]）。→ 引擎与系统能力只能进 C。
 2. **策略可演进且不绑架宿主**：路由、缓存、压缩选择、重试/退避是**决策点**，会随业务与需求变化；若进 C，每次策略调整都要改 C/重编译/升级固件——绑架宿主。JS 层策略随 bundle 升级即可，零宿主改动。
 3. **协议面随标准演进**：HTTP/1.1、WS（RFC 6455）、h2（RFC 7540）、HPACK（RFC 7541）、gRPC 的语义细节持续修订。JS 层升级成本远低于 C（无 rebase、无 ABI、无 vendored 补丁冲突面）。
 4. **风险隔离**：内存错误（UAF/double-free）是本项目第一缺陷类别（ROADMAP §二.3）。协议状态机有大量边界分支，放 C 直接扩大 C 缺陷面；放 JS 的缺陷是可控逻辑错误，不产生 C 层内存破坏。
@@ -76,7 +76,7 @@ C 搬运、加解密、压解字节，但**不解释字节的含义**。协议�
 
 | 实例 | 理由 |
 |---|---|
-| `msgq.c`（lock-free MPSC） | 每消息一次 ACQ_REL exchange，内存序精确控制；四符号 `am_msg_push/pop/has_pending/free` 接口稳定。线程安全是 C 才能做的（JS 无内存序表达） |
+| `msgq.c`（lock-free MPSC） | 每消息一次 ACQ_REL exchange，内存序精确控制；四符号 `qz_msg_push/pop/has_pending/free` 接口稳定。线程安全是 C 才能做的（JS 无内存序表达） |
 | `ipc_envelope.c`（FlatBuffers 信封） | 字节级 vtable/offset 编解码 + payload zero-copy 片引用；C 内部格式，JS 不感知（裁决记录 §6.2） |
 
 ## 判据 C4：引擎/运行时必需的系统能力
@@ -85,10 +85,10 @@ C 搬运、加解密、压解字节，但**不解释字节的含义**。协议�
 
 | 实例 | 说明 |
 |---|---|
-| libuv | 事件循环、异步 I/O、线程、进程——amoib 的生命线 |
+| libuv | 事件循环、异步 I/O、线程、进程——qzjs 的生命线 |
 | quickjs-ng | JS 引擎本体（ES2023，C99 补丁构建） |
 | WAMR / wasm3 | wasm 引擎（Fast Interp + AOT / 备选） |
-| amoib.c / context.c / thread.c / bridge.c 等 | 运行时生命周期、上下文、内部线程、C↔JS 桥——JS 层的存在前提 |
+| qzjs.c / context.c / thread.c / bridge.c 等 | 运行时生命周期、上下文、内部线程、C↔JS 桥——JS 层的存在前提 |
 
 ---
 
@@ -129,7 +129,7 @@ fetch / cache-storage / streams / service-worker / worker / worker-boot / messag
 
 ## 判据 JS4：需可审计 / 可热替换 / 可随 polyfill 升级
 
-polyfill bundle 是**单一替换单元**（`build.js` 打包 + `AM_WITH_GRPC` 等开关控制组成，`polyfill_default.c` 内嵌字节码）。归 JS = 升级不改 C、不重编固件；归 C 则每次修订都是 vendored 补丁 + rebase 负债（见 §7 uvhttp 代价）。
+polyfill bundle 是**单一替换单元**（`build.js` 打包 + `QZ_WITH_GRPC` 等开关控制组成，`polyfill_default.c` 内嵌字节码）。归 JS = 升级不改 C、不重编固件；归 C 则每次修订都是 vendored 补丁 + rebase 负债（见 §7 uvhttp 代价）。
 
 ---
 
@@ -167,7 +167,7 @@ polyfill bundle 是**单一替换单元**（`build.js` 打包 + `AM_WITH_GRPC` �
 
 | 模块 | 归类 | 理由（判据） |
 |---|---|---|
-| amoib.c | C | 运行时生命周期（C4） |
+| qzjs.c | C | 运行时生命周期（C4） |
 | context.c | C | 上下文/JSRuntime 管理、扩展表（C4） |
 | thread.c | C | 内部线程 + 事件循环（C4） |
 | worker.c | C | THREAD 后端 worker 管理；PROCESS 分流已删，由 JS worker.js 封装（C4 + JS1/JS2，commit `606acb81`） |
@@ -187,7 +187,7 @@ polyfill bundle 是**单一替换单元**（`build.js` 打包 + `AM_WITH_GRPC` �
 | control.c | C | 控制平面（C4） |
 | debugger.c / debugger_dap.c | C | DAP 调试器（C4；调试是工具面非应用协议） |
 | cli.c | C | CLI 入口（C4） |
-| rt_main.c | C | `amoib-rt` 进程入口（C4） |
+| rt_main.c | C | `qzjs-rt` 进程入口（C4） |
 
 ## 5.2 JS 层（polyfill/src/*.js）
 
@@ -235,7 +235,7 @@ polyfill bundle 是**单一替换单元**（`build.js` 打包 + `AM_WITH_GRPC` �
 
 ## 6.3 spawn：C 原语通用化 + JS 封装
 
-- **结论**：C 层 `am_proc_spawn` 是通用"启动任意可执行文件"原语（exe + 调用方拼 argv + 子端固定通道 fd=3 + `require_handshake` 可跳过）；polyfill worker.js 用其封装 W3C Worker 接口（commit `606acb81`，`/usr/bin/echo` 冒烟验证通用性）。
+- **结论**：C 层 `qz_proc_spawn` 是通用"启动任意可执行文件"原语（exe + 调用方拼 argv + 子端固定通道 fd=3 + `require_handshake` 可跳过）；polyfill worker.js 用其封装 W3C Worker 接口（commit `606acb81`，`/usr/bin/echo` 冒烟验证通用性）。
 - **依据**：进程启动是**无状态单调用系统能力**（C1 + C4）；Worker 是**标准 API 面**（JS3）+ 后端选择策略（JS2）。分层化后 C 层 PROCESS 专用分流删除（worker.c），原语可复用于任意子进程场景。
 
 ## 6.4 nghttp2：否决（协议库进 C 的完整反例）
@@ -250,7 +250,7 @@ polyfill bundle 是**单一替换单元**（`build.js` 打包 + `AM_WITH_GRPC` �
 ## 6.5 msgq：C
 
 - **结论**：lock-free MPSC 消息队列归 C（src/msgq.c）。
-- **依据**：性能关键（每消息一次 ACQ_REL exchange + 内存序精细控制，规避 PVE 6.17 futex 唤醒不可靠）+ 接口稳定（`am_msg_push/pop/has_pending/free` 四符号长期不变）。线程安全是 C 才能表达的能力（C3 + C4）。
+- **依据**：性能关键（每消息一次 ACQ_REL exchange + 内存序精细控制，规避 PVE 6.17 futex 唤醒不可靠）+ 接口稳定（`qz_msg_push/pop/has_pending/free` 四符号长期不变）。线程安全是 C 才能表达的能力（C3 + C4）。
 
 ## 6.6 C 层 JSON 三站点：统一 vendored cJSON（用户指令：不手写）
 
@@ -266,27 +266,27 @@ polyfill bundle 是**单一替换单元**（`build.js` 打包 + `AM_WITH_GRPC` �
      解析需求，`cJSON_Parse` 直接可用；序列化改 `cJSON_CreateObject` +
      `Add*` 构建 + `cJSON_PrintUnformatted`。行为由 `test_dap_gtest`
      锁定（3 用例 8 场景全过）。
-  2. `control.c`（原共享份 am_json_get_str/get_int 调用点）：**cJSON
-     替换**。`am_control` 在生产者线程，无 JSContext（JSRuntime 归
-     amoib 线程所有），且 interrupt 要求 runtime 暂停/未初始化也能入队
+  2. `control.c`（原共享份 qz_json_get_str/get_int 调用点）：**cJSON
+     替换**。`qz_control` 在生产者线程，无 JSContext（JSRuntime 归
+     qzjs 线程所有），且 interrupt 要求 runtime 暂停/未初始化也能入队
      生效——C 层时机不变；字段提取改 `cJSON_Parse` +
      `cJSON_GetObjectItemCaseSensitive`（correl/timeout_ms/op 三字段，
-     缺字段失败路径不变）。完整解析仍在 dispatch（amoib 线程）走
+     缺字段失败路径不变）。完整解析仍在 dispatch（qzjs 线程）走
      `JS_ParseJSON`。
   3. `ipc_process.c`（原共享份调用点）：**cJSON 替换**。两个调用点都在
      JS context 尚不存在的窗口——父进程 spawn 同步握手、子进程 rt_main
-     启动顺序 handshake/ack（步骤 2）先于 am_t init（步骤 3）。改走
+     启动顺序 handshake/ack（步骤 2）先于 qz_t init（步骤 3）。改走
      JS 需倒置启动顺序，时机论证不变；handshake/ack 提取（v/role/id、
      ok/v）改 `cJSON_IsNumber` + `valueint`，缺字段语义不变。
   4. `cli.c`（json_escape/json_unescape）：**保留手写，不改**。escape
-     调用点在 `am_create` 之前构造 bootstrap（引擎不存在，循环依赖）；
-     cli.c 刻意只 include 公共头 `amoib/amoib.h`，是 libamoib 的 dogfood
+     调用点在 `qz_create` 之前构造 bootstrap（引擎不存在，循环依赖）；
+     cli.c 刻意只 include 公共头 `qzjs/qzjs.h`，是 libqzjs 的 dogfood
      宿主——cJSON 是库内部依赖（不出公共接口），引它进宿主示例违反
      dogfood 边界。最小 escape 函数留在宿主侧。
-- **替换实现**：`am_internal.h` 的 `am_json_find_val/get_str/get_int`
+- **替换实现**：`qz_internal.h` 的 `qz_json_find_val/get_str/get_int`
   static inline 共享份删除；`deps/cjson/`（cJSON.c/cJSON.h/LICENSE/
   SNAPSHOT）按 deps 现行机制 vendored，`add_library(cjson STATIC)` 链接
-  进 libamoib，不安装、不导出公共头。
+  进 libqzjs，不安装、不导出公共头。
 - **共同前提**（不变）：各站点取值对象均为受信任/自产 JSON（IDE 客户端、
   本进程回执信封、自产 handshake、自产 eval 信封），非攻击面；cJSON 在
   此前提下的正确性收益是转义解码/嵌套遍历等语义完整性，而非安全加固。
@@ -324,5 +324,5 @@ git 历史中 C 层 HTTP 服务器引入又整体移除——这是本标准的*
 - `docs/archive/plans/2026-09-04-multi-process-model.md` §4——信封 fb、payload 结构化克隆字节的层界。
 - commit `606acb81`——spawn 分层化范例。
 - brain `[[oss-library-policy]]`——"默认自制 + 单向举证"门槛模式，本文灰区默认归 JS 同构。
-- brain `[[amoib-positioning]]`——IoT 连接性中枢定位，约束能力面边界。
+- brain `[[qzjs-positioning]]`——IoT 连接性中枢定位，约束能力面边界。
 - brain `[[httpserver-ws-fixes]]` / `[[wpt-runner-removed]]`——uvhttp 代价与测试验证边界的证据。

@@ -5,7 +5,7 @@
  * esbuild-bundled to ESM) against real HTTP/2 servers. Only the
  * transport is shimmed: `pal.tcpConnect/tcpWrite/tcpClose` are backed by Node
  * `net` sockets, so the h2 engine sees the same byte stream it would in the
- * amoib runtime.
+ * qzjs runtime.
  *
  * Two peers, on purpose:
  *   1. A hand-written Node http2 server that encodes/decodes protobuf BYTES
@@ -13,7 +13,7 @@
  *      dependency-free core: it proves the 5-byte gRPC framing, the trailers
  *      status model, metadata, deadline and wire compatibility of our own
  *      protobuf.js against an independent reading of the spec.
- *   2. @grpc/grpc-js, if resolvable (AM_GRPC_PEER_MODULES or a global
+ *   2. @grpc/grpc-js, if resolvable (QZ_GRPC_PEER_MODULES or a global
  *      install). A genuine standard peer — the strongest interop evidence.
  *      Skipped (loudly) when absent, since installing it needs network.
  *
@@ -40,7 +40,7 @@ buildSync({
 });
 const { setupGrpc } = await import(bundlePath);
 
-// 2. pal shim over Node net (mirrors the amoib pal.tcp* contract)
+// 2. pal shim over Node net (mirrors the qzjs pal.tcp* contract)
 const pal = {
   tcpConnect(host, port, cb /*, opts */) {
     const sock = net.connect({ host, port });
@@ -471,13 +471,13 @@ await t('new stream APIs refuse non-matching methods', async () => {
 console.log('\ngRPC client e2e (peer: @grpc/grpc-js, standard interop)');
 let peer = null;
 try {
-  const base = process.env.AM_GRPC_PEER_MODULES || '/tmp/grpcpeer';
+  const base = process.env.QZ_GRPC_PEER_MODULES || '/tmp/grpcpeer';
   const preq = createRequire(path.join(base, 'noop.js'));
   peer = { grpc: preq('@grpc/grpc-js'), loader: preq('@grpc/proto-loader') };
 } catch (e) { peer = null; }
 
 if (!peer) {
-  skip('interop with @grpc/grpc-js', 'package not resolvable; set AM_GRPC_PEER_MODULES');
+  skip('interop with @grpc/grpc-js', 'package not resolvable; set QZ_GRPC_PEER_MODULES');
 } else {
   const def = peer.loader.loadSync(path.join(__dirname, 'proto', 'helloworld.proto'),
                                    { keepCase: true, longs: Number, defaults: true });
@@ -551,7 +551,7 @@ if (!peer) {
     eq(rs.map((r) => r.message).join('|'), Array.from({ length: 20 }, (_, i) => 'Hello c' + i).join('|'), 'concurrent');
   });
 
-  await t('interop: server streaming against grpc-js (amoib client)', async () => {
+  await t('interop: server streaming against grpc-js (qzjs client)', async () => {
     const countUp = reg.service('helloworld.Greeter').method('CountUp');
     const rs = await gch.invokeStream(countUp, { name: 'x', tags: ['a', 'b', 'c'] });
     eq(rs.length, 3, 'message count');
@@ -559,13 +559,13 @@ if (!peer) {
     eq(rs[2].count, 3, 'last payload');
   });
 
-  await t('interop: client streaming against grpc-js (amoib client)', async () => {
+  await t('interop: client streaming against grpc-js (qzjs client)', async () => {
     const reply = await gch.invokeClientStream(collect, [{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
     eq(reply.message, 'collected:a,b,c', 'reply.message');
     eq(reply.count, 3, 'reply.count');
   });
 
-  await t('interop: bidi against grpc-js, 3↔3 full duplex (amoib client)', async () => {
+  await t('interop: bidi against grpc-js, 3↔3 full duplex (qzjs client)', async () => {
     const rs = await gch.invokeBidi(chat, [{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
     eq(rs.length, 3, 'message count');
     eq(rs.map((r) => r.message).join('|'), 'echo a|echo b|echo c', 'messages in order');

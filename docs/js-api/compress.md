@@ -1,6 +1,6 @@
 ---
 title: compress
-description: Compression in Amoib.js — CompressionStream and DecompressionStream for gzip, deflate, and deflate-raw via miniz.
+description: Compression in Qzjs.js — CompressionStream and DecompressionStream for gzip, deflate, and deflate-raw via miniz.
 ---
 
 # Compression API
@@ -68,7 +68,7 @@ let text = await new Response(decompressed).text();
 
 ## Build option
 
-Compression requires `AM_WITH_COMPRESS=ON` (default) at build time. When disabled, the classes exist but error the readable side with `TypeError: Native compression extension not available`. See [Build Options](/guide/build-options).
+Compression requires `QZ_WITH_COMPRESS=ON` (default) at build time. When disabled, the classes exist but error the readable side with `TypeError: Native compression extension not available`. See [Build Options](/guide/build-options).
 
 ## Notes
 

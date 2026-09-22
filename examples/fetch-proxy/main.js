@@ -1,16 +1,16 @@
-/* amoib example: fetch 出站代理（forward proxy）
+/* qzjs example: fetch 出站代理（forward proxy）
  *
- * 演示 amoib fetch() 的 HTTP(S)_PROXY / NO_PROXY 环境变量出站代理能力
+ * 演示 qzjs fetch() 的 HTTP(S)_PROXY / NO_PROXY 环境变量出站代理能力
  * （C 层透明实现，协议仍在 JS——本例不写一行 C）：
  *
  *   客户端进程 ──HTTP_PROXY──▶ 转发代理 ──直连──▶ 目标源站
  *                                    ▲
- *                    amoib fetch 本身也由 JS 实现（serve + fetch），
+ *                    qzjs fetch 本身也由 JS 实现（serve + fetch），
  *                    代理即一个"解析绝对式 URL 再转发"的 serve() handler
  *
  *   终端 2（客户端 + 本地源站，带代理环境变量）：
  *     HTTP_PROXY=http://127.0.0.1:18082 NO_PROXY=127.0.0.1,example.com \
- *       amoib examples/fetch-proxy/main.js client
+ *       qzjs examples/fetch-proxy/main.js client
  *
  * 演示的三个行为：
  *   1. NO_PROXY 未覆盖 localhost  → 请求经代理（代理能看到绝对式请求行
@@ -21,7 +21,7 @@
  *   3. NO_PROXY=…,example.com     → 域名后缀匹配，外网请求同样直连
  *      （https 经代理需 CONNECT 隧道，极简转发代理不实现，见 README）
  *
- * 依赖的能力（amoib 内置，无需任何配置）：
+ * 依赖的能力（qzjs 内置，无需任何配置）：
  *   HTTP_PROXY / HTTPS_PROXY / NO_PROXY 环境变量 — fetch 出站代理（C 层）
  *   serve({port}, handler)                       — HTTP 监听 + 回复
  *   fetch / Response / URL                       — 客户端与 URL 解析
@@ -40,7 +40,7 @@ if (arguments[0] === 'proxy') {
     try {
       var up = await fetch(target);     // 代理进程自身无 HTTP_PROXY → 直连
       var body = await up.arrayBuffer();
-      var hdrs = { 'x-proxied-by': 'amoib-fetch-proxy-example' };
+      var hdrs = { 'x-proxied-by': 'qzjs-fetch-proxy-example' };
       var ct = up.headers.get('content-type');
       if (ct) hdrs['Content-Type'] = ct;
       return new Response(body, { status: up.status, headers: hdrs });

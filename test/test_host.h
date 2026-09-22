@@ -1,8 +1,8 @@
 // test_host.h — 新宿主契约测试桩（gtest 用）
 #pragma once
-#include "amoib/amoib.h"
-#ifdef AM_USE_MOCK_LIBUV
-#include "am_internal.h"   /* mock 构建下拿到完整 am_t 布局（访问 h->rt->loop） */
+#include "qzjs/qzjs.h"
+#ifdef QZ_USE_MOCK_LIBUV
+#include "qz_internal.h"   /* mock 构建下拿到完整 qz_t 布局（访问 h->rt->loop） */
 #endif
 #include "mock_libuv.h"
 #include <gtest/gtest.h>
@@ -41,14 +41,14 @@ static inline std::string JSON_string(const char *s) {
 }
 
 struct HostCtx {
-    am_t *rt = nullptr;
+    qz_t *rt = nullptr;
     uv_mutex_t m; uv_cond_t c;
     std::deque<std::string> inbox;   /* lock-guarded message FIFO (no overwrite loss) */
     long replies = 0;                /* lock-guarded message_cb count */
     int eval_id = 0;                 /* 递增 eval 请求 id，用于响应配对 */
 };
 
-static inline void host_msg_cb(am_t *rt, const char *json, size_t len, void *data) {
+static inline void host_msg_cb(qz_t *rt, const char *json, size_t len, void *data) {
     (void)rt;
     auto *h = (HostCtx*)data;
     uv_mutex_lock(&h->m);
@@ -77,24 +77,24 @@ globalThis.onmessage = function (e) {
 static inline HostCtx *host_create(const char *script = kTestBootstrap) {
     auto *h = new HostCtx();
     uv_mutex_init(&h->m); uv_cond_init(&h->c);
-    am_config_t cfg = {};
+    qz_config_t cfg = {};
     cfg.initial_script = script;
     cfg.message_cb = host_msg_cb;
     cfg.host_data = h;
-    h->rt = am_create(&cfg);
+    h->rt = qz_create(&cfg);
     if (!h->rt) { delete h; return nullptr; }
     return h;
 }
 
 static inline void host_destroy(HostCtx *h) {
     if (!h) return;
-    am_destroy(h->rt);
+    qz_destroy(h->rt);
     uv_cond_destroy(&h->c); uv_mutex_destroy(&h->m);
     delete h;
 }
 
 // 单次 eval 的短超时：host_poll_until* 应持续重试直到总预算耗尽，而不是被
-// 单次慢的 eval 拖垮——Debug 高负载下 amoib 线程处理 1MB 压缩/解压消息队列
+// 单次慢的 eval 拖垮——Debug 高负载下 qzjs 线程处理 1MB 压缩/解压消息队列
 // 可能数秒，5s 的单次等待会让 poll 退化成一击即败。值取 3000ms：1MB
 // roundtrip 的压缩/解压在 C 侧完成、roundtrip 校验走 nativeBytesEqual
 // （memcmp），Debug 下单次 eval ~0.2-0.5s；3000ms 单次内完成不引入额外
@@ -128,12 +128,12 @@ static inline bool host_wait_msg(HostCtx *h, std::string *out, int timeout_ms = 
     return true;
 }
 
-// 宿主对 amoib 求值（经命令通道）；返回 {ok, v|e} 的原始 JSON。
+// 宿主对 qzjs 求值（经命令通道）；返回 {ok, v|e} 的原始 JSON。
 static inline bool host_eval(HostCtx *h, const char *code, std::string *out, int timeout_ms = 5000) {
     int id = ++h->eval_id;
     std::string payload = std::string("{\"cmd\":\"eval\",\"id\":") + std::to_string(id) +
                           ",\"code\":" + JSON_string(code) + "}";
-    EXPECT_EQ(0, am_post_message(h->rt, payload.data(), payload.size()));
+    EXPECT_EQ(0, qz_post_message(h->rt, payload.data(), payload.size()));
     std::string key = "\"id\":" + std::to_string(id);
     for (;;) {
         std::string raw;
@@ -157,7 +157,7 @@ static inline bool host_eval(HostCtx *h, const char *code, std::string *out, int
 
 // 发送控制命令。返回 0 成功，-1 失败（OFF 档等）。
 static inline int host_control(HostCtx *h, const std::string &json) {
-    return am_control(h->rt, json.data(), json.size());
+    return qz_control(h->rt, json.data(), json.size());
 }
 
 // 等待 correl 匹配的控制回执；跳过非 ctl 消息与不匹配 correl 的回执。
@@ -246,7 +246,7 @@ static inline bool host_poll_until(HostCtx *h, const char *expr,
         long long remain = deadline - mono_ms();
         int single = remain > HOST_POLL_SINGLE_MS ? HOST_POLL_SINGLE_MS : (int)remain;
         if (!host_eval(h, expr, &last, single)) {
-            /* 单次 eval 超时/异常：amoib 线程忙（处理长消息队列）或 eval 读到
+            /* 单次 eval 超时/异常：qzjs 线程忙（处理长消息队列）或 eval 读到
              * 中间状态。残留响应已被 host_wait_msg 清理，短暂 sleep 后重试。
              * 预算按真实时间记账：超时烧掉几秒就扣几秒，不再放大。 */
             host_poll_sleep();

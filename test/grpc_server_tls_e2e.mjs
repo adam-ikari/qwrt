@@ -1,10 +1,10 @@
 /**
- * Phase 3 acceptance — REAL amoib runtime:
- *   grpc-js TLS client (ALPN h2) → amoib serve({tls, grpc})
+ * Phase 3 acceptance — REAL qzjs runtime:
+ *   grpc-js TLS client (ALPN h2) → qzjs serve({tls, grpc})
  *   + HTTPS (HTTP/1.1 over TLS, same port) + plaintext h2c on a 2nd port.
  *   + TLS streaming family: server / client / bidi (CountUp / Collect / Chat).
- * Usage: node test/grpc_server_tls_e2e.mjs --amoib-bin ./build/amoib
- * (needs AM_WITH_GRPC=ON binary — the gRPC stack only exists in ON bundles;
+ * Usage: node test/grpc_server_tls_e2e.mjs --qzjs-bin ./build/qzjs
+ * (needs QZ_WITH_GRPC=ON binary — the gRPC stack only exists in ON bundles;
  *  self-signed certs are generated on the fly when missing, openssl required)
  */
 import net from 'node:net';
@@ -20,11 +20,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const argv = process.argv.slice(2);
-let amPath = null;
-for (let i = 0; i < argv.length; i++) if (argv[i] === '--amoib-bin' && i + 1 < argv.length) amPath = argv[i + 1];
-const AM = amPath || process.env.AM_BIN || path.resolve(__dirname, '..', 'build', 'amoib');
-const CERT = '/tmp/amoib-tls.crt';
-const KEY = '/tmp/amoib-tls.key';
+let qzPath = null;
+for (let i = 0; i < argv.length; i++) if (argv[i] === '--qzjs-bin' && i + 1 < argv.length) qzPath = argv[i + 1];
+const AM = qzPath || process.env.QZ_BIN || path.resolve(__dirname, '..', 'build', 'qzjs');
+const CERT = '/tmp/qzjs-tls.crt';
+const KEY = '/tmp/qzjs-tls.key';
 if (!(fs.existsSync(CERT) && fs.existsSync(KEY))) {
   // Self-signed cert on the fly (mirrors test_httpserver_e2e.py; openssl required).
   const r = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048',
@@ -44,7 +44,7 @@ service Greeter {
 message HelloRequest { string name = 1; repeated string tags = 2; }
 message HelloReply { string message = 1; int32 count = 2; }`;
 
-const PEER = process.env.AM_GRPC_PEER_MODULES || '/tmp/grpcpeer/node_modules';
+const PEER = process.env.QZ_GRPC_PEER_MODULES || '/tmp/grpcpeer/node_modules';
 const grpcjs = require(path.join(PEER, '@grpc', 'grpc-js'));
 const loader = require(path.join(PEER, '@grpc', 'proto-loader'));
 
@@ -92,7 +92,7 @@ async function startServer(tls) {
   const readyPort = await new Promise((res, rej) => {
     const to = setTimeout(() => rej(new Error('not ready: ' + out.slice(-600))), 15000);
     p.stdout.on('data', (d) => { const m = /AM-READY (\d+)/.exec(out); if (m) { clearTimeout(to); res(parseInt(m[1], 10)); } });
-    p.on('exit', (c) => { clearTimeout(to); rej(new Error('amoib exited rc=' + c + ': ' + out.slice(-400))); });
+    p.on('exit', (c) => { clearTimeout(to); rej(new Error('qzjs exited rc=' + c + ': ' + out.slice(-400))); });
   });
   await new Promise((res) => setTimeout(res, 150));
   return { p, port: readyPort };
@@ -107,12 +107,12 @@ async function waitPort(port, tries = 80) {
   throw new Error('port ' + port + ' not accepting');
 }
 
-const protoTmp = path.join(os.tmpdir(), 'am_tls_e2e.proto');
+const protoTmp = path.join(os.tmpdir(), 'qz_tls_e2e.proto');
 fs.writeFileSync(protoTmp, PROTO);
 const def = loader.loadSync(protoTmp, { keepCase: true, longs: Number, defaults: true });
 const pkg = grpcjs.loadPackageDefinition(def);
 
-console.log('real amoib runtime TLS/h2c gRPC server (' + AM + ')');
+console.log('real qzjs runtime TLS/h2c gRPC server (' + AM + ')');
 
 // ── TLS: h2 (gRPC) + http/1.1 (HTTPS) on one serve() port ──
 const tls = await startServer(true);

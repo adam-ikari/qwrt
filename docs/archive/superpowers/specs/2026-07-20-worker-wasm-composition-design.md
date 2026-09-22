@@ -88,14 +88,14 @@ JS 层提供 `new Worker()` API。PAL 提供底层 spawn + 通信机制。
 
 ```bash
 # 嵌入式: FreeRTOS + WAMR + 单任务 Worker
-cmake -DAM_PAL_FREERTOS=ON -DAM_WITH_WAMR=ON
+cmake -DQZ_PAL_FREERTOS=ON -DQZ_WITH_WAMR=ON
 
 # 服务器: libuv + WAMR + fork Worker
-cmake -DAM_PAL_UV=ON -DAM_WITH_WAMR=ON
+cmake -DQZ_PAL_UV=ON -DQZ_WITH_WAMR=ON
 
 # 浏览器: WASM PAL + 浏览器原生 WASM + browser Worker
-cmake -DAM_PAL_WASM=ON -DAM_WITH_WEB_WASM=ON
+cmake -DQZ_PAL_WASM=ON -DQZ_WITH_WEB_WASM=ON
 
 # 沙箱: libuv + wasm3
-cmake -DAM_PAL_UV=ON -DAM_WITH_WASM3=ON
+cmake -DQZ_PAL_UV=ON -DQZ_WITH_WASM3=ON
 ```

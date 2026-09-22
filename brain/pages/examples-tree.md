@@ -1,6 +1,6 @@
 ---
 id: examples-tree
-title: "Examples Tree & AM_BUILD_EXAMPLES"
+title: "Examples Tree & QZ_BUILD_EXAMPLES"
 category: decision
 status: active
 tags: [build, examples]
@@ -10,10 +10,10 @@ updated: "2026-08-14T08:41:11"
 
 <!-- compiled_truth -->
 - 示例程序放在根目录 examples/ 下，每个示例一个子目录（examples/hello, examples/worker），不再放根目录 example.c。
-- 由顶层选项 AM_BUILD_EXAMPLES（默认 OFF）门控，examples/CMakeLists.txt 用 add_subdirectory 聚合。
-- 每个示例链接 am_full 目标（含 libuv），include 顶层 include/。
-- worker 示例的 worker.js 路径由 CMake 以编译期宏注入 file:// 绝对 URL（AM_WORKER_SCRIPT），不在 C 源码里拼路径。
-- 踩坑：AM_USE_MOCK_LIBUV 是测试专用定义。若 build 目录曾用 AM_BUILD_TESTS=ON 配置，libamoib.a 会带 mock 符号，链接真实 libuv 的示例会挂起（am_create 阻塞）。示例构建必须用 tests=OFF 的干净配置。
+- 由顶层选项 QZ_BUILD_EXAMPLES（默认 OFF）门控，examples/CMakeLists.txt 用 add_subdirectory 聚合。
+- 每个示例链接 qz_full 目标（含 libuv），include 顶层 include/。
+- worker 示例的 worker.js 路径由 CMake 以编译期宏注入 file:// 绝对 URL（QZ_WORKER_SCRIPT），不在 C 源码里拼路径。
+- 踩坑：QZ_USE_MOCK_LIBUV 是测试专用定义。若 build 目录曾用 QZ_BUILD_TESTS=ON 配置，libqzjs.a 会带 mock 符号，链接真实 libuv 的示例会挂起（qz_create 阻塞）。示例构建必须用 tests=OFF 的干净配置。
 - hello 示例演示 host<->JS postMessage 往返；worker 示例演示真线程 Worker 回显。
 
 
@@ -21,7 +21,7 @@ updated: "2026-08-14T08:41:11"
 
 - time: 2026-08-14T08:41:03
   kind: decision
-  summary: "Created this page: Examples Tree & AM_BUILD_EXAMPLES"
+  summary: "Created this page: Examples Tree & QZ_BUILD_EXAMPLES"
   source: created via brain create-page
   affects: [examples-tree]
 

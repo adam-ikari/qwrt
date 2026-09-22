@@ -1,6 +1,6 @@
 ---
 title: URL
-description: The URL API in Amoib.js — URL constructor, URLSearchParams, URL parsing and serialization per the WHATWG URL Standard.
+description: The URL API in Qzjs.js — URL constructor, URLSearchParams, URL parsing and serialization per the WHATWG URL Standard.
 ---
 
 # URL / URLSearchParams / URLPattern

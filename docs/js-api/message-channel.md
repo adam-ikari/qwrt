@@ -1,6 +1,6 @@
 ---
 title: MessageChannel
-description: The MessageChannel API in Amoib.js — structured clone, port messaging, and inter-context communication.
+description: The MessageChannel API in Qzjs.js — structured clone, port messaging, and inter-context communication.
 ---
 
 # MessageChannel / MessagePort
@@ -58,13 +58,13 @@ Messages are cloned (not shared). The receiver gets a copy.
 port.addEventListener('message', (event) => {
     console.log('Received:', event.data);
     // event.data is the cloned message
-    // event.ports is an array of transferred MessagePorts (always empty in amoib)
+    // event.ports is an array of transferred MessagePorts (always empty in qzjs)
 });
 ```
 
 ### start()
 
-Start the port. In amoib, ports start automatically when created — explicit `start()` is only needed if `addEventListener` is called after `postMessage`.
+Start the port. In qzjs, ports start automatically when created — explicit `start()` is only needed if `addEventListener` is called after `postMessage`.
 
 ```js
 port.start();
@@ -100,7 +100,7 @@ port.onmessageerror = (event) => {
 
 ## Cross-Context Communication
 
-The primary use case for `MessageChannel` is communication between amoib contexts (multi-context mode):
+The primary use case for `MessageChannel` is communication between qzjs contexts (multi-context mode):
 
 ```js
 // Context A
@@ -111,7 +111,7 @@ channel.port1.addEventListener('message', (event) => {
     console.log('Response from context B:', event.data);
 });
 
-// Context B (in its own amoib context)
+// Context B (in its own qzjs context)
 globalThis.addEventListener('message', (event) => {
     let port = event.ports[0];
     console.log('Request from context A:', event.data);

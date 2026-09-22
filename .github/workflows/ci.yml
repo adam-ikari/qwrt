@@ -8,7 +8,7 @@ on:
 jobs:
   # ============================================================================
   # All-optional-features-OFF build: mock_libuv tests only.
-  # (Named "all-features-off", NOT "minimal" — AM_PROFILE=minimal is a
+  # (Named "all-features-off", NOT "minimal" — QZ_PROFILE=minimal is a
   # different thing: ECMA-429-compliant with only TLS cut. This job is the
   # bare no-features matrix.)
   # ============================================================================
@@ -29,12 +29,12 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
-            -DAM_WITH_WAMR=OFF \
-            -DAM_WITH_TLS=OFF \
-            -DAM_WITH_CRYPTO_EXT=OFF \
-            -DAM_WITH_COMPRESS=OFF \
-            -DAM_WITH_TEXTCODEC=OFF
+            -DQZ_BUILD_TESTS=ON \
+            -DQZ_WITH_WAMR=OFF \
+            -DQZ_WITH_TLS=OFF \
+            -DQZ_WITH_CRYPTO_EXT=OFF \
+            -DQZ_WITH_COMPRESS=OFF \
+            -DQZ_WITH_TEXTCODEC=OFF
 
       - name: Build
         run: cmake --build build --parallel
@@ -89,12 +89,12 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
-            -DAM_WITH_WAMR=OFF \
-            -DAM_WITH_TLS=${{ matrix.tls }} \
-            -DAM_WITH_CRYPTO_EXT=${{ matrix.crypto_ext }} \
-            -DAM_WITH_COMPRESS=${{ matrix.compress }} \
-            -DAM_WITH_TEXTCODEC=${{ matrix.textcodec }}
+            -DQZ_BUILD_TESTS=ON \
+            -DQZ_WITH_WAMR=OFF \
+            -DQZ_WITH_TLS=${{ matrix.tls }} \
+            -DQZ_WITH_CRYPTO_EXT=${{ matrix.crypto_ext }} \
+            -DQZ_WITH_COMPRESS=${{ matrix.compress }} \
+            -DQZ_WITH_TEXTCODEC=${{ matrix.textcodec }}
 
       - name: Build
         run: cmake --build build --parallel
@@ -123,7 +123,7 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON
+            -DQZ_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build --parallel
@@ -152,9 +152,9 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
-            -DAM_WITH_WAMR=OFF \
-            -DAM_WITH_WASM3=ON
+            -DQZ_BUILD_TESTS=ON \
+            -DQZ_WITH_WAMR=OFF \
+            -DQZ_WITH_WASM3=ON
 
       - name: Build
         run: cmake --build build --parallel
@@ -166,11 +166,11 @@ jobs:
   # ============================================================================
   # Polyfill mode=external: bytecode loaded at runtime from
   # dist/polyfill_default.polyfill (built by polyfill/build.js Mode B).
-  # Covers the external-file loader leg of AM_POLYFILL_MODE.
+  # Covers the external-file loader leg of QZ_POLYFILL_MODE.
   # ============================================================================
   polyfill-external:
     runs-on: ubuntu-latest
-    name: polyfill-external (AM_POLYFILL_MODE=external)
+    name: polyfill-external (QZ_POLYFILL_MODE=external)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -193,13 +193,13 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
-            -DAM_POLYFILL_MODE=external
+            -DQZ_BUILD_TESTS=ON \
+            -DQZ_POLYFILL_MODE=external
 
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Test (offline; tests get AM_POLYFILL_FILE via test/CMakeLists.txt)
+      - name: Test (offline; tests get QZ_POLYFILL_FILE via test/CMakeLists.txt)
         run: ctest -L offline --output-on-failure
         working-directory: build
 
@@ -209,7 +209,7 @@ jobs:
   # ============================================================================
   polyfill-compressed:
     runs-on: ubuntu-latest
-    name: polyfill-compressed (AM_POLYFILL_MODE=compressed)
+    name: polyfill-compressed (QZ_POLYFILL_MODE=compressed)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -232,8 +232,8 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
-            -DAM_POLYFILL_MODE=compressed
+            -DQZ_BUILD_TESTS=ON \
+            -DQZ_POLYFILL_MODE=compressed
 
       - name: Build
         run: cmake --build build --parallel
@@ -243,12 +243,12 @@ jobs:
         working-directory: build
 
   # ============================================================================
-  # Non-UTF encodings: AM_WITH_NONUTF_ENCODINGS=ON adds Latin-1/replacement
+  # Non-UTF encodings: QZ_WITH_NONUTF_ENCODINGS=ON adds Latin-1/replacement
   # labels to TextDecoder and rebuilds the polyfill with them enabled.
   # ============================================================================
   nonutf-encodings:
     runs-on: ubuntu-latest
-    name: nonutf (AM_WITH_NONUTF_ENCODINGS=ON)
+    name: nonutf (QZ_WITH_NONUTF_ENCODINGS=ON)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -271,8 +271,8 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
-            -DAM_WITH_NONUTF_ENCODINGS=ON
+            -DQZ_BUILD_TESTS=ON \
+            -DQZ_WITH_NONUTF_ENCODINGS=ON
 
       - name: Build
         run: cmake --build build --parallel
@@ -309,8 +309,8 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
-            ${{ matrix.wamr == 'ON' && '-DAM_WITH_WAMR=ON' || '-DAM_WITH_WAMR=OFF -DAM_WITH_TLS=OFF -DAM_WITH_CRYPTO_EXT=OFF -DAM_WITH_COMPRESS=OFF -DAM_WITH_TEXTCODEC=OFF' }} \
+            -DQZ_BUILD_TESTS=ON \
+            ${{ matrix.wamr == 'ON' && '-DQZ_WITH_WAMR=ON' || '-DQZ_WITH_WAMR=OFF -DQZ_WITH_TLS=OFF -DQZ_WITH_CRYPTO_EXT=OFF -DQZ_WITH_COMPRESS=OFF -DQZ_WITH_TEXTCODEC=OFF' }} \
             -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
 
@@ -354,7 +354,7 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.compiler.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
+            -DQZ_BUILD_TESTS=ON \
             -DCMAKE_C_FLAGS="-fsanitize=undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined -fno-sanitize-recover=undefined"
 
@@ -385,7 +385,7 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DAM_BUILD_TESTS=ON
+            -DQZ_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build --parallel
@@ -426,8 +426,8 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DAM_BUILD_TESTS=OFF \
-            -DAM_WITH_TLS=ON
+            -DQZ_BUILD_TESTS=OFF \
+            -DQZ_WITH_TLS=ON
 
       - name: Build qjsc (polyfill bytecode compiler)
         run: cmake --build build --target qjsc
@@ -441,7 +441,7 @@ jobs:
 
       - name: Benchmark serve() with wrk
         run: |
-          python3 test/bench_httpserver.py --amoib-bin ./build/amoib --duration 5 \
+          python3 test/bench_httpserver.py --qzjs-bin ./build/qzjs --duration 5 \
             | tee /tmp/perf.out
           python3 - <<'EOF'
           import json, re, sys
@@ -555,8 +555,8 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DAM_BUILD_TESTS=OFF \
-            -DAM_WITH_TLS=ON
+            -DQZ_BUILD_TESTS=OFF \
+            -DQZ_WITH_TLS=ON
 
       - name: Build qjsc (polyfill bytecode compiler)
         run: cmake --build build --target qjsc
@@ -571,7 +571,7 @@ jobs:
       - name: Benchmark runtime (both worker backends)
         run: |
           set -o pipefail
-          python3 test/bench_runtime.py --amoib-bin ./build/amoib --quick \
+          python3 test/bench_runtime.py --qzjs-bin ./build/qzjs --quick \
             --json /tmp/runtime-perf.json | tee /tmp/runtime-perf.out
           if [ ! -f /tmp/runtime-perf.json ]; then
             echo "::error::bench_runtime.py produced no /tmp/runtime-perf.json"
@@ -623,19 +623,19 @@ jobs:
           path: /tmp/runtime-perf.json
 
   # ============================================================================
-  # Cross-runtime performance: amoib vs node vs bun (R1 cold start / R6 eval /
+  # Cross-runtime performance: qzjs vs node vs bun (R1 cold start / R6 eval /
   # R5 peak RSS), driven by test/bench_cross_runtime.py with the shared
   # test/bench/runtime/bench-eval-cross.js. Per the test-env policy (design doc
   # §0) benchmarks run in CI only — local numbers are one-off history, the
   # authoritative baseline comes from this job. tjs is excluded: building it
   # needs gcc-12 + mbedtls submodule + a patch (design doc §8.4). No polyfill
-  # rebuild — bench_cross_runtime.py only needs build/amoib (polyfill embedded
+  # rebuild — bench_cross_runtime.py only needs build/qzjs (polyfill embedded
   # at compile time from the committed src/polyfill_default.c) plus the
   # committed dist and bench-eval-cross.js, so no npm ci / qjsc step (lesson
   # from the runtime-perf qjsc-order failures). continue-on-error: observe-only.
   cross-runtime:
     runs-on: ubuntu-latest
-    name: cross-runtime perf (amoib/node/bun)
+    name: cross-runtime perf (qzjs/node/bun)
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -656,8 +656,8 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DAM_BUILD_TESTS=OFF \
-            -DAM_WITH_TLS=ON
+            -DQZ_BUILD_TESTS=OFF \
+            -DQZ_WITH_TLS=ON
 
       - name: Build
         run: cmake --build build --parallel
@@ -665,11 +665,11 @@ jobs:
       - name: Install Bun
         run: curl -fsSL https://bun.sh/install | bash
 
-      - name: Benchmark cross-runtime (amoib/node/bun)
+      - name: Benchmark cross-runtime (qzjs/node/bun)
         run: |
           export PATH="$HOME/.bun/bin:$PATH"
           python3 test/bench_cross_runtime.py \
-            --bins "amoib=./build/amoib,node=$(which node),bun=$(which bun)" \
+            --bins "qzjs=./build/qzjs,node=$(which node),bun=$(which bun)" \
             --quick --json /tmp/cross-runtime.json | tee /tmp/cross-runtime.out
 
       - name: Summarize
@@ -677,7 +677,7 @@ jobs:
           python3 - <<'EOF'
           import json
           d = json.load(open('/tmp/cross-runtime.json'))
-          for name in ('amoib', 'node', 'bun'):
+          for name in ('qzjs', 'node', 'bun'):
               r = d['runtimes'].get(name)
               if not r:
                   print('%s: (no data)' % name)
@@ -687,7 +687,7 @@ jobs:
                        r['eval']['closure_mops'], r['eval']['str_mops'],
                        r['peak_rss_kb']))
           for name, v in d.get('vs_am', {}).items():
-              print('%s vs amoib: r1=%.2fx int=%.2fx rss=%.2fx'
+              print('%s vs qzjs: r1=%.2fx int=%.2fx rss=%.2fx'
                     % (name, v['r1_x'], v['int_mops_x'], v['peak_rss_kb_x']))
           EOF
 
@@ -699,12 +699,12 @@ jobs:
 
   # ============================================================================
   # JS-API perf: test/bench_js_api.mjs (streams / crypto / compress / fs / wasm)
-  # across amoib / node / bun. Record-only — no thresholds; first run establishes
-  # a baseline. amoib runs with --iters 0.25 (interpreter) and a long timeout.
+  # across qzjs / node / bun. Record-only — no thresholds; first run establishes
+  # a baseline. qzjs runs with --iters 0.25 (interpreter) and a long timeout.
   # ============================================================================
   js-api-perf:
     runs-on: ubuntu-latest
-    name: js-api perf (streams/crypto/compress/fs/wasm × amoib/node/bun)
+    name: js-api perf (streams/crypto/compress/fs/wasm × qzjs/node/bun)
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -726,7 +726,7 @@ jobs:
 
       - name: Configure (Release, real-libuv CLI)
         run: |
-          cmake -B build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DAM_BUILD_TESTS=OFF             -DAM_WITH_TLS=ON
+          cmake -B build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DQZ_BUILD_TESTS=OFF             -DQZ_WITH_TLS=ON
 
       - name: Build (polyfill rebuild via build.js + qjsc)
         run: cmake --build build --parallel
@@ -738,16 +738,16 @@ jobs:
         run: |
           export PATH="$HOME/.bun/bin:$PATH"
           set -x
-          for rt in amoib node bun; do
-            bin="$([ $rt = amoib ] && echo ./build/amoib || (which $rt))"
-            timeout 1200 "$bin" test/bench_js_api.mjs --mode all               --iters $([ $rt = amoib ] && echo 0.25 || echo 1.0)               | tee /tmp/js-api-$rt.out
+          for rt in qzjs node bun; do
+            bin="$([ $rt = qzjs ] && echo ./build/qzjs || (which $rt))"
+            timeout 1200 "$bin" test/bench_js_api.mjs --mode all               --iters $([ $rt = qzjs ] && echo 0.25 || echo 1.0)               | tee /tmp/js-api-$rt.out
           done
 
       - name: Summarize
         run: |
           python3 - <<'EOF'
           import json, os
-          for rt in ('amoib', 'node', 'bun'):
+          for rt in ('qzjs', 'node', 'bun'):
               path = '/tmp/js-api-%s.out' % rt
               if not os.path.exists(path):
                   print('%s: (no data)' % rt)
@@ -762,7 +762,7 @@ jobs:
 
       - name: Compare vs baseline (Δ% per metric)
         run: |
-          for rt in amoib node bun; do
+          for rt in qzjs node bun; do
             [ -f /tmp/js-api-$rt.out ] || { echo "$rt: (no output)"; continue; }
             echo "--- $rt ---"
             python3 test/compare_perf.py \
@@ -778,7 +778,7 @@ jobs:
             /tmp/js-api-*.out
 
   # ============================================================================
-  # TLS / WS / gRPC perf: record-only server benches (amoib-native, CI-only).
+  # TLS / WS / gRPC perf: record-only server benches (qzjs-native, CI-only).
   # ============================================================================
   tls-ws-grpc-perf:
     runs-on: ubuntu-latest
@@ -804,23 +804,23 @@ jobs:
 
       - name: Configure (Release, CLI + TLS + gRPC)
         run: |
-          cmake -B build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DAM_BUILD_TESTS=OFF             -DAM_WITH_TLS=ON             -DAM_WITH_GRPC=ON
+          cmake -B build -G Ninja             -DCMAKE_BUILD_TYPE=Release             -DQZ_BUILD_TESTS=OFF             -DQZ_WITH_TLS=ON             -DQZ_WITH_GRPC=ON
 
       - name: Build (polyfill rebuild via build.js + qjsc)
         run: cmake --build build --parallel
 
       - name: Benchmark TLS server (wrk)
         run: |
-          python3 test/bench_tls_server.py --backend amoib --amoib-bin ./build/amoib --duration 5             | tee /tmp/tls.out
+          python3 test/bench_tls_server.py --backend qzjs --qzjs-bin ./build/qzjs --duration 5             | tee /tmp/tls.out
 
       - name: Benchmark WebSocket echo (node client)
         run: |
-          node test/bench_ws_server.mjs --amoib-bin ./build/amoib --messages 1000 --connections 1             | tee /tmp/ws.out
-          node test/bench_ws_server.mjs --amoib-bin ./build/amoib --messages 1000 --connections 8             | tee /tmp/ws-8.out
+          node test/bench_ws_server.mjs --qzjs-bin ./build/qzjs --messages 1000 --connections 1             | tee /tmp/ws.out
+          node test/bench_ws_server.mjs --qzjs-bin ./build/qzjs --messages 1000 --connections 8             | tee /tmp/ws-8.out
 
-      - name: Benchmark gRPC unary (amoib client -> amoib server)
+      - name: Benchmark gRPC unary (qzjs client -> qzjs server)
         run: |
-          python3 test/bench_grpc_unary.py --amoib-bin ./build/amoib --calls 2000             | tee /tmp/grpc.out
+          python3 test/bench_grpc_unary.py --qzjs-bin ./build/qzjs --calls 2000             | tee /tmp/grpc.out
 
       - name: Summarize
         run: |
@@ -858,9 +858,9 @@ jobs:
             /tmp/ws-8.out
             /tmp/grpc.out
   # ============================================================================
-  # e2e: real-libuv CLI (AM_BUILD_TESTS=OFF) driving the four standalone e2e
+  # e2e: real-libuv CLI (QZ_BUILD_TESTS=OFF) driving the four standalone e2e
   # suites plus the pure-JS verification harnesses (node only, no C build).
-  # Mock-libuv builds (AM_BUILD_TESTS=ON) have no real networking — the CLI
+  # Mock-libuv builds (QZ_BUILD_TESTS=ON) have no real networking — the CLI
   # there cannot serve()/fetch(), hence the dedicated tests=OFF configure.
   # ============================================================================
   e2e:
@@ -888,7 +888,7 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=OFF
+            -DQZ_BUILD_TESTS=OFF
 
       - name: Build
         run: cmake --build build --parallel
@@ -902,45 +902,45 @@ jobs:
 
       - name: e2e — HTTPServer / fetch proxy
         run: |
-          python3 test/test_httpserver_e2e.py --amoib-bin ./build/amoib
-          python3 test/test_fetch_proxy_e2e.py --amoib-bin ./build/amoib
+          python3 test/test_httpserver_e2e.py --qzjs-bin ./build/qzjs
+          python3 test/test_fetch_proxy_e2e.py --qzjs-bin ./build/qzjs
 
       - name: e2e — Service Worker (SW-0 / SW-1 / SW-2)
         run: |
-          bash test/service_worker_e2e.sh ./build/amoib
-          bash test/service_worker_sw1_e2e.sh ./build/amoib
-          bash test/service_worker_sw2_e2e.sh ./build/amoib
+          bash test/service_worker_e2e.sh ./build/qzjs
+          bash test/service_worker_sw1_e2e.sh ./build/qzjs
+          bash test/service_worker_sw2_e2e.sh ./build/qzjs
 
       # 多进程模型（缺省 ISOLATED）：宿主↔主RT 进程分离 + 双后端 worker parity。
       - name: e2e — multi-process (M-P1 worker / M-P2 host↔mainRT split / M-P3 MessagePort / M-P4 storage+crash / M-R2 composition)
         run: |
-          bash test/test_mp1_process_e2e.sh ./build/amoib
-          bash test/test_mp2_host_split_e2e.sh ./build/amoib
-          bash test/test_mp3_port_e2e.sh ./build/amoib
-          bash test/test_mp4_storage_crash_e2e.sh ./build/amoib
-          bash test/test_mr2_composition_e2e.sh ./build/amoib
+          bash test/test_mp1_process_e2e.sh ./build/qzjs
+          bash test/test_mp2_host_split_e2e.sh ./build/qzjs
+          bash test/test_mp3_port_e2e.sh ./build/qzjs
+          bash test/test_mp4_storage_crash_e2e.sh ./build/qzjs
+          bash test/test_mr2_composition_e2e.sh ./build/qzjs
 
       # 控制面 CTL-1/CTL-2（本地端点 + 信封 CONTROL 树路由到 worker）。
-      - name: e2e — control plane (CTL-1 tree routing / CTL-2 endpoint + amoib-ctl)
+      - name: e2e — control plane (CTL-1 tree routing / CTL-2 endpoint + qzjs-ctl)
         run: |
-          bash test/test_ctl_e2e.sh ./build/amoib ./build/amoib-ctl
+          bash test/test_ctl_e2e.sh ./build/qzjs ./build/qzjs-ctl
 
       # 嵌套 spawn（N-P1..N-P4）：worker 内再 spawn 孙 + §8.2 path 链路由 +
       # CTL path 寻址到孙 + STORAGE 两级中继 + §9.4 两级死亡级联。
       - name: e2e — nested spawn (worker→grandchild / §8.2 path routing / CTL path / nested STORAGE / cascade death)
         run: |
-          bash test/test_nested_e2e.sh ./build/amoib ./build/amoib-ctl
+          bash test/test_nested_e2e.sh ./build/qzjs ./build/qzjs-ctl
 
 
   # ============================================================================
-  # grpc-e2e: AM_WITH_GRPC=ON real binary — the embedded gRPC stack only
+  # grpc-e2e: QZ_WITH_GRPC=ON real binary — the embedded gRPC stack only
   # exists in ON bundles (default OFF), so the TLS server e2e (unary +
   # streaming family) runs nowhere else. Polyfill rebuild (build.js + qjsc)
   # happens inside the CMake build via the grpcON stamp.
   # ============================================================================
   grpc-e2e:
     runs-on: ubuntu-latest
-    name: grpc-e2e (AM_WITH_GRPC=ON + TLS streaming)
+    name: grpc-e2e (QZ_WITH_GRPC=ON + TLS streaming)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -959,12 +959,12 @@ jobs:
       - name: Install polyfill deps (esbuild)
         run: npm --prefix polyfill ci
 
-      - name: Configure (AM_WITH_GRPC=ON)
+      - name: Configure (QZ_WITH_GRPC=ON)
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DAM_BUILD_TESTS=OFF \
-            -DAM_WITH_GRPC=ON
+            -DQZ_BUILD_TESTS=OFF \
+            -DQZ_WITH_GRPC=ON
 
       - name: Build (polyfill rebuild via build.js + qjsc)
         run: cmake --build build --parallel
@@ -974,7 +974,7 @@ jobs:
 
       - name: gRPC server e2e (real binary over TLS — unary + streaming family)
         run: |
-          node test/grpc_server_tls_e2e.mjs --amoib-bin ./build/amoib
+          node test/grpc_server_tls_e2e.mjs --qzjs-bin ./build/qzjs
           node test/grpc_server_harness.mjs
   # ============================================================================
   # Coverage: gcov with WAMR default engine.
@@ -996,7 +996,7 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
+            -DQZ_BUILD_TESTS=ON \
             -DCMAKE_C_FLAGS="--coverage -fprofile-update=atomic -g -O0" \
             -DCMAKE_EXE_LINKER_FLAGS="--coverage"
 
@@ -1041,8 +1041,8 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_DEBUGGER=ON \
-            -DAM_BUILD_TESTS=ON
+            -DQZ_BUILD_DEBUGGER=ON \
+            -DQZ_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build --parallel
@@ -1083,7 +1083,7 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON
+            -DQZ_BUILD_TESTS=ON
 
       - name: Build
         run: cmake --build build --parallel
@@ -1116,16 +1116,16 @@ jobs:
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DAM_BUILD_TESTS=ON \
+            -DQZ_BUILD_TESTS=ON \
             -DCLANG_TIDY_EXE=clang-tidy \
-            -DAM_RUN_CLANG_TIDY=ON
+            -DQZ_RUN_CLANG_TIDY=ON
 
       - name: Build (with clang-tidy)
         run: cmake --build build --parallel
 
   # ============================================================================
   # fuzz-smoke: libFuzzer smoke run over the QuickJS bytecode deserializer
-  # (JS_ReadObject with JS_READ_OBJ_BYTECODE) — the loader path amoib uses for
+  # (JS_ReadObject with JS_READ_OBJ_BYTECODE) — the loader path qzjs uses for
   # the embedded polyfill and the worker boot shims, i.e. parse of bytes that
   # do not come from the trusted build. Corpus-less 60 s smoke: it is a crash
   # gate (ASan), not a proof of safety. There is no in-tree fuzz harness of
@@ -1160,8 +1160,8 @@ jobs:
           cat > fuzz_bc.c <<'EOF'
           /* Minimal libFuzzer harness: feeds arbitrary bytes to the QuickJS
            * bytecode deserializer (JS_ReadObject + JS_READ_OBJ_BYTECODE) — the
-           * parse amoib performs on the embedded polyfill (src/context.c) and
-           * on worker boot shims (src/amoib.c). Read-only: the resulting value
+           * parse qzjs performs on the embedded polyfill (src/context.c) and
+           * on worker boot shims (src/qzjs.c). Read-only: the resulting value
            * is freed, never evaluated. */
           #include <stddef.h>
           #include <stdint.h>

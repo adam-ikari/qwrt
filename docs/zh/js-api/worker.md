@@ -1,12 +1,12 @@
 ---
 title: Worker
-description: Amoib.js 的 Web Worker API —— Worker 类、postMessage、terminate、worker 侧全局与消息传递。
+description: Qzjs.js 的 Web Worker API —— Worker 类、postMessage、terminate、worker 侧全局与消息传递。
 ---
 
 # Worker API
 
-W3C 风格的 `Worker` 类，由真实的 amoib 运行时线程支撑。每个 worker 是各自的
-`am_t`，拥有自己的线程、事件循环与 JS 运行时（执行模型 A）。
+W3C 风格的 `Worker` 类，由真实的 qzjs 运行时线程支撑。每个 worker 是各自的
+`qz_t`，拥有自己的线程、事件循环与 JS 运行时（执行模型 A）。
 
 ## 全局
 
@@ -66,6 +66,6 @@ worker 侧 `postMessage` 的 `data` 同样经 structured clone 传递。
 
 ## 说明
 
-- worker 是真正的并行线程（各自 `am_t`），不是主线程上模拟的协程。
+- worker 是真正的并行线程（各自 `qz_t`），不是主线程上模拟的协程。
 - 后端可选 `THREAD`（进程内线程）或 `PROCESS`（fork+exec 独立进程）；构建时
   或运行时配置决定，语义等价。

@@ -1,6 +1,6 @@
 ---
 title: navigator
-description: The navigator API in Amoib.js — platform and runtime information, user agent, and hardware concurrency.
+description: The navigator API in Qzjs.js — platform and runtime information, user agent, and hardware concurrency.
 ---
 
 # navigator
@@ -40,10 +40,10 @@ Runtime identifier string.
 
 ```js
 console.log(navigator.userAgent);
-// "amoib/1.0" or similar
+// "qzjs/1.0" or similar
 ```
 
-This is intentionally minimal — not a browser-like user agent string. The exact format may change between amoib versions.
+This is intentionally minimal — not a browser-like user agent string. The exact format may change between qzjs versions.
 
 ## Methods
 

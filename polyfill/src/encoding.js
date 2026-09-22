@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: atob / btoa
+ * qzjs polyfill: atob / btoa
  *
  * Encoding/decoding fully delegated to the native textcodec primitives
  * (nativeBtoa/nativeAtob); only validation stays in JS.
@@ -20,7 +20,7 @@ export function setupEncoding(pal) {
     /* Latin1 范围校验（>0xFF 抛 InvalidCharacterError，规范语义）。
      * 编码全委托 C 原语 nativeBtoa（textcodec 扩展，注册晚于 polyfill 注入，
      * 须每次探测），实现即 WHATWG btoa 语义：逐 UTF-16 码元取低 8 位为
-     * 字节做 Base64。JS 查表平行实现已删，扩展被 AM_WITH_TEXTCODEC=OFF
+     * 字节做 Base64。JS 查表平行实现已删，扩展被 QZ_WITH_TEXTCODEC=OFF
      * 关掉时直接抛 TypeError（无 JS 回退）。 */
     for (let i = 0; i < binaryString.length; i++) {
       if (binaryString.charCodeAt(i) > 255) {
@@ -36,7 +36,7 @@ export function setupEncoding(pal) {
     }
 
     if (typeof pal.nativeBtoa !== 'function') {
-      throw new TypeError('btoa unavailable: rebuild with AM_WITH_TEXTCODEC=ON');
+      throw new TypeError('btoa unavailable: rebuild with QZ_WITH_TEXTCODEC=ON');
     }
     return pal.nativeBtoa(binaryString);
   };
@@ -71,9 +71,9 @@ export function setupEncoding(pal) {
     }
 
     /* 解码全委托 C 原语 nativeAtob（同 btoa，须每次探测）。
-     * AM_WITH_TEXTCODEC=OFF 时无 JS 回退，直接抛 TypeError。 */
+     * QZ_WITH_TEXTCODEC=OFF 时无 JS 回退，直接抛 TypeError。 */
     if (typeof pal.nativeAtob !== 'function') {
-      throw new TypeError('atob unavailable: rebuild with AM_WITH_TEXTCODEC=ON');
+      throw new TypeError('atob unavailable: rebuild with QZ_WITH_TEXTCODEC=ON');
     }
     return pal.nativeAtob(base64String);
   };

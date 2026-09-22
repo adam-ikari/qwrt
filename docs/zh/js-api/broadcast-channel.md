@@ -1,12 +1,12 @@
 ---
 title: BroadcastChannel
-description: Amoib.js 的 BroadcastChannel API —— 单一运行时内跨上下文的消息广播。
+description: Qzjs.js 的 BroadcastChannel API —— 单一运行时内跨上下文的消息广播。
 ---
 
 # BroadcastChannel
 
 一个带名字的消息通道，向所有同名 `BroadcastChannel` 实例广播。
-用来协调同一个 amoib 运行时里多个派生上下文的工作。
+用来协调同一个 qzjs 运行时里多个派生上下文的工作。
 
 ## 全局
 

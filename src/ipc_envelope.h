@@ -42,8 +42,8 @@
  *   +48  payload bytes
  */
 
-#ifndef AM_IPC_ENVELOPE_H
-#define AM_IPC_ENVELOPE_H
+#ifndef QZ_IPC_ENVELOPE_H
+#define QZ_IPC_ENVELOPE_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -68,7 +68,7 @@ extern "C" {
  * emerges without any routing table:
  *
  *   +0  u8  op            // 1 = PORT_MESSAGE (SC bytes of the posted value)
- *                         // 2 = PORT_TRANSFER (SC bytes of {__am_ports, ...})
+ *                         // 2 = PORT_TRANSFER (SC bytes of {__qz_ports, ...})
  *   +1  u8  dest_len      // op=1: element count of dest_path
  *   +2  u8  key_len       // op=1: element count of key_path
  *   +3  u8  reserved = 0
@@ -80,7 +80,7 @@ extern "C" {
  *   ... SC bytes
  *
  * Elements are u16 (PROCESS worker ids are 1000+; >65535 → widen to u32).
- * Total header = 8 + 2*(dest_len + key_len), max 8 + 2*2*AM_SELF_PATH_MAX.
+ * Total header = 8 + 2*(dest_len + key_len), max 8 + 2*2*QZ_SELF_PATH_MAX.
  *
  * The header exists so a routing node can decide deliver-locally vs forward
  * WITHOUT decoding the structured-clone payload (§7.2: payload bytes never
@@ -140,4 +140,4 @@ int ipc_envelope_decode(const uint8_t *buf, size_t len,
 }
 #endif
 
-#endif /* AM_IPC_ENVELOPE_H */
+#endif /* QZ_IPC_ENVELOPE_H */

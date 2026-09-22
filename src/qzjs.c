@@ -1,26 +1,26 @@
 /*
- * amoib Core Runtime (执行模型 A)
+ * qzjs Core Runtime (执行模型 A)
  *
- * 宿主侧生命周期：am_create（阻塞到内部线程 ready）/ am_destroy（请求
- * 线程退出 → join）/ am_post_message（线程安全入站）/ get/set_runtime_data /
- * am_free。
+ * 宿主侧生命周期：qz_create（阻塞到内部线程 ready）/ qz_destroy（请求
+ * 线程退出 → join）/ qz_post_message（线程安全入站）/ get/set_runtime_data /
+ * qz_free。
  *
- * amoib 线程侧内部函数（thread.c 调用）：am_runtime_init 建 JSRuntime + 主
- * context（含 polyfill 注入 / 扩展 init / DAP attach）；am_eval_internal 在
- * 活动 context 上 eval；am_thread_teardown 回收（排空 jobs → 销毁 contexts
+ * qzjs 线程侧内部函数（thread.c 调用）：qz_runtime_init 建 JSRuntime + 主
+ * context（含 polyfill 注入 / 扩展 init / DAP attach）；qz_eval_internal 在
+ * 活动 context 上 eval；qz_thread_teardown 回收（排空 jobs → 销毁 contexts
  * → JS_FreeRuntime → 关闭 loop）。
  */
 
-#include "am_internal.h"
+#include "qz_internal.h"
 #include <sched.h>
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef AM_DEBUG_SUPPORT
-#include "amoib/am_debug_dap.h"
+#ifdef QZ_DEBUG_SUPPORT
+#include "qzjs/qz_debug_dap.h"
 #endif
 
-#ifndef AM_USE_MOCK_LIBUV
+#ifndef QZ_USE_MOCK_LIBUV
 #include "ipc_process.h"
 #endif
 
@@ -28,37 +28,37 @@
  * 宿主侧 API
  * ================================================================ */
 
-am_t *am_create(const am_config_t *config)
+qz_t *qz_create(const qz_config_t *config)
 {
     /* 禁用 libuv 的 io_uring：部分内核（如 PVE 6.17）在 io_uring_setup 后
      * 会破坏 futex/pthread_cond 唤醒，导致宿主线程的 cond_wait 永不返回。
      * 不覆盖宿主显式设置的 UV_USE_IO_URING。 */
     setenv("UV_USE_IO_URING", "0", 0);
     if (!config) return NULL;
-    am_t *rt = (am_t *)calloc(1, sizeof *rt);
+    qz_t *rt = (qz_t *)calloc(1, sizeof *rt);
     if (!rt) return NULL;
-    rt->magic = AM_MAGIC;
+    rt->magic = QZ_MAGIC;
     rt->config = *config;
     if (config->initial_script)
         rt->config.initial_script = strdup(config->initial_script);
     /* lock-free MPSC queue: head == tail == sentinel (calloc zeroed stub's q.next) */
     rt->msg_head = &rt->msg_stub;
     rt->msg_tail = &rt->msg_stub;
-    /* CTL-0：控制面回执表锁（生产者登记，amoib 线程消费）。 */
+    /* CTL-0：控制面回执表锁（生产者登记，qzjs 线程消费）。 */
     uv_mutex_init(&rt->ctl_lock);
 
-#ifdef AM_HOST_SPLIT
+#ifdef QZ_HOST_SPLIT
     /* ── ISOLATED（M-P2）：宿主↔主RT 进程分离 ──
      * spawn 主RT 进程 + 握手 + 阻塞到就绪（CONTROL{ready}）；失败显式返回 NULL，
-     * 不降级到线程后端（§5.3）。C API 契约不变：宿主见到的仍是一个 am_t。 */
-    if (am_host_start(rt) != 0) {
+     * 不降级到线程后端（§5.3）。C API 契约不变：宿主见到的仍是一个 qz_t。 */
+    if (qz_host_start(rt) != 0) {
         free((void *)rt->config.initial_script);
         free(rt);
         return NULL;
     }
     return rt;
 #else
-    if (uv_thread_create(&rt->thread, am_thread_main, rt) != 0) {
+    if (uv_thread_create(&rt->thread, qz_thread_main, rt) != 0) {
         free((void *)rt->config.initial_script);
         free(rt);
         return NULL;
@@ -70,52 +70,52 @@ am_t *am_create(const am_config_t *config)
     while (!__atomic_load_n(&rt->thread_ready, __ATOMIC_ACQUIRE))
         sched_yield();
     if (rt->ready_err) {
-        am_destroy(rt);
+        qz_destroy(rt);
         return NULL;
     }
     return rt;
 #endif
 }
 
-int am_post_message(am_t *rt, const char *json, size_t len)
+int qz_post_message(qz_t *rt, const char *json, size_t len)
 {
-#ifdef AM_HOST_SPLIT
+#ifdef QZ_HOST_SPLIT
     /* 入队即返回（与线程后端同语义）；loop 线程装信封写通道。 */
-    return am_host_post(rt, json, len);
+    return qz_host_post(rt, json, len);
 #else
-    if (!rt || rt->magic != AM_MAGIC || !json) return -1;
-    return am_msg_push(rt, json, len, AM_MSG_SRC_HOST, 0);
+    if (!rt || rt->magic != QZ_MAGIC || !json) return -1;
+    return qz_msg_push(rt, json, len, QZ_MSG_SRC_HOST, 0);
 #endif
 }
 
 
-void am_wait_idle(am_t *rt)
+void qz_wait_idle(qz_t *rt)
 {
-#ifdef AM_HOST_SPLIT
-    am_host_wait_idle(rt);
+#ifdef QZ_HOST_SPLIT
+    qz_host_wait_idle(rt);
     return;
 #else
-    if (!rt || rt->magic != AM_MAGIC) return;
+    if (!rt || rt->magic != QZ_MAGIC) return;
     __atomic_store_n(&rt->wait_idle, 1, __ATOMIC_RELEASE);
     uv_async_send(&rt->wake);          /* wake a blocked uv_run for idle detection */
     /* Block until the thread auto-exits on idle (loop empty of work).
-     * am_destroy must not be called before this returns — it would force
+     * qz_destroy must not be called before this returns — it would force
      * shutdown and cancel pending async work (e.g. a live timer). */
     uv_thread_join(&rt->thread);
-    /* M-R1: record the join so a following am_destroy skips it — bare
+    /* M-R1: record the join so a following qz_destroy skips it — bare
      * pthread_join on an already-joined handle is UB. */
     __atomic_store_n(&rt->thread_joined, 1, __ATOMIC_RELEASE);
 #endif
 }
 
-void am_destroy(am_t *rt)
+void qz_destroy(qz_t *rt)
 {
-#ifdef AM_HOST_SPLIT
-    am_host_destroy(rt);
+#ifdef QZ_HOST_SPLIT
+    qz_host_destroy(rt);
     return;
 #else
     if (!rt) return;
-    if (rt->magic != AM_MAGIC) return;
+    if (rt->magic != QZ_MAGIC) return;
     __atomic_store_n(&rt->shutting_down, 1, __ATOMIC_RELEASE);
     uv_async_send(&rt->wake);          /* wake a blocked uv_run */
     /* wait_idle already joined the (exited) thread — re-joining is UB. The
@@ -127,43 +127,43 @@ void am_destroy(am_t *rt)
 #endif
 }
 
-void *am_get_runtime_data(am_t *rt) { return rt ? rt->host_data : NULL; }
-void  am_set_runtime_data(am_t *rt, void *data) { if (rt) rt->host_data = data; }
-void  am_free(void *ptr) {
+void *qz_get_runtime_data(qz_t *rt) { return rt ? rt->host_data : NULL; }
+void  qz_set_runtime_data(qz_t *rt, void *data) { if (rt) rt->host_data = data; }
+void  qz_free(void *ptr) {
     if (!ptr) return;
-    am_t *rt = (am_t *)ptr;
+    qz_t *rt = (qz_t *)ptr;
     free((void *)rt->config.initial_script);
     free(ptr);
 }
 
 /* ================================================================
- * amoib 线程侧内部函数（thread.c 调用）
+ * qzjs 线程侧内部函数（thread.c 调用）
  * ================================================================ */
 
-int am_runtime_init(am_t *rt)
+int qz_runtime_init(qz_t *rt)
 {
     /* Create JSRuntime (shared across all contexts) */
     rt->jsrt = JS_NewRuntime();
     if (!rt->jsrt) return -1;
-#ifdef AM_SANITIZE_BUILD
+#ifdef QZ_SANITIZE_BUILD
     /* sanitizer（ASan/UBSan）插桩使每个 JS 帧的 C 栈开销放大 2-5 倍：
      * QuickJS 默认 1MB JS 栈预算（JS_DEFAULT_STACK_SIZE）在宿主调用链
      * 较深时误报 "stack overflow"（fetch/streams 同步链实测触发）。将预算
-     * 放大到 amoib 线程默认栈的一半（8MB/2），普通构建不受影响（该宏仅
+     * 放大到 qzjs 线程默认栈的一半（8MB/2），普通构建不受影响（该宏仅
      * sanitizer 构建注入，见 CMakeLists sanitizer 检测）。 */
     JS_SetMaxStackSize(rt->jsrt, 4 * 1024 * 1024);
 #endif
     /* CTL-0 §3.9：安装 runtime 级中断处理器——只读 ctl_interrupt 原子标志。 */
-    JS_SetInterruptHandler(rt->jsrt, am_ctl_interrupt_handler, rt);
+    JS_SetInterruptHandler(rt->jsrt, qz_ctl_interrupt_handler, rt);
     JS_SetRuntimeOpaque(rt->jsrt, rt);
 
     /* Initialize context table */
     rt->context_count = 0;
     rt->active_ctx_id = -1;
-    for (int i = 0; i < AM_MAX_CONTEXTS; i++) rt->contexts[i] = NULL;
+    for (int i = 0; i < QZ_MAX_CONTEXTS; i++) rt->contexts[i] = NULL;
 
-    /* Create initial context (ext init / polyfill 注入在 am_ctx_create 内) */
-    am_ctx_t *ctx = am_ctx_create(rt, &rt->config);
+    /* Create initial context (ext init / polyfill 注入在 qz_ctx_create 内) */
+    qz_ctx_t *ctx = qz_ctx_create(rt, &rt->config);
     if (!ctx) {
         JS_FreeRuntime(rt->jsrt);
         rt->jsrt = NULL;
@@ -171,9 +171,9 @@ int am_runtime_init(am_t *rt)
     }
     rt->active_ctx_id = ctx->context_id;
 
-#ifdef AM_DEBUG_SUPPORT
-    /* Auto-attach the DAP debugger when enabled (env AM_DEBUG=1 or
-     * config->debug bit 1). am_dap_configure blocks reading the DAP
+#ifdef QZ_DEBUG_SUPPORT
+    /* Auto-attach the DAP debugger when enabled (env QZ_DEBUG=1 or
+     * config->debug bit 1). qz_dap_configure blocks reading the DAP
      * initialize/setBreakpoints/configurationDone exchange, so breakpoints
      * are armed before the host's first message.
      *
@@ -186,27 +186,27 @@ int am_runtime_init(am_t *rt)
     {
         int enable = 0;
         if (rt->worker_self == NULL) {
-            const char *env = getenv("AM_DEBUG");
+            const char *env = getenv("QZ_DEBUG");
             if (env && (env[0] == '1' || env[0] == 't' || env[0] == 'T'))
                 enable = 1;
             if (rt->config.debug & 0x2)  /* bit 1 = debug-enable */
                 enable = 1;
         }
         if (enable) {
-            am_dap_config_t dcfg;
+            qz_dap_config_t dcfg;
             dcfg.stop_on_entry = 1;
             dcfg.in = NULL;   /* stdin */
             dcfg.out = NULL;  /* stdout */
-            int rc = am_dap_attach(rt, &dcfg);
+            int rc = qz_dap_attach(rt, &dcfg);
             if (rc == 0) {
-                am_dap_configure(rt);  /* blocks until configurationDone */
+                qz_dap_configure(rt);  /* blocks until configurationDone */
             } else if (rc == -2) {
                 /* M-R1 §13.2：stdio 已被同进程另一 runtime 认领。显式失败
-                 * （am_create 返回 NULL），不静默降级成无调试器运行——
+                 * （qz_create 返回 NULL），不静默降级成无调试器运行——
                  * 与开放点 #2 的「不静默降级」裁决一致。 */
                 rt->ready_err = -2;
             }
-            /* rc == -1（am_debug_attach 失败等其他错误）：维持旧行为，
+            /* rc == -1（qz_debug_attach 失败等其他错误）：维持旧行为，
              * 运行时继续无调试器运行。 */
         }
     }
@@ -215,9 +215,9 @@ int am_runtime_init(am_t *rt)
     return 0;
 }
 
-int am_eval_internal(am_t *rt, const char *script, char **err)
+int qz_eval_internal(qz_t *rt, const char *script, char **err)
 {
-    JSContext *ctx = am_get_active_jsctx(rt);
+    JSContext *ctx = qz_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue val = JS_Eval(ctx, script, strlen(script), "<initial>",
@@ -238,12 +238,12 @@ int am_eval_internal(am_t *rt, const char *script, char **err)
 }
 
 /* 在活动 context 上执行预编译字节码（JS_ReadObject + JS_EvalFunction）。
- * 用于编译期注入的 JS（worker 启动垫片等），与 am_eval_internal 的
+ * 用于编译期注入的 JS（worker 启动垫片等），与 qz_eval_internal 的
  * 错误提取语义一致。 */
-int am_eval_bytecode_internal(am_t *rt, const uint8_t *code, size_t len,
+int qz_eval_bytecode_internal(qz_t *rt, const uint8_t *code, size_t len,
                                 char **err)
 {
-    JSContext *ctx = am_get_active_jsctx(rt);
+    JSContext *ctx = qz_get_active_jsctx(rt);
     if (!ctx) return -1;
 
     JSValue obj = JS_ReadObject(ctx, code, len, JS_READ_OBJ_BYTECODE);
@@ -274,9 +274,9 @@ int am_eval_bytecode_internal(am_t *rt, const uint8_t *code, size_t len,
     return 0;
 }
 
-static void am_close_walk_cb(uv_handle_t *h, void *arg)
+static void qz_close_walk_cb(uv_handle_t *h, void *arg)
 {
-    AM_UNUSED(arg);
+    QZ_UNUSED(arg);
     /* ctx/ext teardown (step 4) may already have closed some handles without
      * their close callbacks running
      * (the loop is not run again); walk still sees those handles in the queue,
@@ -284,42 +284,42 @@ static void am_close_walk_cb(uv_handle_t *h, void *arg)
     if (!uv_is_closing(h)) uv_close(h, NULL);
 }
 
-void am_thread_teardown(am_t *rt)
+void qz_thread_teardown(qz_t *rt)
 {
     /* -1) 关闭本地控制端点（CTL-2 §2.3）：断开外部控制器连接（同时清理其
      * 名下未完成回执条目），unlink 端点文件。uv_close 的回收由下文步骤 2.5
      * 的 uv_run 处理；端点不持有 JSRuntime/context 状态，先关最安全。 */
-    am_ctl_endpoint_close(rt);
+    qz_ctl_endpoint_close(rt);
 
     /* 0) 先终止所有 worker（Task 4）。必须在排空队列/JSRuntime 之前：worker
      * 线程可能仍向本队列推消息（join 期间 msg_mutex 必须存活），且 JSRuntime
      * 释放后 worker 自己的 teardown 不再需要父侧任何状态。join 在本线程做，
      * 随后 free 结构。 */
-    for (int i = 0; i < AM_MAX_WORKERS; i++) {
-        am_worker_t *w = rt->workers[i];
+    for (int i = 0; i < QZ_MAX_WORKERS; i++) {
+        qz_worker_t *w = rt->workers[i];
         if (w) {
-            am_worker_terminate(rt, w);
+            qz_worker_terminate(rt, w);
             /* 线程后端：join 已请求退出的 worker 线程（进程 worker 由 JS 层
-             * processTerminate 管理——C 层 am_worker_t 仅服务线程后端，
+             * processTerminate 管理——C 层 qz_worker_t 仅服务线程后端，
              * spawn 分层化 Phase C）。 */
             if (w->self)
                 uv_thread_join(&w->thread);
             rt->workers[i] = NULL;
-            am_worker_free(w);
+            qz_worker_free(w);
         }
     }
 
-#ifndef AM_USE_MOCK_LIBUV
+#ifndef QZ_USE_MOCK_LIBUV
     /* 0.5) 终止残留的 pal.processSpawn 句柄（spawn 分层化, Phase B）：JS
      *      未显式 processTerminate 的句柄在此收尾——3-tier 杀掉子进程 + 释放
      *      proc 结构。onmsg 是 JS 回调函数引用：必须在此 JS_FreeValue（本步
      *      在 contexts 销毁 / JS_FreeRuntime 之前，h->ctx->jsctx 有效），否则
      *      残留引用使 JS_FreeRuntime 的 gc_obj_list 断言失败。 */
-    for (int i = 0; i < AM_MAX_PROC_HANDLES; i++) {
-        am_proc_handle_t *h = &rt->proc_handles[i];
+    for (int i = 0; i < QZ_MAX_PROC_HANDLES; i++) {
+        qz_proc_handle_t *h = &rt->proc_handles[i];
         if (h->live && h->proc) {
-            am_proc_terminate(h->proc, 0);
-            am_proc_free(h->proc);
+            qz_proc_terminate(h->proc, 0);
+            qz_proc_free(h->proc);
         }
         if (h->live && h->ctx && h->ctx->jsctx)
             JS_FreeValue(h->ctx->jsctx, h->onmsg);
@@ -331,9 +331,9 @@ void am_thread_teardown(am_t *rt)
 #endif
     /* 1) drain any remaining inbound queue (pop already frees passed nodes;
      *    the final node stays on head) */
-    am_msg_t *m;
-    while ((m = am_msg_pop(rt)) != NULL) {}
-    if (rt->msg_head != &rt->msg_stub) am_msg_free(rt->msg_head);
+    qz_msg_t *m;
+    while ((m = qz_msg_pop(rt)) != NULL) {}
+    if (rt->msg_head != &rt->msg_stub) qz_msg_free(rt->msg_head);
     rt->msg_head = &rt->msg_stub;
 
     /* 1.5) abort in-flight streaming HTTP op（若存在）。uv_io_http_abort 会
@@ -355,8 +355,8 @@ void am_thread_teardown(am_t *rt)
     /* 2.5) 排空 libuv 已排队但未处理的 request 完成（work_done）。
      * 必须在销毁 contexts / 释放 JSRuntime 之前：完成回调（bridge_io_done）
      * 会 JS_Call resolve，需要活着的 ctx 与 jsrt。wait_idle 路径由
-     * am_loop_idle 的 active_reqs 检查保证 teardown 时无残留；此处兜底
-     * 强制 shutdown（am_destroy）的瞬时窗口。限轮防止在途慢请求
+     * qz_loop_idle 的 active_reqs 检查保证 teardown 时无残留；此处兜底
+     * 强制 shutdown（qz_destroy）的瞬时窗口。限轮防止在途慢请求
      * 导致 busy-spin（UV_RUN_NOWAIT 的返回值是 loop-alive，不是"处理数"）。 */
     for (int i = 0; i < 16; i++) {
         if (uv_run(&rt->loop, UV_RUN_NOWAIT) == 0) break;
@@ -366,22 +366,22 @@ void am_thread_teardown(am_t *rt)
         }
     }
 
-    /* 3) DAP detach 必须先于 contexts/JSRuntime 释放：am_debug_detach 会调
+    /* 3) DAP detach 必须先于 contexts/JSRuntime 释放：qz_debug_detach 会调
      * JS_SetDebuggerHandler(jsrt, NULL)（在已释放的 runtime 上写即 UAF），
      * 并释放缓存的 paused-frame 快照（JS_FreeCallFrames 需要活的 ctx）。 */
-#ifdef AM_DEBUG_SUPPORT
+#ifdef QZ_DEBUG_SUPPORT
     if (rt->dbg_session) {
-        am_dap_detach(rt);
+        qz_dap_detach(rt);
         rt->dbg_session = NULL;
     }
 #endif
     /* CTL-0：回收未完成回执条目 + 销毁 ctl_lock。必须在 loop 关闭前：
      * 条目/锁不依赖 loop/JSRuntime。 */
-    am_ctl_teardown(rt);
+    qz_ctl_teardown(rt);
 
     /* 4) 销毁所有 contexts（内含扩展 destroy） */
-    for (int i = 0; i < AM_MAX_CONTEXTS; i++) {
-        if (rt->contexts[i]) am_ctx_destroy(rt, rt->contexts[i]);
+    for (int i = 0; i < QZ_MAX_CONTEXTS; i++) {
+        if (rt->contexts[i]) qz_ctx_destroy(rt, rt->contexts[i]);
     }
 
     /* 5) 释放 JSRuntime（gc_obj_list 已空） */
@@ -403,9 +403,9 @@ void am_thread_teardown(am_t *rt)
     rt->proxy_auth_url = NULL;
     rt->proxy_auth_value = NULL;
 
-    /* 6.7) 释放 polyfill 字节码缓存（am_ctx_create_at 惰性加载，各 context
+    /* 6.7) 释放 polyfill 字节码缓存（qz_ctx_create_at 惰性加载，各 context
      * 共享同一份）。C mode 无堆分配（unload 是 no-op）；A/B/D 释放堆缓冲。 */
-    am_polyfill_unload(rt->polyfill_owner);
+    qz_polyfill_unload(rt->polyfill_owner);
     rt->polyfill_owner = NULL;
     rt->polyfill = NULL;
     rt->polyfill_len = 0;
@@ -413,7 +413,7 @@ void am_thread_teardown(am_t *rt)
     /* 7) 关闭 loop：close 全部 handle → 处理 close 回调 → loop_close
      *（libuv 里 stop 过但仍 open 的 handle 也会让 uv_loop_close EBUSY，
      * 所以必须 walk-close 而非只关 wake）。 */
-    uv_walk(&rt->loop, am_close_walk_cb, NULL);
+    uv_walk(&rt->loop, qz_close_walk_cb, NULL);
     uv_run(&rt->loop, UV_RUN_NOWAIT);
     uv_loop_close(&rt->loop);
 }

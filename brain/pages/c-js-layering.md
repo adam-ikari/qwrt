@@ -50,4 +50,4 @@ updated: "2026-09-09T02:30:15"
   kind: decision
   summary: "动机：用户要求 C 与 JS 分层显式化原则和标准（2026-09-09）——ROADMAP §二.1 单句表述展开为可逐条引用判据+灰区四问+全量归类+裁决记录，落地 docs/architecture/c-js-layering.md，挂钩 grpc-http2 设计 §2.4 D-HPACK"
   source: "2026-09-09 用户指令"
-  affects: [c-js-layering, oss-library-policy, amoib-positioning]
+  affects: [c-js-layering, oss-library-policy, qzjs-positioning]

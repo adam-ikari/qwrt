@@ -9,7 +9,7 @@ updated: "2026-08-19T11:10:08"
 ---
 
 <!-- compiled_truth -->
-- **背景**：ECMA-429（WinterTC Minimum common web API，2025 snapshot）要求 Streams 的三个 BYOB 接口必须暴露在 globalThis 上：`ReadableByteStreamController`、`ReadableStreamBYOBReader`、`ReadableStreamBYOBRequest`。amoib 此前只实现了 default 系列（ReadableStream/DefaultController/DefaultReader），三个 BYOB 接口缺失。
+- **背景**：ECMA-429（WinterTC Minimum common web API，2025 snapshot）要求 Streams 的三个 BYOB 接口必须暴露在 globalThis 上：`ReadableByteStreamController`、`ReadableStreamBYOBReader`、`ReadableStreamBYOBRequest`。qzjs 此前只实现了 default 系列（ReadableStream/DefaultController/DefaultReader），三个 BYOB 接口缺失。
 - **实现（polyfill/src/streams.js，2026-08-19）**：
   - `ReadableStream` 构造识别 `underlyingSource.type === 'bytes'` → 设 `_type='bytes'`，用 `ReadableByteStreamController`（否则用 default controller）。
   - `getReader({mode:'byob'})` → `ReadableStreamBYOBReader`；对非 bytes stream 抛 TypeError；无参/mode default 保持兼容。

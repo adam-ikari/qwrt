@@ -1,15 +1,15 @@
 /**
- * amoib Polyfill - File System Extension API
+ * qzjs Polyfill - File System Extension API
  *
  * Provides node:fs-style async API based on PAL primitives.
  * PAL returns strings for fsExists ("true"/"false") and fsList (JSON array),
  * which this module parses into proper JS types.
  *
- * Mounted on globalThis.amoib.fs
+ * Mounted on globalThis.qzjs.fs
  */
 
 export function setupFS(pal) {
-  if (!globalThis.amoib) globalThis.amoib = {};
+  if (!globalThis.qzjs) globalThis.qzjs = {};
 
   var fs = {
     async readFile(path, options) {
@@ -45,9 +45,9 @@ export function setupFS(pal) {
 
     // Sync-style aliases (still async under the hood)
     readFileSync(path, options) {
-      throw new Error('Synchronous fs operations not supported in amoib');
+      throw new Error('Synchronous fs operations not supported in qzjs');
     },
   };
 
-  globalThis.amoib.fs = fs;
+  globalThis.qzjs.fs = fs;
 }

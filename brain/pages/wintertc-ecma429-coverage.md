@@ -10,7 +10,7 @@ updated: "2026-08-27T09:54:42"
 
 <!-- compiled_truth -->
 ## 结论
-对 **ECMA-429（ECMA TC55 WinterTC Minimum common web API，2025 snapshot）** 全量接口/方法逐项盘点 amoib 的**实现**与**gtest 覆盖**。全部必选接口已实现；9 处"已实现但无测试"的规范表面补齐 gtest；并暴露/修复 1 个真实规范违例（TransformStream flush 不关闭 readable，第三次 read() 永久挂起）。
+对 **ECMA-429（ECMA TC55 WinterTC Minimum common web API，2025 snapshot）** 全量接口/方法逐项盘点 qzjs 的**实现**与**gtest 覆盖**。全部必选接口已实现；9 处"已实现但无测试"的规范表面补齐 gtest；并暴露/修复 1 个真实规范违例（TransformStream flush 不关闭 readable，第三次 read() 永久挂起）。
 
 ## 盘点范围
 基准 = ECMA-429 官方规范（ecma-international.org，2025-12 第 1 版）+ WinterCG proposal 草稿。盘点对象 = polyfill/src/*.js 各模块 + 原生扩展（WASM/compress/crypto）；测试覆盖 = test/*_gtest.cpp + test_httpserver_e2e.py。
@@ -50,7 +50,7 @@ updated: "2026-08-27T09:54:42"
 | fetch / console / crypto / performance | ✅ | ✅ Fetch / Console / CryptoGlobals / PerformanceApi |
 
 ## 超出 ECMA-429 的项目扩展（均有 e2e/gtest）
-fetch 重定向+流式 body、timers、fs（amoib.fs）、storage、URLPattern、abort、BroadcastChannel、CacheStorage、EventSource(SSE)、WebSocket（RFC 7692）、serve() HTTP/WS 服务器、Web Workers 多线程、软挂起/多上下文。
+fetch 重定向+流式 body、timers、fs（qzjs.fs）、storage、URLPattern、abort、BroadcastChannel、CacheStorage、EventSource(SSE)、WebSocket（RFC 7692）、serve() HTTP/WS 服务器、Web Workers 多线程、软挂起/多上下文。
 
 ## 缺口测试（本盘点新增 9 个，全部通过，polyfill 60/60）
 1. **Ecma429CustomEvent** — detail 透传 / 默认 null / 继承 Event
@@ -70,7 +70,7 @@ fetch 重定向+流式 body、timers、fs（amoib.fs）、storage、URLPattern�
 ## 已知预存问题（与本盘点无关）
 - **test_compress_gtest flaky（已解决，2026-09-01）**：Gzip1_3KB 在整包 ctest 下偶发失败 / 单跑偶发挂起（>120s）。根因是 `test_host.h` poll 预算记账缺陷（单次 eval 超时 3s 只计 25ms 预算，5s 名义预算放大成 ~10 分钟重试），已修（CHANGELOG [Unreleased] Fixed）。
 - **EventSource 连接无法在 mock_libuv 离线测试**：gtest 仅验证 API 表面（已注明），SSE 解析/重连逻辑待网络 mock 或 e2e 覆盖。
-- **build_wasm3/amoib CLI 存在 `free(): invalid pointer` 崩溃**：疑似该构建配置问题，与本次改动无关。
+- **build_wasm3/qzjs CLI 存在 `free(): invalid pointer` 崩溃**：疑似该构建配置问题，与本次改动无关。
 
 
 ## Timeline

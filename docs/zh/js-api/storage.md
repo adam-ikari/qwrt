@@ -1,26 +1,26 @@
 ---
 title: storage
-description: Amoib.js 中的存储 API —— 使用 getItem、setItem、removeItem 和 clear 进行键值持久化。
+description: Qzjs.js 中的存储 API —— 使用 getItem、setItem、removeItem 和 clear 进行键值持久化。
 ---
 
 # storage — 键值存储 API
 
-amoib 扩展 API，用于持久化键值存储。作为 `amoib.storage` 上的方法暴露。
+qzjs 扩展 API，用于持久化键值存储。作为 `qzjs.storage` 上的方法暴露。
 
 ## 全局对象
 
 | 全局对象 | 描述 |
 |--------|-------------|
-| `amoib.storage` | 键值存储命名空间 |
+| `qzjs.storage` | 键值存储命名空间 |
 
 ## 方法
 
-### `amoib.storage.get(key)`
+### `qzjs.storage.get(key)`
 
 按键检索值。
 
 ```js
-let token = await amoib.storage.get('auth_token');
+let token = await qzjs.storage.get('auth_token');
 if (token) {
     console.log('令牌:', token);
 } else {
@@ -30,24 +30,24 @@ if (token) {
 
 返回：`Promise<string | null>`。如果键不存在则返回 `null`。
 
-### `amoib.storage.set(key, value)`
+### `qzjs.storage.set(key, value)`
 
 按键存储值。如果键已存在则覆盖。
 
 ```js
-await amoib.storage.set('auth_token', 'eyJhbGci...');
-await amoib.storage.set('last_login', new Date().toISOString());
-await amoib.storage.set('settings', JSON.stringify({ theme: 'dark' }));
+await qzjs.storage.set('auth_token', 'eyJhbGci...');
+await qzjs.storage.set('last_login', new Date().toISOString());
+await qzjs.storage.set('settings', JSON.stringify({ theme: 'dark' }));
 ```
 
 返回：`Promise<void>`。
 
-### `amoib.storage.delete(key)`
+### `qzjs.storage.delete(key)`
 
 删除一个键值对。
 
 ```js
-await amoib.storage.delete('auth_token');
+await qzjs.storage.delete('auth_token');
 ```
 
 返回：`Promise<void>`。如果键不存在也不会报错。
@@ -64,19 +64,19 @@ async function login(username, password) {
     });
     let data = await response.json();
 
-    await amoib.storage.set('auth_token', data.token);
-    await amoib.storage.set('user', JSON.stringify(data.user));
+    await qzjs.storage.set('auth_token', data.token);
+    await qzjs.storage.set('user', JSON.stringify(data.user));
 
     return data.user;
 }
 
 async function logout() {
-    await amoib.storage.delete('auth_token');
-    await amoib.storage.delete('user');
+    await qzjs.storage.delete('auth_token');
+    await qzjs.storage.delete('user');
 }
 
 async function getUser() {
-    let userData = await amoib.storage.get('user');
+    let userData = await qzjs.storage.get('user');
     return userData ? JSON.parse(userData) : null;
 }
 ```
@@ -85,7 +85,7 @@ async function getUser() {
 
 **storage** 适用于小型、频繁访问的键值对（配置、令牌、用户偏好）。**fs** 适用于较大的文档、脚本或结构化数据文件。
 
-| 特性 | amoib.storage | amoib.fs |
+| 特性 | qzjs.storage | qzjs.fs |
 |---------|-------------|---------|
 | 数据模型 | 键值 | 文件路径 |
 | 值大小 | 小型（通常 < 4KB） | 最大到可用内存 |
@@ -95,7 +95,7 @@ async function getUser() {
 
 ## 存储后端
 
-`amoib.storage.*` 解析到运行时自有的内存键值映射（在 `uv_io.c` 中实现，首次使用时惰性分配，默认容量 128 条）。只有一种实现且无持久化 — 存储仅在运行时存活期间存在，重启后丢失。你依赖的键应在启动时（重新）初始化（例如在 `initial_script` 中）。
+`qzjs.storage.*` 解析到运行时自有的内存键值映射（在 `uv_io.c` 中实现，首次使用时惰性分配，默认容量 128 条）。只有一种实现且无持久化 — 存储仅在运行时存活期间存在，重启后丢失。你依赖的键应在启动时（重新）初始化（例如在 `initial_script` 中）。
 
 ## 注意事项
 

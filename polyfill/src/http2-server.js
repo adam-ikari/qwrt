@@ -1,5 +1,5 @@
 /**
- * amoib polyfill: HTTP/2 server stack (RFC 7540) — pure JS over pal.tcp*.
+ * qzjs polyfill: HTTP/2 server stack (RFC 7540) — pure JS over pal.tcp*.
  *
  * Server half of the h2 engine (HTTP/2 + gRPC Phase 3). The client half lives
  * in http2.js; this module reuses its frame constants and byte helpers and
@@ -19,7 +19,7 @@
  * transparent because the C layer delivers decrypted bytes via ondata.
  *
  * Bundle wiring: setupHttp2Server() mounts HTTP2ServerSession on
- * globalThis.amoib.http2 next to the client. AM_WITH_GRPC=0 keeps this
+ * globalThis.qzjs.http2 next to the client. QZ_WITH_GRPC=0 keeps this
  * module out of the bundle entirely (grpc-stack aliasing).
 
  */
@@ -478,9 +478,9 @@ export class HTTP2ServerSession {
 
 /* Install the h2 server session next to the client (bundle wiring). */
 export function setupHttp2Server(pal) {
-  globalThis.amoib = globalThis.amoib || {};
-  if (!globalThis.amoib.http2) globalThis.amoib.http2 = {};
-  globalThis.amoib.http2.HTTP2ServerSession = HTTP2ServerSession;
+  globalThis.qzjs = globalThis.qzjs || {};
+  if (!globalThis.qzjs.http2) globalThis.qzjs.http2 = {};
+  globalThis.qzjs.http2.HTTP2ServerSession = HTTP2ServerSession;
   /* PREFACE exposed so serve() can sniff plaintext h2c without importing us. */
-  globalThis.amoib.http2.PREFACE = PREFACE;
+  globalThis.qzjs.http2.PREFACE = PREFACE;
 }
