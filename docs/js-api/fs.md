@@ -15,12 +15,12 @@ qzjs extension API for reading and writing files. Exposed as methods on `qzjs.fs
 
 ## Methods
 
-### `qzjs.fs.read(path)`
+### `qzjs.fs.readFile(path)`
 
 Read the contents of a file as a string.
 
 ```js
-let content = await qzjs.fs.read('/app/config.json');
+let content = await qzjs.fs.readFile('/app/config.json');
 let config = JSON.parse(content);
 ```
 
@@ -31,13 +31,13 @@ Errors:
 - `QZ_ERR_PERMISSION` if access denied
 - `QZ_ERR_IO` on read failure
 
-### `qzjs.fs.write(path, data)`
+### `qzjs.fs.writeFile(path, data)`
 
 Write data to a file. Creates the file if it doesn't exist, overwrites if it does.
 
 ```js
-await qzjs.fs.write('/data/log.txt', 'Log entry: ' + new Date().toISOString());
-await qzjs.fs.write('/app/state.json', JSON.stringify({ step: 5, done: false }));
+await qzjs.fs.writeFile('/data/log.txt', 'Log entry: ' + new Date().toISOString());
+await qzjs.fs.writeFile('/app/state.json', JSON.stringify({ step: 5, done: false }));
 ```
 
 Returns: `Promise<void>`.
@@ -53,19 +53,19 @@ Check if a file or directory exists.
 
 ```js
 if (await qzjs.fs.exists('/app/init.js')) {
-    let script = await qzjs.fs.read('/app/init.js');
+    let script = await qzjs.fs.readFile('/app/init.js');
     // ...
 }
 ```
 
 Returns: `Promise<boolean>`.
 
-### `qzjs.fs.remove(path)`
+### `qzjs.fs.unlink(path)`
 
 Delete a file.
 
 ```js
-await qzjs.fs.remove('/tmp/temp.dat');
+await qzjs.fs.unlink('/tmp/temp.dat');
 ```
 
 Returns: `Promise<void>`.
@@ -74,22 +74,20 @@ Errors:
 - `QZ_ERR_NOT_FOUND` if file doesn't exist
 - `QZ_ERR_PERMISSION` if delete not allowed
 
-### `qzjs.fs.list(path)`
+### `qzjs.fs.readdir(path)`
 
 List the contents of a directory.
 
 ```js
-let entries = await qzjs.fs.list('/app');
-// entries: [{ name: "main.js", type: "file" }, { name: "lib", type: "dir" }]
+let entries = await qzjs.fs.readdir('/app');
+// entries: ["main.js", "lib", ...]  — 字符串数组
 
-for (let entry of entries) {
-    if (entry.type === 'file') {
-        console.log('File:', entry.name);
-    }
+for (let name of entries) {
+    console.log('entry:', name);
 }
 ```
 
-Returns: `Promise<Array<{name: string, type: "file"|"dir"}>>`.
+Returns: `Promise<string[]>` — directory entry names.
 
 Errors:
 - `QZ_ERR_NOT_FOUND` if directory doesn't exist
@@ -103,13 +101,13 @@ async function updateConfig(key, value) {
     let config = {};
 
     if (await qzjs.fs.exists('/app/config.json')) {
-        let raw = await qzjs.fs.read('/app/config.json');
+        let raw = await qzjs.fs.readFile('/app/config.json');
         config = JSON.parse(raw);
     }
 
     config[key] = value;
 
-    await qzjs.fs.write('/app/config.json', JSON.stringify(config, null, 2));
+    await qzjs.fs.writeFile('/app/config.json', JSON.stringify(config, null, 2));
 }
 
 await updateConfig('theme', 'dark');
