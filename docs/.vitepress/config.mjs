@@ -56,6 +56,8 @@ const sidebar = {
         { text: 'Quick Start', link: '/guide/quickstart' },
         { text: 'Building', link: '/guide/building' },
         { text: 'Compatible Packages', link: '/guide/compatible-packages' },
+        { text: 'Examples', link: '/guide/examples' },
+        { text: 'Use Cases', link: '/guide/use-cases' },
       ],
     },
     {
@@ -166,6 +168,8 @@ const zhSidebar = {
         { text: '快速上手', link: '/zh/guide/quickstart' },
         { text: '构建', link: '/zh/guide/building' },
         { text: '兼容包', link: '/zh/guide/compatible-packages' },
+        { text: '示例', link: '/zh/guide/examples' },
+        { text: '用例', link: '/zh/guide/use-cases' },
       ],
     },
     {
