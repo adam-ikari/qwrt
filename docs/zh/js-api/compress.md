@@ -1,6 +1,6 @@
 ---
 title: compress
-description: Qzjs.js 的压缩 —— CompressionStream 与 DecompressionStream，经 miniz 支持 gzip、deflate、deflate-raw。
+description: qzjs 的压缩 —— CompressionStream 与 DecompressionStream，经 miniz 支持 gzip、deflate、deflate-raw。
 ---
 
 # 压缩 API

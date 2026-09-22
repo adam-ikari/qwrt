@@ -1,6 +1,6 @@
 ---
 title: fs (Filesystem)
-description: The filesystem API in Qzjs.js — readFile, writeFile, stat, directory operations, and libuv-backed file I/O.
+description: The filesystem API in qzjs — readFile, writeFile, stat, directory operations, and libuv-backed file I/O.
 ---
 
 # fs — Filesystem API

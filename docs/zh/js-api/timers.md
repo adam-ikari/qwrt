@@ -1,6 +1,6 @@
 ---
 title: 定时器
-description: Qzjs.js 中的定时器 API —— setTimeout、clearTimeout、setInterval、clearInterval 以及微任务调度。
+description: qzjs 中的定时器 API —— setTimeout、clearTimeout、setInterval、clearInterval 以及微任务调度。
 ---
 
 # 定时器 API

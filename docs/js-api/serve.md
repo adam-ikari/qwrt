@@ -1,6 +1,6 @@
 ---
 title: serve
-description: The HTTP server API in Qzjs.js — serve(), request handling, WebSocket server routes, TLS, and lifecycle.
+description: The HTTP server API in qzjs — serve(), request handling, WebSocket server routes, TLS, and lifecycle.
 ---
 
 # serve — HTTP Server API

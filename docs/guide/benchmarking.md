@@ -1,6 +1,6 @@
 ---
 title: Performance Benchmarks
-description: Qzjs.js performance benchmark suite — six CI-driven benchmarks covering HTTP server, HTTP/2 client, worker runtime, cross-runtime comparison, JS API primitives, and TLS/WS/gRPC servers, with a committed baseline and per-metric Δ% drift reporting.
+description: qzjs performance benchmark suite — six CI-driven benchmarks covering HTTP server, HTTP/2 client, worker runtime, cross-runtime comparison, JS API primitives, and TLS/WS/gRPC servers, with a committed baseline and per-metric Δ% drift reporting.
 ---
 
 # Performance Benchmarks

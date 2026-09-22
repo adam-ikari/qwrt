@@ -1,6 +1,6 @@
 ---
 title: CacheStorage
-description: The CacheStorage API in Qzjs.js — the global `caches` / `CacheStorage` / `Cache` objects backing the Service Worker fetch interception layer.
+description: The CacheStorage API in qzjs — the global `caches` / `CacheStorage` / `Cache` objects backing the Service Worker fetch interception layer.
 ---
 
 # CacheStorage

@@ -36,14 +36,14 @@ ${sorted.map(url => {
 const SCHEMA_LD = JSON.stringify({
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Qzjs.js',
+  name: 'qzjs',
   applicationCategory: 'DeveloperApplication',
   description: 'Embeddable WinterTC runtime in C99 — WinterCG-compatible, libuv-native',
   url: SITE_URL,
   license: 'https://opensource.org/licenses/MIT',
   operatingSystem: 'Linux, macOS',
   programmingLanguage: 'C99, JavaScript (ES2023)',
-  author: { '@type': 'Organization', name: 'Qzjs.js' },
+  author: { '@type': 'Organization', name: 'qzjs' },
 })
 
 // Navigation structure
@@ -267,7 +267,7 @@ const zhNav = [
 
 export default withMermaid(
 defineConfig({
-  title: 'Qzjs.js',
+  title: 'qzjs',
   description: 'Embeddable WinterTC Runtime — C99, WinterCG-compatible, libuv-native',
   base: '/qzjs/',
   lastUpdated: true,
@@ -278,14 +278,14 @@ defineConfig({
     ['meta', { name: 'theme-color', content: '#58a6ff' }],
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'Qzjs.js — Embeddable WinterTC Runtime' }],
+    ['meta', { property: 'og:title', content: 'qzjs — Embeddable WinterTC Runtime' }],
     ['meta', { property: 'og:description', content: 'Embeddable WinterTC runtime in C99 — WinterCG-compatible, libuv-native' }],
     ['meta', { property: 'og:url', content: SITE_URL }],
     ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:locale:alternate', content: 'zh_CN' }],
     // Twitter Card
     ['meta', { name: 'twitter:card', content: 'summary' }],
-    ['meta', { name: 'twitter:title', content: 'Qzjs.js — Embeddable WinterTC Runtime' }],
+    ['meta', { name: 'twitter:title', content: 'qzjs — Embeddable WinterTC Runtime' }],
     ['meta', { name: 'twitter:description', content: 'Embeddable WinterTC runtime in C99 — WinterCG-compatible, libuv-native' }],
   ],
 
@@ -317,7 +317,7 @@ defineConfig({
         },
         footer: {
           message: 'MIT Licensed',
-          copyright: 'Qzjs.js — Embeddable WinterTC Runtime',
+          copyright: 'qzjs — Embeddable WinterTC Runtime',
         },
       },
     },
@@ -338,7 +338,7 @@ defineConfig({
         },
         footer: {
           message: 'MIT 许可证',
-          copyright: 'Qzjs.js — 可嵌入的 WinterTC 运行时',
+          copyright: 'qzjs — 可嵌入的 WinterTC 运行时',
         },
         lastUpdatedText: '最后更新',
         docFooter: { prev: '上一页', next: '下一页' },
@@ -352,7 +352,7 @@ defineConfig({
 
   themeConfig: {
     logo: false,
-    siteTitle: 'Qzjs.js',
+    siteTitle: 'qzjs',
     socialLinks: [
       { icon: 'github', link: 'https://github.com/adam-ikari/qzjs' },
     ],

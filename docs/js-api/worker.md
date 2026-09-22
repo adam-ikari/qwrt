@@ -1,6 +1,6 @@
 ---
 title: Worker
-description: The Web Worker API in Qzjs.js — Worker class, postMessage, terminate, worker-side globals, and message passing.
+description: The Web Worker API in qzjs — Worker class, postMessage, terminate, worker-side globals, and message passing.
 ---
 
 # Worker API

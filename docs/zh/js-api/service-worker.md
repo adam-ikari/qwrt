@@ -1,6 +1,6 @@
 ---
 title: Service Worker
-description: Qzjs.js 的 Service Worker 子集 —— 注册、带 Cache API 的请求拦截、更新机制。暴露为 navigator.serviceWorker。
+description: qzjs 的 Service Worker 子集 —— 注册、带 Cache API 的请求拦截、更新机制。暴露为 navigator.serviceWorker。
 ---
 
 # Service Worker

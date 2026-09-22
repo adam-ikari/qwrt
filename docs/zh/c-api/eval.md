@@ -1,6 +1,6 @@
 # JS 求值
 
-Qzjs.js 提供三种执行 JavaScript 的方式，外加一个字节码编译 API。
+qzjs 提供三种执行 JavaScript 的方式，外加一个字节码编译 API。
 
 ## `qz_eval`
 

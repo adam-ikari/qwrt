@@ -1,6 +1,6 @@
 ---
 title: Build Options
-description: Complete reference of Qzjs.js CMake options — QZ_WITH_* feature toggles and QZ_BUILD_* build targets.
+description: Complete reference of qzjs CMake options — QZ_WITH_* feature toggles and QZ_BUILD_* build targets.
 ---
 
 # Build Options

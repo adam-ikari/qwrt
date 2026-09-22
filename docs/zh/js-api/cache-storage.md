@@ -1,6 +1,6 @@
 ---
 title: CacheStorage
-description: Qzjs.js 的 CacheStorage API —— 支撑 Service Worker 请求拦截层的全局 `caches` / `CacheStorage` / `Cache`。
+description: qzjs 的 CacheStorage API —— 支撑 Service Worker 请求拦截层的全局 `caches` / `CacheStorage` / `Cache`。
 ---
 
 # CacheStorage

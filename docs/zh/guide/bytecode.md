@@ -1,6 +1,6 @@
 ---
 title: 字节码编译
-description: Qzjs.js 如何在内部用 QuickJS 字节码（qjsc）加速启动 — 以及为什么没有公开的宿主侧字节码加载 API。
+description: qzjs 如何在内部用 QuickJS 字节码（qjsc）加速启动 — 以及为什么没有公开的宿主侧字节码加载 API。
 ---
 
 # 字节码编译

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Qzjs.js.
+All notable changes to qzjs.
 
 ## [Unreleased]
 

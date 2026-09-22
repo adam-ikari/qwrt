@@ -1,6 +1,6 @@
 ---
 title: 概述
-description: Qzjs.js 是一个严格 C99 的可嵌入 QuickJS-ng 运行时封装 —— 自带内部线程和 libuv 事件循环的 WinterTC 兼容 JS 运行时。为把 JavaScript 嵌入自己 C 应用的宿主开发者设计。
+description: qzjs 是一个严格 C99 的可嵌入 QuickJS-ng 运行时封装 —— 自带内部线程和 libuv 事件循环的 WinterTC 兼容 JS 运行时。为把 JavaScript 嵌入自己 C 应用的宿主开发者设计。
 ---
 
 # 概述
@@ -11,7 +11,7 @@ QuickJS-ng 引擎之上提供精简的 C API 和 **WinterTC 兼容的运行时**
 
 C 应用想把一部分逻辑放进 JavaScript 的话，qzjs 提供运行时；宿主不用自己搭事件循环和线程。
 
-![Qzjs 架构图](../../assets/qzjs-arch.svg)
+![qzjs 架构图](../../assets/qzjs-arch.svg)
 
 - **自有线程 + 事件循环** — qzjs 启动一个内部线程运行 libuv 循环；宿主从不泵动它
 - **基于消息的宿主边界** — `qz_post_message`（入）/ `message_cb`（出），双向 JSON

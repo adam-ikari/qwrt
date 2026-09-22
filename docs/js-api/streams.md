@@ -1,6 +1,6 @@
 ---
 title: streams
-description: The Streams API in Qzjs.js — ReadableStream, WritableStream, TransformStream, piping, and backpressure.
+description: The Streams API in qzjs — ReadableStream, WritableStream, TransformStream, piping, and backpressure.
 ---
 
 # ReadableStream / WritableStream

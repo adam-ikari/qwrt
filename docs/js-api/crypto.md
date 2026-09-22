@@ -1,6 +1,6 @@
 ---
 title: crypto
-description: The Web Crypto API in Qzjs.js — crypto.subtle with SHA-256/384/512, HMAC, PBKDF2, AES-GCM, and crypto.getRandomValues.
+description: The Web Crypto API in qzjs — crypto.subtle with SHA-256/384/512, HMAC, PBKDF2, AES-GCM, and crypto.getRandomValues.
 ---
 
 # crypto API

@@ -1,6 +1,6 @@
 # JS Evaluation
 
-Qzjs.js provides three ways to execute JavaScript, plus a bytecode compilation API.
+qzjs provides three ways to execute JavaScript, plus a bytecode compilation API.
 
 ## `qz_eval`
 

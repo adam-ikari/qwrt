@@ -1,6 +1,6 @@
 ---
 title: 扩展
-description: Qzjs.js 构建时原生 C 扩展 — qz_ext_t 接口、QZ_EXTENSIONS 宏、生命周期钩子和每运行时数据。
+description: qzjs 构建时原生 C 扩展 — qz_ext_t 接口、QZ_EXTENSIONS 宏、生命周期钩子和每运行时数据。
 ---
 
 # 扩展

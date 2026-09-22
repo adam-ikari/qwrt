@@ -1,6 +1,6 @@
 # C API Reference
 
-Qzjs.js exposes a small, focused C API surface. Every function operates on an opaque `qz_t*` runtime handle. The API is single-threaded — all calls must come from the thread that created the runtime.
+qzjs exposes a small, focused C API surface. Every function operates on an opaque `qz_t*` runtime handle. The API is single-threaded — all calls must come from the thread that created the runtime.
 
 ## API Groups
 
@@ -46,7 +46,7 @@ target_link_libraries(your_app PRIVATE qzjs::qzjs)
 
 ## Thread Model
 
-Qzjs.js is **single-threaded** by design. All JS runs on qzjs's own internal
+qzjs is **single-threaded** by design. All JS runs on qzjs's own internal
 thread (which also runs the embedded libuv loop) — the host thread never calls
 into JS. There is no `qz_eval` and no `qz_tick`. The host communicates over
 JSON messages: `qz_post_message` is thread-safe (inbound), and `message_cb`

@@ -1,6 +1,6 @@
 ---
 title: Runtime Lifecycle
-description: Qzjs.js runtime lifecycle — create, configure, use, and destroy. Understand qz_create, qz_destroy, and the message loop.
+description: qzjs runtime lifecycle — create, configure, use, and destroy. Understand qz_create, qz_destroy, and the message loop.
 ---
 
 # Runtime Lifecycle

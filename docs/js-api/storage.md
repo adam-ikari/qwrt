@@ -1,6 +1,6 @@
 ---
 title: storage
-description: The storage API in Qzjs.js — key-value persistence with getItem, setItem, removeItem, and clear.
+description: The storage API in qzjs — key-value persistence with getItem, setItem, removeItem, and clear.
 ---
 
 # storage — Key-Value Storage API

@@ -1,6 +1,6 @@
 ---
 title: serve — HTTP 服务器
-description: Qzjs.js 的 HTTP 服务器 API —— 全局 `serve()`，含 WebSocket 路由、TLS 与 gRPC 服务器。
+description: qzjs 的 HTTP 服务器 API —— 全局 `serve()`，含 WebSocket 路由、TLS 与 gRPC 服务器。
 ---
 
 # serve — HTTP 服务器

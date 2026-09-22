@@ -1,6 +1,6 @@
 ---
 title: structuredClone
-description: Qzjs.js 中的 structuredClone API —— 支持可转移对象的 JavaScript 深层克隆。
+description: qzjs 中的 structuredClone API —— 支持可转移对象的 JavaScript 深层克隆。
 ---
 
 # structuredClone

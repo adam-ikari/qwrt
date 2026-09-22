@@ -1,6 +1,6 @@
 ---
 title: 多上下文与 Web Worker
-description: Qzjs.js 中的并行执行 — new Worker(url)、隔离上下文，以及 ISOLATED 与 THREAD 进程模型。
+description: qzjs 中的并行执行 — new Worker(url)、隔离上下文，以及 ISOLATED 与 THREAD 进程模型。
 ---
 
 # 多上下文与 Web Worker

@@ -1,6 +1,6 @@
 ---
 title: Building
-description: CMake build options for Qzjs.js — feature toggles, C99 toolchain, and example configurations for development and production.
+description: CMake build options for qzjs — feature toggles, C99 toolchain, and example configurations for development and production.
 ---
 
 # Building

@@ -1,6 +1,6 @@
 ---
 title: BroadcastChannel
-description: The BroadcastChannel API in Qzjs.js — same-origin cross-context messaging for isolated contexts in one runtime.
+description: The BroadcastChannel API in qzjs — same-origin cross-context messaging for isolated contexts in one runtime.
 ---
 
 # BroadcastChannel

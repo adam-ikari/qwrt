@@ -1,6 +1,6 @@
 ---
 title: performance
-description: The performance API in Qzjs.js — performance.now() for high-resolution timestamps and performance measurement.
+description: The performance API in qzjs — performance.now() for high-resolution timestamps and performance measurement.
 ---
 
 # performance

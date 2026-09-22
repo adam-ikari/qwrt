@@ -1,6 +1,6 @@
 ---
 title: Service Worker
-description: The Service Worker subset in Qzjs.js — registration, fetch interception with Cache API, and update mechanism. Exposed as navigator.serviceWorker.
+description: The Service Worker subset in qzjs — registration, fetch interception with Cache API, and update mechanism. Exposed as navigator.serviceWorker.
 ---
 
 # Service Worker

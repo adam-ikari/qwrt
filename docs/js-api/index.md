@@ -1,6 +1,6 @@
 ---
 title: JS API Reference
-description: Complete JavaScript API reference for Qzjs.js — WinterTC-compatible Web APIs including fetch, crypto, streams, timers, URL, and more.
+description: Complete JavaScript API reference for qzjs — WinterTC-compatible Web APIs including fetch, crypto, streams, timers, URL, and more.
 ---
 
 # JS API Reference

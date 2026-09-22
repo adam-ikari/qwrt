@@ -1,6 +1,6 @@
 # Testing
 
-Qzjs.js has a comprehensive multi-layer test suite.
+qzjs has a comprehensive multi-layer test suite.
 
 ## Test Layers
 

@@ -1,6 +1,6 @@
 ---
 title: Extensions
-description: Build-time native C extensions for Qzjs.js — qz_ext_t interface, QZ_EXTENSIONS macro, lifecycle hooks, and per-runtime data.
+description: Build-time native C extensions for qzjs — qz_ext_t interface, QZ_EXTENSIONS macro, lifecycle hooks, and per-runtime data.
 ---
 
 # Extensions

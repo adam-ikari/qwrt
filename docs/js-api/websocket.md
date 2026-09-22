@@ -1,6 +1,6 @@
 ---
 title: WebSocket
-description: The WebSocket API in Qzjs.js — global `WebSocket` client and serve() WebSocket routes, RFC 6455 over raw TCP.
+description: The WebSocket API in qzjs — global `WebSocket` client and serve() WebSocket routes, RFC 6455 over raw TCP.
 ---
 
 # WebSocket

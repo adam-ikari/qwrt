@@ -1,6 +1,6 @@
 ---
 title: JS Execution
-description: How Qzjs.js executes JavaScript — initial_script, message-driven evaluation, Web Workers, and extension-injected globals. The host never evaluates JS directly.
+description: How qzjs executes JavaScript — initial_script, message-driven evaluation, Web Workers, and extension-injected globals. The host never evaluates JS directly.
 ---
 
 # JS Execution

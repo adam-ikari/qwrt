@@ -1,6 +1,6 @@
 ---
 title: structuredClone
-description: The structuredClone API in Qzjs.js — deep cloning of JavaScript objects with transferable support.
+description: The structuredClone API in qzjs — deep cloning of JavaScript objects with transferable support.
 ---
 
 # structuredClone

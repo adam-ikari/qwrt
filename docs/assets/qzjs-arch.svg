@@ -7,7 +7,7 @@
   <g transform="translate(100,0)">
 
   <!-- Title centered on content center (content spans x=40..700 → center 370) -->
-  <text x="370" y="42" font-size="20" font-weight="bold" fill="#222" text-anchor="middle">Qzjs Architecture</text>
+  <text x="370" y="42" font-size="20" font-weight="bold" fill="#222" text-anchor="middle">qzjs Architecture</text>
   <text x="370" y="64" font-size="12" fill="#666" text-anchor="middle">Host ↔ runtime over JSON messages · qzjs owns its thread and loop</text>
 
   <!-- ============ Host process (left) ============ -->

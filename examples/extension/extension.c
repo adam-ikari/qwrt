@@ -1,5 +1,5 @@
 /*
- * Qzjs.js — extension: C 扩展把原生函数注册为 JS 全局
+ * qzjs — extension: C 扩展把原生函数注册为 JS 全局
  *
  * 扩展机制：编译期把自定义 qz_ext_t 加入 QZ_EXTENSIONS 表，init 钩子在
  * 上下文创建时运行，可用 QuickJS API 注册全局（qz_get_active_jsctx 是

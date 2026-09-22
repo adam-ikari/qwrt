@@ -1,6 +1,6 @@
 ---
 title: 构建
-description: Qzjs.js 的 CMake 构建选项 — 功能开关、C99 工具链，以及开发和生产环境的示例配置。
+description: qzjs 的 CMake 构建选项 — 功能开关、C99 工具链，以及开发和生产环境的示例配置。
 ---
 
 # 构建

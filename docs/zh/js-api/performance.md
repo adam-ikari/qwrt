@@ -1,6 +1,6 @@
 ---
 title: performance
-description: Qzjs.js 中的 performance API —— performance.now() 用于高精度时间戳和性能测量。
+description: qzjs 中的 performance API —— performance.now() 用于高精度时间戳和性能测量。
 ---
 
 # performance

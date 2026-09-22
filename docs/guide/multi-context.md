@@ -1,6 +1,6 @@
 ---
 title: Multi-Context & Web Workers
-description: Parallel execution in Qzjs.js — new Worker(url), isolated contexts, and the ISOLATED vs THREAD process models.
+description: Parallel execution in qzjs — new Worker(url), isolated contexts, and the ISOLATED vs THREAD process models.
 ---
 
 # Multi-Context & Web Workers

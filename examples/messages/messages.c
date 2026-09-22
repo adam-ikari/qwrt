@@ -1,5 +1,5 @@
 /*
- * Qzjs.js — messages: host ↔ JS JSON 消息往返
+ * qzjs — messages: host ↔ JS JSON 消息往返
  *
  * 演示 qzjs 的核心架构：宿主与运行时只经 JSON 消息通信。
  *  - 宿主 → JS：qz_post_message(rt, json, len)（线程安全，可任意线程调用）

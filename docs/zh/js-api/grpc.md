@@ -1,6 +1,6 @@
 ---
 title: gRPC
-description: Qzjs.js 的 gRPC API —— 纯 JS 的 HTTP/2 + HPACK + protobuf 客户端与服务端，暴露为全局 `grpc`（需 QZ_WITH_GRPC=ON）。
+description: qzjs 的 gRPC API —— 纯 JS 的 HTTP/2 + HPACK + protobuf 客户端与服务端，暴露为全局 `grpc`（需 QZ_WITH_GRPC=ON）。
 ---
 
 # gRPC

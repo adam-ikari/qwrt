@@ -1,6 +1,6 @@
 # Website Guidelines
 
-How to build, edit, and deploy the Qzjs.js documentation website.
+How to build, edit, and deploy the qzjs documentation website.
 
 ## Tech Stack
 

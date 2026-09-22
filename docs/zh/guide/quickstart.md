@@ -1,6 +1,6 @@
 ---
 title: 快速开始
-description: 在 5 分钟内让 Qzjs.js 跑起来 — 克隆、构建并运行你的第一个基于嵌入式 QuickJS-ng 运行时的 JavaScript 程序。
+description: 在 5 分钟内让 qzjs 跑起来 — 克隆、构建并运行你的第一个基于嵌入式 QuickJS-ng 运行时的 JavaScript 程序。
 ---
 
 # 快速开始

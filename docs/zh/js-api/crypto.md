@@ -1,6 +1,6 @@
 ---
 title: crypto
-description: Qzjs.js 中的 Web Crypto API —— crypto.subtle 支持 SHA-256/384/512、HMAC、PBKDF2、AES-GCM 以及 crypto.getRandomValues。
+description: qzjs 中的 Web Crypto API —— crypto.subtle 支持 SHA-256/384/512、HMAC、PBKDF2、AES-GCM 以及 crypto.getRandomValues。
 ---
 
 # crypto API

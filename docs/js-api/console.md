@@ -1,6 +1,6 @@
 ---
 title: console
-description: The console API in Qzjs.js — console.log, console.error, console.warn, and structured logging.
+description: The console API in qzjs — console.log, console.error, console.warn, and structured logging.
 ---
 
 # console API

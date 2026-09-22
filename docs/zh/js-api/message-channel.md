@@ -1,6 +1,6 @@
 ---
 title: MessageChannel
-description: Qzjs.js 中的 MessageChannel API —— 结构化克隆、端口消息传递以及跨上下文通信。
+description: qzjs 中的 MessageChannel API —— 结构化克隆、端口消息传递以及跨上下文通信。
 ---
 
 # MessageChannel / MessagePort

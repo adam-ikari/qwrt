@@ -1,6 +1,6 @@
 ---
 title: navigator
-description: Qzjs.js 中的 navigator API —— 平台与运行时信息、用户代理以及硬件并发数。
+description: qzjs 中的 navigator API —— 平台与运行时信息、用户代理以及硬件并发数。
 ---
 
 # navigator

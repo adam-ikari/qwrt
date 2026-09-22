@@ -1,6 +1,6 @@
 ---
 title: fs（文件系统）
-description: Qzjs.js 中的文件系统 API —— readFile、writeFile、stat、目录操作以及 libuv 支持的文件 I/O。
+description: qzjs 中的文件系统 API —— readFile、writeFile、stat、目录操作以及 libuv 支持的文件 I/O。
 ---
 
 # fs — 文件系统 API

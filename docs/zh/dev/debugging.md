@@ -1,6 +1,6 @@
 ---
 title: 调试
-description: 使用 DAP 调试器调试 Qzjs.js — 断点、步进、变量检查以及 VS Code 集成。
+description: 使用 DAP 调试器调试 qzjs — 断点、步进、变量检查以及 VS Code 集成。
 ---
 
 # 使用 VS Code 调试 qzjs 程序

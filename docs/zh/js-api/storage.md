@@ -1,6 +1,6 @@
 ---
 title: storage
-description: Qzjs.js 中的存储 API —— 使用 getItem、setItem、removeItem 和 clear 进行键值持久化。
+description: qzjs 中的存储 API —— 使用 getItem、setItem、removeItem 和 clear 进行键值持久化。
 ---
 
 # storage — 键值存储 API

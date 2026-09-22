@@ -1,5 +1,5 @@
 /*
- * Qzjs.js — wasm: 在 qzjs 里执行 WebAssembly
+ * qzjs — wasm: 在 qzjs 里执行 WebAssembly
  *
  * qzjs 的定位是 JS + Wasm 双引擎。本示例把一个手写的最小 WASM 模块
  * （导出 add(i32, i32) -> i32）喂给 WebAssembly.instantiate，然后调用它。

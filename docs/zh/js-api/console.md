@@ -1,6 +1,6 @@
 ---
 title: console
-description: Qzjs.js 中的 console API —— console.log、console.error、console.warn 以及结构化日志。
+description: qzjs 中的 console API —— console.log、console.error、console.warn 以及结构化日志。
 ---
 
 # console API

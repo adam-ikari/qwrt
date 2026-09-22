@@ -1,6 +1,6 @@
 ---
 title: 流
-description: Qzjs.js 中的 Streams API —— ReadableStream、WritableStream、TransformStream、管道传输与背压。
+description: qzjs 中的 Streams API —— ReadableStream、WritableStream、TransformStream、管道传输与背压。
 ---
 
 # ReadableStream / WritableStream

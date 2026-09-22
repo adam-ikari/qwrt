@@ -1,6 +1,6 @@
 ---
 title: Worker
-description: Qzjs.js 的 Web Worker API —— Worker 类、postMessage、terminate、worker 侧全局与消息传递。
+description: qzjs 的 Web Worker API —— Worker 类、postMessage、terminate、worker 侧全局与消息传递。
 ---
 
 # Worker API

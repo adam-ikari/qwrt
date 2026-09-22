@@ -1,6 +1,6 @@
 ---
 title: navigator
-description: The navigator API in Qzjs.js — platform and runtime information, user agent, and hardware concurrency.
+description: The navigator API in qzjs — platform and runtime information, user agent, and hardware concurrency.
 ---
 
 # navigator

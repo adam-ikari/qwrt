@@ -1,6 +1,6 @@
 ---
 title: Blob / File / FormData
-description: Qzjs.js 中的二进制数据 API —— Blob、File、FormData、text()、arrayBuffer() 以及 multipart 表单处理。
+description: qzjs 中的二进制数据 API —— Blob、File、FormData、text()、arrayBuffer() 以及 multipart 表单处理。
 ---
 
 # Blob / File / FormData

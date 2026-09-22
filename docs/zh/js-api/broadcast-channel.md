@@ -1,6 +1,6 @@
 ---
 title: BroadcastChannel
-description: Qzjs.js 的 BroadcastChannel API —— 单一运行时内跨上下文的消息广播。
+description: qzjs 的 BroadcastChannel API —— 单一运行时内跨上下文的消息广播。
 ---
 
 # BroadcastChannel

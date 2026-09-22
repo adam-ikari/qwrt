@@ -1,6 +1,6 @@
 ---
 title: Embedding Patterns
-description: Patterns for embedding Qzjs.js in C applications — host data, custom extensions, message-based communication, and multi-instance setups.
+description: Patterns for embedding qzjs in C applications — host data, custom extensions, message-based communication, and multi-instance setups.
 ---
 
 # Embedding Patterns

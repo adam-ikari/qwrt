@@ -1,6 +1,6 @@
 ---
 title: 性能基准
-description: Qzjs.js 性能基准套件——六个 CI 驱动的基准，覆盖 HTTP 服务器、HTTP/2 客户端、worker 运行时、跨运行时对照、JS API 原语与 TLS/WS/gRPC 服务器，配合提交进仓库的基线与逐指标 Δ% 漂移报告。
+description: qzjs 性能基准套件——六个 CI 驱动的基准，覆盖 HTTP 服务器、HTTP/2 客户端、worker 运行时、跨运行时对照、JS API 原语与 TLS/WS/gRPC 服务器，配合提交进仓库的基线与逐指标 Δ% 漂移报告。
 ---
 
 # 性能基准

@@ -1,5 +1,5 @@
 /*
- * Qzjs.js — crypto: WebCrypto crypto.subtle 加解密 + 摘要
+ * qzjs — crypto: WebCrypto crypto.subtle 加解密 + 摘要
  *
  * 演示 WinterTC 兼容的 crypto.subtle（mbedTLS 后端）：
  *   - SHA-256 摘要

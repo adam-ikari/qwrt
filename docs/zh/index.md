@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: "Qzjs.js"
+  name: "qzjs"
   text: "可嵌入 QuickJS 运行时"
   tagline: 严格 C99 · 内部线程 + libuv 循环 · JSON 宿主边界
   actions:
@@ -71,7 +71,7 @@ int main(void) {
 
 ```mermaid
 flowchart TB
-    subgraph AM["Qzjs.js"]
+    subgraph AM["qzjs"]
         direction TB
         Core["qzjs.c (core API)"]
         Thread["thread.c — internal thread + libuv loop"]

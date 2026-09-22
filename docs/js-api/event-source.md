@@ -1,6 +1,6 @@
 ---
 title: EventSource
-description: The EventSource API in Qzjs.js — Server-Sent Events (SSE) client with automatic reconnection.
+description: The EventSource API in qzjs — Server-Sent Events (SSE) client with automatic reconnection.
 ---
 
 # EventSource

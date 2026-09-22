@@ -1,6 +1,6 @@
 ---
 title: Debugging
-description: Debug Qzjs.js with the DAP debugger — breakpoints, step-through, variable inspection, and VS Code integration.
+description: Debug qzjs with the DAP debugger — breakpoints, step-through, variable inspection, and VS Code integration.
 ---
 
 # Debugging qzjs programs with VS Code

@@ -1,6 +1,6 @@
 ---
 title: Bytecode Compilation
-description: How Qzjs.js uses QuickJS bytecode internally (qjsc) to speed startup — and why there is no public host-side bytecode-loading API.
+description: How qzjs uses QuickJS bytecode internally (qjsc) to speed startup — and why there is no public host-side bytecode-loading API.
 ---
 
 # Bytecode Compilation

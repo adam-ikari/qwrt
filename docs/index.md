@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: "Qzjs.js"
+  name: "qzjs"
   text: "Embeddable WinterTC Runtime"
   tagline: Strict C99 · Internal thread + libuv loop · JSON host boundary
   actions:
@@ -72,7 +72,7 @@ int main(void) {
 
 ```mermaid
 flowchart TB
-    subgraph AM["Qzjs.js"]
+    subgraph AM["qzjs"]
         direction TB
         Core["qzjs.c (core API)"]
         Thread["thread.c — internal thread + libuv loop"]

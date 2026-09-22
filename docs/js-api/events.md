@@ -1,6 +1,6 @@
 ---
 title: EventTarget / Event
-description: The EventTarget and Event APIs in Qzjs.js — addEventListener, dispatchEvent, CustomEvent, and event propagation.
+description: The EventTarget and Event APIs in qzjs — addEventListener, dispatchEvent, CustomEvent, and event propagation.
 ---
 
 # EventTarget / Event / CustomEvent / ErrorEvent

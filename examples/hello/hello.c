@@ -1,5 +1,5 @@
 /*
- * Qzjs.js — hello: 最简示例
+ * qzjs — hello: 最简示例
  *
  * 流程：创建运行时 → 执行 JS（console.log + postMessage）→ 宿主收消息 →
  * 宿主发消息给 JS → 销毁。

@@ -1,6 +1,6 @@
 ---
 title: compress
-description: Compression in Qzjs.js — CompressionStream and DecompressionStream for gzip, deflate, and deflate-raw via miniz.
+description: Compression in qzjs — CompressionStream and DecompressionStream for gzip, deflate, and deflate-raw via miniz.
 ---
 
 # Compression API

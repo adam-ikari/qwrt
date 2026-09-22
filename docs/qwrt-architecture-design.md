@@ -1,6 +1,6 @@
 ---
 title: Architecture Design
-description: Qzjs.js architecture design document — C99 runtime layering, component relationships, data flow, and extension model (Chinese).
+description: qzjs architecture design document — C99 runtime layering, component relationships, data flow, and extension model (Chinese).
 ---
 
 # qzjs 架构设计文档 (Architecture Design — 中文)

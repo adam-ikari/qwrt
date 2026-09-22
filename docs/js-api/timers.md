@@ -1,6 +1,6 @@
 ---
 title: timers
-description: Timer APIs in Qzjs.js — setTimeout, clearTimeout, setInterval, clearInterval, and microtask scheduling.
+description: Timer APIs in qzjs — setTimeout, clearTimeout, setInterval, clearInterval, and microtask scheduling.
 ---
 
 # Timers API

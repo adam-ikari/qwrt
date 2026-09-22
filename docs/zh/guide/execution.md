@@ -1,6 +1,6 @@
 ---
 title: JS 执行
-description: Qzjs.js 如何执行 JavaScript — initial_script、消息驱动求值、Web Worker 以及扩展注入的全局对象。宿主从不直接求值 JS。
+description: qzjs 如何执行 JavaScript — initial_script、消息驱动求值、Web Worker 以及扩展注入的全局对象。宿主从不直接求值 JS。
 ---
 
 # JS 执行

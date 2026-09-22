@@ -1,6 +1,6 @@
 ---
 title: gRPC
-description: The gRPC API in Qzjs.js — pure-JS HTTP/2 + HPACK + protobuf client and server, exposed as the global `grpc` object (requires QZ_WITH_GRPC=ON).
+description: The gRPC API in qzjs — pure-JS HTTP/2 + HPACK + protobuf client and server, exposed as the global `grpc` object (requires QZ_WITH_GRPC=ON).
 ---
 
 # gRPC

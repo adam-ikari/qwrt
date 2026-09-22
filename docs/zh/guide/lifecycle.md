@@ -1,6 +1,6 @@
 ---
 title: 运行时生命周期
-description: Qzjs.js 运行时生命周期 — 创建、配置、使用和销毁。了解 qz_create、qz_destroy 以及消息循环。
+description: qzjs 运行时生命周期 — 创建、配置、使用和销毁。了解 qz_create、qz_destroy 以及消息循环。
 ---
 
 # 运行时生命周期

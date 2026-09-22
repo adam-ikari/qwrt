@@ -1,6 +1,6 @@
 ---
 title: JS API 参考
-description: Qzjs.js 完整的 JavaScript API 参考 — WinterTC 兼容的 Web API，包括 fetch、crypto、streams、timers、URL 等。
+description: qzjs 完整的 JavaScript API 参考 — WinterTC 兼容的 Web API，包括 fetch、crypto、streams、timers、URL 等。
 ---
 
 # JS API 参考

@@ -1,6 +1,6 @@
 ---
 title: 构建选项
-description: Qzjs.js CMake 选项完整参考 — QZ_WITH_* 功能开关和 QZ_BUILD_* 构建目标。
+description: qzjs CMake 选项完整参考 — QZ_WITH_* 功能开关和 QZ_BUILD_* 构建目标。
 ---
 
 # 构建选项

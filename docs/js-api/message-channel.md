@@ -1,6 +1,6 @@
 ---
 title: MessageChannel
-description: The MessageChannel API in Qzjs.js — structured clone, port messaging, and inter-context communication.
+description: The MessageChannel API in qzjs — structured clone, port messaging, and inter-context communication.
 ---
 
 # MessageChannel / MessagePort

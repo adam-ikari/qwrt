@@ -1,6 +1,6 @@
 ---
 title: Overview
-description: Qzjs.js is an embeddable QuickJS-ng runtime wrapper in strict C99 — a WinterTC-compatible JS runtime with its own internal thread and libuv event loop. Designed for host developers who embed JavaScript in their own C applications.
+description: qzjs is an embeddable QuickJS-ng runtime wrapper in strict C99 — a WinterTC-compatible JS runtime with its own internal thread and libuv event loop. Designed for host developers who embed JavaScript in their own C applications.
 ---
 
 # Overview
@@ -11,7 +11,7 @@ For a C application that wants part of its logic in JavaScript, qzjs supplies th
 
 ## How the Host Fits
 
-![Qzjs architecture](../assets/qzjs-arch.svg)
+![qzjs architecture](../assets/qzjs-arch.svg)
 
 - **Own thread + event loop** — qzjs starts an internal thread running a libuv loop; the host never pumps it
 - **Message-based host boundary** — `qz_post_message` (in) / `message_cb` (out), JSON in both directions

@@ -1,5 +1,5 @@
 /*
- * Qzjs.js — worker: 真线程 Web Worker 示例
+ * qzjs — worker: 真线程 Web Worker 示例
  *
  * 父 runtime 通过 new Worker('file://.../worker.js') 创建独立线程的 worker，
  * 双向 postMessage 通信（结构化克隆）。

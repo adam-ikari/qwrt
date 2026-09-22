@@ -1,4 +1,4 @@
-# Qzjs.js — Embeddable WinterTC Runtime
+# qzjs — Embeddable WinterTC Runtime
 
 > 🌐 Website & API reference: **https://adam-ikari.github.io/qzjs/**
 

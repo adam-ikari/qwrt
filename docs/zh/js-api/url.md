@@ -1,6 +1,6 @@
 ---
 title: URL
-description: Qzjs.js 中的 URL API —— URL 构造函数、URLSearchParams、符合 WHATWG URL 标准的 URL 解析与序列化。
+description: qzjs 中的 URL API —— URL 构造函数、URLSearchParams、符合 WHATWG URL 标准的 URL 解析与序列化。
 ---
 
 # URL / URLSearchParams / URLPattern

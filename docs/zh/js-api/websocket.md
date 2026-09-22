@@ -1,6 +1,6 @@
 ---
 title: WebSocket
-description: Qzjs.js 的 WebSocket API —— 全局 `WebSocket` 客户端与 serve() WebSocket 路由，RFC 6455 over raw TCP。
+description: qzjs 的 WebSocket API —— 全局 `WebSocket` 客户端与 serve() WebSocket 路由，RFC 6455 over raw TCP。
 ---
 
 # WebSocket
