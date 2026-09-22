@@ -34,6 +34,10 @@ runtime path automatically, so they run as-is.
 | [`wasm`](https://github.com/adam-ikari/qzjs/tree/master/examples/wasm) | Execute a WebAssembly module (`WebAssembly.instantiate`) | `./build/qzjs examples/wasm/wasm.js` |
 | [`crypto`](https://github.com/adam-ikari/qzjs/tree/master/examples/crypto) | WebCrypto: SHA-256 + AES-GCM encrypt/decrypt | `./build/qzjs examples/crypto/crypto.js` |
 | [`httpserver`](https://github.com/adam-ikari/qzjs/tree/master/examples/httpserver) | Pure-JS `serve()` HTTP server with static files | `./build/qzjs examples/httpserver/server.js` |
+| [`websocket`](https://github.com/adam-ikari/qzjs/tree/master/examples/websocket) | WebSocket echo server via `serve()` ws routes | `./build/qzjs examples/websocket/websocket.js` |
+| [`timers`](https://github.com/adam-ikari/qzjs/tree/master/examples/timers) | `setTimeout`/`setInterval` + `Promise.all` async | `./build/qzjs examples/timers/timers.js` |
+| [`fs`](https://github.com/adam-ikari/qzjs/tree/master/examples/fs) | `qzjs.fs` read/write/list/unlink | `./build/qzjs examples/fs/fs.js` |
+| [`broadcast`](https://github.com/adam-ikari/qzjs/tree/master/examples/broadcast) | `BroadcastChannel` cross-instance messaging | `./build/qzjs examples/broadcast/broadcast.js` |
 | [`stream-pipeline`](https://github.com/adam-ikari/qzjs/tree/master/examples/stream-pipeline) | `ReadableStream`/`TransformStream` pipeline | `./build/qzjs examples/stream-pipeline/pipeline.js` |
 | [`fetch-proxy`](https://github.com/adam-ikari/qzjs/tree/master/examples/fetch-proxy) | Outbound `fetch` proxy | `./build/qzjs examples/fetch-proxy/main.js` |
 | [`grpc-hello`](https://github.com/adam-ikari/qzjs/tree/master/examples/grpc-hello) | gRPC unary server (`-DQZ_WITH_GRPC=ON`) | `./build/qzjs examples/grpc-hello/grpc-hello.js` |

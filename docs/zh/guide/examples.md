@@ -33,6 +33,10 @@ C 示例会派生 `qzjs-rt`（ISOLATED 进程模型）；构建时自动注入�
 | [`wasm`](https://github.com/adam-ikari/qzjs/tree/master/examples/wasm) | 执行 WebAssembly 模块（`WebAssembly.instantiate`） | `./build/qzjs examples/wasm/wasm.js` |
 | [`crypto`](https://github.com/adam-ikari/qzjs/tree/master/examples/crypto) | WebCrypto：SHA-256 + AES-GCM 加解密 | `./build/qzjs examples/crypto/crypto.js` |
 | [`httpserver`](https://github.com/adam-ikari/qzjs/tree/master/examples/httpserver) | 纯 JS `serve()` HTTP 服务器 + 静态文件 | `./build/qzjs examples/httpserver/server.js` |
+| [`websocket`](https://github.com/adam-ikari/qzjs/tree/master/examples/websocket) | 经 `serve()` ws 路由的 WebSocket echo 服务器 | `./build/qzjs examples/websocket/websocket.js` |
+| [`timers`](https://github.com/adam-ikari/qzjs/tree/master/examples/timers) | `setTimeout`/`setInterval` + `Promise.all` 异步 | `./build/qzjs examples/timers/timers.js` |
+| [`fs`](https://github.com/adam-ikari/qzjs/tree/master/examples/fs) | `qzjs.fs` 读/写/列目录/删除 | `./build/qzjs examples/fs/fs.js` |
+| [`broadcast`](https://github.com/adam-ikari/qzjs/tree/master/examples/broadcast) | `BroadcastChannel` 跨实例消息 | `./build/qzjs examples/broadcast/broadcast.js` |
 | [`stream-pipeline`](https://github.com/adam-ikari/qzjs/tree/master/examples/stream-pipeline) | `ReadableStream`/`TransformStream` 流水线 | `./build/qzjs examples/stream-pipeline/pipeline.js` |
 | [`fetch-proxy`](https://github.com/adam-ikari/qzjs/tree/master/examples/fetch-proxy) | 出站 `fetch` 代理 | `./build/qzjs examples/fetch-proxy/main.js` |
 | [`grpc-hello`](https://github.com/adam-ikari/qzjs/tree/master/examples/grpc-hello) | gRPC unary 服务器（`-DQZ_WITH_GRPC=ON`） | `./build/qzjs examples/grpc-hello/grpc-hello.js` |
