@@ -38,7 +38,7 @@ const SCHEMA_LD = JSON.stringify({
   '@type': 'SoftwareApplication',
   name: 'Amoib.js',
   applicationCategory: 'DeveloperApplication',
-  description: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native',
+  description: 'Embeddable JS + Wasm runtime in C99 — WinterCG-compatible, libuv-native',
   url: SITE_URL,
   license: 'https://opensource.org/licenses/MIT',
   operatingSystem: 'Linux, macOS',
@@ -264,7 +264,7 @@ const zhNav = [
 export default withMermaid(
 defineConfig({
   title: 'Amoib.js',
-  description: 'Embeddable QuickJS-ng Runtime — C99, WinterCG-compatible, libuv-native',
+  description: 'Embeddable JS + Wasm Runtime — C99, WinterCG-compatible, libuv-native',
   base: '/amoib/',
   lastUpdated: true,
   cleanUrls: true,
@@ -274,15 +274,15 @@ defineConfig({
     ['meta', { name: 'theme-color', content: '#58a6ff' }],
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'Amoib.js — Embeddable QuickJS Runtime' }],
-    ['meta', { property: 'og:description', content: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native' }],
+    ['meta', { property: 'og:title', content: 'Amoib.js — Embeddable JS + Wasm Runtime' }],
+    ['meta', { property: 'og:description', content: 'Embeddable JS + Wasm runtime in C99 — WinterCG-compatible, libuv-native' }],
     ['meta', { property: 'og:url', content: SITE_URL }],
     ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:locale:alternate', content: 'zh_CN' }],
     // Twitter Card
     ['meta', { name: 'twitter:card', content: 'summary' }],
-    ['meta', { name: 'twitter:title', content: 'Amoib.js — Embeddable QuickJS Runtime' }],
-    ['meta', { name: 'twitter:description', content: 'Embeddable QuickJS-ng runtime in C99 — WinterCG-compatible, libuv-native' }],
+    ['meta', { name: 'twitter:title', content: 'Amoib.js — Embeddable JS + Wasm Runtime' }],
+    ['meta', { name: 'twitter:description', content: 'Embeddable JS + Wasm runtime in C99 — WinterCG-compatible, libuv-native' }],
   ],
 
   // Collect URLs for sitemap during build
@@ -313,7 +313,7 @@ defineConfig({
         },
         footer: {
           message: 'MIT Licensed',
-          copyright: 'Amoib.js — Embeddable QuickJS-ng Runtime',
+          copyright: 'Amoib.js — Embeddable JS + Wasm Runtime',
         },
       },
     },
@@ -334,7 +334,7 @@ defineConfig({
         },
         footer: {
           message: 'MIT 许可证',
-          copyright: 'Amoib.js — 可嵌入的 QuickJS-ng 运行时',
+          copyright: 'Amoib.js — 可嵌入的 JS + Wasm 运行时',
         },
         lastUpdatedText: '最后更新',
         docFooter: { prev: '上一页', next: '下一页' },

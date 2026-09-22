@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: "Amoib.js"
-  text: "Embeddable QuickJS Runtime"
+  text: "Embeddable JS + Wasm Runtime"
   tagline: Strict C99 · Internal thread + libuv loop · JSON host boundary
   actions:
     - theme: brand

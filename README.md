@@ -1,8 +1,8 @@
-# Amoib.js — Embeddable QuickJS Runtime
+# Amoib.js — Embeddable JS + Wasm Runtime
 
 > 🌐 Website & API reference: **https://adam-ikari.github.io/amoib/**
 
-amoib is a lightweight, **libuv-native** QuickJS-ng runtime wrapper for embedding
+amoib is a lightweight, **libuv-native** runtime for embedding JS and Wasm
 JavaScript in C applications. It provides a WinterTC-compatible runtime of
 standard Web APIs (fetch, console, crypto, streams, timers, fs, …) and a small,
 thread-safe C API for host ↔ runtime messaging and multi-context execution.
@@ -11,7 +11,7 @@ touches JS directly.
 
 ## Features
 
-- **QuickJS-ng engine** — full ES2023 support, fast startup (Release `amoib -e 'console.log(1)'` median 4.82 ms after lazy WAMR init), low memory
+- **ES2023 engine** — full ES2023 support, fast startup (Release `amoib -e 'console.log(1)'` median 4.82 ms after lazy WAMR init), low memory
 - **libuv-native execution** — amoib owns an internal thread + libuv loop; no host-side event-loop pumping
 - **WinterTC-compatible runtime** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more (verified as an ECMA-429 interface matrix + project gtest harness — the WPT runner was removed; this is interface parity, not byte-for-byte browser parity)
 - **Streaming HTTP + TLS** — mbedTLS for HTTPS, chunked transfer decoding, certificate verification
