@@ -2,7 +2,7 @@
 
 > 🌐 Website & API reference: **https://adam-ikari.github.io/qzjs/**
 
-qzjs is a lightweight, **WinterTC-compatible** runtime for embedding JS and Wasm
+qzjs is a lightweight, **libuv-native**, **WinterTC-compatible** runtime for embedding JS and Wasm
 JavaScript in C applications. It provides a WinterTC-compatible runtime of
 standard Web APIs (fetch, console, crypto, streams, timers, fs, …) and a small,
 thread-safe C API for host ↔ runtime messaging and multi-context execution.
@@ -257,7 +257,7 @@ esbuild + qjsc（polyfill rebuild 本来就依赖，无新增前提）。手工�
 | Target | Description |
 |--------|-------------|
 | `libqzjs.a` | Static core. Deliberately does **not** link libuv — uv symbols resolve at the final executable. |
-| `libam_full.a` | CMake link-interface aggregator: qzjs + real libuv + mbedTLS + miniz + WAMR + pthread/dl/rt. |
+| `libqz_full.a` | CMake link-interface aggregator: qzjs + real libuv + mbedTLS + miniz + WAMR + pthread/dl/rt. |
 | `qzjs.pc` | pkg-config. `pkg-config --cflags --libs qzjs` yields the full static link line (all vendored archives). |
 
 ## WinterTC Modules
@@ -287,10 +287,7 @@ esbuild + qjsc（polyfill rebuild 本来就依赖，无新增前提）。手工�
 All dependencies are built from source via CMake `add_subdirectory` — qzjs
 never links system libraries, and each dep's objects live in the main build
 tree (subject to `-j` and incremental rebuild). All are git submodules with
-pinned versions. qzjs and all its dependencies build under **strict C99** —
-quickjs-ng and libuv ship C11 `<stdatomic.h>` code, but qzjs applies small
-patches (GCC/Clang `__atomic_*` builtins, no C11) so they compile under
-`-std=c99`.
+pinned versions. qzjs and all its dependencies build under **strict C99** (`-std=c99`).
 
 | Dependency | Source | Required | Purpose |
 |------------|--------|----------|---------|

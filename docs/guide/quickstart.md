@@ -28,7 +28,7 @@ cmake --build build -j$(nproc)
 Size-sensitive builds: add `-DQZ_PROFILE=minimal` (keeps WinterTC
 compatibility, 2.45 MiB stripped). See [Build Options](/guide/build-options).
 
-The build produces `libqzjs.a` (static core) and `libam_full.a` (link-interface aggregator for CMake consumers) in `build/`, plus `build/qzjs.pc` for pkg-config.
+The build produces `libqzjs.a` (static core) and `libqz_full.a` (link-interface aggregator for CMake consumers) in `build/`, plus `build/qzjs.pc` for pkg-config.
 
 ## Your First Program
 
@@ -46,7 +46,7 @@ static void on_message(qz_t *rt, const char *json, size_t len, void *data) {
 int main(void) {
     // Create the runtime — qzjs starts its own internal thread and loop
     qz_config_t cfg = {0};
-    cfg.initial_script = "console.log('Hello from QuickJS!'); postMessage(1 + 1);";
+    cfg.initial_script = "console.log('Hello from qzjs!'); postMessage(1 + 1);";
     cfg.message_cb = on_message;
     qz_t *rt = qz_create(&cfg);
     if (!rt) {

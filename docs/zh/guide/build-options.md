@@ -50,7 +50,7 @@ qzjs 的 CMake 选项分为**两个独立的层级**：`QZ_WITH_*` 控制**可�
 |--------|---------|-------------|
 | `QZ_BUILD_TESTS` | OFF | 构建测试套件。启用 FetchContent 以获取 GoogleTest。 |
 | `QZ_BUILD_EXAMPLES` | OFF | 构建 `examples/` 中的示例程序。 |
-| `QZ_BUILD_DEBUGGER` | OFF | DAP 步进调试器。为 QuickJS-ng 打补丁以添加断点/步进原语，并将 `src/debugger.c` + `src/debugger_dap.c` 编译进 `libqzjs.a`。关闭时零开销（不应用补丁，不编译源文件）。运行时通过 `QZ_DEBUG=1` 启用。详见[调试](../dev/debugging.md)。 |
+| `QZ_BUILD_DEBUGGER` | OFF | DAP 步进调试器。打补丁以添加断点/步进原语，并将 `src/debugger.c` + `src/debugger_dap.c` 编译进 `libqzjs.a`。关闭时零开销（不应用补丁，不编译源文件）。运行时通过 `QZ_DEBUG=1` 启用。详见[调试](../dev/debugging.md)。 |
 
 ## 常见配置
 
@@ -83,7 +83,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 
 ## 编译器标志
 
-qzjs 及其所有依赖项在 `-std=c99 -Wall -Wextra -Werror` 下编译（通过 `qz_enable_warnings` 强制启用）。quickjs-ng 和 libuv 自带 C11 原子操作，但 qzjs 为其打补丁以使用 GCC/Clang 的 `__atomic_*` 内建函数（`deps/*-c99-atomics.patch`），因此无需 C11。
+qzjs 及其所有依赖项在 `-std=c99 -Wall -Wextra -Werror` 下编译（通过 `qz_enable_warnings` 强制启用）。
 
 ### 消除未使用参数警告
 
@@ -102,6 +102,6 @@ static JSValue my_callback(JSContext *ctx, JSValue this_val,
 | 文件 | 描述 |
 |------|-------------|
 | `build/libqzjs.a` | 核心运行时库（静态核心 — 刻意不链接 libuv） |
-| `build/libam_full.a` | CMake 链接接口聚合库（qzjs + libuv + mbedTLS + miniz + WAMR） |
+| `build/libqz_full.a` | CMake 链接接口聚合库（qzjs + libuv + mbedTLS + miniz + WAMR） |
 | `build/lib/pkgconfig/qzjs.pc` | pkg-config 文件（`pkg-config --cflags --libs qzjs` 输出完整静态链接行） |
 | `build/test/test_*` | 测试二进制文件（当 `QZ_BUILD_TESTS=ON` 时） |

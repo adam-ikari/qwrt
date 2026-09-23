@@ -35,9 +35,9 @@ The `-DQZ_PROCESS_MODEL` build option controls how a worker runs:
 | Model | Worker execution |
 |-------|------------------|
 | `THREAD` | a parallel thread in the same process |
-| `ISOLATED` (default) | a dedicated child process (`qzjs-rt`, spawned via fork+exec) |
+| `ISOLATED` (default) | a dedicated child process |
 
-`ISOLATED` (the default since the M-P2 milestone) gives each worker a separate
+`ISOLATED` (the default) gives each worker a separate
 process with its own address space and event loop. `THREAD` is the single-
 process fallback. Both present the same `new Worker` API to JS.
 

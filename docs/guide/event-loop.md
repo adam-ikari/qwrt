@@ -1,7 +1,6 @@
 # Event Loop
 
-qzjs owns its own event loop on an internal thread. There is no `qz_tick`
-and no host-driven loop — the host does not pump anything.
+qzjs owns its own event loop on an internal thread. and no host-driven loop — the host does not pump anything.
 
 ## Who Runs the Loop
 
@@ -60,5 +59,4 @@ thread-safe.
   itself, and the host thread stays free for its own work.
 - All async events and JS callbacks are serialized on qzjs's single internal
   thread — no locks, no races inside the runtime.
-- No `qz_tick` to forget: microtasks are flushed automatically between loop
-  iterations.
+- Microtasks are flushed automatically between loop iterations.

@@ -28,7 +28,7 @@ cmake --build build -j$(nproc)
 尺寸敏感的构建：加 `-DQZ_PROFILE=minimal`（仍满足 WinterTC 兼容，
 2.45 MiB strip 后）。见[构建选项](/zh/guide/build-options)。
 
-构建产物 `libqzjs.a`（静态核心）和 `libam_full.a`（供 CMake 消费方使用的链接接口聚合库）位于 `build/` 目录，另有 `build/qzjs.pc` 供 pkg-config 使用。
+构建产物 `libqzjs.a`（静态核心）和 `libqz_full.a`（供 CMake 消费方使用的链接接口聚合库）位于 `build/` 目录，另有 `build/qzjs.pc` 供 pkg-config 使用。
 
 ## 你的第一个程序
 
@@ -46,7 +46,7 @@ static void on_message(qz_t *rt, const char *json, size_t len, void *data) {
 int main(void) {
     // 创建运行时 — qzjs 启动自己的内部线程和循环
     qz_config_t cfg = {0};
-    cfg.initial_script = "console.log('Hello from QuickJS!'); postMessage(1 + 1);";
+    cfg.initial_script = "console.log('Hello from qzjs!'); postMessage(1 + 1);";
     cfg.message_cb = on_message;
     qz_t *rt = qz_create(&cfg);
     if (!rt) {

@@ -19,17 +19,15 @@
 
 ## CJS 包
 
-很多 npm 包使用 CommonJS（`module.exports`）。qzjs 没有内建模块系统。使用 CJS 包时需要先注入 shim：
+很多 npm 包使用 CommonJS（`module.exports`）。qzjs 没有内建模块系统，CJS 包
+需经打包工具（esbuild/rollup）——与 ESM 同一套工具链——产出自包含 IIFE，通过
+`initial_script` 或 `new Worker(url)` 运行：
 
-```js
-// 加载包之前：
-var module = { exports: {} };
-var exports = module.exports;
-
-// （compat_check.py 会在真实 qzjs 运行时内执行此加载）
-
-// 访问包：
-var myPkg = module.exports;
+```bash
+# 把 CJS 包打包成 IIFE，暴露为全局
+npx esbuild --bundle --format=iife --global-name=mypkg --outfile=mypkg.bundle.js node_modules/mypkg
+# 然后运行 bundle
+./build/qzjs mypkg.bundle.js
 ```
 
 ## ESM 包

@@ -37,7 +37,7 @@ int main(void) {
 ```
 
 `qz_create` blocks until qzjs's internal thread is ready and
-`initial_script` has been eval'd. There is no `qz_eval` and no `qz_tick` —
+`initial_script` has been eval'd. There is no `qz_eval` —
 the host sends messages via `qz_post_message` (thread-safe) and receives
 replies through `message_cb`, which fires on the qzjs thread (so your callback
 must be thread-safe). `qz_destroy` performs a graceful shutdown.

@@ -19,17 +19,16 @@ These packages have been **downloaded and run** in the actual qzjs runtime. Each
 
 ## CJS Packages
 
-Many npm packages use CommonJS (`module.exports`). qzjs does not have a built-in module system. To use CJS packages, inject a shim before loading:
+Many npm packages use CommonJS (`module.exports`). qzjs has no built-in module
+system, so load CJS packages through a bundler (esbuild/rollup) — the same
+toolchain as ESM — producing a self-contained IIFE you can run via
+`initial_script` or `new Worker(url)`:
 
-```js
-// Before loading the package:
-var module = { exports: {} };
-var exports = module.exports;
-
-// (compat_check.py performs this load inside a real qzjs runtime)
-
-// Access the package:
-var myPkg = module.exports;
+```bash
+# Bundle a CJS package into an IIFE exposing it as a global
+npx esbuild --bundle --format=iife --global-name=mypkg --outfile=mypkg.bundle.js node_modules/mypkg
+# then run the bundle
+./build/qzjs mypkg.bundle.js
 ```
 
 ## ESM Packages

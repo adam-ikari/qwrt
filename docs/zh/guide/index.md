@@ -13,7 +13,7 @@ C 应用想把一部分逻辑放进 JavaScript 的话，qzjs 提供运行时；�
 
 ![qzjs 架构图](../../assets/qzjs-arch.svg)
 
-- **自有线程 + 事件循环** — qzjs 启动一个内部线程运行 libuv 循环；宿主从不泵动它
+- **WinterTC 标准运行时** — fetch、crypto.subtle、流、定时器、fs、serve() 作为全局对象可用
 - **基于消息的宿主边界** — `qz_post_message`（入）/ `message_cb`（出），双向 JSON
 - **隔离运行时模型** — 每个实例在自己的内部线程上运行 JS；内部锁与原子操作协调线程、宿主与 worker 边界，从不参与 JS 执行
 - **ECMAScript 引擎（ES2023）** — 底层基于 QuickJS-ng，启动快，内存占用低

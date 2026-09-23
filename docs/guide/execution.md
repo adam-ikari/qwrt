@@ -6,8 +6,7 @@ description: How qzjs executes JavaScript — initial_script, message-driven eva
 # JS Execution
 
 All JavaScript runs on qzjs's internal thread. The host never evaluates or
-calls into JS directly — there is **no `qz_eval`**, no `qz_call`, and no
-`qz_tick` in the public API. Code is executed in one of four ways:
+calls into JS directly — there is **no `qz_eval`** and no `qz_call`. Code is executed in one of four ways:
 
 1. **`initial_script`** — a script eval'd once when the runtime starts
 2. **Message-driven** — JSON messages posted from the host run handlers in JS
@@ -67,7 +66,7 @@ w.postMessage("start");
 
 Under `-DQZ_PROCESS_MODEL=THREAD` a worker runs on a parallel thread; under
 the default `ISOLATED` model it runs as a dedicated child process (`qzjs-rt`
-spawned via fork+exec). See [Multi-Context](/guide/multi-context).
+spawned as a child process). See [Multi-Context](/guide/multi-context).
 
 ## 4. Extension Globals
 

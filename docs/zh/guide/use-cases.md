@@ -18,14 +18,14 @@ qzjs 是一个 **WinterTC 兼容运行时**，用于在 C 应用内嵌入 JS（�
   无法承载的目标上。
 - **低开销脚本** — 一个 `initial_script` 或消息驱动处理器取代手写 C 状态机。
 
-宿主留在 C；JS 在 qzjs 自己的内部线程 + libuv 循环上运行。宿主从不泵动事件循环。
+宿主留在 C；JS 在 qzjs 的内部线程 + libuv 循环上运行。
 
 ## 给 C 应用加脚本能力
 
 无需完整解释器集成，就给 C 应用一个脚本接口。
 
-- 用 `initial_script` 承载逻辑，运行时即可打补丁。
-- 通过 JSON 消息驱动——应用域事件变成 JS 处理器调用，JS 结果经 `message_cb` 回流。
+- 用 `initial_script` 承载逻辑，运行时即可更新逻辑。
+- 宿主和 JS 之间用 JSON 消息通信：宿主发 JSON（数据或命令）给 JS，JS 的 `onmessage` 处理后用 `postMessage` 把结果 JSON 发回宿主。
 - 通过编译进的扩展把 C 函数暴露给 JS（[示例](/zh/guide/examples)，`extension/`）。
 
 ## 原生上的 WinterTC Web API
@@ -34,15 +34,9 @@ qzjs 是一个 **WinterTC 兼容运行时**，用于在 C 应用内嵌入 JS（�
 
 - `fetch`、`WebSocket`、`EventSource`、流、定时器、`crypto.subtle`、
   `BroadcastChannel`、`serve()`（HTTP/WS/gRPC）——都作为全局对象可用。
-- 一次写好的逻辑可在浏览器、worker 与嵌入式目标间复用。
 
 ## 边缘并行
 
 - `new Worker(url)` 运行隔离上下文——并行线程，或默认
   `-DQZ_PROCESS_MODEL=ISOLATED` 下的独立子进程。
 - 把 CPU 密集或阻塞工作从主运行时线程卸下。
-
-## 取代纯 C 逻辑
-
-如果现在用 C 硬编码策略（协议解析、设备控制、重试逻辑），qzjs 让你用 JS 表达并
-快速迭代——同时把性能关键核心与宿主集成留在 C。

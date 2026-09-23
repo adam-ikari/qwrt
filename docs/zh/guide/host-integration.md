@@ -5,7 +5,7 @@ description: 在 C 应用中嵌入 qzjs 的主机集成路径 —— create、JS
 
 # 主机集成
 
-在 C 应用里嵌入 qzjs 分五步。注意 qzjs 没有 `qz_eval`，也没有 `qz_tick`：
+在 C 应用里嵌入 qzjs 分五步。注意 qzjs 没有 `qz_eval`：
 宿主和运行时只通过 JSON 消息通信。
 
 ## 五步

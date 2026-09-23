@@ -38,7 +38,7 @@ Build types: `Release` (optimized), `Debug` (with symbols and assertions), `RelW
 | `QZ_BUILD_TESTS` | OFF | Build test suite (25 test targets) |
 | `QZ_BUILD_EXAMPLES` | OFF | Build examples in `examples/` |
 | `QZ_BUILD_CLI` | ON | Build the `qzjs` CLI plus the `qzjs-rt` worker and `qzjs-ctl` control-plane binaries |
-| `QZ_PROCESS_MODEL` | ISOLATED | `THREAD` (single-process multi-thread) or `ISOLATED` (dedicated child processes via fork+exec, default since the M-P2 milestone) |
+| `QZ_PROCESS_MODEL` | ISOLATED | `THREAD` (single-process multi-thread) or `ISOLATED` (dedicated child processes, default) |
 
 ## Example Configurations
 
@@ -75,17 +75,17 @@ cmake --build build -j$(nproc)
 
 ## C Standard Isolation
 
-qzjs and all its dependencies build under **strict C99** (`-std=c99`). quickjs-ng and libuv ship C11 `<stdatomic.h>` code, but qzjs applies small patches (`deps/quickjs-ng-c99-atomics.patch`, `deps/libuv-c99-atomics.patch`) that swap the C11 `_Atomic`/`atomic_*` ops for GCC/Clang `__atomic_*` builtins — so no C11 is required anywhere.
+qzjs and all its dependencies build under **strict C99** (`-std=c99`).
 
 ## Output Artifacts
 
 | Artifact | Path |
 |----------|------|
 | `libqzjs.a` | `build/` (static core — deliberately does not link libuv; uv symbols resolve at the final executable) |
-| `libam_full.a` | `build/` (CMake link-interface aggregator: qzjs + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt) |
+| `libqz_full.a` | `build/` (CMake link-interface aggregator: qzjs + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt) |
 | `qzjs.pc` | `build/` (pkg-config — `pkg-config --cflags --libs qzjs` lists every vendored archive) |
 | Test binaries | `build/test/` |
 | `qzjs` | `build/` (CLI — `qzjs -e 'console.log(1)'`) |
-| `qzjs-rt` | `build/` (worker-process binary, spawned by `qz_proc_spawn` via fork+exec) |
+| `qzjs-rt` | `build/` (worker-process binary, worker-process binary) |
 | `qzjs-ctl` | `build/` (control-plane endpoint client) |
 

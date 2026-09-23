@@ -6,7 +6,7 @@ description: qzjs 如何执行 JavaScript — initial_script、消息驱动求�
 # JS 执行
 
 所有 JavaScript 都在 qzjs 的内部线程上运行。宿主从不直接求值或调用 JS —
-公开 API **没有** `qz_eval`、没有 `qz_call`、也没有 `qz_tick`。代码
+公开 API **没有** `qz_eval` 和 `qz_call`。代码
 通过以下四种方式执行：
 
 1. **`initial_script`** — 运行时启动时求值一次的脚本
@@ -65,7 +65,7 @@ globalThis.onmessage = (e) => postMessage("echo: " + e.data.cmd);
 ```
 
 在 `-DQZ_PROCESS_MODEL=THREAD` 下 worker 运行于并行线程；在默认的
-`ISOLATED` 模型下运行于独立子进程（`qzjs-rt`，经 fork+exec 派生）。见
+`ISOLATED` 模型下运行于独立子进程。见
 [多上下文](/zh/guide/multi-context)。
 
 ## 4. 扩展全局对象

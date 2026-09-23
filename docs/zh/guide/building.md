@@ -76,14 +76,14 @@ cmake --build build -j$(nproc)
 
 ## C 标准隔离
 
-qzjs 及其所有依赖均在**严格 C99**（`-std=c99`）下构建。quickjs-ng 和 libuv 自带 C11 `<stdatomic.h>` 代码，但 qzjs 应用了小型补丁（`deps/quickjs-ng-c99-atomics.patch`、`deps/libuv-c99-atomics.patch`），将 C11 的 `_Atomic`/`atomic_*` 操作替换为 GCC/Clang 的 `__atomic_*` 内建函数 — 因此任何地方都不需要 C11。
+qzjs 及其所有依赖均在**严格 C99**（`-std=c99`）下构建。
 
 ## 构建产物
 
 | 产物 | 路径 |
 |----------|------|
 | `libqzjs.a` | `build/`（静态核心 — 刻意不链接 libuv） |
-| `libam_full.a` | `build/`（CMake 链接接口聚合库：qzjs + libuv + mbedTLS + miniz + WAMR） |
+| `libqz_full.a` | `build/`（CMake 链接接口聚合库：qzjs + libuv + mbedTLS + miniz + WAMR） |
 | `qzjs.pc` | `build/`（pkg-config — `pkg-config --cflags --libs qzjs` 列出全部 vendored 归档） |
 | 测试二进制文件 | `build/test/` |
 | `qzjs` | `build/`（CLI — `qzjs -e 'console.log(1)'`） |

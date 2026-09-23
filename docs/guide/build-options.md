@@ -97,7 +97,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 
 ## Compiler Flags
 
-qzjs and all dependencies compile under `-std=c99 -Wall -Wextra -Werror` (enforced via `qz_enable_warnings`). quickjs-ng and libuv ship C11 atomics, but qzjs patches them to use GCC/Clang `__atomic_*` builtins (`deps/*-c99-atomics.patch`), so no C11 is required.
+qzjs and all dependencies compile under `-std=c99 -Wall -Wextra -Werror` (enforced via `qz_enable_warnings`).
 
 ### Suppressing Unused Parameter Warnings
 
@@ -116,5 +116,5 @@ static JSValue my_callback(JSContext *ctx, JSValue this_val,
 | File | Description |
 |------|-------------|
 | `build/lib/libqzjs.a` | Core runtime library (static, does not link libuv) |
-| `build/lib/libam_full.a` | Aggregator: qzjs + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt |
+| `build/lib/libqz_full.a` | Aggregator: qzjs + libuv + mbedTLS + miniz + WAMR + pthread/dl/rt |
 | `build/test/test_*` | Test binaries (when `QZ_BUILD_TESTS=ON`) |

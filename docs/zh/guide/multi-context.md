@@ -33,9 +33,9 @@ DOM 或 `JSRuntime`。这是暴露给 JS 的唯一多上下文接口。
 | 模型 | Worker 执行 |
 |-------|------------------|
 | `THREAD` | 同一进程内的并行线程 |
-| `ISOLATED`（默认） | 独立子进程（`qzjs-rt`，经 fork+exec 派生） |
+| `ISOLATED`（默认） | 独立子进程 |
 
-`ISOLATED`（自 M-P2 里程碑起为默认）给每个 worker 一个独立进程，拥有
+`ISOLATED`（默认）给每个 worker 一个独立进程，拥有
 独立地址空间与事件循环。`THREAD` 是单进程回退。两者对 JS 呈现相同的
 `new Worker` API。
 

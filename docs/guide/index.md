@@ -13,14 +13,14 @@ For a C application that wants part of its logic in JavaScript, qzjs supplies th
 
 ![qzjs architecture](../assets/qzjs-arch.svg)
 
-- **Own thread + event loop** — qzjs starts an internal thread running a libuv loop; the host never pumps it
+- **WinterTC standard runtime** — fetch, crypto.subtle, streams, timers, fs, serve() as globals
 - **Message-based host boundary** — `qz_post_message` (in) / `message_cb` (out), JSON in both directions
 - **Isolated runtime model** — each instance runs JS on its own internal thread; internal locks and atomics coordinate the thread, host, and worker boundaries, never JS execution
 - **ECMAScript engine (ES2023)** — QuickJS-ng under the hood, fast startup, low memory
 - **WinterTC-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, WebSocket, and more
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec, WebAssembly (WAMR, wasm3 optional)
 - **Zero system dependencies** — all deps built from source via CMake; libuv is built from the deps submodule
-- **Multi-context + Web Workers** — isolated contexts (soft suspend/resume to disk); `new Worker(url)` runs a real parallel thread, or — with `-DQZ_PROCESS_MODEL=ISOLATED`, the default — a dedicated child process (`qzjs-rt` via fork+exec)
+- **Multi-context + Web Workers** — isolated contexts (soft suspend/resume to disk); `new Worker(url)` runs a real parallel thread, or — with `-DQZ_PROCESS_MODEL=ISOLATED`, the default — a dedicated child process
 
 ## The Host Integration Path
 

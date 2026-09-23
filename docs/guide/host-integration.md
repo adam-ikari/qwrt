@@ -6,7 +6,7 @@ description: The host integration path for embedding qzjs in a C application —
 # Host Integration
 
 Embedding qzjs in a C application goes through five steps. qzjs has no
-`qz_eval` and no `qz_tick`: the host and the runtime communicate only over
+`qz_eval`: the host and the runtime communicate only over
 JSON messages.
 
 ## The Five Steps
