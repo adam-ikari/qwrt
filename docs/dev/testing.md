@@ -8,10 +8,9 @@ qzjs has a comprehensive multi-layer test suite.
 |-------|--------|----------|---------|
 | **Offline** | gtest + ctest | Core runtime, extensions, WASM | `ctest -L offline` |
 | **WinterTC** | gtest | Web APIs (URL/URLPattern/FormData/Event/Blob/console/...) | `ctest -L offline` (`test_polyfill_gtest` etc.) |
-| **test262** | ctest | ECMAScript language conformance | `ctest -R test262` |
-| **Network** | ctest | HTTP/HTTPS/TLS integration | `ctest -L network` |
-| **Benchmark** | ctest | Performance regression | `ctest -L benchmark` |
+| **test262** | ctest | ECMAScript language conformance | `ctest -L test262` |
 | **DAP** | ctest | Debugger protocol | `ctest -L dap` |
+| **e2e** | shell / python / mjs | HTTPServer, multi-process, control plane, Service Worker, gRPC — real libuv, not mocked | see the `e2e` job in `.github/workflows/ci.yml` |
 
 > The old `wpt_runner` (vendored WPT `.any.js` files) was removed in the
 > libuv-native refactor (mock-PAL gone). WinterTC Web API coverage now lives
@@ -37,22 +36,32 @@ cd build && ctest -R test262
 | Label | Description |
 |-------|-------------|
 | `offline` | Local, deterministic — CI default |
-| `network` | Outbound HTTP/HTTPS (non-blocking) |
-| `benchmark` | Performance tests |
-| `wpt` | WinterTC Web Platform Tests |
-| `test262` | ECMAScript language conformance |
-| `dap` | Debugger protocol tests |
+| `dap` | Debugger protocol tests (needs `-DQZ_BUILD_DEBUGGER=ON`) |
+| `test262` | ECMAScript language conformance (needs the corpus) |
+
+These three are all that exist — check what a given build actually
+registered rather than trusting a written-down list:
+
+```bash
+ctest --print-labels   # labels in this build
+ctest -N               # test names in this build
+```
+
+> Historical note: `network`, `benchmark` and `wpt` labels appeared in
+> earlier drafts of this page but were never registered. Network and
+> performance coverage lives in CI as shell/python/mjs e2e and benchmark
+> jobs; WPT was removed (see below).
 
 ## Current Results
 
-| Suite | Tests | Pass | Fail | Skip | Rate |
-|-------|-------|------|------|------|------|
-| Offline (gtest) | 13 | 13 | 0 | 0 | 100% |
-| WASM compliance | 14 | 14 | 0 | 0 | 100% |
-| WASM streaming | 3 | 3 | 0 | 0 | 100% |
-| CLI end-to-end | 9 | 9 | 0 | 0 | 100% |
-| HTTPServer e2e | 8 | 8 | 0 | 0 | 100% |
-| test262 (quickjs runner) | 1 | 1 | 0 | 0 | 100% |
+Run the suite to get them — counts change with the `QZ_*` options a build
+was configured with, so a hand-maintained table goes stale immediately:
+
+```bash
+cd build
+ctest -L offline --output-on-failure
+ctest -N -L offline | tail -1     # how many tests this build registers
+```
 
 ¹ WASM streaming 3 用例来自 `test/test_wasm_streaming_gtest.cpp`：compileStreaming/instantiateStreaming 语义等价实现 + 非法 source 拒绝。
 ² CLI end-to-end 来自 `test/test_cli_gtest.cpp`（fork 真实 qzjs 可执行文件，断言 stdout/stderr/退出码）。

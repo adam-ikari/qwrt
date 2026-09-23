@@ -129,7 +129,10 @@ asynchronous file I/O. On failure the JS methods reject with the mapped error
 
 ## Notes
 
-- All filesystem operations are **per-context** — different contexts can have different filesystem roots
+- **No path sandbox** — paths are validated only against `..` components;
+  absolute paths are passed through as-is, so script code can reach any path
+  the host process can. Treat scripts as fully trusted, or sandbox the host
+  process itself (chroot/container) if they are not.
 - No atomic write guarantees — `fs.write` may leave partial data on crash
 - No file locking or concurrency control
 - No streaming read/write — entire file contents are loaded into memory

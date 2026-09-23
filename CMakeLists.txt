@@ -60,6 +60,10 @@ option(QZ_WITH_CRYPTO_EXT "Enable native crypto.subtle via mbedTLS" "${_prof_cry
 option(QZ_WITH_TEXTCODEC "Enable native UTF-8/Base64 encoding" "${_prof_textcodec}")
 option(QZ_WITH_NONUTF_ENCODINGS "Enable non-UTF encoding labels (Latin-1, replacement) in TextDecoder" OFF)
 option(QZ_BUILD_EXAMPLES "Build example programs" OFF)
+# 声明在选项区而非文件尾：add_subdirectory(test) 在 CLI target 定义之前执行，
+# 测试侧要用 if(QZ_BUILD_CLI) 门控注册 —— 选项若留在文件尾，首次 configure
+# 读到的是未定义变量，测试会被静默漏注册（且只有二次 configure 才补上）。
+option(QZ_BUILD_CLI "Build the qzjs CLI" ON)
 
 # 应用模型（多进程模型 §2.1，M-P2）：ISOLATED = 宿主与主RT 各跑独立进程（缺省，
 # 目标形态）；THREAD = 单进程多线程（回退档）。宏 QZ_PROCESS_MODEL_ISOLATED 是
@@ -1022,7 +1026,6 @@ endif()
 # ============================================================================
 # CLI — standalone WinterTC runtime (dogfoods the qzjs C API)
 # ============================================================================
-option(QZ_BUILD_CLI "Build the qzjs CLI" ON)
 if(QZ_BUILD_CLI)
     add_executable(qz_cli src/cli.c)
     set_target_properties(qz_cli PROPERTIES OUTPUT_NAME qzjs)
@@ -1121,7 +1124,12 @@ install(FILES
 
 # Generate a pkg-config .pc file for qzjs (qzjs.pc)
 set(_qz_pc_dir "lib/pkgconfig")
-set(_qz_pc_libs "-lam -luv -lqjs")
+# Static link line for non-CMake consumers: the qzjs core + every vendored
+# archive it leaves unresolved (uv/qjs + the feature-gated extensions below).
+# NOTE: `-lam` was the pre-rename name of the core lib and no longer matches
+# any installed archive — pkg-config emitted a link line that could never
+# resolve. Keep this list in sync with _qz_install_targets/_qz_dep_install_targets.
+set(_qz_pc_libs "-lqzjs -luv -lqjs")
 if(QZ_WITH_WAMR)
     string(APPEND _qz_pc_libs " -liwasm")
 endif()

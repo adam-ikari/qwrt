@@ -53,7 +53,7 @@ if (arguments[0] === 'proxy') {
   /* ── 客户端 + 本地源站进程 ── */
 
   /* 源站：任何路径都回 origin-hello */
-  var srv = serve({ port: ORIGIN_PORT, hostname: '0.0.0.0' }, function (req) {
+  var srv = serve({ port: ORIGIN_PORT, hostname: '127.0.0.1' }, function (req) {
     console.log('[origin] ' + req.method + ' ' + req.url);
     return new Response('origin-hello', {
       status: 200,

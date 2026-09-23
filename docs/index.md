@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: "qzjs"
+  name: "Qz.js"
   text: "Embeddable WinterTC Runtime"
   tagline: Strict C99 · Low overhead · WinterTC standard runtime
   actions:

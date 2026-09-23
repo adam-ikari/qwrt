@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: "qzjs"
+  name: "Qz.js"
   text: "可嵌入 WinterTC 运行时"
   tagline: 严格 C99 · 内部线程 + libuv 循环 · JSON 宿主边界
   actions:

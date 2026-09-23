@@ -1643,19 +1643,99 @@ def test_tcplisten_tls_no_alpn_compat(qz_bin):
         except subprocess.TimeoutExpired: proc.kill(); proc.wait()
 
 
+@test
+def test_websocket_message_too_big(qz_bin):
+    """Single frame larger than MAX_WS_BUFFER (16 MiB) must be rejected with
+    RFC 6455 1009 Message Too Big instead of buffering without bound.
+
+    The client writes the frame header + a 17 MiB payload; the server trips the
+    buffer cap before a frame is even complete, so the close frame comes back
+    while the client is still sending. Assert the close code and that the
+    connection is torn down (no echo).
+    """
+    p = free_port()
+    srv = AmoibServer(gen_server_script(p), qz_bin)
+    try:
+        srv.wait_port(p)
+        ws = WSClient(p, "/echo")
+        try:
+            n = 17 * 1024 * 1024          # > MAX_WS_BUFFER
+            mask = os.urandom(4)
+            hdr = b"\x81" + bytes([0x80 | 127]) + struct.pack(">Q", n) + mask
+            # Stream the payload in chunks; the server closes mid-write, so a
+            # broken pipe here is expected and not a failure.
+            chunk = bytes(mask[i % 4] for i in range(65536))  # 64 KiB of masked zeros
+            sent = 0
+            try:
+                ws.sock.sendall(hdr)
+                while sent < n:
+                    take = min(65536, n - sent)
+                    ws.sock.sendall(chunk[:take])
+                    sent += take
+            except OSError:
+                pass
+
+            op, payload = ws.recv_frame()
+            assert op == 0x8, "expected close frame, got opcode %r" % op
+            assert len(payload) >= 2, payload
+            code = (payload[0] << 8) | payload[1]
+            assert code == 1009, "expected 1009 Message Too Big, got %d" % code
+        finally:
+            ws.close()
+    finally:
+        srv.stop()
+
+@test
+def test_websocket_fragments_too_big(qz_bin):
+    """A single message split across many frames must also be bounded: each
+    frame is well under MAX_WS_BUFFER, but the reassembly total is not.
+
+    Sends 17 x 1 MiB continuation frames (first FIN=0) — the per-frame buffer
+    cap never trips, so this exercises the _fragParts accumulation guard.
+    """
+    p = free_port()
+    srv = AmoibServer(gen_server_script(p), qz_bin)
+    try:
+        srv.wait_port(p)
+        ws = WSClient(p, "/echo")
+        try:
+            chunk = 1024 * 1024
+            total = 17                      # 17 MiB > MAX_WS_BUFFER
+            mask = os.urandom(4)
+            body = bytes(mask[i % 4] for i in range(chunk))
+            try:
+                for i in range(total):
+                    first = (i == 0)
+                    last = (i == total - 1)
+                    opcode = 0x1 if first else 0x0
+                    hdr = bytes([(0x80 if last else 0x00) | opcode])
+                    hdr += bytes([0x80 | 127]) + struct.pack(">Q", chunk) + mask
+                    ws.sock.sendall(hdr + body)
+            except OSError:
+                pass
+
+            op, payload = ws.recv_frame()
+            assert op == 0x8, "expected close frame, got opcode %r" % op
+            code = (payload[0] << 8) | payload[1] if len(payload) >= 2 else None
+            assert code == 1009, "expected 1009 Message Too Big, got %r" % code
+        finally:
+            ws.close()
+    finally:
+        srv.stop()
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--qzjs-bin", required=True)
     args = ap.parse_args()
-    assert os.path.exists(args.qz_bin), "qzjs binary not found: %s" % args.qz_bin
+    assert os.path.exists(args.qzjs_bin), "qzjs binary not found: %s" % args.qzjs_bin
 
     failed = []
     for fn in TESTS:
         name = fn.__name__
         t0 = time.time()
         try:
-            fn(args.qz_bin)
+            fn(args.qzjs_bin)
             print("PASS %-28s (%.2fs)" % (name, time.time() - t0))
         except unittest.SkipTest as e:
             print("SKIP %-28s (%.2fs) %s" % (name, time.time() - t0, e))

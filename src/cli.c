@@ -195,7 +195,13 @@ static const char *kCliBootstrap =
  * 依赖（不出公共接口），示例宿主不引它（见 json_unescape 注释、§6.6）。 */
 static char *json_escape(const char *s) {
     size_t n = strlen(s) * 6 + 3;
-    char *out = malloc(n), *p = out;
+    char *out = malloc(n);
+    if (!out) {
+        /* 诊断自带定位与上下文：哪个能力、期望 vs 实际 */
+        fprintf(stderr, "qzjs: out of memory allocating %zu bytes for JSON-escaped string\n", n);
+        return NULL;
+    }
+    char *p = out;
     *p++ = '"';
     for (const unsigned char *c = (const unsigned char *)s; *c; c++) {
         switch (*c) {
@@ -225,11 +231,19 @@ static char *build_bootstrap(const char *const *args, int nargs) {
         args_cap += strlen(args[i]) * 6 + 3;
     }
     char *args_json = malloc(args_cap + 1);
+    if (!args_json) {
+        fprintf(stderr, "qzjs: out of memory allocating %zu bytes for arguments JSON\n", args_cap + 1);
+        return NULL;
+    }
     char *p = args_json;
     *p++ = '[';
     for (int i = 0; i < nargs; i++) {
         if (i) *p++ = ',';
         char *q = json_escape(args[i]);
+        if (!q) {
+            free(args_json);
+            return NULL;
+        }
         size_t ql = strlen(q);
         memcpy(p, q, ql);
         p += ql;
@@ -245,6 +259,11 @@ static char *build_bootstrap(const char *const *args, int nargs) {
         env_cap += strlen(*e) * 6 + 8;
     }
     char *env_json = malloc(env_cap + 1);
+    if (!env_json) {
+        fprintf(stderr, "qzjs: out of memory allocating %zu bytes for env JSON\n", env_cap + 1);
+        free(args_json);
+        return NULL;
+    }
     p = env_json;
     *p++ = '{';
     int first = 1;
@@ -253,12 +272,26 @@ static char *build_bootstrap(const char *const *args, int nargs) {
         if (!eq) continue;
         size_t klen = (size_t)(eq - *e);
         char *k = malloc(klen + 1);
+        if (!k) {
+            fprintf(stderr, "qzjs: out of memory allocating %zu bytes for env key\n", klen + 1);
+            free(args_json);
+            free(env_json);
+            return NULL;
+        }
         memcpy(k, *e, klen);
         k[klen] = '\0';
         if (!first) *p++ = ',';
         first = 0;
         char *qk = json_escape(k);
         char *qv = json_escape(eq + 1);
+        if (!qk || !qv) {
+            /* 带上下文：点名是哪个环境变量、在什么阶段失败 */
+            fprintf(stderr, "qzjs: out of memory JSON-escaping env var '%s'\n", k);
+            free(k); free(qk); free(qv);
+            free(args_json);
+            free(env_json);
+            return NULL;
+        }
         size_t qkl = strlen(qk), qvl = strlen(qv);
         memcpy(p, qk, qkl); p += qkl;
         *p++ = ':'; *p++ = ' ';
@@ -271,6 +304,13 @@ static char *build_bootstrap(const char *const *args, int nargs) {
     size_t total = strlen(kCliBootstrap) + strlen(args_json) +
                    strlen(env_json) + 32;
     char *bootstrap = malloc(total);
+    if (!bootstrap) {
+        /* snprintf(NULL, ...) 是 UB —— 必须在解引用前挡住 */
+        fprintf(stderr, "qzjs: out of memory allocating %zu bytes for bootstrap\n", total);
+        free(args_json);
+        free(env_json);
+        return NULL;
+    }
     snprintf(bootstrap, total, kCliBootstrap, args_json, env_json);
     free(args_json);
     free(env_json);
@@ -304,6 +344,11 @@ static int run_code(const char *code, const char *const *args, int nargs) {
     cli_host_t host = {0};
 
     char *bootstrap = build_bootstrap(args, nargs);
+    if (!bootstrap) {
+        /* build_bootstrap 已打印带上下文的 OOM 诊断；这里只需失败退出，
+         * 不能静默降级成"没有 arguments/env/onmessage 的 bootstrap"。 */
+        return 1;
+    }
     qz_config_t cfg;
     memset(&cfg, 0, sizeof cfg);
     cfg.message_cb = cli_message_cb;
@@ -383,6 +428,10 @@ static int repl_loop(void) {
     cli_host_t host = {0};
 
     char *bootstrap = build_bootstrap(NULL, 0);
+    if (!bootstrap) {
+        /* 同 run_code：OOM 诊断已由 build_bootstrap 打出，不静默降级 */
+        return 1;
+    }
     qz_config_t cfg;
     memset(&cfg, 0, sizeof cfg);
     cfg.message_cb = cli_message_cb;

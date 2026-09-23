@@ -62,7 +62,7 @@ int main(void) {
     if (!rt) return 1;
 
     /* thread-safe inbound message; the runtime processes it on its own thread */
-    qz_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 23);
+    qz_post_message(rt, "{\"cmd\":\"echo\",\"data\":\"hi\"}", 26);
 
     qz_destroy(rt);  /* graceful shutdown: request stop → join → free */
     return 0;
@@ -338,22 +338,39 @@ Tests are GoogleTest `.cpp` suites in `test/`, linked against `qzjs` plus
 # Unit tests
 cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
-cd build && ctest --output-on-failure
+cd build && ctest -L offline --output-on-failure
 
 # With valgrind
-valgrind --leak-check=full ./build/test/test_qz_gtest
+valgrind --leak-check=full ./build/test/test_qzjs_gtest
 ```
 
-Tests are labelled for selection (`ctest -L <label>`):
-- `offline` — local, deterministic (default; what CI runs)
-- `network` — outbound HTTP/HTTPS
-- `benchmark` — performance, not pass/fail
-- `test262` — ECMAScript conformance
+`ctest -L offline` is the right default: a fresh clone has no test262 corpus
+(it is an upstream submodule with `update = none`), so a bare
+`ctest --output-on-failure` fails on `test262_quickjs`. To run it too:
 
 ```bash
-ctest -L offline          # CI default — green
-ctest -L network          # only when network is available
+git -C deps/quickjs-ng submodule update --init --depth 1 test262
+ctest -L test262
 ```
+
+Tests are labelled for selection (`ctest -L <label>`; `ctest --print-labels`
+lists what this build actually registered):
+
+- `offline` — local, deterministic (default; what CI runs)
+- `dap` — DAP debugger end-to-end (needs `-DQZ_BUILD_DEBUGGER=ON`)
+- `test262` — ECMAScript conformance (needs the corpus, see above)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, style, the PR checklist,
+and the release process.
+
+## Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md) — please use
+private reporting rather than a public issue. That page also states the
+threat model explicitly (qzjs runs trusted script; it is not a sandbox for
+untrusted code).
 
 ## License
 

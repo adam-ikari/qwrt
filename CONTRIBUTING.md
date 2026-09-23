@@ -16,7 +16,7 @@ git clone --recursive https://github.com/adam-ikari/qzjs.git
 cd qzjs
 cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON
 cmake --build build -j$(nproc)
-cd build && ctest --output-on-failure
+cd build && ctest -L offline --output-on-failure
 ```
 
 ## Code Style
@@ -82,7 +82,7 @@ The current baseline and per-module verdicts live in
 ## Pull Request Checklist
 
 - [ ] Code compiles without warnings (`-Wall -Wextra`)
-- [ ] All existing tests pass (`ctest --output-on-failure`)
+- [ ] All existing tests pass (`ctest -L offline --output-on-failure`)
 - [ ] New features have tests
 - [ ] New library dependencies (C or JS) follow the Third-Party Library Policy above
 - [ ] No tabs in source files (spaces only)

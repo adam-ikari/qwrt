@@ -89,10 +89,10 @@ def main():
     args = ap.parse_args()
 
     port = free_port()
-    server = start_server(args.qz_bin, port)
+    server = start_server(args.qzjs_bin, port)
     try:
         js = GRPC_CLIENT_JS.replace('%PORT%', str(port)).replace('%N%', str(args.calls))
-        r = subprocess.run([args.qz_bin, '-e', js], capture_output=True,
+        r = subprocess.run([args.qzjs_bin, '-e', js], capture_output=True,
                            text=True, timeout=180)
         if r.returncode != 0:
             print('FAIL: client rc=%d stderr=%s' % (r.returncode, r.stderr[-300:]),

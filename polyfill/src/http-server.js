@@ -21,6 +21,11 @@ export function setupHttpServer(pal) {
    * 即 error 流并关闭连接（无 tcpPause 原语，不能真正暂停底层 read）。
    * 读得够快的 handler 队列会排空，不受影响。 */
   var MAX_BODY_BUFFER = 1024 * 1024;
+  /* WS 收包缓冲 + 单消息分片重组上限：HTTP body 侧有 MAX_BODY_BUFFER，WS 侧
+   * 此前没有对应物 —— this.buf / _fragParts 无界累积，单连接即可撑爆内存
+   * （内存 DoS）。超限按 RFC 6455 §7.4.1 1009 (Message Too Big) 关闭。 */
+  var MAX_WS_BUFFER = 16 * 1024 * 1024;
+  var WS_CLOSE_MESSAGE_TOO_BIG = 0x03F1;  /* RFC 6455 §7.4.1: 1009 */
   /* Single-server enforcement: only one serve() instance at a time */
   var activeInstance = null;
 
@@ -194,7 +199,7 @@ export function setupHttpServer(pal) {
     var idleTimeout = options.idleTimeout === undefined ? 30000 : options.idleTimeout;
     if (typeof port !== 'number' || port < 0 || port > 65535)
       throw new TypeError('serve: invalid port');
-    var hostname = options.hostname || '0.0.0.0';
+    var hostname = options.hostname || '127.0.0.1';
     var wsRoutes = options.ws || {};
     var activeServer = { closed: false };
     /* h2/gRPC 分流：QZ_WITH_GRPC=ON 时 grpc-stack 已把 HTTP2ServerSession 与
@@ -267,6 +272,11 @@ export function setupHttpServer(pal) {
       newBuf.set(this.buf, 0);
       newBuf.set(dv, this.buf.length);
       this.buf = newBuf;
+      /* 收包缓冲有界：不设上限时单连接可无界累积字节（内存 DoS） */
+      if (this.buf.length > MAX_WS_BUFFER) {
+        closeWSMessageTooBig(this);
+        return;
+      }
 
       for (;;) {
         var frame = parseWSFrame(this.buf);
@@ -297,6 +307,11 @@ export function setupHttpServer(pal) {
         } else if (frame.opcode === 0xA) {  // Pong — nothing to do
         } else if (frame.opcode === 0x0) {  // Continuation
           this._fragParts.push(frame.payload);
+          /* 分片重组同样有界：单条消息可跨任意多帧，累加超限即关闭 */
+          if (fragmentsBytes(this._fragParts) > MAX_WS_BUFFER) {
+            closeWSMessageTooBig(this);
+            return;
+          }
           if (frame.fin) {
             var fragOp = this._fragOpcode;
             var combined = combineBytes(this._fragParts);
@@ -317,10 +332,27 @@ export function setupHttpServer(pal) {
       }
     };
 
-    function combineBytes(parts) {
+    /* 分片重组的累计字节数 —— 上限判定必须在分配前做，故与 combineBytes 分开 */
+    function fragmentsBytes(parts) {
       var total = 0;
       for (var i = 0; i < parts.length; i++) total += parts[i].length;
-      var out = new Uint8Array(total);
+      return total;
+    }
+
+    /* RFC 6455 §7.4.1 1009 Message Too Big：收包缓冲或分片重组触到
+     * MAX_WS_BUFFER 时关闭连接（防单连接无界累积内存）。 */
+    function closeWSMessageTooBig(ws) {
+      try {
+        pal.tcpWrite(ws.conn, buildWSFrame(0x8, new Uint8Array([
+          (WS_CLOSE_MESSAGE_TOO_BIG >> 8) & 0xFF, WS_CLOSE_MESSAGE_TOO_BIG & 0xFF
+        ]), 1));
+      } catch (e) {}
+      ws.state = 3;
+      pal.tcpClose(ws.conn);
+    }
+
+    function combineBytes(parts) {
+      var out = new Uint8Array(fragmentsBytes(parts));
       var off = 0;
       for (var i = 0; i < parts.length; i++) { out.set(parts[i], off); off += parts[i].length; }
       return out;

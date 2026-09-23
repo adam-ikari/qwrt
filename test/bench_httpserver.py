@@ -109,7 +109,7 @@ def main():
     )
     # stdout=DEVNULL: 服务端任何输出都不能回压到管道（PIPE 从不读会在 64 KiB
     # 写满后阻塞 qzjs 的 write()，把「服务端偶发日志」变成测量死锁）。
-    proc = subprocess.Popen([args.qz_bin, "-e", js],
+    proc = subprocess.Popen([args.qzjs_bin, "-e", js],
                             stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     try:
         if not wait_port(port):

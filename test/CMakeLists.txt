@@ -61,6 +61,20 @@ add_qz_gtest(test_ipc_envelope_gtest)
 add_qz_gtest(test_context_worker_composition_gtest)   # M-R2 §14.3 组合语义（contexts × workers）
 target_compile_definitions(test_context_worker_composition_gtest PRIVATE TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
+# CLI end-to-end (test_cli_gtest.cpp): forks the real qzjs executable and
+# asserts stdout/stderr/exit code for -e / script / timers / --help /
+# --version / unknown-flag / globalThis.arguments. Gated on QZ_BUILD_CLI
+# (option declared in the root options block, above add_subdirectory(test)).
+# QZ_CLI_BIN is a generate-time genex because qz_cli is defined further down
+# the root CMakeLists than this subdirectory is added.
+if(QZ_BUILD_CLI)
+    add_qz_gtest(test_cli_gtest)
+    target_compile_definitions(test_cli_gtest PRIVATE
+        QZ_CLI_BIN="$<TARGET_FILE:qz_cli>"
+        CLI_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/cli_scripts"
+    )
+endif()
+
 # IPC Envelope wire-format cross-verification (M-P0): the CLI helper is pure
 # C99 + ipc_envelope.c (no libuv); the python driver needs the official
 # flatbuffers package. Registered only when both are available so stock

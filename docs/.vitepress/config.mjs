@@ -95,7 +95,6 @@ const sidebar = {
       items: [
         { text: 'Overview', link: '/c-api/' },
         { text: 'Runtime Lifecycle', link: '/c-api/runtime' },
-        { text: 'JS Evaluation', link: '/c-api/eval' },
         { text: 'Extensions', link: '/c-api/extensions' },
       ],
     },
@@ -206,7 +205,6 @@ const zhSidebar = {
       items: [
         { text: '概览', link: '/zh/c-api/' },
         { text: '运行时生命周期', link: '/zh/c-api/runtime' },
-        { text: 'JS 求值', link: '/zh/c-api/eval' },
         { text: '扩展', link: '/zh/c-api/extensions' },
       ],
     },

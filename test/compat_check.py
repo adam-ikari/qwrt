@@ -256,7 +256,7 @@ def main():
     ap.add_argument("--json", action="store_true", help="machine-readable JSON output")
     args = ap.parse_args()
 
-    qz_bin = find_amoib(args.qz_bin)
+    qz_bin = find_amoib(args.qzjs_bin)
     failed = 0
     results = []
     for pkg in args.packages:

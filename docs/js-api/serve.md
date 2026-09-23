@@ -29,7 +29,7 @@ let server = serve({ port: 8080 }, (req) => {
 | Option | Default | Description |
 |--------|---------|-------------|
 | `port` | `8080` | TCP port to listen on (0–65535). |
-| `hostname` | `'0.0.0.0'` | Address to bind. |
+| `hostname` | `'127.0.0.1'` | Address to bind. Loopback only by default — pass `'0.0.0.0'` explicitly to accept connections from other hosts. |
 | `idleTimeout` | `30000` | ms of connection inactivity before close; `0` disables. |
 | `ws` | `{}` | Route table for WebSocket upgrades, keyed by request path. |
 | `tls` | `undefined` | `{ cert, key }` PEM strings to enable HTTPS (requires `QZ_WITH_TLS`). |

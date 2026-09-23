@@ -447,7 +447,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--qzjs-bin", required=True)
     args = ap.parse_args()
-    qz_bin = os.path.abspath(args.qz_bin)
+    qz_bin = os.path.abspath(args.qzjs_bin)
     assert os.path.exists(qz_bin), "qzjs binary not found: %s" % qz_bin
 
     failed = []

@@ -343,8 +343,8 @@ def main():
     args = ap.parse_args()
 
     params = QUICK if args.quick else DEFAULT
-    if not os.path.exists(args.qz_bin):
-        print('FAIL: qzjs binary %s not found' % args.qz_bin,
+    if not os.path.exists(args.qzjs_bin):
+        print('FAIL: qzjs binary %s not found' % args.qzjs_bin,
               file=sys.stderr)
         return 1
 
@@ -366,7 +366,7 @@ def main():
             return None
 
     # R1 cold start
-    startup = guard('r1', lambda: bench_cold_start(args.qz_bin,
+    startup = guard('r1', lambda: bench_cold_start(args.qzjs_bin,
                                                    params['r1_n']))
     if startup:
         progress('r1 cold-start median=%.2fms (n=%d)'
@@ -378,11 +378,11 @@ def main():
     for backend in backends:
         progress('--- backend: %s ---' % backend)
         results[backend] = guard(backend, lambda: bench_backend(
-            args.qz_bin, backend, params, progress, skipped))
+            args.qzjs_bin, backend, params, progress, skipped))
 
     # R6: CPU-dense, backend-independent — run once on the thread backend
     d = guard('r6', lambda: run_harness(
-        args.qz_bin, 'bench-eval.js',
+        args.qzjs_bin, 'bench-eval.js',
         [str(params['r6_iters']), str(params['r6_samples'])], 'thread'))
     if d:
         progress('r6 int=%.2f closure=%.2f str=%.2f M ops/s'

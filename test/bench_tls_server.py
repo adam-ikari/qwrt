@@ -158,7 +158,7 @@ def main():
     ap.add_argument('--duration', type=int, default=5)
     args = ap.parse_args()
 
-    proc, port = start_server(args.backend, args.qz_bin)
+    proc, port = start_server(args.backend, args.qzjs_bin)
     try:
         out = {}
         out['tiny'] = run_wrk(port, '/tiny', args.duration, new_conn=False)

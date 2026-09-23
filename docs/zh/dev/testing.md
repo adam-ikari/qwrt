@@ -7,11 +7,13 @@ qzjs 拥有全面的多层测试套件。
 | 层次 | 运行器 | 覆盖范围 | 命令 |
 |------|--------|----------|------|
 | **离线** | gtest + ctest | 核心运行时、扩展、WASM | `ctest -L offline` |
-| **WPT** | wpt_runner | WinterTC Web API | `./build/test/wpt_runner test/wpt` |
 | **test262** | run-test262 | ECMAScript 语言合规性 | `ctest -L test262` |
-| **网络** | ctest | HTTP/HTTPS/TLS 集成 | `ctest -L network` |
-| **基准** | ctest | 性能回归 | `ctest -L benchmark` |
 | **DAP** | ctest | 调试器协议 | `ctest -L dap` |
+| **e2e** | shell / python / mjs | HTTPServer、多进程、控制面、Service Worker、gRPC —— 真实 libuv，非 mock | 见 `.github/workflows/ci.yml` 的 `e2e` job |
+
+> `wpt_runner`（vendored WPT `.any.js` 文件）已在 libuv-native 重构中移除。
+> WinterTC Web API 覆盖现在位于离线 gtest 套件（`test_polyfill_gtest` 等）；
+> vendored 的 `test/wpt/` 文件仅作参考保留，不参与构建或 CI。
 
 ## 快速运行
 
@@ -23,9 +25,6 @@ cmake --build build -j$(nproc)
 # 所有离线测试
 cd build && ctest -L offline --output-on-failure
 
-# WPT WinterTC 合规性
-./build/test/wpt_runner test/wpt
-
 # test262 ECMAScript 合规性
 ctest -L test262
 ```
@@ -35,23 +34,29 @@ ctest -L test262
 | 标签 | 描述 |
 |------|------|
 | `offline` | 本地、确定性 — CI 默认 |
-| `network` | 出站 HTTP/HTTPS（非阻塞） |
-| `benchmark` | 性能测试 |
-| `wpt` | WinterTC Web 平台测试 |
-| `test262` | ECMAScript 语言合规性 |
-| `dap` | 调试器协议测试 |
+| `dap` | 调试器协议测试（需 `-DQZ_BUILD_DEBUGGER=ON`） |
+| `test262` | ECMAScript 语言合规性（需语料） |
+
+以上三者是**全部**已注册标签——请以当前构建实际注册的为准，不要相信写死的列表：
+
+```bash
+ctest --print-labels   # 本构建的标签
+ctest -N               # 本构建的测试名
+```
+
+> 历史说明：本页早期草稿出现过 `network` / `benchmark` / `wpt` 标签，但从未被
+> 注册过。网络与性能覆盖实际位于 CI 的 shell/python/mjs e2e 与基准 job；
+> WPT 已移除（见上）。
 
 ## 当前结果
 
-| 套件 | 测试数 | 通过 | 失败 | 跳过 | 通过率 |
-|------|--------|------|------|------|--------|
-| 离线 | 15 | 15 | 0 | 0 | 100% |
-| WASM 合规 | 14 | 14 | 0 | 0 | 100% |
-| WPT WinterTC | 32 | 27 | 0 | 5 | 100%¹ |
-| test262 | 42,407 | 42,339 | 68 | 10,004² | 99.8% |
+跑一遍即可得到——测试数量随构建的 `QZ_*` 开关变化，写死的表格会立刻过期：
 
-¹ 5 个跳过均为非 UTF 编码标签（有意不支持）  
-² 4,986 个排除（QuickJS-ng test262.conf 特性跳过）+ 6,018 个跳过（模块/异步模式）
+```bash
+cd build
+ctest -L offline --output-on-failure
+ctest -N -L offline | tail -1     # 本构建注册了多少个测试
+```
 
 ## 内存安全
 
