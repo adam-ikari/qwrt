@@ -32,7 +32,7 @@ if (!rt) {
    return `NULL`
 
 `qz_create` blocks until the internal thread is ready and `initial_script`
-has been eval'd. The runtime owns all its resources — there is no external PAL
+has been eval'd. The runtime owns all of its resources.
 to keep alive.
 
 ## Destroying a Runtime

@@ -44,7 +44,7 @@ process fallback. Both present the same `new Worker` API to JS.
 ## Isolated Contexts (internal)
 
 At the C layer qzjs maintains a set of isolated contexts (`qz_ctx_t`) with a
-single active context at a time. Contexts have independent globals, PAL, and
+single active context at a time. Contexts have independent globals, native state, and
 extension state, and can be soft-suspended/resumed to disk. This machinery is
 **internal** — there is no public host API to spawn/suspend/resume a context.
 It exists to back `new Worker` and the extension lifecycle, and is exposed to C

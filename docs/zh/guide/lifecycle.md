@@ -30,7 +30,7 @@ if (!rt) {
 4. 将 WinterTC 兼容的运行时注入到初始上下文中
 5. 在内部线程上求值 `initial_script` — 抛出异常会使 `qz_create` 返回 `NULL`
 
-`qz_create` 会阻塞，直到内部线程就绪且 `initial_script` 已求值。运行时拥有其所有资源 — 没有需要保活的外部 PAL。
+`qz_create` 会阻塞，直到内部线程就绪且 `initial_script` 已求值。运行时拥有其全部资源。
 
 ## 销毁运行时
 
