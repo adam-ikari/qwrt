@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "qzjs"
   text: "Embeddable WinterTC Runtime"
-  tagline: Strict C99 · Internal thread + libuv loop · JSON host boundary
+  tagline: Strict C99 · Low overhead · WinterTC standard runtime
   actions:
     - theme: brand
       text: Get Started
@@ -17,9 +17,9 @@ features:
   - icon: 🔌
     title: Message-based host boundary
     details: Host and runtime exchange JSON over `qz_post_message` / `message_cb`. Inbound is thread-safe; outbound fires on the runtime thread. No `eval`, no `tick`.
-  - icon: 🧵
-    title: Own thread + libuv loop
-    details: qzjs runs its own internal thread with an embedded libuv loop. The host never pumps an event loop.
+  - icon: 🪶
+    title: Low overhead
+    details: ~2.45 MiB stripped, <5 ms startup — fits embedded and edge targets where Node/bun can't.
   - icon: 📦
     title: Zero system dependencies
     details: QuickJS-ng, mbedTLS, miniz, libuv, and WAMR all build from source via CMake. About 2.45 MiB stripped in the minimal profile.
