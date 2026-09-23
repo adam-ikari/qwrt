@@ -15,6 +15,7 @@
 #include <sched.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #ifdef QZ_DEBUG_SUPPORT
 #include "qzjs/qz_debug_dap.h"
@@ -28,6 +29,24 @@
  * 宿主侧 API
  * ================================================================ */
 
+/* 读整个文件到 malloc 缓冲区（NUL 结尾）。失败返回 NULL。 */
+static char *qz_read_file(const char *path, size_t *out_len)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
+    long sz = ftell(f);
+    if (sz < 0) { fclose(f); return NULL; }
+    rewind(f);
+    char *buf = (char *)malloc((size_t)sz + 1);
+    if (!buf) { fclose(f); return NULL; }
+    size_t rd = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    buf[rd] = '\0';
+    if (out_len) *out_len = rd;
+    return buf;
+}
+
 qz_t *qz_create(const qz_config_t *config)
 {
     /* 禁用 libuv 的 io_uring：部分内核（如 PVE 6.17）在 io_uring_setup 后
@@ -39,8 +58,17 @@ qz_t *qz_create(const qz_config_t *config)
     if (!rt) return NULL;
     rt->magic = QZ_MAGIC;
     rt->config = *config;
-    if (config->initial_script)
+    /* 初始化脚本二选一：initial_script_path（文件）优先读文件内容，
+     * 否则 initial_script（内联字符串）。读文件失败 → qz_create 返回 NULL。 */
+    if (config->initial_script_path) {
+        rt->config.initial_script = qz_read_file(config->initial_script_path, NULL);
+        if (!rt->config.initial_script) {
+            free(rt);
+            return NULL;
+        }
+    } else if (config->initial_script) {
         rt->config.initial_script = strdup(config->initial_script);
+    }
     /* lock-free MPSC queue: head == tail == sentinel (calloc zeroed stub's q.next) */
     rt->msg_head = &rt->msg_stub;
     rt->msg_tail = &rt->msg_stub;

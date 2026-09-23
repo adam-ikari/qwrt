@@ -14,7 +14,7 @@ JSON messages.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. create      qz_create(&cfg)   — thread + loop + JS ready │
-│ 2. script      initial_script            — what JS runs first │
+│ 2. script      initial_script(_path)    — what JS runs first │
 │ 3. communicate qz_post_message ⇄ message_cb  — JSON contract│
 │ 4. lend        expose C funcs, serve/fs/worker/crypto to JS   │
 │ 5. destroy     qz_destroy(rt)    — graceful shutdown         │
@@ -36,11 +36,15 @@ qz_t *rt = qz_create(&cfg);   // blocks until ready
 
 ## 2. Choose What JS Runs First
 
-Two ways to feed the runtime its initial script:
+Three ways to feed the runtime its initial script:
 
-- **`initial_script`** — a small string, good for bootstrap logic. qzjs
+- **`initial_script`** — a small inline string, good for bootstrap logic. qzjs
   compiles its own WinterTC polyfill to bytecode internally; a host provides
   JS as source, never as a bytecode blob (see [Bytecode](/guide/bytecode))
+- **`initial_script_path`** — a filesystem path to a JS file; qzjs reads and
+  evals it at creation. Convenient when the script lives on disk (deployment).
+  If both are set, `initial_script_path` wins; a missing file fails
+  `qz_create` (returns `NULL`).
 - **`qz_post_message`** — drive everything else by messaging the runtime
   after creation
 

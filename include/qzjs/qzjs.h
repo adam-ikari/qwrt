@@ -15,8 +15,11 @@ typedef struct qz_t qz_t;
  * ================================================================ */
 
 typedef struct qz_config_s {
-    /* 主 context 启动时在 qzjs 线程上 eval；抛异常 → qz_create 返回 NULL */
+    /* 主 context 启动时在 qzjs 线程上 eval；抛异常 → qz_create 返回 NULL。
+     * 初始化脚本二选一：initial_script（内联 JS 字符串）或
+     * initial_script_path（从文件路径加载，优先——同时提供时用文件）。 */
     const char *initial_script;
+    const char *initial_script_path;
     /* 出站消息回调：跑在 qzjs 线程，必须线程安全。nullptr 表示宿主不接收消息。 */
     void (*message_cb)(qz_t *rt, const char *json, size_t len, void *data);
     int  debug;                      /* 沿用 DAP bit 语义 */
