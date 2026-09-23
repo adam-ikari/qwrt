@@ -349,7 +349,7 @@ defineConfig({
   },
 
   themeConfig: {
-    logo: false,
+    logo: 'logo.svg',
     siteTitle: 'Qz.js',
     socialLinks: [
       { icon: 'github', link: 'https://github.com/adam-ikari/qzjs' },
