@@ -56,5 +56,5 @@ qz_destroy(rt);  // 优雅关闭，仅宿主线程，NULL 安全
 ## 内存模型
 
 - 所有每运行时状态存储在 `qz_t` 上 — **零可变文件作用域状态**
-- QuickJS 类 ID 是运行时作用域的（在一个 `qz_t` 内的各上下文之间共享）
+- 类 ID 是运行时作用域的（在一个 `qz_t` 内的各上下文之间共享）
 - 通过 `qz_get_rt_from_ctx(ctx)`（内部 API）从 `JSContext*` 恢复 `qz_t*`

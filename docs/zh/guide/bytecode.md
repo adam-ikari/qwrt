@@ -1,12 +1,12 @@
 ---
 title: 字节码编译
-description: qzjs 如何在内部用 QuickJS 字节码（qjsc）加速启动 — 以及为什么没有公开的宿主侧字节码加载 API。
+description: qzjs 如何在内部用字节码（qjsc）加速启动 — 以及为什么没有公开的宿主侧字节码加载 API。
 ---
 
 # 字节码编译
 
-qzjs 在构建时用 QuickJS 的 `qjsc` 编译器把自己的 JavaScript（WinterTC
-polyfill 与 worker 启动脚本）**预编译为 QuickJS 字节码**。加载字节码完全
+qzjs 在构建时用 `qjsc` 编译器把自己的 JavaScript（WinterTC polyfill 与
+worker 启动脚本）**预编译为字节码**。加载字节码完全
 跳过解析，从而加快启动并缩小发布体积。
 
 ## 内部用途

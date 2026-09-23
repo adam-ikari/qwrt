@@ -22,7 +22,7 @@ features:
     details: ~2.45 MiB stripped, <5 ms startup — fits embedded and edge targets where Node/bun can't.
   - icon: 📦
     title: Zero system dependencies
-    details: QuickJS-ng, mbedTLS, miniz, libuv, and WAMR all build from source via CMake. About 2.45 MiB stripped in the minimal profile.
+    details: The runtime and all its dependencies build from source via CMake. About 2.45 MiB stripped in the minimal profile.
   - icon: ⚡
     title: Strict C99
     details: Builds as C99 alongside its dependencies. Release `qzjs -e 'console.log(1)'` starts in under 5 ms; peak RSS stays near 3 MB.

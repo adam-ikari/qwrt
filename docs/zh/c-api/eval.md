@@ -29,7 +29,7 @@ int qz_eval_bytecode(qz_t *rt, const uint8_t *bytecode, size_t len,
                        char **result);
 ```
 
-求值预编译的 QuickJS 字节码。结果/返回语义与 `qz_eval` 相同。使用 `qz_compile` 从源代码生成字节码。
+求值预编译的 字节码。结果/返回语义与 `qz_eval` 相同。使用 `qz_compile` 从源代码生成字节码。
 
 ```c
 size_t bc_len = 0;
@@ -62,7 +62,7 @@ uint8_t *qz_compile(qz_t *rt, const char *code, size_t code_len,
                       size_t *out_len);
 ```
 
-将 JS 源代码编译为 QuickJS 字节码。返回分配的缓冲区（使用 `qz_free` 释放），并将长度写入 `*out_len`。错误时返回 `NULL`。
+将 JS 源代码编译为 字节码。返回分配的缓冲区（使用 `qz_free` 释放），并将长度写入 `*out_len`。错误时返回 `NULL`。
 
 ## `qz_compile_module`
 

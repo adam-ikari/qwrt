@@ -1,11 +1,11 @@
 ---
 title: Overview
-description: qzjs is an embeddable QuickJS-ng runtime wrapper in strict C99 — a WinterTC-compatible JS runtime with its own internal thread and libuv event loop. Designed for host developers who embed JavaScript in their own C applications.
+description: qzjs is an embeddable runtime in strict C99 — a WinterTC-compatible JS runtime. Designed for host developers who embed JavaScript in their own C applications.
 ---
 
 # Overview
 
-qzjs is an **embeddable QuickJS-ng runtime wrapper** written in **strict C99**. It provides a small C API on top of the QuickJS-ng engine and a **WinterTC-compatible runtime**. qzjs owns its own internal thread and libuv event loop, and communicates with the host over JSON messages.
+qzjs is an **embeddable runtime** written in **strict C99**. It provides a small C API and a **WinterTC-compatible runtime**, and communicates with the host over JSON messages.
 
 For a C application that wants part of its logic in JavaScript, qzjs supplies the runtime; the host builds no event loop or thread of its own.
 
@@ -16,7 +16,7 @@ For a C application that wants part of its logic in JavaScript, qzjs supplies th
 - **WinterTC standard runtime** — fetch, crypto.subtle, streams, timers, fs, serve() as globals
 - **Message-based host boundary** — `qz_post_message` (in) / `message_cb` (out), JSON in both directions
 - **Isolated runtime model** — each instance runs JS on its own internal thread; internal locks and atomics coordinate the thread, host, and worker boundaries, never JS execution
-- **ECMAScript engine (ES2023)** — QuickJS-ng under the hood, fast startup, low memory
+- **ECMAScript engine (ES2023)** — full ES2023 support, fast startup, low memory
 - **WinterTC-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, WebSocket, and more
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec, WebAssembly (WAMR, wasm3 optional)
 - **Zero system dependencies** — all deps built from source via CMake; libuv is built from the deps submodule
@@ -31,7 +31,7 @@ The Guide follows the order a host developer works in:
 3. **[Lifecycle](/guide/lifecycle)** — thread ownership, readiness, graceful shutdown
 4. **[Multi-Context](/guide/multi-context)** — multiple isolated contexts in one runtime
 5. **[Extensions](/guide/extensions)** — register your own C functions as JS globals
-6. **[Bytecode](/guide/bytecode)** — precompile JS to QuickJS bytecode (faster startup, no source shipped)
+6. **[Bytecode](/guide/bytecode)** — precompile JS to bytecode (faster startup, no source shipped)
 
 ## When to Use qzjs
 
@@ -48,7 +48,7 @@ The Guide follows the order a host developer works in:
 - You need the **Node.js module system** — qzjs has no `require`/`import` of Node built-ins. Many pure-JS npm packages work (run `python3 test/compat_check.py <pkg>` (see [Compatible Packages](/guide/compatible-packages#checking-compatibility))); Node-only ones do not.
 - You need **DOM** — qzjs provides the WinterTC/W3C subset (fetch, WebSocket, streams, localStorage, ...) but no `document`/`window`.
 - You need **shared-memory concurrency** — the main runtime is single-threaded; Web Workers run real parallel threads or processes but communicate via structured-clone messages, not shared memory.
-- You need **JIT performance** — QuickJS is an interpreter, not a JIT compiler.
+- You need **JIT performance** — qzjs's engine is an interpreter, not a JIT compiler.
 
 ## Project Structure
 

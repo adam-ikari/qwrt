@@ -61,7 +61,7 @@ build directory when mixing presets with explicit overrides.
 | `QZ_BUILD_TESTS` | OFF | Build the test suite. Enables FetchContent for GoogleTest. |
 | `QZ_BUILD_EXAMPLES` | OFF | Build the examples in `examples/` (httpserver, grpc-hello, stream-pipeline, worker orchestration). |
 | `QZ_BUILD_CLI` | ON | Build the `qzjs` CLI (`build/qzjs`, `build/qzjs-ctl`, `build/qzjs-rt`). |
-| `QZ_BUILD_DEBUGGER` | OFF | Build the DAP step-debugger, applying the QuickJS-ng debugger patch and adding `src/debugger.c` + `src/debugger_dap.c` to `libqzjs`. |
+| `QZ_BUILD_DEBUGGER` | OFF | Build the DAP step-debugger (adds `src/debugger.c` + `src/debugger_dap.c` to `libqzjs`). |
 
 > **Note:** `QZ_BUILD_DEBUGGER` and `QZ_WITH_NONUTF_ENCODINGS` are gate-checked
 > by the `QZ_WITH_*` feature matrix in CI — see `.github/workflows/ci.yml`.
@@ -101,7 +101,7 @@ qzjs and all dependencies compile under `-std=c99 -Wall -Wextra -Werror` (enforc
 
 ### Suppressing Unused Parameter Warnings
 
-QuickJS callbacks have fixed signatures that may include unused parameters. Use `QZ_UNUSED(x)`:
+Engine callbacks have fixed signatures that may include unused parameters. Use `QZ_UNUSED(x)`:
 
 ```c
 static JSValue my_callback(JSContext *ctx, JSValue this_val,

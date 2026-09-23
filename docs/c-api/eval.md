@@ -29,7 +29,7 @@ int qz_eval_bytecode(qz_t *rt, const uint8_t *bytecode, size_t len,
                        char **result);
 ```
 
-Evaluates precompiled QuickJS bytecode. Same result/return semantics as `qz_eval`. Use `qz_compile` to produce bytecode from source.
+Evaluates precompiled bytecode. Same result/return semantics as `qz_eval`. Use `qz_compile` to produce bytecode from source.
 
 ```c
 size_t bc_len = 0;
@@ -62,7 +62,7 @@ uint8_t *qz_compile(qz_t *rt, const char *code, size_t code_len,
                       size_t *out_len);
 ```
 
-Compiles JS source to QuickJS bytecode. Returns an allocated buffer (free with `qz_free`) and writes the length to `*out_len`. Returns `NULL` on error.
+Compiles JS source to bytecode. Returns an allocated buffer (free with `qz_free`) and writes the length to `*out_len`. Returns `NULL` on error.
 
 ## `qz_compile_module`
 

@@ -59,5 +59,5 @@ qz_destroy(rt);  // graceful shutdown, host thread only, NULL-safe
 ## Memory Model
 
 - All per-runtime state lives on `qz_t` — there is **zero mutable file-scope state**
-- QuickJS class IDs are runtime-scoped (shared across contexts within one `qz_t`)
+- Class IDs are runtime-scoped (shared across contexts within one `qz_t`)
 - Recover `qz_t*` from a `JSContext*` via `qz_get_rt_from_ctx(ctx)` (internal)

@@ -1,6 +1,6 @@
 ---
 title: Quick Start
-description: Get qzjs running in under 5 minutes — clone, build, and run your first JavaScript program on the embedded QuickJS-ng runtime.
+description: Get qzjs running in under 5 minutes — clone, build, and run your first JavaScript program on the embedded runtime.
 ---
 
 # Quick Start

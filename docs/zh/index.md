@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: "qzjs"
-  text: "可嵌入 QuickJS 运行时"
+  text: "可嵌入 WinterTC 运行时"
   tagline: 严格 C99 · 内部线程 + libuv 循环 · JSON 宿主边界
   actions:
     - theme: brand
@@ -22,7 +22,7 @@ features:
     details: qzjs 运行自己的内部线程，内嵌 libuv 循环。宿主不泵动事件循环。
   - icon: 📦
     title: 零系统依赖
-    details: QuickJS-ng、mbedTLS、miniz、libuv、WAMR 全部通过 CMake 从源码构建。最小配置 strip 后约 2.45 MiB。
+    details: 运行时及其全部依赖均通过 CMake 从源码构建。最小配置 strip 后约 2.45 MiB。
   - icon: ⚡
     title: 严格 C99
     details: 与依赖一起按 C99 编译。Release 下 `qzjs -e 'console.log(1)'` 启动不到 5 ms，峰值 RSS 约 3 MB。

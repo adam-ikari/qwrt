@@ -55,7 +55,7 @@ thread-safe.
 
 ## Why This Design
 
-- The host is **never** responsible for pumping an event loop — qzjs runs
+- qzjs runs
   itself, and the host thread stays free for its own work.
 - All async events and JS callbacks are serialized on qzjs's single internal
   thread — no locks, no races inside the runtime.

@@ -87,7 +87,7 @@ qzjs 及其所有依赖项在 `-std=c99 -Wall -Wextra -Werror` 下编译（通�
 
 ### 消除未使用参数警告
 
-QuickJS 回调具有固定签名，可能包含未使用的参数。使用 `QZ_UNUSED(x)`：
+引擎回调具有固定签名，可能包含未使用的参数。使用 `QZ_UNUSED(x)`：
 
 ```c
 static JSValue my_callback(JSContext *ctx, JSValue this_val,

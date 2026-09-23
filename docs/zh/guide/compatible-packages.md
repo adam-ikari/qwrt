@@ -46,7 +46,7 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
 - 纯 JavaScript（无 `node-gyp`，无 C++ 插件）
 - 无 Node.js 内置模块（`fs`、`path`、`http`、`net`、`process`、`Buffer`）
 - 无浏览器专用 API（`document`、`window`、`localStorage`、`WebSocket`）
-- ES2023 语法（QuickJS-ng 0.17.0：支持 `??=`、`#private`、`BigInt`、optional chaining）
+- ES2023 语法（支持 `??=`、`#private`、`BigInt`、optional chaining）
 
 ## 不兼容
 

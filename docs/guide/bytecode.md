@@ -1,12 +1,12 @@
 ---
 title: Bytecode Compilation
-description: How qzjs uses QuickJS bytecode internally (qjsc) to speed startup — and why there is no public host-side bytecode-loading API.
+description: How qzjs uses bytecode internally (qjsc) to speed startup — and why there is no public host-side bytecode-loading API.
 ---
 
 # Bytecode Compilation
 
 qzjs precompiles its own JavaScript (the WinterTC polyfill and the worker boot
-script) to **QuickJS bytecode** at build time using QuickJS's `qjsc` compiler.
+script) to **bytecode** at build time using the `qjsc` compiler.
 Loading bytecode skips parsing entirely, which speeds startup and shrinks the
 shipped payload.
 

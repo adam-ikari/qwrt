@@ -250,7 +250,7 @@ esbuild + qjsc（polyfill rebuild 本来就依赖，无新增前提）。手工�
 | Option | Default | Description |
 |--------|---------|-------------|
 | `QZ_BUILD_TESTS` | OFF | Build test suite |
-| `QZ_BUILD_DEBUGGER` | OFF | DAP step-debugger (patches QuickJS-ng; adds `src/debugger.c` + `src/debugger_dap.c`) |
+| `QZ_BUILD_DEBUGGER` | OFF | DAP step-debugger (adds `src/debugger.c` + `src/debugger_dap.c`) |
 
 ### Library Outputs
 
@@ -291,7 +291,7 @@ pinned versions. qzjs and all its dependencies build under **strict C99** (`-std
 
 | Dependency | Source | Required | Purpose |
 |------------|--------|----------|---------|
-| QuickJS-ng | git submodule | Yes | JS engine (C99; atomics patched) |
+| JS engine | git submodule | Yes | (C99) |
 | libuv | git submodule | Yes | Event loop / I/O backend (C99; atomics patched) |
 | mbedTLS | git submodule | No (QZ_WITH_TLS) | TLS / crypto (C99) |
 | miniz | git submodule | No (QZ_WITH_COMPRESS) | Compression (C90) |
@@ -322,7 +322,7 @@ polyfill 构建期引入 npm 依赖（esbuild + 3 个库），均 devDependencie
 
 qzjs ships a DAP (Debug Adapter Protocol) step-debugger built into the
 library — step-debug any embedded program in VS Code. Enable with
-`-DQZ_BUILD_DEBUGGER=ON` (patches QuickJS-ng to add breakpoint/step
+`-DQZ_BUILD_DEBUGGER=ON` (adds breakpoint/step
 primitives; zero overhead when OFF). Run your program with `QZ_DEBUG=1`
 (or set bit 1 of `qz_config_t.debug`) and VS Code attaches with
 `request:"attach"`. See [docs/dev/debugging.md](docs/dev/debugging.md) for
@@ -348,7 +348,7 @@ Tests are labelled for selection (`ctest -L <label>`):
 - `offline` — local, deterministic (default; what CI runs)
 - `network` — outbound HTTP/HTTPS
 - `benchmark` — performance, not pass/fail
-- `test262` — QuickJS-ng ECMAScript conformance
+- `test262` — ECMAScript conformance
 
 ```bash
 ctest -L offline          # CI default — green

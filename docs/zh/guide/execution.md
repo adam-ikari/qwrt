@@ -71,7 +71,7 @@ globalThis.onmessage = (e) => postMessage("echo: " + e.data.cmd);
 ## 4. 扩展全局对象
 
 原生 C 函数通过把扩展编译进 qzjs（编译期 `QZ_EXTENSIONS` 表）暴露给 JS，
-而非由宿主调用 JS。扩展的 `init` 钩子在上下文创建时运行，可用 QuickJS API
+而非由宿主调用 JS。扩展的 `init` 钩子在上下文创建时运行，可用引擎的 C API
 注册全局对象：
 
 ```c
@@ -102,5 +102,5 @@ static int my_ext_init(qz_ext_t *ext, qz_t *rt) {
 ## 异步执行
 
 Promise、`async`/`await` 与定时器由内部线程上的嵌入式 libuv 循环驱动。
-微任务在循环迭代之间自然刷新 — 宿主不会也不能泵动队列。`setTimeout`/
+微任务在循环迭代之间自然刷新。`setTimeout`/
 `fetch`/流会持续推进直到 settle；见[事件循环](/zh/guide/event-loop)。

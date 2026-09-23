@@ -73,7 +73,7 @@ spawned as a child process). See [Multi-Context](/guide/multi-context).
 Native C functions are exposed to JS by building an extension into qzjs (the
 compile-time `QZ_EXTENSIONS` table), not by calling into JS from the host.
 An extension's `init` hook runs when a context is created and may register
-globals via the QuickJS API:
+globals via the engine's C API:
 
 ```c
 #include <qzjs/qzjs.h>
@@ -104,5 +104,5 @@ Register the extension at compile time (see [Extensions](/guide/extensions)).
 
 Promises, `async`/`await`, and timers are driven by the embedded libuv loop on
 the internal thread. Microtasks are flushed naturally between loop iterations —
-the host does not and cannot pump the queue. A `setTimeout`/`fetch`/stream
+A `setTimeout`/`fetch`/stream
 continues to make progress until it settles; see [Event Loop](/guide/event-loop).

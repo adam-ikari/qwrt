@@ -1,12 +1,12 @@
 ---
 title: 概述
-description: qzjs 是一个严格 C99 的可嵌入 QuickJS-ng 运行时封装 —— 自带内部线程和 libuv 事件循环的 WinterTC 兼容 JS 运行时。为把 JavaScript 嵌入自己 C 应用的宿主开发者设计。
+description: qzjs 是一个严格 C99 的可嵌入运行时 —— WinterTC 兼容的 JS 运行时。为把 JavaScript 嵌入自己 C 应用的宿主开发者设计。
 ---
 
 # 概述
 
-qzjs 是一个用**严格 C99** 编写的**可嵌入 QuickJS-ng 运行时封装**。它在
-QuickJS-ng 引擎之上提供精简的 C API 和 **WinterTC 兼容的运行时**，自带内部
+qzjs 是一个用**严格 C99** 编写的**可嵌入运行时**。它提供精简的 C API 和
+**WinterTC 兼容的运行时**，自带内部
 线程和 libuv 事件循环，通过 JSON 消息与宿主通信。
 
 C 应用想把一部分逻辑放进 JavaScript 的话，qzjs 提供运行时；宿主不用自己搭事件循环和线程。
@@ -16,7 +16,7 @@ C 应用想把一部分逻辑放进 JavaScript 的话，qzjs 提供运行时；�
 - **WinterTC 标准运行时** — fetch、crypto.subtle、流、定时器、fs、serve() 作为全局对象可用
 - **基于消息的宿主边界** — `qz_post_message`（入）/ `message_cb`（出），双向 JSON
 - **隔离运行时模型** — 每个实例在自己的内部线程上运行 JS；内部锁与原子操作协调线程、宿主与 worker 边界，从不参与 JS 执行
-- **ECMAScript 引擎（ES2023）** — 底层基于 QuickJS-ng，启动快，内存占用低
+- **ECMAScript 引擎（ES2023）** — 完整 ES2023 支持，启动快，内存占用低
 - **WinterTC 兼容运行时** — `fetch`、`console`、`crypto.subtle`、`ReadableStream`、定时器、`fs`、`URL`、`TextEncoder`、WebSocket 等
 - **原生扩展** — 压缩（miniz）、加密（mbedTLS）、文本编解码、WebAssembly（WAMR，可选 wasm3）
 - **零系统依赖** — 所有依赖通过 CMake 从源码构建；libuv 从 deps 子模块构建
@@ -31,7 +31,7 @@ Guide 按宿主开发者的工作顺序组织：
 3. **[运行时生命周期](/zh/guide/lifecycle)** — 线程所有权、就绪、优雅关闭
 4. **[多上下文](/zh/guide/multi-context)** — 单个运行时内多个隔离上下文
 5. **[扩展](/zh/guide/extensions)** — 把你自己的 C 函数注册为 JS 全局
-6. **[字节码](/zh/guide/bytecode)** — 把 JS 预编译为 QuickJS 字节码（启动更快、不携带源码）
+6. **[字节码](/zh/guide/bytecode)** — 把 JS 预编译为字节码（启动更快、不携带源码）
 
 ## 何时使用 qzjs
 
@@ -48,7 +48,7 @@ Guide 按宿主开发者的工作顺序组织：
 - 你需要 **Node.js 模块系统** —— qzjs 没有 `require`/`import`（Node 内置模块不可用）。很多纯 JS npm 包能用（用 `python3 test/compat_check.py <pkg>` 测（见[兼容包](/zh/guide/compatible-packages#如何验证)））；依赖 Node 专属模块的不行。
 - 你需要 **DOM** —— qzjs 提供 WinterTC/W3C 子集（fetch、WebSocket、streams、localStorage 等），但没有 `document`/`window`。
 - 你需要 **共享内存并发** —— 主运行时单线程；Web Worker 是真并行线程或进程，但通过 structured-clone 消息通信，不共享内存。
-- 你需要 **JIT 性能** —— QuickJS 是解释器，不是 JIT 编译器。
+- 你需要 **JIT 性能** —— qzjs 的引擎是解释器，不是 JIT 编译器。
 
 ## 项目结构
 
@@ -65,6 +65,6 @@ qzjs/
 │   └── context.c        #   多上下文
 ├── polyfill/src/        # WinterTC 模块源
 ├── test/                # 测试套件（C + gtest + mock_libuv）
-├── deps/                # Git 子模块（quickjs-ng、libuv、mbedTLS……）
+├── deps/                # Git 子模块（引擎、libuv、mbedTLS……）
 └── docs/                # 本文档
 ```
