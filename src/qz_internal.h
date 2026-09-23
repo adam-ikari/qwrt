@@ -386,7 +386,6 @@ struct qz_t {
      * ping_seq = 发起方分配的单调序号（宿主线程写）；pong_seq = 最近收到
      * 的 PONG 回显序号（宿主 loop 线程读泵写）。compare 判定 loop 通畅。 */
     int32_t      ping_seq;          /* atomic: 宿主线程写的探测序号 */
-    int32_t      eval_seq;          /* atomic: qz_eval/qz_call 的 corr 单调分配器 */
     int32_t      pong_seq;          /* atomic: 宿主读泵回填的应答序号 */
     int32_t      ping_fail;         /* atomic: 跨层 ping 转发失败回执的 seq
                                      * （pfail corr，qz_ping_path 快速 -1） */
@@ -514,8 +513,6 @@ void qz_host_destroy(qz_t *rt);
 /* qzjs.c — runtime init / eval / teardown (called from thread.c) */
 int  qz_runtime_init(qz_t *rt);
 int  qz_eval_internal(qz_t *rt, const char *script, char **err);
-/* 注入默认 onmessage eval/call 处理器（仅当宿主未自定义时）——qz_eval/qz_call 开箱即用 */
-void qz_inject_default_handlers(qz_t *rt);
 int  qz_eval_bytecode_internal(qz_t *rt, const uint8_t *code, size_t len,
                                  char **err);
 void qz_thread_teardown(qz_t *rt);

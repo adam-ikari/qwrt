@@ -7,7 +7,6 @@ qzjs exposes a small, focused C API surface. Every function operates on an opaqu
 | Group | Description |
 |-------|-------------|
 | [Runtime Lifecycle](/c-api/runtime) | `qz_create`, `qz_destroy`, `qz_post_message` |
-| [JS Evaluation](/c-api/eval) | Evaluating JavaScript in the runtime |
 | [Multi-Context](/guide/multi-context) | Isolated JS contexts within one runtime |
 | [Extensions](/c-api/extensions) | `qz_ext_t`, lifecycle hooks |
 | [Host Data](/c-api/runtime#host-data) | `qz_get_runtime_data`, `qz_set_runtime_data` |

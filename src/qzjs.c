@@ -116,71 +116,6 @@ int qz_post_message(qz_t *rt, const char *json, size_t len)
 #endif
 }
 
-/* JSON 字符串转义：把 code/fn 转义成 JSON 字符串字面量内容（" \ \n \r \t）。
- * 返回转义后需要的字节数（不含 NUL）。 */
-static size_t qz_json_escape_len(const char *s)
-{
-    size_t n = 0;
-    for (; *s; s++) {
-        n++;
-        if (*s == '"' || *s == '\\' || *s == '\n' || *s == '\r' || *s == '\t')
-            n++;   /* 每个需要转义的字符多 1 字节反斜杠 */
-    }
-    return n;
-}
-
-static void qz_json_escape(const char *s, char *out)
-{
-    for (; *s; s++) {
-        switch (*s) {
-        case '"':  *out++ = '\\'; *out++ = '"';  break;
-        case '\\': *out++ = '\\'; *out++ = '\\'; break;
-        case '\n': *out++ = '\\'; *out++ = 'n';  break;
-        case '\r': *out++ = '\\'; *out++ = 'r';  break;
-        case '\t': *out++ = '\\'; *out++ = 't';  break;
-        default:   *out++ = *s;                  break;
-        }
-    }
-    *out = '\0';
-}
-
-int qz_eval(qz_t *rt, const char *code)
-{
-    if (!rt || rt->magic != QZ_MAGIC || !code) return -1;
-    int32_t corr = __atomic_add_fetch(&rt->eval_seq, 1, __ATOMIC_ACQ_REL);
-    size_t clen = qz_json_escape_len(code);
-    char *buf = (char *)malloc(48 + clen);
-    if (!buf) return -1;
-    int n = snprintf(buf, 48, "{\"corr\":%d,\"cmd\":\"eval\",\"code\":\"", (int)corr);
-    qz_json_escape(code, buf + n);
-    n += (int)clen;
-    memcpy(buf + n, "\"}", 3);
-    int rc = qz_post_message(rt, buf, (size_t)n + 2);
-    free(buf);
-    return rc;
-}
-
-int qz_call(qz_t *rt, const char *fn, const char *args_json)
-{
-    if (!rt || rt->magic != QZ_MAGIC || !fn) return -1;
-    int32_t corr = __atomic_add_fetch(&rt->eval_seq, 1, __ATOMIC_ACQ_REL);
-    size_t flen = qz_json_escape_len(fn);
-    size_t alen = args_json ? strlen(args_json) : 2;   /* "[]" */
-    char *buf = (char *)malloc(48 + flen + alen);
-    if (!buf) return -1;
-    int n = snprintf(buf, 48, "{\"corr\":%d,\"cmd\":\"call\",\"fn\":\"", (int)corr);
-    qz_json_escape(fn, buf + n);
-    n += (int)flen;
-    n += snprintf(buf + n, 48 - (size_t)n, "\",\"args\":");
-    if (args_json) { memcpy(buf + n, args_json, alen); n += (int)alen; }
-    else           { memcpy(buf + n, "[]", 2);          n += 2;        }
-    memcpy(buf + n, "}", 2);
-    int rc = qz_post_message(rt, buf, (size_t)n + 1);
-    free(buf);
-    return rc;
-}
-
-
 void qz_wait_idle(qz_t *rt)
 {
 #ifdef QZ_HOST_SPLIT
@@ -508,31 +443,4 @@ void qz_thread_teardown(qz_t *rt)
     uv_walk(&rt->loop, qz_close_walk_cb, NULL);
     uv_run(&rt->loop, UV_RUN_NOWAIT);
     uv_loop_close(&rt->loop);
-}
-
-/* 默认 onmessage 处理器（JS）：处理 qz_eval/qz_call 的 {cmd:"eval"}/{cmd:"call"}
- * 指令，结果经 postMessage 发回宿主。仅当 globalThis.onmessage 未定义时注入。 */
-void qz_inject_default_handlers(qz_t *rt)
-{
-    static const char *const JS =
-        "if (typeof globalThis.onmessage !== 'function') {"
-        "  globalThis.onmessage = function(e) {"
-        "    var d = e.data;"
-        "    if (d && typeof d === 'object' && d.cmd === 'eval') {"
-        "      var out;"
-        "      try { out = eval(d.code); } catch (err) { out = { __qz_error__: String(err) }; }"
-        "      postMessage({ corr: d.corr, result: out });"
-        "    } else if (d && typeof d === 'object' && d.cmd === 'call') {"
-        "      var fn = globalThis[d.fn];"
-        "      var out2;"
-        "      try { out2 = fn.apply(null, d.args || []); } catch (err) { out2 = { __qz_error__: String(err) }; }"
-        "      postMessage({ corr: d.corr, result: out2 });"
-        "    }"
-        "  };"
-        "}";
-    char *err = NULL;
-    if (qz_eval_internal(rt, JS, &err) != 0) {
-        /* 注入失败不致命：宿主可自装处理器，或 qz_eval 指令无处理器（静默） */
-        free(err);
-    }
 }

@@ -99,20 +99,6 @@ static int my_ext_init(qz_ext_t *ext, qz_t *rt) {
 
 在编译期注册扩展（见[扩展](/zh/guide/extensions)）。
 
-## 5. 便捷函数 — qz_eval / qz_call
-
-要从宿主发送 JS 代码或调用 JS 函数、又不想手写 JSON，用便捷函数 `qz_eval` 和
-`qz_call`：
-
-```c
-qz_eval(rt, "1 + 1");                    // 运行 JS
-qz_call(rt, "add", "[3, 4]");            // 调用 globalThis.add(3, 4)
-```
-
-它们**不是新机制**——各自只是构造 `{corr, cmd, ...}` 指令经消息边界发出；JS 侧用
-`postMessage({corr, result})` 应答，宿主在 `message_cb` 里收到。若 `initial_script`
-未定义 `onmessage`，内置处理器自动应答 `eval`/`call`。见 [JS 求值](/zh/c-api/eval)。
-
 ## 异步执行
 
 Promise、`async`/`await` 与定时器由内部线程上的嵌入式 libuv 循环驱动。

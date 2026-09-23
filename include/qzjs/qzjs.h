@@ -79,24 +79,6 @@ void qz_destroy(qz_t *rt);
 
 /* 线程安全入站消息（任何线程可调）。json 会被拷贝。返回 0 成功，-1 失败。 */
 int qz_post_message(qz_t *rt, const char *json, size_t len);
-/* 便捷函数：向 JS 发送 eval 指令（执行一段 JS 代码）。
- *
- * 本质：这是对"JSON 消息驱动"模式的便利封装，不是新的执行机制。它构造
- * {"corr":N,"cmd":"eval","code":...} 指令经 qz_post_message 发给 JS 侧
- * 的 onmessage 处理器；JS 收到后 eval(code)，结果经 postMessage 发回宿主
- * （message_cb 收到）。corr 单调递增，供宿主在 message_cb 里把结果与
- * 请求对应。宿主需在 initial_script 里装 onmessage eval 处理器（或使用
- * 默认注入的处理器）。线程安全，返回 0 成功，-1 失败。 */
-int qz_eval(qz_t *rt, const char *code);
-
-/* 便捷函数：向 JS 发送调用指令（调用一个全局函数）。
- *
- * 本质同 qz_eval：构造 {"corr":N,"cmd":"call","fn":...,"args":...} 指令，
- * JS onmessage 收到后调用 globalThis[fn](...args)，结果经 postMessage
- * 发回宿主（message_cb）。fn 是全局函数名，args 是 JSON 数组或 NULL。
- * 线程安全，返回 0 成功，-1 失败。 */
-int qz_call(qz_t *rt, const char *fn, const char *args_json);
-
 /* Request auto-exit once there is no pending async work (CLI use), and block
  * until the thread has exited. Thread-safe; mutually exclusive with
  * qz_destroy (call one or the other, never both). After this returns the

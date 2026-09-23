@@ -38,8 +38,7 @@ int main(void) {
 
 `qz_create` blocks until qzjs's internal thread is ready and
 `initial_script` has been eval'd. The host sends messages via
-`qz_post_message` (thread-safe) — or the convenience functions `qz_eval` /
-`qz_call` to run JS or call a JS function — and receives replies through
+`qz_post_message` (thread-safe) and receives replies through
 `message_cb`, which fires on the qzjs thread (so your callback must be
 thread-safe). `qz_destroy` performs a graceful shutdown.
 

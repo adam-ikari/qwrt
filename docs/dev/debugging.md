@@ -57,8 +57,8 @@ existing verbose-log flag):
 
 ```c
 qz_config_t cfg = { .pal = pal, .debug = 0x2 };  /* bit 1 = debug-enable */
+cfg.initial_script = src;   /* pauses at entry, then at breakpoints */
 qz_t *rt = qz_create(&cfg);
-qz_eval(rt, src, NULL);   /* pauses at entry, then at breakpoints */
 ```
 
 That's it — `qz_create` auto-attaches DAP, sends `initialized`, and blocks

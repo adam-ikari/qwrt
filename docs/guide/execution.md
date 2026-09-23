@@ -100,22 +100,6 @@ static int my_ext_init(qz_ext_t *ext, qz_t *rt) {
 
 Register the extension at compile time (see [Extensions](/guide/extensions)).
 
-## 5. Convenience Functions — qz_eval / qz_call
-
-To send JS code or call a JS function from the host without hand-writing the
-JSON, use the convenience functions `qz_eval` and `qz_call`:
-
-```c
-qz_eval(rt, "1 + 1");                    // run JS
-qz_call(rt, "add", "[3, 4]");            // call globalThis.add(3, 4)
-```
-
-They are **not a new mechanism** — each just builds a `{corr, cmd, ...}`
-instruction and sends it over the message boundary; the JS side answers via
-`postMessage({corr, result})`, which the host receives in `message_cb`. If
-your `initial_script` does not define `onmessage`, a built-in handler answers
-`eval`/`call` automatically. See [JS Evaluation](/c-api/eval).
-
 ## Asynchronous Execution
 
 Promises, `async`/`await`, and timers are driven by the embedded libuv loop on

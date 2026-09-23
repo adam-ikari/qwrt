@@ -772,8 +772,6 @@ int main(int argc, char **argv)
             free(script);
             script = NULL;
         }
-        /* 便捷函数默认处理器（同 qz_thread_main）：仅当宿主未自定义 onmessage 时注入 */
-        qz_inject_default_handlers(rt);
         if (qz_ipc_child_emit_ctl(ready_ok ? QZ_IPC_CTL_READY_OK
                                              : QZ_IPC_CTL_READY_ERR) < 0) {
             fprintf(stderr, "qzjs-rt: ready emit failed\n");

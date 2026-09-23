@@ -116,6 +116,65 @@ qz_post_message(rt, "{\"cmd\":\"eval\",\"code\":\"2 + 2\"}", 26);
 The snippet is executed by the JS `eval` in the runtime; the result flows back
 over `message_cb` like any other reply.
 
+### Double-ended event dispatch
+
+Both sides dispatch by event type. Agree on a shape — `{"type": ..., "payload": ...}`
+— and give **each** end its own dispatcher: the JS side routes inbound host
+messages in `onmessage`, the C side routes inbound JS replies in `message_cb`.
+
+**JS side** — a dispatcher that handles a table of events and replies:
+
+```js
+// initial_script — JS event dispatcher
+const handlers = {
+  ping(d)  { return { ok: true, at: Date.now() }; },
+  add(d)   { return d.a + d.b; },
+};
+globalThis.onmessage = function (e) {
+  const { type, payload } = e.data || {};
+  const h = handlers[type];
+  postMessage({ type: type + ':reply', ok: !!h, payload: h ? h(payload) : undefined });
+};
+```
+
+**Host side** — mirror the same dispatch in `message_cb`, routing each inbound
+event (a `{type, payload}` JSON string) to a C handler:
+
+```c
+#include <qzjs/qzjs.h>
+#include <stdio.h>
+#include <string.h>
+
+static void on_ping(const char *json)  { puts("[host] ping:reply"); }
+static void on_add(const char *json)   { puts("[host] add:reply"); }
+
+static void on_message(qz_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    /* parse `type` with your host JSON library; substring match shown for brevity */
+    if (strstr(json, "\"type\":\"ping:reply\"")) on_ping(json);
+    else if (strstr(json, "\"type\":\"add:reply\"")) on_add(json);
+}
+
+int main(void) {
+    qz_config_t cfg = {0};
+    cfg.message_cb = on_message;
+    cfg.initial_script = "/* the JS dispatcher above */";
+    qz_t *rt = qz_create(&cfg);
+
+    const char *ping = "{\"type\":\"ping\",\"payload\":{}}";
+    qz_post_message(rt, ping, strlen(ping));            // → on_ping
+    const char *add  = "{\"type\":\"add\",\"payload\":{\"a\":2,\"b\":3}}";
+    qz_post_message(rt, add, strlen(add));              // → on_add
+
+    qz_destroy(rt);
+    return 0;
+}
+```
+
+One dispatcher per end keeps the event contract symmetric and readable: the JS
+table and the C `if/else` chain name the same events, so both sides agree on
+what `type` means.
+
 ## 4. Lend Capabilities to JS
 
 JS in the runtime sees the WinterTC surface as globals, with no imports:

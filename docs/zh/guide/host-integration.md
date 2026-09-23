@@ -5,7 +5,7 @@ description: 在 C 应用中嵌入 qzjs 的主机集成路径 —— create、JS
 
 # 主机集成
 
-在 C 应用里嵌入 qzjs 分五步。宿主和运行时只通过 JSON 消息通信（`qz_eval`/`qz_call` 是对发送指令的便捷封装）。
+在 C 应用里嵌入 qzjs 分五步。宿主和运行时只通过 JSON 消息通信。
 
 ## 五步
 
@@ -96,6 +96,64 @@ qz_post_message(rt, "{\"cmd\":\"eval\",\"code\":\"2 + 2\"}", 26);
 ```
 
 代码片段由运行时的 JS `eval` 执行，结果像任何其他回复一样经 `message_cb` 流回。
+
+### 双端事件分发
+
+两端都按事件类型分发。约定一个形状——`{"type": ..., "payload": ...}`——并给**每一端**
+各自的转发器：JS 侧在 `onmessage` 里路由入站宿主消息，C 侧在 `message_cb` 里路由
+入站 JS 回复。
+
+**JS 侧**——一个处理事件表并回复的转发器：
+
+```js
+// initial_script — JS 事件转发器
+const handlers = {
+  ping(d)  { return { ok: true, at: Date.now() }; },
+  add(d)   { return d.a + d.b; },
+};
+globalThis.onmessage = function (e) {
+  const { type, payload } = e.data || {};
+  const h = handlers[type];
+  postMessage({ type: type + ':reply', ok: !!h, payload: h ? h(payload) : undefined });
+};
+```
+
+**宿主侧**——在 `message_cb` 里镜像同样的分发，把每条入站事件（一个 `{type, payload}`
+JSON 字符串）路由到对应 C 处理器：
+
+```c
+#include <qzjs/qzjs.h>
+#include <stdio.h>
+#include <string.h>
+
+static void on_ping(const char *json)  { puts("[host] ping:reply"); }
+static void on_add(const char *json)   { puts("[host] add:reply"); }
+
+static void on_message(qz_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    /* 用宿主语言的 JSON 库解析 type 再分发；此处为简洁用子串匹配 */
+    if (strstr(json, "\"type\":\"ping:reply\"")) on_ping(json);
+    else if (strstr(json, "\"type\":\"add:reply\"")) on_add(json);
+}
+
+int main(void) {
+    qz_config_t cfg = {0};
+    cfg.message_cb = on_message;
+    cfg.initial_script = "/* 上面的 JS 转发器 */";
+    qz_t *rt = qz_create(&cfg);
+
+    const char *ping = "{\"type\":\"ping\",\"payload\":{}}";
+    qz_post_message(rt, ping, strlen(ping));            // → on_ping
+    const char *add  = "{\"type\":\"add\",\"payload\":{\"a\":2,\"b\":3}}";
+    qz_post_message(rt, add, strlen(add));              // → on_add
+
+    qz_destroy(rt);
+    return 0;
+}
+```
+
+每端一个转发器让事件契约对称、可读：JS 的事件表与 C 的 `if/else` 链命名同一组事件，
+两端对 `type` 的含义保持一致。
 
 ## 4. 向 JS 出借能力
 
