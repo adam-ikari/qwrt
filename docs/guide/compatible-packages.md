@@ -40,7 +40,7 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
   npx esbuild --bundle --format=iife --global-name=nanoid_bundle > nanoid.bundle.js
 ```
 
-Then run the IIFE bundle as an `initial_script` or `new Worker(url)` script — there is no `qz_eval`.
+Then run the IIFE bundle as an `initial_script` or `new Worker(url)` script — or load it into the runtime with `qz_eval`.
 
 ## Checking Compatibility
 

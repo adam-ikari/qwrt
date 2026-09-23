@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+
 /* 在安全点排空 JS 微任务/待执行 job。返回本轮处理数。worker.c 也调用（其
  * 自己的线程主循环）。 */
 int qz_flush_microtasks(qz_t *rt)
@@ -136,6 +137,11 @@ void qz_thread_main(void *arg)
             }
         }
     }
+
+    /* 便捷函数（qz_eval/qz_call）默认指令处理器：仅当宿主 initial_script
+     * 未自定义全局 onmessage 时注入内置 eval/call 处理器，让 qz_eval/qz_call
+     * 开箱即用。注入失败不致命。 */
+    qz_inject_default_handlers(rt);
 
     /* ready handshake: atomic store (host qz_create spins until it reads 1).
      * No mutex/cond: on PVE 6.17 kernels pthread_cond wakeups fail after an

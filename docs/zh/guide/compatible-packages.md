@@ -39,7 +39,7 @@ echo "import pkg from 'nanoid'; globalThis.nanoid = pkg;" | \
   npx esbuild --bundle --format=iife --global-name=nanoid_bundle > nanoid.bundle.js
 ```
 
-然后把 IIFE bundle 作为 `initial_script` 或 `new Worker(url)` 脚本运行 — 没有 `qz_eval`。
+然后把 IIFE bundle 作为 `initial_script` 或 `new Worker(url)` 脚本运行 — 或用 `qz_eval` 把它加载进运行时。
 
 ## 选择标准
 

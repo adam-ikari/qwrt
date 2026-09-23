@@ -46,4 +46,4 @@ target_link_libraries(your_app PRIVATE qzjs::qzjs)
 
 ## 线程模型
 
-qzjs 在设计上就是**单线程**的。所有 JS 在 qzjs 自己的内部线程上运行（该线程同时运行嵌入式 libuv 循环）— 宿主线程从不调用 JS。没有 `qz_eval`，也没有 `qz_tick`。宿主通过 JSON 消息通信：`qz_post_message` 是线程安全的（入站），`message_cb` 在 qzjs 线程上触发（你的回调必须线程安全）。`qz_destroy` 仅限宿主线程。
+qzjs 在设计上就是**单线程**的。所有 JS 在 qzjs 自己的内部线程上运行（该线程同时运行嵌入式 libuv 循环）— 宿主线程从不直接调用 JS。宿主通过 JSON 消息通信：`qz_post_message` 是线程安全的（入站），`message_cb` 在 qzjs 线程上触发（你的回调必须线程安全）。`qz_destroy` 仅限宿主线程。

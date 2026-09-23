@@ -35,7 +35,10 @@ int main(void) {
 }
 ```
 
-`qz_create` 会阻塞，直到 qzjs 的内部线程就绪且 `initial_script` 已求值。没有 `qz_eval` — 宿主通过 `qz_post_message`（线程安全）发送消息，并通过 `message_cb` 接收回复，该回调在 qzjs 线程上触发（因此你的回调必须线程安全）。`qz_destroy` 执行优雅关闭。
+`qz_create` 会阻塞，直到 qzjs 的内部线程就绪且 `initial_script` 已求值。宿主通过
+`qz_post_message`（线程安全）发送消息——或用便捷函数 `qz_eval` / `qz_call` 运行 JS
+或调用 JS 函数——并通过 `message_cb` 接收回复，该回调在 qzjs 线程上触发（因此你的
+回调必须线程安全）。`qz_destroy` 执行优雅关闭。
 
 ## 从 JS 调用 C 函数
 

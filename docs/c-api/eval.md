@@ -1,94 +1,76 @@
-# JS Evaluation
+---
+title: JS Evaluation
+description: Convenience functions for sending JS evaluation / call instructions — qz_eval and qz_call — and what they really are.
+---
 
-qzjs provides three ways to execute JavaScript, plus a bytecode compilation API.
+# JS Evaluation — Convenience Functions
 
-## `qz_eval`
+`qz_eval` / `qz_call` are **convenience functions**: they wrap the common
+"send an instruction to JS" operation into a simple call. They are **not a
+new execution mechanism** — underneath they are just sugar over the JSON
+message boundary.
+
+## `int qz_eval(qz_t *rt, const char *code)`
+
+Send an eval instruction — execute a piece of JS code in the runtime:
 
 ```c
-int qz_eval(qz_t *rt, const char *code, char **result);
+qz_eval(rt, "1 + 1");
+qz_eval(rt, "globalThis.add = function(a,b){ return a + b; };");
 ```
 
-Evaluates JS source code on the active context. The WinterTC runtime (fetch, console, timers, etc.) is auto-injected into new contexts before first eval.
+Equivalent to hand-writing `qz_post_message(rt, "{\"corr\":1,\"cmd\":\"eval\",\"code\":\"...\"}", len)`.
 
-- `code` — null-terminated JavaScript source string
-- `result` — if non-NULL, receives a `malloc`'d stringified result (JSON). Free with `qz_free()`
-- Returns 0 on success, <0 on JS exception
+## `int qz_call(qz_t *rt, const char *fn, const char *args_json)`
+
+Send a call instruction — invoke a global JS function with JSON args:
 
 ```c
-char *result = NULL;
-if (qz_eval(rt, "JSON.stringify({hello: 'world'})", &result) == 0) {
-    printf("%s\n", result);  // {"hello":"world"}
-    qz_free(result);
+qz_call(rt, "add", "[3, 4]");   // calls globalThis.add(3, 4)
+```
+
+`fn` is a global function name; `args_json` is a JSON array, or `NULL` for `[]`.
+
+Both are thread-safe; return `0` on success, `-1` on failure.
+
+## What they really are
+
+- **They only send.** Each builds the `{corr, cmd, ...}` instruction JSON
+  (with proper string escaping and a monotonically increasing `corr`) and
+  hands it to `qz_post_message`. No new execution path is introduced.
+- **Results come back through `message_cb`.** The JS side receives the
+  instruction in `onmessage`, runs it, and replies with `postMessage({corr, result})`.
+  The host sees that reply in `message_cb`. `corr` lets you match a reply to
+  its request.
+- **Built-in default handler.** If your `initial_script` does not define a
+  global `onmessage`, qzjs injects a built-in handler that automatically
+  answers `{cmd:"eval"}` and `{cmd:"call"}` — so `qz_eval`/`qz_call` work out
+  of the box. If you do define `onmessage`, yours takes over (the default is
+  not injected).
+- **Asynchronous.** Send returns immediately; the result arrives later in
+  `message_cb`. To collect results, match `corr` in `message_cb`.
+
+## Complete example
+
+```c
+#include <qzjs/qzjs.h>
+
+static void on_message(qz_t *rt, const char *json, size_t len, void *data) {
+    (void)rt; (void)data;
+    printf("JS: %.*s\n", (int)len, json);   // {"corr":1,"result":42}
 }
-```
 
-## `qz_eval_bytecode`
+int main(void) {
+    qz_config_t cfg = {0};
+    cfg.message_cb = on_message;   // no initial_script → default handler injected
+    qz_t *rt = qz_create(&cfg);
 
-```c
-int qz_eval_bytecode(qz_t *rt, const uint8_t *bytecode, size_t len,
-                       char **result);
-```
+    qz_eval(rt, "40 + 2");                  // → {"corr":1,"result":42}
+    qz_eval(rt, "globalThis.mul = (a,b) => a*b;");
+    qz_call(rt, "mul", "[6,7]");            // → {"corr":2,"result":42}
 
-Evaluates precompiled bytecode. Same result/return semantics as `qz_eval`. Use `qz_compile` to produce bytecode from source.
-
-```c
-size_t bc_len = 0;
-uint8_t *bc = qz_compile(rt, "1 + 1", 5, &bc_len);
-char *result = NULL;
-qz_eval_bytecode(rt, bc, bc_len, &result);
-qz_free(bc);
-qz_free(result);
-```
-
-## `qz_call`
-
-```c
-int qz_call(qz_t *rt, const char *func,
-              const char *args_json, char **result);
-```
-
-Calls a global JS function with JSON-encoded arguments. Result semantics match `qz_eval`.
-
-```c
-// Equivalent to: myFunc(1, "hello", true)
-char *result = NULL;
-qz_call(rt, "myFunc", "[1,\"hello\",true]", &result);
-```
-
-## `qz_compile`
-
-```c
-uint8_t *qz_compile(qz_t *rt, const char *code, size_t code_len,
-                      size_t *out_len);
-```
-
-Compiles JS source to bytecode. Returns an allocated buffer (free with `qz_free`) and writes the length to `*out_len`. Returns `NULL` on error.
-
-## `qz_compile_module`
-
-```c
-uint8_t *qz_compile_module(qz_t *rt, const char *code, size_t code_len,
-                             size_t *out_len);
-```
-
-Same as `qz_compile` but treats the source as an ES module.
-
-## `qz_free`
-
-```c
-void qz_free(void *ptr);
-```
-
-Frees memory returned by `qz_eval`, `qz_call`, `qz_compile`, or `qz_compile_module`. NULL-safe.
-
-## Error Handling
-
-All evaluation functions return 0 on success or a negative value on failure. When a JS exception occurs, the error message is available through the `result` parameter:
-
-```c
-char *result = NULL;
-if (qz_eval(rt, "throw new Error('oops')", &result) < 0) {
-    printf("JS error: %s\n", result);  // Error: oops
-    qz_free(result);
+    /* ... */
+    qz_destroy(rt);
+    return 0;
 }
 ```

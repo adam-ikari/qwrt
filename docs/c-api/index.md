@@ -48,7 +48,7 @@ target_link_libraries(your_app PRIVATE qzjs::qzjs)
 
 qzjs is **single-threaded** by design. All JS runs on qzjs's own internal
 thread (which also runs the embedded libuv loop) — the host thread never calls
-into JS. There is no `qz_eval` and no `qz_tick`. The host communicates over
+into JS. The host communicates over
 JSON messages: `qz_post_message` is thread-safe (inbound), and `message_cb`
 fires on the qzjs thread (your callback must be thread-safe). `qz_destroy` is
 host-thread-only.
