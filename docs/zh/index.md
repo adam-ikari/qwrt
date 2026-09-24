@@ -5,6 +5,10 @@ hero:
   name: "Qz.js"
   text: "可嵌入 WinterTC 运行时"
   tagline: 严格 C99 · 内部线程 + libuv 循环 · JSON 宿主边界
+  image:
+    light: /logo.svg
+    dark: /logo-dark.svg
+    alt: Qz.js
   actions:
     - theme: brand
       text: 快速开始

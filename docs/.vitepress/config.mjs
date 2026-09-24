@@ -273,18 +273,28 @@ defineConfig({
 
   head: [
     ['link', { rel: 'icon', href: '/qzjs/favicon.ico' }],
+    ['link', { rel: 'icon', type: 'image/png', href: '/qzjs/icon-logo-32.png', sizes: '32x32' }],
+    ['link', { rel: 'apple-touch-icon', href: '/qzjs/icon-logo-256.png' }],
+    // Browsers that honour prefers-color-scheme swap in the dark mark.
+    ['link', { rel: 'icon', href: '/qzjs/favicon-dark.ico', media: '(prefers-color-scheme: dark)' }],
     ['meta', { name: 'theme-color', content: '#58a6ff' }],
+    ['meta', { name: 'theme-color', content: '#0d1117', media: '(prefers-color-scheme: dark)' }],
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Qz.js — Embeddable WinterTC Runtime' }],
     ['meta', { property: 'og:description', content: 'Embeddable WinterTC runtime in C99 — WinterCG-compatible, libuv-native' }],
     ['meta', { property: 'og:url', content: SITE_URL }],
+    ['meta', { property: 'og:image', content: `${SITE_URL}/og-image.png` }],
+    ['meta', { property: 'og:image:width', content: '1200' }],
+    ['meta', { property: 'og:image:height', content: '630' }],
+    ['meta', { property: 'og:image:alt', content: 'Qz.js wordmark' }],
     ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:locale:alternate', content: 'zh_CN' }],
     // Twitter Card
-    ['meta', { name: 'twitter:card', content: 'summary' }],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:title', content: 'Qz.js — Embeddable WinterTC Runtime' }],
     ['meta', { name: 'twitter:description', content: 'Embeddable WinterTC runtime in C99 — WinterCG-compatible, libuv-native' }],
+    ['meta', { name: 'twitter:image', content: `${SITE_URL}/og-image.png` }],
   ],
 
   // Collect URLs for sitemap during build
@@ -349,8 +359,11 @@ defineConfig({
   },
 
   themeConfig: {
-    logo: 'logo.svg',
-    siteTitle: 'Qz.js',
+    // Two palettes: the navy half of the mark is invisible on dark backgrounds
+    // (1.6:1 against #0d1117). VitePress resolves both against `base`.
+    logo: { light: 'logo.svg', dark: 'logo-dark.svg' },
+    // The mark carries the brand; the navbar shows no "Qz.js" text beside it.
+    siteTitle: false,
     socialLinks: [
       { icon: 'github', link: 'https://github.com/adam-ikari/qzjs' },
     ],

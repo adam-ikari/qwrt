@@ -5,6 +5,10 @@ hero:
   name: "Qz.js"
   text: "Embeddable WinterTC Runtime"
   tagline: Strict C99 · Low overhead · WinterTC standard runtime
+  image:
+    light: /logo.svg
+    dark: /logo-dark.svg
+    alt: Qz.js
   actions:
     - theme: brand
       text: Get Started

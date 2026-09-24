@@ -1,3 +1,12 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/logo-wordmark-dark.svg">
+  <img src="logo/logo-wordmark.svg" alt="Qz.js" width="360">
+</picture>
+
+</div>
+
 # Qz.js — Embeddable WinterTC Runtime
 
 > 🌐 Website & API reference: **https://adam-ikari.github.io/qzjs/**
