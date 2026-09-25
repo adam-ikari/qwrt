@@ -39,8 +39,10 @@ qz_t *rt = qz_create(&cfg);   // blocks until ready
 Three ways to feed the runtime its initial script:
 
 - **`initial_script`** — a small inline string, good for bootstrap logic. qzjs
-  compiles its own WinterTC polyfill to bytecode internally; a host provides
-  JS as source, never as a bytecode blob (see [Bytecode](/guide/bytecode))
+  compiles its own WinterTC polyfill to bytecode internally. Precompiled
+  bytecode also composes: set `initial_bytecode` to run a `qz_compile()` blob
+  after the script (bytecode is build-locked — see
+  [Bytecode](/guide/bytecode))
 - **`initial_script_path`** — a filesystem path to a JS file; qzjs reads and
   evals it at creation. Convenient when the script lives on disk (deployment).
   If both are set, `initial_script_path` wins; a missing file fails

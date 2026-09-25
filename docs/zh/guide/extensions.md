@@ -98,13 +98,15 @@ qz_ext_t my_extension = {
 
 ```cmake
 # 在父项目的 CMakeLists.txt 中，在 add_subdirectory(qzjs) 之前：
-set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS, &my_extension")
+set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS &my_extension")
 set(QZ_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
 add_subdirectory(deps/qzjs)
 ```
 
 `QZ_EXTRA_SOURCES` 将源文件添加到 `qzjs` 目标；`QZ_EXTENSIONS`
-覆盖表格以在默认集之后追加 `&my_extension`。要**裁剪**内置扩展，
+覆盖表格以在默认集之后追加 `&my_extension`。注意分隔符是**空格**：
+`QZ_DEFAULT_EXTENSIONS` 本身以尾随逗号结尾，此处再写逗号会展开出空数组元素
+（`ptr, , &my_extension`），C99 下直接编译报错。要**裁剪**内置扩展，
 只需列出你需要的条目，而不是 `QZ_DEFAULT_EXTENSIONS`。
 
 ## 生命周期钩子

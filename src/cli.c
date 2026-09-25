@@ -24,11 +24,17 @@ static const char *g_control_pipe = NULL;
 static void usage(FILE *out) {
     fprintf(out,
         "Usage: qzjs [options] [script.js [args...]]\n"
-        "       qzjs -e 'code' [args...]\n"
+        "       qzjs --bytecode <file.bc> [args...]\n"
+        "       qzjs --compile <in.js> -o <out.bc>\n"
         "       qzjs            (start REPL)\n"
         "\n"
         "Options:\n"
         "  -e, --eval <code>   evaluate <code> and exit\n"
+        "  --bytecode <file.bc>\n"
+        "                      run a precompiled bytecode file (from --compile or\n"
+        "                      qjsc -b; bytecode is NOT portable across qzjs versions)\n"
+        "  --compile <in.js>   compile JS source to a bytecode file\n"
+        "  -o <out.bc>         output path for --compile (default <in.js>.bc)\n"
         "  --control-plane=<off|in-proc|local>\n"
         "                      control-plane tier (default off); local exposes\n"
         "                      an AF_UNIX endpoint (see qzjs-ctl)\n"
@@ -501,7 +507,98 @@ static int repl_loop(void) {
     return exit_code;
 }
 
-int main(int argc, char **argv) {
+/* ── --compile：把 JS 源码编译为字节码文件（qz_compile 的 CLI 形态）──
+ * 产出文件经 --bytecode 运行。⚠ 字节码与本次 qzjs 构建强绑定，跨版本不保证
+ * 可加载（运行时会显式拒绝）；分发请带源码，部署环境重编译。 */
+static int compile_to_file(const char *in_path, const char *out_path) {
+    FILE *f = fopen(in_path, "rb");
+    if (!f) { fprintf(stderr, "qzjs: cannot open '%s'\n", in_path); return 1; }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 0) { fprintf(stderr, "qzjs: cannot size '%s'\n", in_path); fclose(f); return 1; }
+    char *src = malloc((size_t)sz);
+    if (!src) { fprintf(stderr, "qzjs: out of memory\n"); fclose(f); return 1; }
+    if (fread(src, 1, (size_t)sz, f) != (size_t)sz) {
+        fprintf(stderr, "qzjs: read error '%s'\n", in_path);
+        fclose(f); free(src); return 1;
+    }
+    fclose(f);
+
+    char *err = NULL;
+    uint8_t *bc = NULL;
+    size_t bc_len = 0;
+    int rc = qz_compile(src, (size_t)sz, in_path, &bc, &bc_len, &err);
+    free(src);
+    if (rc != 0) {
+        fprintf(stderr, "qzjs: compile failed: %s\n", err ? err : "?");
+        free(err);
+        return 1;
+    }
+
+    char defout[strlen(in_path) + 8];
+    if (!out_path) {
+        snprintf(defout, sizeof defout, "%s.bc", in_path);
+        out_path = defout;
+    }
+    FILE *o = fopen(out_path, "wb");
+    if (!o) { fprintf(stderr, "qzjs: cannot write '%s'\n", out_path); free(bc); return 1; }
+    if (fwrite(bc, 1, bc_len, o) != bc_len) {
+        fprintf(stderr, "qzjs: write error '%s'\n", out_path);
+        fclose(o); free(bc); return 1;
+    }
+    fclose(o);
+    free(bc);
+    printf("%s\n", out_path);
+    return 0;
+}
+
+/* ── --bytecode：运行预编译字节码。与 script 模式同走 bootstrap（保留
+ * arguments/env/onmessage），字节码作为初始程序执行、eval 消息仍可用。 */
+static int run_bytecode(const char *bc_path, const char *const *args, int nargs) {
+    FILE *f = fopen(bc_path, "rb");
+    if (!f) { fprintf(stderr, "qzjs: cannot open '%s'\n", bc_path); return 1; }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 0) { fprintf(stderr, "qzjs: cannot size '%s'\n", bc_path); fclose(f); return 1; }
+    if (sz == 0) { fprintf(stderr, "qzjs: '%s' is empty (not bytecode)\n", bc_path); fclose(f); return 1; }
+    uint8_t *bc = malloc((size_t)sz);
+    if (fread(bc, 1, (size_t)sz, f) != (size_t)sz) {
+        fprintf(stderr, "qzjs: read error '%s'\n", bc_path);
+        fclose(f); free(bc); return 1;
+    }
+    fclose(f);
+
+    cli_host_t host = {0};
+    char *bootstrap = build_bootstrap(args, nargs);
+    if (!bootstrap) { free(bc); return 1; }
+    qz_config_t cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.message_cb = cli_message_cb;
+    cfg.initial_script = bootstrap;
+    cfg.initial_bytecode = bc;
+    cfg.initial_bytecode_len = (size_t)sz;
+    apply_worker_backend(&cfg);
+    apply_control_plane(&cfg);
+
+    qz_t *rt = qz_create(&cfg);
+    free(bootstrap);
+    if (!rt) {
+        fprintf(stderr, "qzjs: bytecode error or runtime init failed\n");
+        free(bc);
+        return 1;
+    }
+    qz_set_runtime_data(rt, &host);
+    qz_wait_idle(rt);
+    int exit_code = host.exit_code;
+    if (exit_code && !host.reported) fprintf(stderr, "%s\n", host.result);
+    free(bc);
+    qz_free(rt);
+    return exit_code;
+}
+
+ int main(int argc, char **argv) {
     /* HTTP/TCP 服务写已关闭的对端连接会触发 SIGPIPE(默认杀进程,
      * wrk 压测中断连即崩)。libuv 不忽略它;宿主必须显式忽略。 */
     signal(SIGPIPE, SIG_IGN);
@@ -521,9 +618,17 @@ int main(int argc, char **argv) {
             else { usage(stderr); return 2; }
             continue;
         }
-        if (!strncmp(argv[i], "--control-pipe=", 15)) {
-            g_control_pipe = argv[i] + 15;
-            continue;
+        if (!strcmp(argv[i], "--bytecode")) {
+            if (i + 1 >= argc) { usage(stderr); return 2; }
+            return run_bytecode(argv[i + 1],
+                                (const char *const *)argv + i + 2, argc - i - 2);
+        }
+        if (!strcmp(argv[i], "--compile")) {
+            if (i + 1 >= argc) { usage(stderr); return 2; }
+            const char *out = NULL;
+            if (i + 3 < argc && !strcmp(argv[i + 2], "-o")) out = argv[i + 3];
+            else if (i + 3 <= argc && !strcmp(argv[i + 2], "-o") && i + 3 >= argc) { usage(stderr); return 2; }
+            return compile_to_file(argv[i + 1], out);
         }
         if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--version")) {
             printf("%s\n", QZ_CLI_VERSION);

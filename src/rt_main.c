@@ -482,6 +482,7 @@ int main(int argc, char **argv)
     int parent_fd = -1;
     int worker_id = 0;
     const char *script_path = NULL;
+    const char *bytecode_path = NULL;   /* --bytecode：预编译初始字节码 */
     int is_server = 0;          /* M-P2：主RT serve 形态 */
     int is_worker = 0;
     int worker_backend = -1;    /* --worker-backend；-1 = 编译缺省 */
@@ -512,6 +513,8 @@ int main(int argc, char **argv)
             }
         } else if (strcmp(argv[i], "--script") == 0 && i + 1 < argc) {
             script_path = argv[++i];
+        } else if (strcmp(argv[i], "--bytecode") == 0 && i + 1 < argc) {
+            bytecode_path = argv[++i];
         } else if (strcmp(argv[i], "--path") == 0 && i + 1 < argc) {
             /* §8.2：完整 path 链（逗号分隔），由直接父在 spawn 时拼好传入——
              * 父知自身 path 与本节点本地槽位 id。 */
@@ -540,7 +543,7 @@ int main(int argc, char **argv)
                 "qzjs-rt: usage:\n"
                 "  qzjs-rt --qzjs-worker    --parent-fd N --worker-id K [--script PATH]\n"
                 "  qzjs-rt --qzjs-rt-server --parent-fd N [--script PATH]"
-                " [--worker-backend process|thread]\n");
+                " [--bytecode PATH] [--worker-backend process|thread]\n");
         return 1;
     }
 
@@ -566,6 +569,32 @@ int main(int argc, char **argv)
          * removing the directory entry is race-free, and this runs before the
          * handshake so the parent's success path never leaks the file. */
         unlink(script_path);
+    }
+
+    /* 字节码（二进制）：与脚本同临时文件机制，读为裸字节。 */
+    uint8_t *bytecode = NULL;
+    size_t bytecode_len = 0;
+    if (bytecode_path) {
+        FILE *f = fopen(bytecode_path, "rb");
+        if (!f) {
+            fprintf(stderr, "qzjs-rt: cannot open bytecode: %s\n", bytecode_path);
+            free(script);
+            return 1;
+        }
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (sz < 0) { fclose(f); free(script); return 1; }
+        bytecode = (uint8_t *)malloc((size_t)sz);
+        if (!bytecode) { fclose(f); free(script); return 1; }
+        if (fread(bytecode, 1, (size_t)sz, f) != (size_t)sz) {
+            fprintf(stderr, "qzjs-rt: bytecode read error\n");
+            fclose(f); free(bytecode); free(script);
+            return 1;
+        }
+        fclose(f);
+        bytecode_len = (size_t)sz;
+        unlink(bytecode_path);   /* 同 script：读毕即删（C1） */
     }
 
     /* ── Handshake (child sends first, §3.3) ── */
@@ -756,10 +785,10 @@ int main(int argc, char **argv)
     if (is_server) rt->ipc_channel_pipe = &g_parent_pipe;
 
     if (is_server) {
-        /* ── 主RT 形态：eval 初始脚本（宿主 config.initial_script，经临时文件
-         * 传入）→ 回 CONTROL{ready}。旧 thread 后端的 ready_err 语义搬到这里：
-         * 初始脚本抛异常 = 运行时起不来，宿主 qz_create 必须返回失败（不静默
-         * 降级，§5.3）。 */
+        /* ── 主RT 形态：eval 初始程序（宿主 initial_bytecode 或
+         * initial_script，经临时文件传入）→ 回 CONTROL{ready}。旧 thread 后端
+         * 的 ready_err 语义搬到这里：初始程序抛异常 = 运行时起不来，宿主
+         * qz_create 必须返回失败（不静默降级，§5.3）。 */
         int ready_ok = 1;
         if (script) {
             char *err = NULL;
@@ -771,6 +800,19 @@ int main(int argc, char **argv)
             }
             free(script);
             script = NULL;
+        }
+        /* 字节码在脚本之后 eval（同 qzjs.h 语义：脚本装 bootstrap，
+         * 字节码跑主程序）。 */
+        if (ready_ok && bytecode) {
+            char *err = NULL;
+            if (qz_eval_bytecode_internal(rt, bytecode, bytecode_len, &err) != 0) {
+                fprintf(stderr, "qzjs-rt: initial bytecode error: %s\n",
+                        err ? err : "?");
+                free(err);
+                ready_ok = 0;
+            }
+            free(bytecode);
+            bytecode = NULL;
         }
         if (qz_ipc_child_emit_ctl(ready_ok ? QZ_IPC_CTL_READY_OK
                                              : QZ_IPC_CTL_READY_ERR) < 0) {
@@ -836,9 +878,12 @@ int main(int argc, char **argv)
     g_rx.buf = NULL;
     free(w);
     free(rt);
+    free(bytecode);
+    free(script);
     return 0;
 
 fail:
+    free(bytecode);
     free(script);
     if (g_rx.buf) { free(g_rx.buf); g_rx.buf = NULL; }
     free(w);

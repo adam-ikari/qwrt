@@ -7,7 +7,7 @@
  *   3. 聚合 — 全部 worker 回包后，父线程汇总结果并输出
  *
  * 运行（仓库根，worker 脚本路径按相对 cwd 解析）：
- *   ./build-ws/qzjs examples/worker-orchestrate/orchestrate.js
+ *   ./build/qzjs examples/worker-orchestrate/orchestrate.js
  *
  * 依赖的能力（qzjs 内置）：
  *   new Worker('file://...')   — 真线程 worker（仅支持 file://）

@@ -97,6 +97,25 @@ async function getUser() {
 
 `qzjs.storage.*` 解析到运行时自有的内存键值映射（在 `uv_io.c` 中实现，首次使用时惰性分配，默认容量 128 条）。只有一种实现且无持久化 — 存储仅在运行时存活期间存在，重启后丢失。你依赖的键应在启动时（重新）初始化（例如在 `initial_script` 中）。
 
+
+## localStorage / sessionStorage
+
+qzjs 同时暴露标准 Web Storage 全局 `localStorage` 与 `sessionStorage`
+（首次访问时惰性安装）。与 `qzjs.storage`（内存态、每运行时）不同，
+`localStorage` **跨运行时重启持久化**——由磁盘文件支撑（默认
+`~/.qzjs/localstorage.json`），而 `sessionStorage` 是每运行时的副本。
+
+```js
+localStorage.setItem('token', 'abc123');   // 运行时销毁后仍存在
+const v = localStorage.getItem('token');   // 'abc123'
+
+sessionStorage.setItem('temp', 'x');        // 运行时销毁后消失
+```
+
+两者都支持标准 `getItem` / `setItem` / `removeItem` / `clear` 方法以及
+`length` / `key(i)` 枚举。需要跨越运行时生命周期的状态用 `localStorage`；
+临时的进程内键值对用 `qzjs.storage`。
+
 ## 注意事项
 
 - 存储是**每个上下文独立的**——不同上下文可以有不同的键值存储

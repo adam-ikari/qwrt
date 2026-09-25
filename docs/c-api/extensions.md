@@ -40,10 +40,14 @@ Extensions are registered at **build time** via the `QZ_EXTENSIONS` macro (defin
 A parent project adds custom extensions by overriding `QZ_EXTENSIONS` before including the qzjs subdirectory:
 
 ```cmake
-set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS, &my_extension")
+set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS &my_extension")
 set(QZ_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
 add_subdirectory(deps/qzjs)
 ```
+
+Use a **space**, not a comma, before `&my_extension`: `QZ_DEFAULT_EXTENSIONS`
+already ends in a trailing comma, so `"QZ_DEFAULT_EXTENSIONS, &my_extension"`
+expands to an empty array element and fails to compile.
 
 ## Built-in Extensions
 

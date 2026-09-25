@@ -10,7 +10,7 @@
  *   5. 安全    — 路径穿越防护 + 404 / 500 处理
  *
  * 运行：
- *   ./build-ws/qzjs examples/httpserver/server.js
+ *   ./build/qzjs examples/httpserver/server.js
  *
  * 依赖的能力（qzjs 内置）：
  *   serve({port}, handler)            — HTTP 监听 + 回复

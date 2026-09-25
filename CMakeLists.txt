@@ -778,7 +778,7 @@ if(DEFINED QZ_EXTRA_HEADERS)
 endif()
 
 # Let a parent project override the extension set at build time. The value is a
-# macro expression (e.g. "QZ_DEFAULT_EXTENSIONS, &my_foo_ext") resolved by
+# macro expression (e.g. "QZ_DEFAULT_EXTENSIONS &my_foo_ext") resolved by
 # qz_ext_registry.h at compile time. context.c #includes that header, so
 # QZ_DEFAULT_EXTENSIONS is available even in an override.
 if(DEFINED QZ_EXTENSIONS)

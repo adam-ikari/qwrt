@@ -20,6 +20,9 @@ qz_t *qz_create(const qz_config_t *config);
 | `config.message_cb` | `void (*)(qz_t *, const char *, size_t, void *)` | 出站消息回调；在 qzjs 线程上触发，必须线程安全 |
 | `config.debug` | `int` | 启用调试输出（0 或 1） |
 | `config.host_data` | `void *` | 每个运行时的不透明指针，扩展可读取；作为 `data` 参数传给 `message_cb` |
+| `config.initial_script_path` | `const char *` | 从文件读取并求值的 JS，替代 `initial_script`；两者都设时优先 |
+| `config.initial_bytecode` | `const uint8_t *` | 预编译字节码（来自 `qz_compile`），在初始脚本之后求值 |
+| `config.initial_bytecode_len` | `size_t` | `initial_bytecode` 的字节长度 |
 
 **`qz_create` 内部做了什么：**
 
@@ -28,6 +31,7 @@ qz_t *qz_create(const qz_config_t *config);
 3. 注册编译期扩展集（`QZ_EXTENSIONS` 表）
 4. 将 WinterTC 兼容运行时注入初始上下文
 5. 在内部线程上求值 `initial_script`
+6. 初始脚本之后，若设置了 `initial_bytecode` 则求值预编译字节码
 
 **线程模型：** 所有 JS 在 qzjs 的内部线程上运行；宿主发送消息（`qz_post_message`，线程安全）并通过 `message_cb` 接收。
 
@@ -42,6 +46,26 @@ void qz_destroy(qz_t *rt);
 ```c
 qz_destroy(rt);
 ```
+
+## `qz_compile`
+
+```c
+int qz_compile(const char *source, size_t len, const char *filename,
+               uint8_t **out, size_t *out_len, char **err);
+```
+
+把 JS 源码编译为字节码 blob。独立函数——无需运行时实例。
+成功返回 0（`*out` 为 malloc 缓冲，用 `qz_free` 释放；`*out_len` 为长度）；
+失败返回 -1（`*err` 为 malloc 错误串，`qz_free` 释放）。`filename` 仅用于
+错误/栈帧命名，可为 `NULL`。
+
+字节码在启动时经 `qz_config_t.initial_bytecode` /
+`initial_bytecode_len` 运行，或 CLI `qzjs --bytecode file.bc`。
+
+**兼容性不保证：** 字节码与 qzjs 的具体构建绑定（引擎版本、序列化格式、
+编译选项）。不同构建产出的字节码会让 `qz_create` 以
+`SyntaxError: invalid version` 失败。请分发源码并在部署环境按目标构建编译。
+见[字节码编译](/zh/guide/bytecode)。
 
 ## 宿主数据
 

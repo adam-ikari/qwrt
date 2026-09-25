@@ -58,8 +58,9 @@ qz_t *qz_create(const qz_config_t *config)
     if (!rt) return NULL;
     rt->magic = QZ_MAGIC;
     rt->config = *config;
-    /* 初始化脚本二选一：initial_script_path（文件）优先读文件内容，
-     * 否则 initial_script（内联字符串）。读文件失败 → qz_create 返回 NULL。 */
+    /* 初始化：initial_script / initial_script_path 二选一（path 优先）；
+     * initial_bytecode 独立叠加——运行顺序为先脚本（宿主 bootstrap 等）后
+     * 字节码。全部拷入 malloc 缓冲（destroy 释放），宿主缓冲可提前释放。 */
     if (config->initial_script_path) {
         rt->config.initial_script = qz_read_file(config->initial_script_path, NULL);
         if (!rt->config.initial_script) {
@@ -68,6 +69,21 @@ qz_t *qz_create(const qz_config_t *config)
         }
     } else if (config->initial_script) {
         rt->config.initial_script = strdup(config->initial_script);
+    }
+    if (config->initial_bytecode) {
+        /* 指针一旦设置即归 rt 所有（拷贝），len==0 也不例外——否则
+         * rt->config.initial_bytecode 悬挂在宿主缓冲上，destroy 的 free
+         * 会 double-free（实测空文件 → glibc abort）。 */
+        size_t n = config->initial_bytecode_len;
+        uint8_t *bc = (uint8_t *)malloc(n ? n : 1);
+        if (!bc) {
+            free((void *)rt->config.initial_script);
+            free(rt);
+            return NULL;
+        }
+        if (n) memcpy(bc, config->initial_bytecode, n);
+        rt->config.initial_bytecode = bc;
+        rt->config.initial_bytecode_len = n;
     }
     /* lock-free MPSC queue: head == tail == sentinel (calloc zeroed stub's q.next) */
     rt->msg_head = &rt->msg_stub;
@@ -81,6 +97,7 @@ qz_t *qz_create(const qz_config_t *config)
      * 不降级到线程后端（§5.3）。C API 契约不变：宿主见到的仍是一个 qz_t。 */
     if (qz_host_start(rt) != 0) {
         free((void *)rt->config.initial_script);
+        free((void *)rt->config.initial_bytecode);
         free(rt);
         return NULL;
     }
@@ -88,6 +105,7 @@ qz_t *qz_create(const qz_config_t *config)
 #else
     if (uv_thread_create(&rt->thread, qz_thread_main, rt) != 0) {
         free((void *)rt->config.initial_script);
+        free((void *)rt->config.initial_bytecode);
         free(rt);
         return NULL;
     }
@@ -150,6 +168,7 @@ void qz_destroy(qz_t *rt)
     if (!__atomic_load_n(&rt->thread_joined, __ATOMIC_ACQUIRE))
         uv_thread_join(&rt->thread);   /* 等线程 teardown 完成 */
     free((void *)rt->config.initial_script);
+    free((void *)rt->config.initial_bytecode);
     free(rt);
 #endif
 }
@@ -160,7 +179,90 @@ void  qz_free(void *ptr) {
     if (!ptr) return;
     qz_t *rt = (qz_t *)ptr;
     free((void *)rt->config.initial_script);
+    free((void *)rt->config.initial_bytecode);
     free(ptr);
+}
+/* ================================================================
+ * qz_compile — 宿主侧字节码编译（独立，无需运行时实例）
+ * ================================================================ */
+
+int qz_compile(const char *source, size_t len, const char *filename,
+               uint8_t **out, size_t *out_len, char **err)
+{
+    if (err) *err = NULL;
+    if (out) *out = NULL;
+    if (out_len) *out_len = 0;
+    if (!source || !out || !out_len) {
+        if (err) *err = strdup("qz_compile: bad arguments");
+        return -1;
+    }
+
+    /* 一次性 JSRuntime/JSContext：与运行实例同引擎构建（同一份链接的
+     * quickjs-ng），字节码格式天然匹配；编译后即弃，不触碰任何 qz_t。 */
+    JSRuntime *jsrt = JS_NewRuntime();
+    if (!jsrt) {
+        if (err) *err = strdup("qz_compile: out of memory");
+        return -1;
+    }
+    JSContext *ctx = JS_NewContext(jsrt);
+    if (!ctx) {
+        JS_FreeRuntime(jsrt);
+        if (err) *err = strdup("qz_compile: out of memory");
+        return -1;
+    }
+
+    /* 与 qz_eval_internal 对齐：恒为全局脚本（qzjs 的初始程序不支持
+     * ES module —— 含 import/export 的源请走源码路径自带报错）。 */
+    JSValue obj = JS_Eval(ctx, source, len,
+                          filename ? filename : "<compile>",
+                          JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_COMPILE_ONLY);
+    if (JS_IsException(obj)) {
+        if (err) {
+            JSValue exc = JS_GetException(ctx);
+            const char *msg = JS_ToCString(ctx, exc);
+            *err = msg ? strdup(msg) : NULL;
+            if (msg) JS_FreeCString(ctx, msg);
+            JS_FreeValue(ctx, exc);
+        }
+        JS_FreeContext(ctx);
+        JS_FreeRuntime(jsrt);
+        return -1;
+    }
+
+    size_t sz = 0;
+    uint8_t *bc = JS_WriteObject(ctx, &sz, obj, JS_WRITE_OBJ_BYTECODE);
+    JS_FreeValue(ctx, obj);
+    if (!bc) {
+        if (err) {
+            JSValue exc = JS_GetException(ctx);
+            const char *msg = JS_ToCString(ctx, exc);
+            *err = msg ? strdup(msg) : NULL;
+            if (msg) JS_FreeCString(ctx, msg);
+            JS_FreeValue(ctx, exc);
+        }
+        JS_FreeContext(ctx);
+        JS_FreeRuntime(jsrt);
+        return -1;
+    }
+
+    /* JS_WriteObject 缓冲走 js_malloc（引擎分配器）；拷到宿主 malloc 块，
+     * 让 qz_free（普通 free）安全释放，避免分配器语义耦合。 */
+    uint8_t *copy = (uint8_t *)malloc(sz ? sz : 1);
+    if (!copy) {
+        js_free(ctx, bc);
+        JS_FreeContext(ctx);
+        JS_FreeRuntime(jsrt);
+        if (err) *err = strdup("qz_compile: out of memory");
+        return -1;
+    }
+    memcpy(copy, bc, sz);
+    js_free(ctx, bc);
+    JS_FreeContext(ctx);
+    JS_FreeRuntime(jsrt);
+
+    *out = copy;
+    *out_len = sz;
+    return 0;
 }
 
 /* ================================================================

@@ -7,7 +7,12 @@ description: 可运行示例——演示如何使用 qzjs：host↔JS 消息、W
 
 所有示例都在 [`examples/`](https://github.com/adam-ikari/qzjs/tree/master/examples)，
 构建时做编译校验（`-DQZ_BUILD_EXAMPLES=ON`）。C 示例由 CMake 构建；JS 示例经
-`qzjs` CLI 运行。
+`qzjs` CLI 运行。每个示例目录都有 `README.md`，写明精确运行命令与期望输出。
+
+> 示例请用 **Release** 构建运行。`QZ_BUILD_TESTS=ON` 的构建把核心链到
+> `mock_libuv`，其空闲路径阻塞在固定 1 秒轮询兜底上，而非在定时器到期时刻
+> 唤醒——定时器因此被量化到整秒。`timers` 会打印出错误的耗时。
+> 生产/Release 构建用真 libuv，不受影响。
 
 ## 构建
 

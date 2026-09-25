@@ -35,7 +35,10 @@ qz_t *rt = qz_create(&cfg);   // 阻塞直到就绪
 
 喂给运行时初始脚本有三种方式：
 
-- **`initial_script`** —— 小字符串，适合引导逻辑。qzjs 在内部把自身的 WinterTC polyfill 编译为字节码；宿主以源码提供 JS，而非字节码 blob（见 [字节码](/zh/guide/bytecode)）
+- **`initial_script`** —— 小字符串，适合引导逻辑。qzjs 在内部把自身的
+  WinterTC polyfill 编译为字节码。预编译字节码也可叠加：设置
+  `initial_bytecode` 在脚本之后运行 `qz_compile()` 产物（字节码与构建绑定，
+  见 [字节码](/zh/guide/bytecode)）
 - **`initial_script_path`** —— 指向磁盘上 JS 文件的路径；qz_create 时读取并求值。适合脚本以文件形式部署的场景。两者都设时 `initial_script_path` 优先；文件不存在则 `qz_create` 返回 `NULL`
 - **`qz_post_message`** —— 创建后一切由消息驱动
 

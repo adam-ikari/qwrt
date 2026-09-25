@@ -5,13 +5,15 @@
  * 上下文创建时运行，可用 QuickJS API 注册全局（qz_get_active_jsctx 是
  * 内部辅助，声明于 src/qz_internal.h，仅编译进 qzjs 的扩展可用）。
  *
- * 构建（扩展必须编译进 qzjs 库，非独立可执行）：
- *   cmake -B build -DQZ_EXTRA_SOURCES=examples/extension/extension.c \
- *                   -DQZ_EXTENSIONS="QZ_DEFAULT_EXTENSIONS,&greet_ext" ..
- *   cmake --build build
- * 运行：
- *   ./build/qzjs -e 'greet("qzjs"); greet(42)'
- *   # → Hello, qzjs!   Hello, 42!
+ * 构建（扩展必须编译进 qzjs 库，非独立可执行；在仓库根执行）：
+ *   cmake -B build_ext -DCMAKE_BUILD_TYPE=Release \
+ *         -DQZ_EXTRA_SOURCES="$(pwd)/examples/extension/extension.c" \
+ *         -DQZ_EXTRA_HEADERS="$(pwd)/examples/extension/greet_ext.h" \
+ *         -DQZ_EXTENSIONS="QZ_DEFAULT_EXTENSIONS &greet_ext"
+ *   cmake --build build_ext --parallel
+ * 运行（-e 丢弃表达式值，需自行 console.log）：
+ *   ./build_ext/qzjs -e 'console.log(greet("qzjs"), greet(42))'
+ *   # → Hello, qzjs! Hello, 42!
  */
 #include <qzjs/qzjs.h>
 #include <quickjs.h>

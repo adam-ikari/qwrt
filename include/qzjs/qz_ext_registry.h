@@ -6,8 +6,11 @@
  *   - QZ_EXTENSIONS expands to a comma-separated list of `const qz_ext_t *`
  *     (a NULL slot is a disabled built-in, skipped at init). Order = register
  *     order. Trailing comma optional (C99 allows it).
+ *   - QZ_DEFAULT_EXTENSIONS itself ends in a trailing comma, so append with a
+ *     SPACE, never a comma — "QZ_DEFAULT_EXTENSIONS, &my_foo_ext" expands to
+ *     "ptr, , &my_foo_ext", an empty array element and a C99 compile error.
  *   - A parent project overrides it non-invasively via CMake:
- *       set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS, &my_foo_ext")
+ *       set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS &my_foo_ext")
  *       add_subdirectory(deps/qzjs)
  *     or on the command line: -DQZ_EXTENSIONS="&qz_compress_ext".
  *   - QZ_WITH_* (CMake) controls whether an extension's CODE is compiled into

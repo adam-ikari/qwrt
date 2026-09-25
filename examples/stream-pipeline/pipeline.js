@@ -12,7 +12,7 @@
  *   4. for await        — 用 async iterator 消费最终流
  *
  * 运行（仓库根）：
- *   ./build-ws/qzjs examples/stream-pipeline/pipeline.js
+ *   ./build/qzjs examples/stream-pipeline/pipeline.js
  *
  * 依赖的能力（qzjs 内置）：
  *   ReadableStream / TransformStream / pipeThrough / Symbol.asyncIterator

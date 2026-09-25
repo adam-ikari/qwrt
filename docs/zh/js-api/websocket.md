@@ -9,7 +9,7 @@ qzjs 提供 WebSocket 的客户端和服务端：
 
 - **客户端**：全局 `WebSocket` 类（RFC 6455 客户端，跑在裸 TCP 上）
 - **服务端**：在 `serve()` 监听器上注册的 WebSocket 路由（见
-  [serve → WebSocket 路由](/zh/js-api/serve#websocket-routes)）
+  [serve → WebSocket 路由](/zh/js-api/serve#websocket-路由)）
 
 ## 全局
 
@@ -47,7 +47,7 @@ serve({
 
 每个路由收到一个已连接的 `ws` 对象，路由为其注册 `onmessage` / `onclose`
 处理。完整路由表形态（含子协议协商）见
-[serve → WebSocket 路由](/zh/js-api/serve#websocket-routes)。
+[serve → WebSocket 路由](/zh/js-api/serve#websocket-路由)。
 
 ## 说明
 

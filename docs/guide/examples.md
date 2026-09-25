@@ -7,7 +7,14 @@ description: Runnable examples demonstrating how to use qzjs — host↔JS messa
 
 Every example lives in [`examples/`](https://github.com/adam-ikari/qzjs/tree/master/examples) and is
 compile-checked at build time (`-DQZ_BUILD_EXAMPLES=ON`). C examples are
-built by CMake; JS examples run via the `qzjs` CLI.
+built by CMake; JS examples run via the `qzjs` CLI. Each example directory
+has a `README.md` with its exact run command and expected output.
+
+> Run examples against a **Release** build. A `QZ_BUILD_TESTS=ON` build links
+> the core against `mock_libuv`, whose idle path blocks in a fixed 1-second
+> poll fallback instead of waking at the timer's due time — timers therefore
+> fire quantized to whole seconds. `timers` will print wrong elapsed times
+> there. Production/Release builds use real libuv and are unaffected.
 
 ## Building
 

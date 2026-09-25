@@ -1,6 +1,6 @@
 ---
 title: 字节码编译
-description: qzjs 如何在内部用字节码（qjsc）加速启动 — 以及为什么没有公开的宿主侧字节码加载 API。
+description: 宿主可把 JS 编译为字节码（qz_compile / qzjs --compile）并在启动时运行 — 注意字节码不保证跨 qzjs 版本兼容。
 ---
 
 # 字节码编译
@@ -9,33 +9,57 @@ qzjs 在构建时用 `qjsc` 编译器把自己的 JavaScript（WinterTC polyfill
 worker 启动脚本）**预编译为字节码**。加载字节码完全
 跳过解析，从而加快启动并缩小发布体积。
 
-## 内部用途
+宿主可以用同一套机制处理自己的程序。
 
-构建流水线把 polyfill 源码编译成字节码并嵌入二进制：
+## 编译字节码
 
-```bash
-# qzjs 的构建对 WinterTC polyfill 与 worker 启动脚本执行此操作
-qjsc -c polyfill.js -o polyfill_bytecode.c
+C API：
+
+```c
+#include <qzjs/qzjs.h>
+
+char *err = NULL;
+uint8_t *bc = NULL;
+size_t bc_len = 0;
+if (qz_compile(source, source_len, "app.js", &bc, &bc_len, &err) != 0) {
+    /* err：malloc 的错误串，qz_free 释放 */
+}
+/* ... 分发 / 持久化 bc ... */
+qz_free(bc);
 ```
 
-运行时在内部线程上求值嵌入的字节码，而非解析源码。这是 qzjs 内部的优化 —
-字节码由 qzjs 自己的源码生成，从不暴露给宿主。
+CLI：
 
-## 没有公开字节码 API
+```bash
+qzjs --compile app.js -o app.bc
+```
 
-`qzjs.h` 中**没有**公开的 `qz_compile` / `qz_eval_bytecode`，`qzjs` CLI
-也没有字节码选项。宿主不能把字节码 blob 交给 qzjs 执行；JS 以源码形式通过
-`initial_script`、消息或 `new Worker(url)` 脚本提供给运行时（见
-[JS 执行](/zh/guide/execution)）。
+## 运行字节码
 
-唯一的字节码求值入口是内部的
-（`qz_eval_bytecode_internal`，位于 `src/qz_internal.h`），供 qzjs
-自身运行时与编译进 qzjs 的 C 扩展使用。如果你在编写这样的扩展可以使用它；
-普通宿主嵌入无法使用。
+两种方式，都在 `initial_script` 之后求值（因此引导脚本与预编译主程序可以
+叠加使用）：
 
-## 字节码何时仍对你有帮助
+- **C API** —— 在 `qz_create` 前设置 `qz_config_t.initial_bytecode` /
+  `initial_bytecode_len`。
+- **CLI** —— `qzjs --bytecode app.bc [args...]`（脚本参数照常可用，经 CLI
+  的 bootstrap 传入）。
 
-如果启动延迟重要，你并不需要字节码 — 在 `initial_script` 中放一个小子脚本，
-让 qzjs 预编译的 polyfill 承担成本。对于更大的应用脚本，比起手工调字节码，
-更推荐把它们打包成单个文件（或 `new Worker` 脚本），因为公开接口没有
-字节码路径。
+失败语义与 `initial_script` 一致：损坏或不兼容的字节码使 `qz_create`
+返回 `NULL`（CLI：非零退出，引擎错误打到 stderr）。
+
+## 字节码兼容性不保证
+
+字节码与 qzjs 的**具体构建**强绑定——内嵌引擎版本、序列化格式（含版本字节
+与校验和）以及编译选项。**一个构建产出的字节码不保证能在另一个构建上加载。**
+运行时对不兼容的字节码显式拒绝（如
+`SyntaxError: invalid version (28 expected=28)`），绝不静默回退到源码。
+
+推荐做法：分发**源码**，在部署环境的目标 qzjs 构建上编译（
+`qzjs --compile`）。仅在与运行时二进制同构建来源的受控部署中直接分发
+预编译字节码。同一内嵌引擎版本的 `qjsc -b` 产物也可加载，但版本必须与
+qzjs 一致。
+
+## 内部用途
+
+构建流水线把 polyfill 源码编译成字节码并嵌入二进制（同一 `qjsc` 流程，
+构建期完成）。运行时在内部线程上求值嵌入的字节码，而非解析源码。

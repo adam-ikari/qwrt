@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-24T00:20:36.528Z._
+_Auto-generated. Last updated 2026-09-25T15:02:14.114Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [bc-reader-hardening](pages/bc-reader-hardening.md) — category: decision | tags: [fuzz, quickjs, bytecode, security] | ## 字节码读取器加固（untrusted stream 防御）
@@ -17,6 +17,7 @@ _Auto-generated. Last updated 2026-09-24T00:20:36.528Z._
 - [fetch-proxy-support](pages/fetch-proxy-support.md) — category: decision | tags: [fetch, proxy, connect, tls, uv_io] | - **背景**：B2「fetch 完善」剩余项「代理」—— 出站 fetch 需要能走公司/环境 HTTP 代理。
 - [fetch-request-body-bytes](pages/fetch-request-body-bytes.md) — category: decision | tags: [fetch, wintertc, http, polyfill] | - **背景**：`fetch(url, {body})` 请求体此前在 JS 层被 `String()` 强转，二进制（Uint8Array/ArrayBuffer）与流式 body（ReadableStream）语义丢失；C 桥接层 `http_request_stream`
 - [full-project-review-2026-09](pages/full-project-review-2026-09.md) — category: project | tags: [review, quality, security, ci, docs] | 六维全量评审（2026-09-23，静态核查 + 关键项亲自复现验证）。
+- [host-bytecode-api](pages/host-bytecode-api.md) — category: decision | tags: [bytecode, host-api, compatibility] | ## 场景加固（2026-09-25 续测）
 - [httpserver-perf-baseline](pages/httpserver-perf-baseline.md) — category: decision | tags: [httpserver, perf, serve] | M2-D3 连接生命周期完成：
 - [httpserver-perf-benchmark](pages/httpserver-perf-benchmark.md) — category: decision | ### Phase 4 优化（2026-08-19，分支 phase4-httpserver-perf）
 - [httpserver-streaming-body](pages/httpserver-streaming-body.md) — category: decision | tags: [http-server, streaming, serve] | D2 请求体流式（破坏性 API 变更）：serve() 的 req.body 从同步字符串改为 ReadableStream（Web 标准语义），新增 req.text()/req.arrayBuffer() 异步读取。
@@ -29,6 +30,7 @@ _Auto-generated. Last updated 2026-09-24T00:20:36.528Z._
 - [polyfill-bundling-policy](pages/polyfill-bundling-policy.md) — category: decision | tags: [polyfill, bundling, memory] | ## 启动加速决策链（2026-09-10 用户拍板）
 - [quickjs-upstream-merge-strategy](pages/quickjs-upstream-merge-strategy.md) — category: decision | tags: [build, upstream] | ## 现状
 - [qzjs-positioning](pages/qzjs-positioning.md) — category: decision | # qzjs 定位（用户拍板 2026-09-09，2026-09-10 更新）
+- [qz-extensions-override](pages/qz-extensions-override.md) — category: decision | tags: [build, extensions, cmake] | - QZ_EXTENSIONS 是编译期扩展注册表（include/qzjs/qz_ext_registry.h），值是一个 C 宏表达式，展开成逗号分隔的 `const qz_ext_t *` 列表。
 - [rename-argparser-regression](pages/rename-argparser-regression.md) — category: decision | tags: [test, regression, rename] | <current best understanding — replace this with the real content>
 - [runtime-perf-baseline](pages/runtime-perf-baseline.md) — category: reference | tags: [perf, worker, runtime, baseline] | > **测试策略（2026-09-09 用户拍板）：性能基准一律在 CI 环境（GitHub Actions ubuntu-latest）执行，不使用本机。
 - [service-worker-stack](pages/service-worker-stack.md) — category: decision | # Service Worker 栈（SW-0/1/2/3）

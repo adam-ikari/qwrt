@@ -12,14 +12,14 @@ qzjs 只提供原语），本地即可跑通，无需外部代理软件。
 
 ```bash
 # 构建产物（仓库根已有则跳过）
-cmake -S . -B build_rel -DCMAKE_BUILD_TYPE=Release && cmake --build build_rel -j
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 
 # 终端 1：启动转发代理（干净环境启动，模拟网络中的代理）
-./build_rel/qzjs examples/fetch-proxy/main.js proxy 18082
+./build/qzjs examples/fetch-proxy/main.js proxy 18082
 
 # 终端 2：启动客户端 + 本地源站（带代理环境变量）
 HTTP_PROXY=http://127.0.0.1:18082 NO_PROXY=127.0.0.1,example.com \
-  ./build_rel/qzjs examples/fetch-proxy/main.js client
+  ./build/qzjs examples/fetch-proxy/main.js client
 ```
 
 客户端跑完自动退出；代理 `Ctrl-C` 停止。端口可换（ORIGIN_PORT 固定

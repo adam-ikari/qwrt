@@ -100,14 +100,17 @@ visible to `context.c`) and append it to `QZ_EXTENSIONS`:
 
 ```cmake
 # In the parent project's CMakeLists.txt, before add_subdirectory(qzjs):
-set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS, &my_extension")
+set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS &my_extension")
 set(QZ_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
 add_subdirectory(deps/qzjs)
 ```
 
 `QZ_EXTRA_SOURCES` adds the source to the `qzjs` target; `QZ_EXTENSIONS`
-overrides the table to append `&my_extension` after the default set. To **trim**
-a built-in, list only the entries you want instead of `QZ_DEFAULT_EXTENSIONS`.
+overrides the table to append `&my_extension` after the default set. Note the
+**space** separator: `QZ_DEFAULT_EXTENSIONS` already ends in a trailing comma,
+so a comma here would produce an empty array element (`ptr, , &my_extension`)
+and a C99 compile error. To **trim** a built-in, list only the entries you want
+instead of `QZ_DEFAULT_EXTENSIONS`.
 
 ## Lifecycle Hooks
 

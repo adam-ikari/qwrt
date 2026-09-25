@@ -16,10 +16,15 @@ typedef struct qz_t qz_t;
 
 typedef struct qz_config_s {
     /* 主 context 启动时在 qzjs 线程上 eval；抛异常 → qz_create 返回 NULL。
-     * 初始化脚本二选一：initial_script（内联 JS 字符串）或
-     * initial_script_path（从文件路径加载，优先——同时提供时用文件）。 */
+     * initial_script（内联 JS）与 initial_script_path（文件，优先）二选一；
+     * initial_bytecode 独立叠加——两者都设置时先跑脚本再跑字节码（宿主可
+     * 用脚本装 bootstrap，再执行预编译主程序）。字节码由 qz_compile 产出
+     * （或与本构建相同的 qjsc -b）；与引擎版本强绑定，跨 qzjs 版本不保证
+     * 兼容。各缓冲在 qz_create 返回前保持有效（内部已拷贝）。 */
     const char *initial_script;
     const char *initial_script_path;
+    const uint8_t *initial_bytecode;
+    size_t         initial_bytecode_len;
     /* 出站消息回调：跑在 qzjs 线程，必须线程安全。nullptr 表示宿主不接收消息。 */
     void (*message_cb)(qz_t *rt, const char *json, size_t len, void *data);
     int  debug;                      /* 沿用 DAP bit 语义 */
@@ -37,6 +42,17 @@ typedef struct qz_config_s {
      * M-P2 起 ISOLATED 编译缺省 PROCESS（编译模型驱动缺省，§1.4）。 */
     int worker_backend;              /* qz_worker_backend_t 值 */
 } qz_config_t;
+
+/* 把 JS 源码编译为字节码 blob。独立函数（无需 qz_t/运行时）。
+ * 成功返回 0 并写 *out（malloc，qz_free 释放）与 *out_len；
+ * 失败返回 -1，*err（若非 NULL）为 malloc 错误串（qz_free 释放）。
+ * filename 仅用于错误定位（栈帧/报错），可 NULL。
+ *
+ * ⚠ 兼容性：字节码与本次构建的 qzjs（内嵌引擎版本、编译选项）强绑定，
+ * 不保证跨 qzjs 版本/跨构建可加载——版本不匹配时运行时会显式报错拒绝。
+ * 请在源码分发并在部署环境重编译，仅在受控部署中直接分发字节码。 */
+int qz_compile(const char *source, size_t len, const char *filename,
+               uint8_t **out, size_t *out_len, char **err);
 typedef enum {
     QZ_CONTROL_OFF = 0,     /* 默认：控制面关闭 */
     QZ_CONTROL_IN_PROC = 1, /* 进程内命令（msgq 路径） */

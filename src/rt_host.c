@@ -82,17 +82,18 @@ int qz_ping_path(qz_t *rt, const int32_t *path, int path_len,
 /* ── 初始脚本临时文件 ──
  * 与 M-P1 worker 脚本同机制：mkstemp 原子创建（无 TOCTOU），子进程读毕 unlink；
  * 本函数只负责写盘并交回路径，最后路径由调用方兜底 unlink（幂等）。 */
-static char *host_write_script(const char *code)
+static char *host_write_blob(const void *data, size_t len)
 {
-    if (!code) return NULL;
+    if (!data || !len) return NULL;
 
     char tmpl[] = "/tmp/qzjs-rt-script-XXXXXX";
     int fd = mkstemp(tmpl);
     if (fd < 0) return NULL;
 
-    size_t len = strlen(code), off = 0;
+    const char *p = (const char *)data;
+    size_t off = 0;
     while (off < len) {
-        ssize_t n = write(fd, code + off, len - off);
+        ssize_t n = write(fd, p + off, len - off);
         if (n < 0) {
             if (errno == EINTR) continue;
             close(fd);
@@ -106,6 +107,12 @@ static char *host_write_script(const char *code)
         return NULL;
     }
     return strdup(tmpl);
+}
+
+static char *host_write_script(const char *code)
+{
+    if (!code) return NULL;
+    return host_write_blob(code, strlen(code));
 }
 
 /* ── 入站回调（loop 线程）──
@@ -262,10 +269,22 @@ int qz_host_start(qz_t *rt)
         uv_loop_close(&rt->loop);
         return -1;
     }
+    /* 字节码与脚本独立叠加（先脚本后字节码，同 qzjs.h 语义）：各自写
+     * 临时文件，经 --script / --bytecode 传给主RT。 */
+    char *bc_tmp = NULL;
+    if (rt->config.initial_bytecode && rt->config.initial_bytecode_len) {
+        bc_tmp = host_write_blob(rt->config.initial_bytecode,
+                                 rt->config.initial_bytecode_len);
+        if (!bc_tmp) {
+            if (tmp) { unlink(tmp); free(tmp); }
+            uv_loop_close(&rt->loop);
+            return -1;
+        }
+    }
 
     char fd_arg[16];
     snprintf(fd_arg, sizeof fd_arg, "%d", QZ_IPC_CHANNEL_FD);
-    char *argv[14];
+    char *argv[16];
     int n = 0;
     argv[n++] = (char *)"qzjs-rt";
     argv[n++] = (char *)"--qzjs-rt-server";
@@ -278,9 +297,12 @@ int qz_host_start(qz_t *rt)
         argv[n++] = (char *)"--script";
         argv[n++] = tmp;
     }
+    if (bc_tmp) {
+        argv[n++] = (char *)"--bytecode";
+        argv[n++] = bc_tmp;
+    }
     /* CTL-2：控制面档位 + 端点路径传给主RT（runtime 在主RT 进程；宿主进程
-     * 只有通道桩，不监听端点）。路径以字符串字面量传入，argv 仅在 spawn
-     * 期间需要（qz_proc_spawn 同步 fork+exec）。 */
+     * 只有通道桩，不监听端点）。argv 仅在 spawn 期间需要（同步 fork+exec）。 */
     if (rt->config.control_plane == QZ_CONTROL_IN_PROC ||
         rt->config.control_plane == QZ_CONTROL_LOCAL) {
         argv[n++] = (char *)"--control-plane";
@@ -296,6 +318,7 @@ int qz_host_start(qz_t *rt)
     rt->proc = qz_proc_new();
     if (!rt->proc) {
         if (tmp) { unlink(tmp); free(tmp); }
+        if (bc_tmp) { unlink(bc_tmp); free(bc_tmp); }
         uv_loop_close(&rt->loop);
         return -1;
     }
@@ -304,7 +327,8 @@ int qz_host_start(qz_t *rt)
      * /proc/self/exe 同目录 → 编译期 QZ_RT_PATH）；找不到 = 显式失败。 */
     int rc = qz_proc_spawn(rt, rt->proc, NULL, argv,
                              QZ_IPC_ROLE_MAIN, QZ_IPC_MAIN_ID, 1);
-    if (tmp) { unlink(tmp); free(tmp); }   /* 子已读毕并 unlink；此处幂等兜底 */
+    if (tmp) { unlink(tmp); free(tmp); }     /* 子已读毕并 unlink；幂等兜底 */
+    if (bc_tmp) { unlink(bc_tmp); free(bc_tmp); }
     if (rc != 0) {        qz_proc_free(rt->proc);
         rt->proc = NULL;
         uv_loop_close(&rt->loop);

@@ -4,22 +4,31 @@
 
 ## 构建（扩展必须编译进 qzjs 库，不是独立可执行）
 
+在仓库根执行：
+
 ```bash
-cmake -B build \
+cmake -B build_ext \
+  -DCMAKE_BUILD_TYPE=Release \
   -DQZ_EXTRA_SOURCES="$(pwd)/examples/extension/extension.c" \
-  -DQZ_EXTENSIONS='QZ_DEFAULT_EXTENSIONS,&greet_ext' ..
-cmake --build build
+  -DQZ_EXTRA_HEADERS="$(pwd)/examples/extension/greet_ext.h" \
+  -DQZ_EXTENSIONS='QZ_DEFAULT_EXTENSIONS &greet_ext'
+cmake --build build_ext --parallel
 ```
 
 - `QZ_EXTRA_SOURCES`：把 `extension.c` 加进 `qzjs` 库的编译
+- `QZ_EXTRA_HEADERS`：把 `greet_ext.h` 预包含进 qzjs 库编译——`context.c`
+  展开 `QZ_EXTENSIONS` 表时需要看到 `extern qz_ext_t greet_ext` 声明
 - `QZ_EXTENSIONS`：把 `greet_ext`（`qz_ext_t`）加进编译期扩展表
 
 ## 运行
 
 ```bash
-./build/qzjs -e 'greet("qzjs"); greet(42)'
-# → Hello, qzjs!   Hello, 42!
+./build_ext/qzjs -e 'console.log(greet("qzjs")); console.log(greet(42))'
+# Hello, qzjs!
+# Hello, 42!
 ```
+
+`-e` 求值后丢弃表达式的值，所以要看到输出必须自己 `console.log`。
 
 ## 要点
 

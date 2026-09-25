@@ -56,6 +56,7 @@ const sidebar = {
         { text: 'Quick Start', link: '/guide/quickstart' },
         { text: 'Building', link: '/guide/building' },
         { text: 'Compatible Packages', link: '/guide/compatible-packages' },
+        { text: 'Standalone CLI', link: '/guide/cli' },
         { text: 'Examples', link: '/guide/examples' },
         { text: 'Use Cases', link: '/guide/use-cases' },
       ],
@@ -86,6 +87,14 @@ const sidebar = {
         { text: 'Testing', link: '/dev/testing' },
         { text: 'Debugging', link: '/dev/debugging' },
         { text: 'Website Guidelines', link: '/dev/website-guidelines' },
+      ],
+    },
+    {
+      text: 'Help',
+      items: [
+        { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+        { text: 'FAQ', link: '/guide/faq' },
+        { text: 'Security', link: '/guide/security' },
       ],
     },
   ],
@@ -123,6 +132,8 @@ const sidebar = {
         { text: 'EventSource', link: '/js-api/event-source' },
         { text: 'CacheStorage', link: '/js-api/cache-storage' },
         { text: 'Service Worker', link: '/js-api/service-worker' },
+        { text: 'Worker', link: '/js-api/worker' },
+        { text: 'CompressionStream', link: '/js-api/compress' },
       ],
     },
     {
@@ -166,6 +177,7 @@ const zhSidebar = {
         { text: '概览', link: '/zh/guide/' },
         { text: '快速上手', link: '/zh/guide/quickstart' },
         { text: '构建', link: '/zh/guide/building' },
+        { text: '独立 CLI', link: '/zh/guide/cli' },
         { text: '兼容包', link: '/zh/guide/compatible-packages' },
         { text: '示例', link: '/zh/guide/examples' },
         { text: '用例', link: '/zh/guide/use-cases' },
@@ -196,6 +208,14 @@ const zhSidebar = {
         { text: '嵌入模式', link: '/zh/guide/embedding' },
         { text: '测试', link: '/zh/dev/testing' },
         { text: '调试', link: '/zh/dev/debugging' },
+      ],
+    },
+    {
+      text: '帮助',
+      items: [
+        { text: '常见问题排查', link: '/zh/guide/troubleshooting' },
+        { text: '常见问题', link: '/zh/guide/faq' },
+        { text: '安全模型', link: '/zh/guide/security' },
       ],
     },
   ],
@@ -233,6 +253,8 @@ const zhSidebar = {
         { text: 'EventSource', link: '/zh/js-api/event-source' },
         { text: 'CacheStorage', link: '/zh/js-api/cache-storage' },
         { text: 'Service Worker', link: '/zh/js-api/service-worker' },
+        { text: 'Worker', link: '/zh/js-api/worker' },
+        { text: 'CompressionStream', link: '/zh/js-api/compress' },
       ],
     },
     {
@@ -318,6 +340,7 @@ defineConfig({
           '/guide/': sidebar.guide,
           '/c-api/': sidebar.cApi,
           '/js-api/': sidebar.jsApi,
+          '/dev/': sidebar.guide,
         },
         outline: { level: [2, 3], label: 'On this page' },
         editLink: {
@@ -339,6 +362,7 @@ defineConfig({
           '/zh/guide/': zhSidebar.guide,
           '/zh/c-api/': zhSidebar.cApi,
           '/zh/js-api/': zhSidebar.jsApi,
+          '/zh/dev/': zhSidebar.guide,
         },
         outline: { level: [2, 3], label: '本页目录' },
         editLink: {
@@ -360,8 +384,10 @@ defineConfig({
 
   themeConfig: {
     // Two palettes: the navy half of the mark is invisible on dark backgrounds
-    // (1.6:1 against #0d1117). VitePress resolves both against `base`.
-    logo: { light: 'logo.svg', dark: 'logo-dark.svg' },
+    // (1.6:1 against #0d1117). Leading slash → VitePress resolves against
+    // `base`; a bare filename emits a page-relative src that 404s on nested
+    // routes (`/guide/logo.svg`).
+    logo: { light: '/logo.svg', dark: '/logo-dark.svg' },
     // The mark carries the brand; the navbar shows no "Qz.js" text beside it.
     siteTitle: false,
     socialLinks: [

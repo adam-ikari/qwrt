@@ -40,13 +40,13 @@ qzjs 只提供三类能力，其余全部由应用层实现：
 
 ```bash
 # 在仓库根目录
-./build-ws/qzjs examples/httpserver/server.js
+./build/qzjs examples/httpserver/server.js
 ```
 
 端口与静态目录在 `server.js` 顶部修改：
 
 ```js
-var PORT = 8080;                      // 监听端口
+var PORT = 18080;                     // 监听端口
 var STATIC_ROOT = 'examples/httpserver/public';  // 静态目录
 ```
 
@@ -54,27 +54,28 @@ var STATIC_ROOT = 'examples/httpserver/public';  // 静态目录
 
 ```bash
 # 首页（静态文件）
-curl -i http://127.0.0.1:8080/
+curl -i http://127.0.0.1:18080/
 
 # gzip 压缩（请求头 Accept-Encoding: gzip）
-curl -i -H 'Accept-Encoding: gzip' http://127.0.0.1:8080/style.css | head
+curl -i -H 'Accept-Encoding: gzip' http://127.0.0.1:18080/style.css | head
 
 # API 路由
-curl http://127.0.0.1:8080/api/hello
-curl -X POST -d 'hello qzjs' http://127.0.0.1:8080/api/echo
+curl http://127.0.0.1:18080/api/hello
+curl -X POST -d 'hello qzjs' http://127.0.0.1:18080/api/echo
 
 # ETag 缓存协商
-curl -i http://127.0.0.1:8080/style.css | grep -i etag
-curl -i -H 'If-None-Match: <上面的 etag>' http://127.0.0.1:8080/style.css
+curl -i http://127.0.0.1:18080/style.css | grep -i etag
+curl -i -H 'If-None-Match: <上面的 etag>' http://127.0.0.1:18080/style.css
 
-# 路径穿越防护
-curl -i http://127.0.0.1:8080/../server.js
+# 路径穿越防护（curl 会本地规范化 ../，用 --path-as-is 或百分号编码送达）
+curl -i --path-as-is http://127.0.0.1:18080/../server.js        # → 403
+curl -i http://127.0.0.1:18080/%2e%2e/server.js                  # → 403
 
 # 404
-curl -i http://127.0.0.1:8080/nope
+curl -i http://127.0.0.1:18080/nope
 
 # 关闭服务器
-curl http://127.0.0.1:8080/api/close
+curl http://127.0.0.1:18080/api/close
 ```
 
 ## 文件

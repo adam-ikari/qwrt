@@ -40,10 +40,14 @@ typedef struct qz_ext_t {
 父项目通过在包含 qzjs 子目录之前覆盖 `QZ_EXTENSIONS` 来添加自定义扩展：
 
 ```cmake
-set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS, &my_extension")
+set(QZ_EXTENSIONS "QZ_DEFAULT_EXTENSIONS &my_extension")
 set(QZ_EXTRA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_extension.c)
 add_subdirectory(deps/qzjs)
 ```
+
+`&my_extension` 前用**空格**而非逗号：`QZ_DEFAULT_EXTENSIONS` 本身以尾随逗号
+结尾，写成 `"QZ_DEFAULT_EXTENSIONS, &my_extension"` 会展开出空数组元素，
+编译失败。
 
 ## 内置扩展
 

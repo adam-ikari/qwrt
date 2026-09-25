@@ -136,6 +136,19 @@ void qz_thread_main(void *arg)
                 rt->ready_err = -1;
             }
         }
+        /* 字节码在脚本之后 eval（initial_bytecode 独立叠加，见 qzjs.h）：
+         * 脚本可装 bootstrap/全局，预编译主程序随后执行。 */
+        if (rt->ready_err == 0 && rt->config.initial_bytecode &&
+            rt->config.initial_bytecode_len) {
+            char *err = NULL;
+            int rc = qz_eval_bytecode_internal(rt, rt->config.initial_bytecode,
+                                               rt->config.initial_bytecode_len,
+                                               &err);
+            if (rc != 0) {
+                free(err);
+                rt->ready_err = -1;
+            }
+        }
     }
 
     /* ready handshake: atomic store (host qz_create spins until it reads 1).

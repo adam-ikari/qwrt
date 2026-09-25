@@ -23,7 +23,7 @@
 
   // 3) exists
   console.log('a.txt exists:', await qzjs.fs.exists(base + 'a.txt'));
-  console.log('missing exists:', await qzjs.fs.exists(dir + '/nope.txt'));
+  console.log('missing exists:', await qzjs.fs.exists(base + 'nope.txt'));
 
   // 4) readdir 列目录
   var entries = await qzjs.fs.readdir('/tmp');
@@ -32,5 +32,9 @@
 
   // 5) 删除 + 确认
   await qzjs.fs.unlink(base + 'b.log');
-  console.log('删 b.log 后(tmp qzfs 残留):', (await qzjs.fs.readdir('/tmp')).join(', '));
+  const left = (await qzjs.fs.readdir('/tmp')).filter(n => n.startsWith('qzfs_'));
+  console.log('删 b.log 后(tmp qzfs 残留):', left.join(', '));
+
+  // 6) 收尾清理，不留痕迹
+  await qzjs.fs.unlink(base + 'a.txt');
 })();

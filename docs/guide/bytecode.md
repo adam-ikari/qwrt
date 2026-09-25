@@ -1,6 +1,6 @@
 ---
 title: Bytecode Compilation
-description: How qzjs uses bytecode internally (qjsc) to speed startup — and why there is no public host-side bytecode-loading API.
+description: Hosts can compile JS to bytecode (qz_compile / qzjs --compile) and run it at startup — with the caveat that bytecode is NOT portable across qzjs versions.
 ---
 
 # Bytecode Compilation
@@ -10,36 +10,62 @@ script) to **bytecode** at build time using the `qjsc` compiler.
 Loading bytecode skips parsing entirely, which speeds startup and shrinks the
 shipped payload.
 
-## Internal Use
+Hosts can use the same machinery for their own programs.
 
-The build pipeline compiles the polyfill sources to bytecode and embeds them in
-the binary:
+## Compile Bytecode
 
-```bash
-# qzjs's build does this for the WinterTC polyfill and worker boot script
-qjsc -c polyfill.js -o polyfill_bytecode.c
+From C:
+
+```c
+#include <qzjs/qzjs.h>
+
+char *err = NULL;
+uint8_t *bc = NULL;
+size_t bc_len = 0;
+if (qz_compile(source, source_len, "app.js", &bc, &bc_len, &err) != 0) {
+    /* err: malloc'd message, free with qz_free */
+}
+/* ... ship / persist bc ... */
+qz_free(bc);
 ```
 
-At runtime the embedded bytecode is evaluated on the internal thread instead of
-parsing source. This is a qzjs-internal optimization — the bytecode is produced
-from qzjs's own sources and never exposed to hosts.
+From the CLI:
 
-## No Public Bytecode API
+```bash
+qzjs --compile app.js -o app.bc
+```
 
-There is **no public `qz_compile` / `qz_eval_bytecode`** in `qzjs.h`, and
-the `qzjs` CLI has no bytecode option. A host cannot hand qzjs a bytecode blob
-to execute; JS is provided to the runtime as source via `initial_script`, as
-messages, or as `new Worker(url)` scripts (see [JS Execution](/guide/execution)).
+## Run Bytecode
 
-The only bytecode-evaluation entry point is internal
-(`qz_eval_bytecode_internal` in `src/qz_internal.h`), used by qzjs's own
-runtime and by C extensions built into qzjs. If you are writing such an
-extension you may use it; ordinary host embedding cannot.
+Two ways, both evaluated after `initial_script` (so a bootstrap script and a
+precompiled main program compose):
 
-## When Bytecode Still Helps You
+- **C API** — set `qz_config_t.initial_bytecode` / `initial_bytecode_len`
+  before `qz_create`.
+- **CLI** — `qzjs --bytecode app.bc [args...]` (script args still work; they
+  come through the CLI bootstrap).
 
-If startup latency matters, you do not need bytecode — you ship a small script
-in `initial_script` and let qzjs's precompiled polyfill carry the cost. For
-larger application scripts, prefer bundling them into a single file (or a
-`new Worker` script) over hand-tuning bytecode, since the public surface has no
-bytecode path.
+Failure semantics match `initial_script`: a bad or incompatible blob makes
+`qz_create` return `NULL` (CLI: nonzero exit with the engine's error on
+stderr).
+
+## Bytecode Compatibility Is NOT Guaranteed
+
+Bytecode is bound to the exact qzjs build — the embedded engine version, its
+serialization format (including a version byte and checksum), and compile
+options. **A blob produced by one qzjs build is not guaranteed to load on
+another.** The runtime rejects incompatible blobs explicitly (e.g.
+`SyntaxError: invalid version (28 expected=28)`); it never falls back to
+source.
+
+Recommended workflow: distribute **source**, and compile at deploy time on the
+target qzjs build (`qzjs --compile`). Ship precompiled bytecode only in
+controlled deployments where the host and the runtime binary come from the
+same build. `qjsc -b` output from the same embedded engine build also loads,
+but pin it to the same version as qzjs.
+
+## Internal Use
+
+The build pipeline compiles the polyfill sources to bytecode and embeds them
+in the binary (same `qjsc` flow, at build time). At runtime the embedded
+bytecode is evaluated on the internal thread instead of parsing source.

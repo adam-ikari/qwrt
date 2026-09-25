@@ -1228,7 +1228,6 @@ static void uv_io_fs_read_cb(uv_fs_t *req)
          * so fall back to a malloc buffer and keep the probe byte. */
         op->probing = 0;
         if (result == 0) {
-            fprintf(stderr, "DIAG ZC-EOF: backing=%p len=%zu\n", (void*)op->buf, op->buf_len);
             uv_fs_close(&op->rt->loop, &op->fs_req, op->fd,
                          uv_io_fs_read_close_cb);
             return;
