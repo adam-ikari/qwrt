@@ -146,6 +146,8 @@ serve({
 }, (req) => 'secure!');
 ```
 
+gRPC 栈可用（`QZ_WITH_GRPC=ON`）且未显式设置 `tls.alpn` 时，服务器会自动注入 `alpn: ['h2', 'http/1.1']`。
+
 ## gRPC 服务器
 
 传 `grpc: server` 在同一监听器上注册 [gRPC](/zh/js-api/grpc) 服务。gRPC 栈是

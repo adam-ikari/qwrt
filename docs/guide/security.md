@@ -56,7 +56,7 @@ Capabilities script already legitimately has. These are not escapes:
   permission model**. See [fs](/js-api/fs).
 - **Process spawning** — script can spawn processes (`pal.processSpawn` →
   `execv`).
-- **Environment** — script can read the full environment via `globalThis.env`.
+- **Environment (CLI only)** — the standalone `qzjs` CLI injects the full environment as `globalThis.env` via its bootstrap. Embedded hosts (`qz_create`) have no env interface — the script sees no environment.
 - **Host co-residence** — script runs in-process with the host (THREAD backend)
   or in a sibling process (ISOLATED backend); **neither is a security boundary**
   against malicious script.

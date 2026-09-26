@@ -150,6 +150,8 @@ serve({
 }, (req) => 'secure!');
 ```
 
+If the gRPC stack is available (`QZ_WITH_GRPC=ON`) and you don't set `tls.alpn` explicitly, the server injects `alpn: ['h2', 'http/1.1']` automatically.
+
 ## gRPC Server
 
 Passing `grpc: server` registers a [gRPC](/js-api/grpc) service on the same

@@ -1,6 +1,6 @@
 ---
 title: fs（文件系统）
-description: qzjs 中的文件系统 API —— readFile、writeFile、stat、目录操作以及 libuv 支持的文件 I/O。
+description: qzjs 中的文件系统 API —— readFile、readFileBinary、writeFile、目录操作以及 libuv 支持的文件 I/O。
 ---
 
 # fs — 文件系统 API
@@ -26,10 +26,22 @@ let config = JSON.parse(content);
 
 返回：`Promise<string>`，包含文件内容。
 
-错误：
-- `QZ_ERR_NOT_FOUND` 如果文件不存在
-- `QZ_ERR_PERMISSION` 如果访问被拒绝
-- `QZ_ERR_IO` 读取失败时
+错误——以**字符串** reject（不是 Error 对象）：`'file not found'`、`'not found'`、`'write error'`、`'unknown error'`。
+
+### `qzjs.fs.readFileBinary(path)`
+
+以原始字节读取文件——二进制安全。
+
+```js
+let bytes = await qzjs.fs.readFileBinary('/app/logo.png');
+new Uint8Array(bytes); // 原始文件内容的 ArrayBuffer
+```
+
+返回：`Promise<ArrayBuffer>`。
+
+### `qzjs.fs.readFileSync(path)`
+
+抛出 `Error: 'Synchronous fs operations not supported in qzjs'`。请用 `read` / `readFileBinary`。
 
 ### `qzjs.fs.write(path, data)`
 
@@ -42,10 +54,7 @@ await qzjs.fs.write('/app/state.json', JSON.stringify({ step: 5, done: false }))
 
 返回：`Promise<void>`。
 
-错误：
-- `QZ_ERR_PERMISSION` 如果写入访问被拒绝
-- `QZ_ERR_IO` 写入失败时
-- `QZ_ERR_NO_MEMORY` 如果运行时无法分配缓冲区
+错误——以**字符串** reject（不是 Error 对象）：`'file not found'`、`'not found'`、`'write error'`、`'unknown error'`。
 
 ### `qzjs.fs.exists(path)`
 
@@ -70,9 +79,7 @@ await qzjs.fs.remove('/tmp/temp.dat');
 
 返回：`Promise<void>`。
 
-错误：
-- `QZ_ERR_NOT_FOUND` 如果文件不存在
-- `QZ_ERR_PERMISSION` 如果不允许删除
+错误——以**字符串** reject（不是 Error 对象）：`'file not found'`、`'not found'`、`'write error'`、`'unknown error'`。
 
 ### `qzjs.fs.list(path)`
 
@@ -91,9 +98,7 @@ for (let entry of entries) {
 
 返回：`Promise<Array<{name: string, type: "file"|"dir"}>>`。
 
-错误：
-- `QZ_ERR_NOT_FOUND` 如果目录不存在
-- `QZ_ERR_IO` 读取失败时
+错误——以**字符串** reject（不是 Error 对象）：`'file not found'`、`'not found'`、`'write error'`、`'unknown error'`。
 
 ## 完整示例
 
@@ -121,11 +126,10 @@ await updateConfig('theme', 'dark');
 - 使用正斜杠（`/`）作为分隔符
 - `.` 和 `..` 由运行时解析
 - 没有驱动器字母（不兼容 Windows）
-- 最大路径长度：256 字节（实现限制）
 
 ## 平台依赖
 
-文件系统操作运行在 qzjs 的内部线程上。失败时 JS 方法以映射后的错误拒绝（例如 `NotFoundError`、`NotSupportedError`）。
+文件系统操作运行在 qzjs 的内部线程上。失败时方法以纯**字符串**消息 reject（见各方法的错误节）——没有错误码对象，也没有 `DOMException` 类型。
 
 ## 注意事项
 

@@ -22,7 +22,7 @@ touches JS directly.
 
 - **ES2023 engine** — full ES2023 support, fast startup (Release `qzjs -e 'console.log(1)'` median 4.82 ms after lazy WAMR init), low memory
 - **WinterTC standard runtime** — WinterCG-compatible Web APIs (fetch, crypto.subtle, streams, timers, fs, serve) as globals, low overhead
-- **WinterTC-compatible runtime** — 21 modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, and more (verified as an ECMA-429 interface matrix + project gtest harness — the WPT runner was removed; this is interface parity, not byte-for-byte browser parity)
+- **WinterTC-compatible runtime** — 30 registered modules: fetch, console, crypto.subtle, ReadableStream, setTimeout, fs, URL, TextEncoder, WebSocket, serve() and more (verified as an ECMA-429 interface matrix + project gtest harness — the WPT runner was removed; this is interface parity, not byte-for-byte browser parity)
 - **Streaming HTTP + TLS** — mbedTLS for HTTPS, chunked transfer decoding, certificate verification
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec (UTF-8/Base64), WebAssembly (WAMR default, wasm3 alternative)
 - **Multi-context + Web Workers** — spawn isolated contexts (soft suspend/resume to disk); `new Worker(url)` runs real parallel threads, or dedicated processes when built with `-DQZ_PROCESS_MODEL=ISOLATED` (the default since the multi-process M-P2 milestone)

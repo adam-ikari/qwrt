@@ -52,7 +52,8 @@ qzc app.js -o app.bc
 字节码与 qzjs 的**具体构建**强绑定——内嵌引擎版本、序列化格式（含版本字节
 与校验和）以及编译选项。**一个构建产出的字节码不保证能在另一个构建上加载。**
 运行时对不兼容的字节码显式拒绝（如
-`SyntaxError: invalid version (28 expected=28)`），绝不静默回退到源码。
+`SyntaxError: invalid version (27 expected=28)`，被篡改的字节码报
+`checksum error`），绝不静默回退到源码。
 
 推荐做法：分发**源码**，在部署环境的目标 qzjs 构建上编译（
 `qzc`）。仅在与运行时二进制同构建来源的受控部署中直接分发

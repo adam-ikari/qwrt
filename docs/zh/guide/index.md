@@ -13,11 +13,10 @@ C 应用想把一部分逻辑放进 JavaScript 的话，qzjs 提供运行时；�
 
 ![qzjs 架构图](../../assets/qzjs-arch.svg)
 
-- **WinterTC 标准运行时** — fetch、crypto.subtle、流、定时器、fs、serve() 作为全局对象可用
 - **基于消息的宿主边界** — `qz_post_message`（入）/ `message_cb`（出），双向 JSON
 - **隔离运行时模型** — 每个实例在自己的内部线程上运行 JS；内部锁与原子操作协调线程、宿主与 worker 边界，从不参与 JS 执行
 - **ECMAScript 引擎（ES2023）** — 完整 ES2023 支持，启动快，内存占用低
-- **WinterTC 兼容运行时** — `fetch`、`console`、`crypto.subtle`、`ReadableStream`、定时器、`fs`、`URL`、`TextEncoder`、WebSocket 等
+- **WinterTC 兼容运行时** — `fetch`、`console`、`crypto.subtle`、`ReadableStream`、定时器、`fs`、`URL`、`TextEncoder`、WebSocket、`serve()` 等（见 [JS API](/zh/js-api/) 索引）
 - **原生扩展** — 压缩（miniz）、加密（mbedTLS）、文本编解码、WebAssembly（WAMR，可选 wasm3）
 - **零系统依赖** — 所有依赖通过 CMake 从源码构建；libuv 从 deps 子模块构建
 - **多上下文 + Web Worker** — 隔离上下文（软挂起/恢复到磁盘）；`new Worker(url)` 运行真并行线程，或在 `-DQZ_PROCESS_MODEL=ISOLATED`（默认）下运行独立子进程（`qzjs-rt`，经 fork+exec）
@@ -27,11 +26,12 @@ C 应用想把一部分逻辑放进 JavaScript 的话，qzjs 提供运行时；�
 Guide 按宿主开发者的工作顺序组织：
 
 1. **[快速开始](/zh/guide/quickstart)** — 构建 qzjs 并运行最小的 C 嵌入
-2. **[主机集成](/zh/guide/host-integration)** — 完整闭环：create → 消息通信 → 出借能力 → destroy
-3. **[运行时生命周期](/zh/guide/lifecycle)** — 线程所有权、就绪、优雅关闭
-4. **[多上下文](/zh/guide/multi-context)** — 单个运行时内多个隔离上下文
-5. **[扩展](/zh/guide/extensions)** — 把你自己的 C 函数注册为 JS 全局
-6. **[字节码](/zh/guide/bytecode)** — 把 JS 预编译为字节码（启动更快、不携带源码）
+2. **[独立 CLI](/zh/guide/cli)** — 用 `qzjs` 可执行文件直接运行 JS
+3. **[主机集成](/zh/guide/host-integration)** — 完整闭环：create → 消息通信 → 出借能力 → destroy
+4. **[运行时生命周期](/zh/guide/lifecycle)** — 线程所有权、就绪、优雅关闭
+5. **[多上下文](/zh/guide/multi-context)** — 单个运行时内多个隔离上下文
+6. **[扩展](/zh/guide/extensions)** — 把你自己的 C 函数注册为 JS 全局
+7. **[字节码](/zh/guide/bytecode)** — 把 JS 预编译为字节码（启动更快、不携带源码）
 
 ## 何时使用 qzjs
 

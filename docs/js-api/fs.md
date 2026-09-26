@@ -1,6 +1,6 @@
 ---
 title: fs (Filesystem)
-description: The filesystem API in qzjs — readFile, writeFile, stat, directory operations, and libuv-backed file I/O.
+description: The filesystem API in qzjs — readFile, readFileBinary, writeFile, directory operations, and libuv-backed file I/O.
 ---
 
 # fs — Filesystem API
@@ -26,10 +26,22 @@ let config = JSON.parse(content);
 
 Returns: `Promise<string>` with the file contents.
 
-Errors:
-- `QZ_ERR_NOT_FOUND` if file doesn't exist
-- `QZ_ERR_PERMISSION` if access denied
-- `QZ_ERR_IO` on read failure
+Errors — rejects with a **string** (not an Error object): `'file not found'`, `'not found'`, `'write error'`, `'unknown error'`.
+
+### `qzjs.fs.readFileBinary(path)`
+
+Read a file as raw bytes — binary-safe.
+
+```js
+let bytes = await qzjs.fs.readFileBinary('/app/logo.png');
+new Uint8Array(bytes); // ArrayBuffer of the raw file contents
+```
+
+Returns: `Promise<ArrayBuffer>`.
+
+### `qzjs.fs.readFileSync(path)`
+
+Throws `Error: 'Synchronous fs operations not supported in qzjs'`. Use `readFile` / `readFileBinary`.
 
 ### `qzjs.fs.writeFile(path, data)`
 
@@ -42,10 +54,7 @@ await qzjs.fs.writeFile('/app/state.json', JSON.stringify({ step: 5, done: false
 
 Returns: `Promise<void>`.
 
-Errors:
-- `QZ_ERR_PERMISSION` if write access denied
-- `QZ_ERR_IO` on write failure
-- `QZ_ERR_NO_MEMORY` if the runtime can't allocate a buffer
+Errors — rejects with a **string** (not an Error object): `'file not found'`, `'not found'`, `'write error'`, `'unknown error'`.
 
 ### `qzjs.fs.exists(path)`
 
@@ -70,9 +79,7 @@ await qzjs.fs.unlink('/tmp/temp.dat');
 
 Returns: `Promise<void>`.
 
-Errors:
-- `QZ_ERR_NOT_FOUND` if file doesn't exist
-- `QZ_ERR_PERMISSION` if delete not allowed
+Errors — rejects with a **string** (not an Error object): `'file not found'`, `'not found'`, `'write error'`, `'unknown error'`.
 
 ### `qzjs.fs.readdir(path)`
 
@@ -89,9 +96,7 @@ for (let name of entries) {
 
 Returns: `Promise<string[]>` — directory entry names.
 
-Errors:
-- `QZ_ERR_NOT_FOUND` if directory doesn't exist
-- `QZ_ERR_IO` on read failure
+Errors — rejects with a **string** (not an Error object): `'file not found'`, `'not found'`, `'write error'`, `'unknown error'`.
 
 ## Complete Example
 
@@ -119,13 +124,13 @@ await updateConfig('theme', 'dark');
 - Forward slashes (`/`) as separators
 - `.` and `..` are resolved by the runtime
 - No drive letters (not Windows-compatible)
-- Maximum path length: 256 bytes (implementation limit)
 
 ## Platform Dependency
 
 Filesystem operations run on qzjs's internal thread, backed by libuv's
-asynchronous file I/O. On failure the JS methods reject with the mapped error
-(e.g. `NotFoundError`, `NotSupportedError`).
+asynchronous file I/O. On failure the methods reject with a plain **string**
+message (see each method's Errors section) — there are no error codes or
+`DOMException` types.
 
 ## Notes
 
@@ -136,4 +141,4 @@ asynchronous file I/O. On failure the JS methods reject with the mapped error
 - No atomic write guarantees — `fs.write` may leave partial data on crash
 - No file locking or concurrency control
 - No streaming read/write — entire file contents are loaded into memory
-- Binary data is returned as strings (use `TextEncoder`/`TextDecoder` for byte manipulation)
+- `readFile` returns a string; for binary-safe reads use `qzjs.fs.readFileBinary(path)`, which resolves with a real `ArrayBuffer`

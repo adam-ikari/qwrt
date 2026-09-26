@@ -55,7 +55,8 @@ Bytecode is bound to the exact qzjs build — the embedded engine version, its
 serialization format (including a version byte and checksum), and compile
 options. **A blob produced by one qzjs build is not guaranteed to load on
 another.** The runtime rejects incompatible blobs explicitly (e.g.
-`SyntaxError: invalid version (28 expected=28)`); it never falls back to
+`SyntaxError: invalid version (27 expected=28)`, or `checksum error` on a
+tampered blob); it never falls back to
 source.
 
 Recommended workflow: distribute **source**, and compile at deploy time on the

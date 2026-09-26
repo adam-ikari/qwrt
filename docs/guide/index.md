@@ -13,11 +13,10 @@ For a C application that wants part of its logic in JavaScript, qzjs supplies th
 
 ![qzjs architecture](../assets/qzjs-arch.svg)
 
-- **WinterTC standard runtime** — fetch, crypto.subtle, streams, timers, fs, serve() as globals
 - **Message-based host boundary** — `qz_post_message` (in) / `message_cb` (out), JSON in both directions
 - **Isolated runtime model** — each instance runs JS on its own internal thread; internal locks and atomics coordinate the thread, host, and worker boundaries, never JS execution
 - **ECMAScript engine (ES2023)** — full ES2023 support, fast startup, low memory
-- **WinterTC-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, WebSocket, and more
+- **WinterTC-compatible runtime** — `fetch`, `console`, `crypto.subtle`, `ReadableStream`, timers, `fs`, `URL`, `TextEncoder`, WebSocket, `serve()`, and more (see the [JS API](/js-api/) index)
 - **Native extensions** — compression (miniz), crypto (mbedTLS), text codec, WebAssembly (WAMR, wasm3 optional)
 - **Zero system dependencies** — all deps built from source via CMake; libuv is built from the deps submodule
 - **Multi-context + Web Workers** — isolated contexts (soft suspend/resume to disk); `new Worker(url)` runs a real parallel thread, or — with `-DQZ_PROCESS_MODEL=ISOLATED`, the default — a dedicated child process
@@ -27,11 +26,12 @@ For a C application that wants part of its logic in JavaScript, qzjs supplies th
 The Guide follows the order a host developer works in:
 
 1. **[Quick Start](/guide/quickstart)** — build qzjs and run the minimal C embedding
-2. **[Host Integration](/guide/host-integration)** — the full loop: create → messaging → lending capabilities → destroy
-3. **[Lifecycle](/guide/lifecycle)** — thread ownership, readiness, graceful shutdown
-4. **[Multi-Context](/guide/multi-context)** — multiple isolated contexts in one runtime
-5. **[Extensions](/guide/extensions)** — register your own C functions as JS globals
-6. **[Bytecode](/guide/bytecode)** — precompile JS to bytecode (faster startup, no source shipped)
+2. **[Standalone CLI](/guide/cli)** — run JS directly with the `qzjs` executable
+3. **[Host Integration](/guide/host-integration)** — the full loop: create → messaging → lending capabilities → destroy
+4. **[Lifecycle](/guide/lifecycle)** — thread ownership, readiness, graceful shutdown
+5. **[Multi-Context](/guide/multi-context)** — multiple isolated contexts in one runtime
+6. **[Extensions](/guide/extensions)** — register your own C functions as JS globals
+7. **[Bytecode](/guide/bytecode)** — precompile JS to bytecode (faster startup, no source shipped)
 
 ## When to Use qzjs
 

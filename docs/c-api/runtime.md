@@ -21,7 +21,10 @@ Returns `NULL` on failure (including a throwing `initial_script`).
 |-------|------|-------------|
 | `config.initial_script` | `const char *` | JS eval'd on qzjs's internal thread at create; a throw makes `qz_create` return `NULL` |
 | `config.message_cb` | `void (*)(qz_t *, const char *, size_t, void *)` | Outbound message callback; fires on the qzjs thread, must be thread-safe |
-| `config.debug` | `int` | Enable debug output (0 or 1) |
+| `config.debug` | `int` | Bit mask. `0x2` enables the DAP debugger (also `QZ_DEBUG=1` env var) |
+| `config.control_plane` | `int` | `qz_control_plane_t`: `OFF` (0, default — `qz_control` always -1) / `IN_PROC` (1) / `LOCAL` (2, adds an AF_UNIX endpoint) |
+| `config.control_pipe_path` | `const char *` | Endpoint path for `LOCAL`; `NULL` → `/tmp/qzjs-<pid>-<n>.ctl` (0600, SO_PEERCRED) |
+| `config.worker_backend` | `int` | `qz_worker_backend_t`; default follows the build's process model (ISOLATED → `PROCESS`, THREAD → `THREAD`) |
 | `config.host_data` | `void *` | Per-runtime opaque pointer, readable by extensions; passed as the `data` arg to `message_cb` |
 | `config.initial_script_path` | `const char *` | JS file read and eval'd instead of `initial_script`; wins if both are set |
 | `config.initial_bytecode` | `const uint8_t *` | Precompiled bytecode (from `qz_compile`), eval'd after the initial script |

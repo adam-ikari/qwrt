@@ -32,7 +32,7 @@ features:
     details: 与依赖一起按 C99 编译。Release 下 `qzjs -e 'console.log(1)'` 启动不到 5 ms，峰值 RSS 约 3 MB。
   - icon: 🌐
     title: WinterTC 兼容运行时
-    details: 21 个模块——fetch、crypto.subtle、streams、WebSocket、BroadcastChannel、EventSource、timers、fs、serve() 等。预编译为字节码，作为全局可用。
+    details: 30 个注册模块——fetch、crypto.subtle、streams、WebSocket、BroadcastChannel、EventSource、timers、fs、serve() 等。预编译为字节码，作为全局可用。
   - icon: 🔒
     title: 无全局状态
     details: 通过不透明的 `qz_t` 实现每运行时隔离。同一进程可运行多个独立实例。

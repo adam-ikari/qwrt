@@ -34,7 +34,12 @@ let response = await fetch('https://example.com/api/data', {
 | `input` | `string \| Request` | URL or Request object |
 | `init.method` | `string` | HTTP method (default: `"GET"`) |
 | `init.headers` | `Headers \| object \| [string, string][]` | Request headers |
-| `init.body` | `string \| null` | Request body |
+| `init.body` | `string \| Uint8Array \| ArrayBuffer \| ReadableStream \| null` | Request body |
+| `init.redirect` | `string` | `'follow'` (default, up to 20 hops) / `'manual'` (returns `opaqueredirect`) / `'error'` (throws `TypeError` on 3xx) |
+| `init.keepalive` | `boolean` | Keep-alive hint (default: `false`) |
+| `init.cache` | `string` | Cache mode (default: `'default'`) |
+| `init.mode` | `string` | Request mode (default: `'cors'`) |
+| `init.credentials` | `string` | Credentials policy (default: `'same-origin'`) |
 | `init.signal` | `AbortSignal` | Abort signal for cancellation |
 
 ### Response Object

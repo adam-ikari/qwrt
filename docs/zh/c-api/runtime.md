@@ -18,7 +18,10 @@ qz_t *qz_create(const qz_config_t *config);
 |-------|------|-------------|
 | `config.initial_script` | `const char *` | 在创建时于 qzjs 内部线程上求值的 JS；抛出异常会使 `qz_create` 返回 `NULL` |
 | `config.message_cb` | `void (*)(qz_t *, const char *, size_t, void *)` | 出站消息回调；在 qzjs 线程上触发，必须线程安全 |
-| `config.debug` | `int` | 启用调试输出（0 或 1） |
+| `config.debug` | `int` | 位掩码。`0x2` 启用 DAP 调试器（也可设环境变量 `QZ_DEBUG=1`） |
+| `config.control_plane` | `int` | `qz_control_plane_t`：`OFF`（0，缺省——`qz_control` 恒 -1）/ `IN_PROC`（1）/ `LOCAL`（2，额外开 AF_UNIX 端点） |
+| `config.control_pipe_path` | `const char *` | `LOCAL` 档端点路径；`NULL` → `/tmp/qzjs-<pid>-<n>.ctl`（0600，SO_PEERCRED） |
+| `config.worker_backend` | `int` | `qz_worker_backend_t`；缺省随编译模型（ISOLATED → `PROCESS`，THREAD → `THREAD`） |
 | `config.host_data` | `void *` | 每个运行时的不透明指针，扩展可读取；作为 `data` 参数传给 `message_cb` |
 | `config.initial_script_path` | `const char *` | 从文件读取并求值的 JS，替代 `initial_script`；两者都设时优先 |
 | `config.initial_bytecode` | `const uint8_t *` | 预编译字节码（来自 `qz_compile`），在初始脚本之后求值 |

@@ -32,7 +32,7 @@ features:
     details: Builds as C99 alongside its dependencies. Release `qzjs -e 'console.log(1)'` starts in under 5 ms; peak RSS stays near 3 MB.
   - icon: 🌐
     title: WinterTC-compatible runtime
-    details: 21 modules — fetch, crypto.subtle, streams, WebSocket, BroadcastChannel, EventSource, timers, fs, serve() and more. Precompiled to bytecode, available as globals.
+    details: 30 registered modules — fetch, crypto.subtle, streams, WebSocket, BroadcastChannel, EventSource, timers, fs, serve() and more. Precompiled to bytecode, available as globals.
   - icon: 🔒
     title: No global state
     details: Per-runtime isolation through an opaque `qz_t`. Multiple independent instances run in one process.
