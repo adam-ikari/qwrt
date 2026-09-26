@@ -27,7 +27,7 @@ index 174a134..9e061aa 100644
      JSInterruptHandler *interrupt_handler;
      void *interrupt_opaque;
  
-+    /* ---- qwrt debugger hooks (QWRT_DEBUG_SUPPORT) ----
++    /* ---- qwrt debugger hooks (QZ_DEBUG_SUPPORT) ----
 +     * debugger_hooks is NULL when no debugger is attached; the dispatch
 +     * loop's DEBUGGER_CHECK is a no-op in that case. When non-NULL, the
 +     * step-mode fields below drive single-stepping. */
@@ -52,9 +52,9 @@ index 174a134..9e061aa 100644
 + * single never-taken branch. Returns 0 to continue; the on_dispatch hook
 + * must also return 0 (it blocks internally to pause, then returns 0).
 + *
-+ * Compiled out entirely unless QWRT_DEBUG_SUPPORT is defined, so non-debug
++ * Compiled out entirely unless QZ_DEBUG_SUPPORT is defined, so non-debug
 + * builds pay zero per-opcode overhead. */
-+#ifdef QWRT_DEBUG_SUPPORT
++#ifdef QZ_DEBUG_SUPPORT
 +static inline int js_debugger_check(JSContext *ctx, JSStackFrame *sf,
 +                                    const uint8_t *pc)
 +{
