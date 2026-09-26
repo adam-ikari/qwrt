@@ -55,8 +55,8 @@ int qz_compile(const char *source, size_t len, const char *filename,
 ```
 
 把 JS 源码编译为字节码 blob。独立函数——无需运行时实例。
-成功返回 0（`*out` 为 malloc 缓冲，用 `qz_free` 释放；`*out_len` 为长度）；
-失败返回 -1（`*err` 为 malloc 错误串，`qz_free` 释放）。`filename` 仅用于
+成功返回 0（`*out` 为 malloc 缓冲，用 `free()` 释放；`*out_len` 为长度）；
+失败返回 -1（`*err` 为 malloc 错误串，`free()` 释放）。`filename` 仅用于
 错误/栈帧命名，可为 `NULL`。
 
 字节码在启动时经 `qz_config_t.initial_bytecode` /

@@ -28,7 +28,9 @@ function walk(dir, base = '') {
   return results;
 }
 
-const urls = walk(DIST);
+const urls = walk(DIST)
+  // The 404 page is not indexable content.
+  .filter(u => u !== '/404');
 const today = new Date().toISOString().split('T')[0];
 
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -37,16 +39,20 @@ const xml = `<?xml version="1.0" encoding="UTF-8"?>
 ${urls.map(url => {
   const isZh = url.startsWith('/zh/');
   const enUrl = isZh ? url.replace(/^\/zh/, '') : url;
-  const zhUrl = '/zh' + (enUrl === '/' ? '/' : enUrl);
   const enFull = enUrl === '/' ? '' : enUrl;
+  // Only emit hreflang pairs when both language versions actually exist —
+  // EN-only pages (internal/404-like) would otherwise advertise a 404 zh URL.
+  const zhCounterpart = DIST + (enUrl === '/' ? '/zh/index.html' : `/zh${enUrl}.html`);
+  const langLinks = !isZh && !existsSync(zhCounterpart)
+    ? `    <xhtml:link rel="alternate" hreflang="en" href="${BASE}${enFull}"/>\n`
+    : `    <xhtml:link rel="alternate" hreflang="en" href="${BASE}${enFull}"/>\n` +
+      `    <xhtml:link rel="alternate" hreflang="zh" href="${BASE}/zh${enUrl === '/' ? '/' : enUrl}"/>\n`;
   return `  <url>
     <loc>${BASE}${url}</loc>
     <lastmod>${today}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>${url === '/' || url === '/zh/' ? '1.0' : url.startsWith('/guide') || url.startsWith('/zh/guide') ? '0.8' : '0.6'}</priority>
-    <xhtml:link rel="alternate" hreflang="en" href="${BASE}${enFull}"/>
-    <xhtml:link rel="alternate" hreflang="zh" href="${BASE}${zhUrl}"/>
-  </url>`;
+${langLinks}  </url>`;
 }).join('\n')}
 </urlset>`;
 

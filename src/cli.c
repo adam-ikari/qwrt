@@ -618,6 +618,10 @@ static int run_bytecode(const char *bc_path, const char *const *args, int nargs)
             else { usage(stderr); return 2; }
             continue;
         }
+        if (!strncmp(argv[i], "--control-pipe=", 15)) {
+            g_control_pipe = argv[i] + 15;
+            continue;
+        }
         if (!strcmp(argv[i], "--bytecode")) {
             if (i + 1 >= argc) { usage(stderr); return 2; }
             return run_bytecode(argv[i + 1],

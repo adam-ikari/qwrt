@@ -6,10 +6,10 @@ qzjs 暴露了一个小巧、专注的 C API 接口。每个函数都操作一�
 
 | 分组 | 描述 |
 |-------|-------------|
-| [运行时生命周期](/c-api/runtime) | `qz_create`、`qz_destroy`、`qz_post_message` |
-| [多上下文](/guide/multi-context) | 一个运行时内隔离的 JS 上下文 |
-| [扩展](/c-api/extensions) | `qz_ext_t`、生命周期钩子 |
-| [宿主数据](/c-api/runtime#host-data) | `qz_get_runtime_data`、`qz_set_runtime_data` |
+| [运行时生命周期](/zh/c-api/runtime) | `qz_create`、`qz_destroy`、`qz_post_message` |
+| [多上下文](/zh/guide/multi-context) | 一个运行时内隔离的 JS 上下文 |
+| [扩展](/zh/c-api/extensions) | `qz_ext_t`、生命周期钩子 |
+| [宿主数据](/zh/c-api/runtime#宿主数据) | `qz_get_runtime_data`、`qz_set_runtime_data` |
 
 ## 快速示例
 

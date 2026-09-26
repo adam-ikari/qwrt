@@ -12,7 +12,7 @@ hero:
   actions:
     - theme: brand
       text: Get Started
-      link: /guide/
+      link: /guide/quickstart
     - theme: alt
       text: JS API
       link: /js-api/
@@ -71,6 +71,8 @@ int main(void) {
     return 0;
 }
 ```
+
+Full walkthrough: [Quick Start](/guide/quickstart).
 
 ## Architecture
 

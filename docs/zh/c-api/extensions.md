@@ -105,5 +105,5 @@ my_state_t *st = (my_state_t *)qz_get_runtime_data(rt);
 
 ## 参见
 
-- [扩展指南](/guide/extensions) — 详细的扩展文档
-- [扩展注册头文件](/c-api/runtime) — 运行时生命周期
+- [扩展指南](/zh/guide/extensions) — 详细的扩展文档
+- [扩展注册头文件](/zh/c-api/runtime) — 运行时生命周期

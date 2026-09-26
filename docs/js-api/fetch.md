@@ -142,7 +142,7 @@ try {
 ## Notes
 
 - Only HTTP/HTTPS schemes are supported (no `file://`, `data://`)
-- Redirects are NOT automatically followed — the server's response is returned as-is
+- Redirects are followed by default (`init.redirect` defaults to `'follow'`, up to 20 hops; `Location` is resolved against the response URL, and 301/302/303 rewrite POST → GET per the spec). `redirect: 'manual'` returns an `opaqueredirect` response; `redirect: 'error'` throws a `TypeError` on any 3xx
 - `Headers.get(name)` returns `null` only when the header is absent — a header present with an empty value returns `''`
 - `Request`/`Response` constructors validate their inputs: `method` must be a valid HTTP token (non-empty, no whitespace), the URL must be absolute, and `status` must be an integer in 200–599 (`Response.error()` internally uses status 0)
 - `request.arrayBuffer()` / `response.arrayBuffer()` return a real `ArrayBuffer`; `request.blob()` / `response.blob()` return a `Blob` instance

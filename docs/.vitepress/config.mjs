@@ -158,13 +158,12 @@ const sidebar = {
   ],
 }
 
-// C API reference pages exist for completeness but are NOT linked from
-// navigation. C developers can find them via search or direct URL if needed.
-// The website is user-facing; C API is for embedders who use the headers.
 
 const nav = [
+  { text: 'Home', link: '/' },
   { text: 'Guide', link: '/guide/' },
   { text: 'JS API', link: '/js-api/' },
+  { text: 'C API', link: '/c-api/' },
 ]
 
 // Chinese sidebar with translated labels
@@ -279,8 +278,10 @@ const zhSidebar = {
 }
 
 const zhNav = [
+  { text: '首页', link: '/zh/' },
   { text: '指南', link: '/zh/guide/' },
   { text: 'JS API', link: '/zh/js-api/' },
+  { text: 'C API', link: '/zh/c-api/' },
 ]
 
 export default withMermaid(
@@ -289,7 +290,18 @@ defineConfig({
   description: 'Embeddable WinterTC Runtime — C99, WinterCG-compatible, libuv-native',
   base: '/qzjs/',
   lastUpdated: true,
-  cleanUrls: true,
+  // Internal process docs never ship to the public site: CI handoff notes,
+  // archived plans/specs, the internal architecture standard, contributor
+  // guidelines, and process notes. VitePress would otherwise build every .md
+  // under docs/ (and sitemap them).
+  srcExclude: [
+    '**/CI_FIX_BACKLOG.md',
+    'archive/**',
+    'qwrt-architecture-design.md',
+    'architecture/**',
+    'superpowers/**',
+    'dev/website-guidelines.md',
+  ],
 
   head: [
     ['link', { rel: 'icon', href: '/qzjs/favicon.ico' }],

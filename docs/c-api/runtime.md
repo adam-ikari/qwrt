@@ -63,8 +63,8 @@ int qz_compile(const char *source, size_t len, const char *filename,
 ```
 
 Compiles JS source to a bytecode blob. Standalone — no runtime needed.
-Returns 0 on success (`*out` malloc'd, free with `qz_free`; `*out_len` set)
-or -1 (`*err` malloc'd message, free with `qz_free`). `filename` is for
+Returns 0 on success (`*out` malloc'd, free with `free()`; `*out_len` set)
+or -1 (`*err` malloc'd message, free with `free()`). `filename` is for
 error/backtrace naming only, may be `NULL`.
 
 Run the blob at startup via `qz_config_t.initial_bytecode` /

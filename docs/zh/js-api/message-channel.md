@@ -133,7 +133,7 @@ port1.postMessage('接收这个端口', [port2]);
 
 ## 注意事项
 
-- 消息通过结构化克隆算法克隆（参见 [structuredClone](/js-api/structured-clone)）
+- 消息通过结构化克隆算法克隆（参见 [structuredClone](/zh/js-api/structured-clone)）
 - 不支持 `BroadcastChannel` —— 使用 `MessageChannel` 进行 1:1 通信，或构建自己的发布/订阅
 - 端口在未被引用时被垃圾回收
 - 收到的消息没有"origin"或"source"的概念

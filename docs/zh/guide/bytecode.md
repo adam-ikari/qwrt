@@ -22,10 +22,10 @@ char *err = NULL;
 uint8_t *bc = NULL;
 size_t bc_len = 0;
 if (qz_compile(source, source_len, "app.js", &bc, &bc_len, &err) != 0) {
-    /* err：malloc 的错误串，qz_free 释放 */
+    /* err：malloc 的错误串，free() 释放 */
 }
 /* ... 分发 / 持久化 bc ... */
-qz_free(bc);
+free(bc);
 ```
 
 CLI：

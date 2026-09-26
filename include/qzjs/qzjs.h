@@ -44,8 +44,8 @@ typedef struct qz_config_s {
 } qz_config_t;
 
 /* 把 JS 源码编译为字节码 blob。独立函数（无需 qz_t/运行时）。
- * 成功返回 0 并写 *out（malloc，qz_free 释放）与 *out_len；
- * 失败返回 -1，*err（若非 NULL）为 malloc 错误串（qz_free 释放）。
+ * 成功返回 0 并写 *out（malloc，用 free() 释放）与 *out_len；
+ * 失败返回 -1，*err（若非 NULL）为 malloc 错误串（free() 释放）。
  * filename 仅用于错误定位（栈帧/报错），可 NULL。
  *
  * ⚠ 兼容性：字节码与本次构建的 qzjs（内嵌引擎版本、编译选项）强绑定，
@@ -131,7 +131,9 @@ int qz_control(qz_t *rt, const char *bytes, size_t len);
 void *qz_get_runtime_data(qz_t *rt);
 void  qz_set_runtime_data(qz_t *rt, void *data);
 
-/* 释放 qzjs 分配的 malloc 块（历史兼容）。NULL-safe。 */
+/* 释放 qz_create 返回的运行时实例（等价 qz_destroy 的最终 free；历史兼容）。
+ * ⚠ 仅接受 qz_t 指针——内部按 qz_t 结构释放其 config 缓冲。任意 malloc 块
+ * 请用 free()。NULL-safe。 */
 void qz_free(void *ptr);
 
 /* ================================================================

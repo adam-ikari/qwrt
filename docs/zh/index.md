@@ -12,7 +12,7 @@ hero:
   actions:
     - theme: brand
       text: 快速开始
-      link: /zh/guide/
+      link: /zh/guide/quickstart
     - theme: alt
       text: JS API
       link: /zh/js-api/
@@ -70,6 +70,8 @@ int main(void) {
     return 0;
 }
 ```
+
+完整步骤见[快速开始](/zh/guide/quickstart)。
 
 ## 架构
 

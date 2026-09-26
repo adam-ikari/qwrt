@@ -50,6 +50,41 @@ let server = serve({ port: 8080 }, (req) => {
 | `body` | `ReadableStream` \| `null` | `Content-Length > 0` 时为请求体，否则 `null`。 |
 | `keepAlive` | `boolean` | 本次响应后连接是否保持。 |
 
+请求体从原始 socket 字节直接喂入 `ReadableStream`，二进制请求体不会失真。
+
+### 响应值
+
+`handler` 可以返回（或 resolve 为）：
+
+- **字符串** —— 以 `200 OK` 发送，`Content-Type: text/plain; charset=utf-8`。
+- **对象** —— 含 `status`、`statusText`、`headers`（`Headers` 实例或普通对象）
+  与 `_body`（字符串、`ArrayBuffer` 或 `Uint8Array`）。二进制 body 按原始字节发送。
+- `null`/`undefined` —— `500 Internal Server Error`（handler 抛异常时同样如此）。
+
+```js
+serve({ port: 8080 }, (req) => {
+  if (req.method !== 'POST') return { status: 405, _body: 'POST only' };
+  let data = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
+  return {
+    status: 201,
+    headers: { 'Content-Type': 'application/octet-stream' },
+    _body: data
+  };
+});
+```
+
+### 服务器句柄
+
+`serve()` 返回 `{ closed, close() }`：
+
+```js
+let server = serve({ port: 8080 }, handler);
+server.close();        // 停止监听，释放端口
+```
+
+同一时刻只能运行一个服务器。已有服务器活动时再调 `serve()` 会抛
+`serve: a server is already running (call srv.close() first)`。
+
 ## WebSocket 路由
 
 `options.ws` 把路径映射到升级处理器。每个处理器收到一个含 `onopen`、`onmessage`、

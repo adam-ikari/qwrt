@@ -23,10 +23,10 @@ char *err = NULL;
 uint8_t *bc = NULL;
 size_t bc_len = 0;
 if (qz_compile(source, source_len, "app.js", &bc, &bc_len, &err) != 0) {
-    /* err: malloc'd message, free with qz_free */
+    /* err: malloc'd message, free with free() */
 }
 /* ... ship / persist bc ... */
-qz_free(bc);
+free(bc);
 ```
 
 From the CLI (`qzc` tool):
