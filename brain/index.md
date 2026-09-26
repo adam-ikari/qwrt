@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-09-26T02:13:55.566Z._
+_Auto-generated. Last updated 2026-09-26T14:58:51.355Z._
 
 - [a2-worker-robustness](pages/a2-worker-robustness.md) — category: decision | tags: [worker, suspend, transferable, robustness, gtest] | - **范围**：ROADMAP A2「多上下文 / Worker 健壮性」= 软挂起恢复边界、transferable 泄漏、worker 错误事件流全覆盖，交付 gtest + 压力。
 - [bc-reader-hardening](pages/bc-reader-hardening.md) — category: decision | tags: [fuzz, quickjs, bytecode, security] | ## 字节码读取器加固（untrusted stream 防御）
@@ -17,7 +17,7 @@ _Auto-generated. Last updated 2026-09-26T02:13:55.566Z._
 - [fetch-proxy-support](pages/fetch-proxy-support.md) — category: decision | tags: [fetch, proxy, connect, tls, uv_io] | - **背景**：B2「fetch 完善」剩余项「代理」—— 出站 fetch 需要能走公司/环境 HTTP 代理。
 - [fetch-request-body-bytes](pages/fetch-request-body-bytes.md) — category: decision | tags: [fetch, wintertc, http, polyfill] | - **背景**：`fetch(url, {body})` 请求体此前在 JS 层被 `String()` 强转，二进制（Uint8Array/ArrayBuffer）与流式 body（ReadableStream）语义丢失；C 桥接层 `http_request_stream`
 - [full-project-review-2026-09](pages/full-project-review-2026-09.md) — category: project | tags: [review, quality, security, ci, docs] | 六维全量评审（2026-09-23，静态核查 + 关键项亲自复现验证）。
-- [host-bytecode-api](pages/host-bytecode-api.md) — category: decision | tags: [bytecode, host-api, compatibility] | **qzc 工具（2026-09-25）**：用户指示把编译工具独立为 `qzc`（src/qzc.c，qz_compile 的 CLI 形态）。
+- [host-bytecode-api](pages/host-bytecode-api.md) — category: decision | tags: [bytecode, host-api, compatibility] | **DAP CI 连败根因（2026-09-26 已修）**：8ac7ed7c 项目改名（am_→qz_）漏改
 - [httpserver-perf-baseline](pages/httpserver-perf-baseline.md) — category: decision | tags: [httpserver, perf, serve] | M2-D3 连接生命周期完成：
 - [httpserver-perf-benchmark](pages/httpserver-perf-benchmark.md) — category: decision | ### Phase 4 优化（2026-08-19，分支 phase4-httpserver-perf）
 - [httpserver-streaming-body](pages/httpserver-streaming-body.md) — category: decision | tags: [http-server, streaming, serve] | D2 请求体流式（破坏性 API 变更）：serve() 的 req.body 从同步字符串改为 ReadableStream（Web 标准语义），新增 req.text()/req.arrayBuffer() 异步读取。
