@@ -67,10 +67,41 @@ on the DAP configuration phase (initialize / setBreakpoints /
 configurationDone) before returning. `stop_on_entry` pauses at the first
 statement of your program.
 
-## VS Code setup
+## Debugging from VS Code
 
-Your program is the debug target — VS Code's `runtimeExecutable` points at
-**your** binary, not a qzjs-provided one. Create `.vscode/launch.json`:
+The debugger speaks **standard DAP over stdio**: the runtime (`qz_create` with
+debug enabled) is the DAP server on stdin/stdout, and the client is anything
+that speaks DAP. There is currently **no VS Code extension** registering a
+`qzjs` debug type, so the usual `launch.json` `type: "qzjs"` configuration
+cannot be used as-is — VS Code would report the debug adapter type is not
+registered. (The DAP layer itself is complete and tested end-to-end via
+`test/test_dap_gtest.cpp` and any generic DAP client.)
+
+Until an extension ships, two ways to drive it from VS Code:
+
+**Option 1 — a generic debug adapter.** Point a stdio DAP adapter (e.g. the
+Mock Debug adapter, or your own) at a launch config whose `program` runs your
+binary under `QZ_DEBUG=1`. The adapter relays DAP between VS Code and the
+child's stdio. Any adapter that is "DAP server over stdio, client-side" works;
+the qzjs side needs no extension because it never registers a VS Code type.
+
+**Option 2 — drive the DAP protocol directly.** With `QZ_DEBUG=1`, run your
+program and speak DAP to its stdin/stdout yourself — a REPL, a script, or a
+one-off client. `test/test_dap_gtest.cpp` is a working reference client: it
+forks a child under `QZ_DEBUG=1`, then sends initialize → setBreakpoints →
+configurationDone and expects a `stopped` event before stepping and
+inspecting variables.
+
+The DAP layer implements: initialize, attach, setBreakpoints,
+configurationDone, threads, stackTrace, scopes, variables, continue, next,
+stepIn, stepOut, evaluate, disconnect.
+
+<details>
+<summary>Reference `launch.json` (requires the not-yet-shipped extension)</summary>
+
+The config below **only works once** an extension registers the `qzjs`
+debug type. It is included as the intended final shape, not as a currently
+runnable setup:
 
 ```json
 {
@@ -86,18 +117,12 @@ Your program is the debug target — VS Code's `runtimeExecutable` points at
   }]
 }
 ```
+</details>
 
-> **Note:** `type: "qzjs"` requires a VS Code extension that registers the
-> `qzjs` debug type. Until a packaged extension ships, you can drive the DAP
-> layer directly (the adapter speaks standard DAP over stdio) or use the
-> scripted test (`test/test_dap_gtest.cpp`) as a reference client. The DAP
-> layer implements: initialize, attach, setBreakpoints, configurationDone,
-> threads, stackTrace, scopes, variables, continue, next, stepIn, stepOut,
-> evaluate, disconnect.
+With a working adapter you attach to your program paused at entry, then
+continue to hit breakpoints, inspect Locals, step, and evaluate watch
+expressions.
 
-Set a breakpoint in your source, press F5, and VS Code attaches to your
-program paused at entry. Continue to hit the breakpoint; inspect Locals,
-step, evaluate watch expressions.
 
 ## What works (MVP)
 
@@ -126,19 +151,14 @@ step, evaluate watch expressions.
 - A packaged VS Code extension registering the `qzjs` debug type is a
   follow-up; the DAP layer is complete and tested via the scripted clients.
 
-## Async support
+## Async while paused
 
-The debugger **does** advance async JS while paused. When stopped at a
-breakpoint, the DAP layer's `on_stopped` loop polls stdin with a short timeout
-and, between polls, drives one non-blocking iteration of the PAL event loop
-(`pal->run_cycle(0)` + `qz_tick`). So `fetch` responses, `setTimeout`
-callbacks, etc. continue to fire while you inspect the paused state — all on
-the single JS thread (qzjs owns no threads). A re-entrancy guard prevents
-PAL-driven JS from nesting another stop.
-
-`test/test_dap_async.c` validates this: a uv-backed debuggee schedules a 100ms
-`setTimeout`, hits a breakpoint, and the timer fires during the pause (the loop
-exits with `n=1` rather than spinning to its cap).
+The world is **frozen while paused** by design: the paused DAP loop only
+services debug-protocol requests (50 ms stdin poll); it does not run the PAL
+event loop, so `fetch` responses and `setTimeout` callbacks queued during a
+pause fire only after you continue. This matches standard debugger
+freeze-on-break semantics and avoids PAL-driven re-entry into a stopped
+runtime (`debugger.c` has a re-entrancy guard as a second line of defense).
 
 ## Test
 

@@ -46,9 +46,38 @@ qz_eval(rt, src, NULL);   /* 在入口处暂停，然后在断点处暂停 */
 
 就这样——`qz_create` 自动附加 DAP，发送 `initialized`，并在 DAP 配置阶段（initialize / setBreakpoints / configurationDone）阻塞后返回。`stop_on_entry` 在程序的第一条语句处暂停。
 
-## VS Code 设置
+## 从 VS Code 调试
 
-你的程序是调试目标——VS Code 的 `runtimeExecutable` 指向**你的**二进制文件，而非 qzjs 提供的。创建 `.vscode/launch.json`：
+调试器通过 **stdio 上的标准 DAP** 通信：运行时（启用调试的 `qz_create`）
+是 stdin/stdout 上的 DAP 服务端，任何会讲 DAP 的客户端都能连。当前
+**没有 VS Code 扩展**注册 `qzjs` 调试类型，所以常见的 `launch.json`
+`type: "qzjs"` 配置无法直接使用——VS Code 会报调试适配器类型未注册。
+（DAP 层本身已实现且经 `test/test_dap_gtest.cpp` 与任意通用 DAP 客户端
+端到端测试过。）
+
+在扩展发布之前，从 VS Code 驱动有两种方式：
+
+**方案 1 —— 通用调试适配器。** 用一个 stdio DAP 适配器（如 Mock Debug
+适配器，或自己写的）配一个 launch：`program` 指向在 `QZ_DEBUG=1` 下
+运行你二进制的命令。适配器在 VS Code 与子进程 stdio 之间转发 DAP。
+任何「DAP 服务端在 stdio、客户端侧」的适配器都能工作；qzjs 侧无需
+扩展，因为它从不注册 VS Code 类型。
+
+**方案 2 —— 直接驱动 DAP 协议。** 在 `QZ_DEBUG=1` 下运行你的程序，
+自行往 stdin/stdout 发 DAP——可以是 REPL、脚本或一次性客户端。
+`test/test_dap_gtest.cpp` 是可用的参考客户端：它在 `QZ_DEBUG=1` 下
+fork 子进程，然后发 initialize → setBreakpoints → configurationDone，
+期待断点处的 `stopped` 事件，再单步并检查变量。
+
+DAP 层实现了：initialize、attach、setBreakpoints、configurationDone、
+threads、stackTrace、scopes、variables、continue、next、stepIn、stepOut、
+evaluate、disconnect。
+
+<details>
+<summary>参考 `launch.json`（需尚未发布的扩展）</summary>
+
+下面的配置**只有在扩展注册了 `qzjs` 调试类型之后才能用**。这里给出
+是作为预期的最终形态，而非当前可跑的设置：
 
 ```json
 {
@@ -64,10 +93,10 @@ qz_eval(rt, src, NULL);   /* 在入口处暂停，然后在断点处暂停 */
   }]
 }
 ```
+</details>
 
-> **注意：** `type: "qzjs"` 需要一个注册了 `qzjs` 调试类型的 VS Code 扩展。在打包的扩展发布之前，你可以直接驱动 DAP 层（适配器通过 stdio 使用标准 DAP）或使用脚本化测试（`test/test_dap_gtest.cpp`）作为参考客户端。DAP 层实现了：initialize、attach、setBreakpoints、configurationDone、threads、stackTrace、scopes、variables、continue、next、stepIn、stepOut、evaluate、disconnect。
-
-在源代码中设置断点，按 F5，VS Code 会附加到在入口处暂停的程序。继续执行以命中断点；检查局部变量、步进、求值监视表达式。
+有了可用的适配器，你就能附加到入口处暂停的程序，继续以命中断点、
+检查 Locals、单步、求值监视表达式。
 
 ## 当前可用功能（MVP）
 
@@ -77,7 +106,7 @@ qz_eval(rt, src, NULL);   /* 在入口处暂停，然后在断点处暂停 */
 - 调用栈，包含每个帧的文件/行号/函数。
 - 局部变量作用域（参数 + 局部变量）及其值。
 - `evaluate`（REPL/监视）。全局变量和纯表达式直接求值；帧的局部变量在求值期间暴露在 `locals` 对象上，因此 `locals.x` 读取局部变量。（裸写 `x` 不会绑定——真正的帧内求值需要 QuickJS 未暴露的引擎支持。）
-- **暂停期间异步推进**：`fetch`/`setTimeout` 在暂停时继续推进（DAP 循环在 stdin 轮询之间泵送 PAL 事件循环，单线程）。
+- **暂停时世界冻结**：`fetch`/`setTimeout`/PAL 回调在暂停期间**不会**推进——暂停循环只服务调试协议请求（符合标准调试器「中断即冻结」语义）。
 
 ## 限制（MVP）
 
@@ -87,11 +116,13 @@ qz_eval(rt, src, NULL);   /* 在入口处暂停，然后在断点处暂停 */
 - **`debugger;` 关键字**仍是无操作（断点从 UI 设置）。
 - 注册 `qzjs` 调试类型的打包 VS Code 扩展是后续事项；DAP 层已完成并通过脚本化客户端测试。
 
-## 异步支持
+## 暂停期间的异步
 
-调试器**确实**在暂停时推进异步 JS。当在断点处停止时，DAP 层的 `on_stopped` 循环以短超时轮询 stdin，并在轮询之间驱动一次非阻塞的 PAL 事件循环迭代（`pal->run_cycle(0)` + `qz_tick`）。因此 `fetch` 响应、`setTimeout` 回调等在你检查暂停状态时继续触发——全部在单个 JS 线程上（qzjs 不拥有任何线程）。重入保护可防止 PAL 驱动的 JS 嵌套另一次停止。
-
-`test/test_dap_async.c` 验证了这一点：一个 uv 支持的被调试程序调度一个 100ms 的 `setTimeout`，命中断点，定时器在暂停期间触发（循环以 `n=1` 退出，而非旋转到上限）。
+暂停时世界**按设计冻结**：暂停的 DAP 循环只服务调试协议请求（50ms stdin
+轮询），不驱动 PAL 事件循环——暂停期间排队的 `fetch` 响应与 `setTimeout`
+回调要等你 continue 之后才会触发。这符合标准调试器「中断即冻结」语义，
+也避免 PAL 驱动的 JS 重入已停止的运行时（`debugger.c` 另有重入保护作
+第二道防线）。
 
 ## 测试
 
