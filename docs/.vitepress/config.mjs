@@ -165,7 +165,6 @@ const sidebar = {
 const nav = [
   { text: 'Guide', link: '/guide/' },
   { text: 'JS API', link: '/js-api/' },
-  { text: 'GitHub', link: 'https://github.com/adam-ikari/qzjs' },
 ]
 
 // Chinese sidebar with translated labels
@@ -282,7 +281,6 @@ const zhSidebar = {
 const zhNav = [
   { text: '指南', link: '/zh/guide/' },
   { text: 'JS API', link: '/zh/js-api/' },
-  { text: 'GitHub', link: 'https://github.com/adam-ikari/qzjs' },
 ]
 
 export default withMermaid(
