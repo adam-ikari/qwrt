@@ -1,6 +1,6 @@
 ---
 title: 字节码编译
-description: 宿主可把 JS 编译为字节码（qz_compile / qzjs --compile）并在启动时运行 — 注意字节码不保证跨 qzjs 版本兼容。
+description: 宿主可把 JS 编译为字节码（qz_compile / qzc 工具）并在启动时运行 — 注意字节码不保证跨 qzjs 版本兼容。
 ---
 
 # 字节码编译
@@ -31,7 +31,7 @@ qz_free(bc);
 CLI：
 
 ```bash
-qzjs --compile app.js -o app.bc
+qzc app.js -o app.bc
 ```
 
 ## 运行字节码
@@ -55,7 +55,7 @@ qzjs --compile app.js -o app.bc
 `SyntaxError: invalid version (28 expected=28)`），绝不静默回退到源码。
 
 推荐做法：分发**源码**，在部署环境的目标 qzjs 构建上编译（
-`qzjs --compile`）。仅在与运行时二进制同构建来源的受控部署中直接分发
+`qzc`）。仅在与运行时二进制同构建来源的受控部署中直接分发
 预编译字节码。同一内嵌引擎版本的 `qjsc -b` 产物也可加载，但版本必须与
 qzjs 一致。
 

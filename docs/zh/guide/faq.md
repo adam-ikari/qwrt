@@ -87,7 +87,7 @@ Web Worker **确实**并行——按后端不同以线程或子进程形式—�
 ### 有公开的字节码 API 吗？
 
 **有。** `qz_compile()` 把 JS 源码编译为字节码，宿主在启动时经
-`qz_config_t.initial_bytecode` 运行（CLI：`qzjs --compile` /
+`qz_config_t.initial_bytecode` 运行（CLI：`qzc` /
 `qzjs --bytecode`）。注意：字节码与 qzjs 的具体构建绑定，**不**保证跨版本
 可移植——运行时会显式拒绝不兼容的字节码。请在部署环境按目标构建编译。
 见[字节码编译](/zh/guide/bytecode)。

@@ -94,7 +94,7 @@ See [serve()](/js-api/serve).
 ### Is there a public bytecode API?
 
 **Yes.** `qz_compile()` compiles JS source to a bytecode blob, and hosts run
-it at startup via `qz_config_t.initial_bytecode` (CLI: `qzjs --compile` /
+it at startup via `qz_config_t.initial_bytecode` (CLI: `qzc` /
 `qzjs --bytecode`). The catch: bytecode is bound to the exact qzjs build and
 is **not** portable across versions — the runtime rejects incompatible blobs
 explicitly. Compile at deploy time for the target build. See

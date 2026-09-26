@@ -226,7 +226,7 @@ Five things to check:
 
 `qz_compile()` compiles JS source to a bytecode blob; run it via
 `qz_config_t.initial_bytecode` or `qzjs --bytecode file.bc`
-(`qzjs --compile` produces the file). Bytecode is bound to the exact qzjs
+(`qzc` produces the file). Bytecode is bound to the exact qzjs
 build — an incompatible blob fails `qz_create` with an explicit
 `SyntaxError: invalid version` on stderr rather than falling back to source.
 Compile at deploy time on the target build. See

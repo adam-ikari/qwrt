@@ -1,6 +1,6 @@
 ---
 title: Bytecode Compilation
-description: Hosts can compile JS to bytecode (qz_compile / qzjs --compile) and run it at startup — with the caveat that bytecode is NOT portable across qzjs versions.
+description: Hosts can compile JS to bytecode (qz_compile / the qzc tool) and run it at startup — with the caveat that bytecode is NOT portable across qzjs versions.
 ---
 
 # Bytecode Compilation
@@ -29,10 +29,10 @@ if (qz_compile(source, source_len, "app.js", &bc, &bc_len, &err) != 0) {
 qz_free(bc);
 ```
 
-From the CLI:
+From the CLI (`qzc` tool):
 
 ```bash
-qzjs --compile app.js -o app.bc
+qzc app.js -o app.bc
 ```
 
 ## Run Bytecode
@@ -59,7 +59,7 @@ another.** The runtime rejects incompatible blobs explicitly (e.g.
 source.
 
 Recommended workflow: distribute **source**, and compile at deploy time on the
-target qzjs build (`qzjs --compile`). Ship precompiled bytecode only in
+target qzjs build (`qzc`). Ship precompiled bytecode only in
 controlled deployments where the host and the runtime binary come from the
 same build. `qjsc -b` output from the same embedded engine build also loads,
 but pin it to the same version as qzjs.

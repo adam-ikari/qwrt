@@ -1059,6 +1059,18 @@ if(QZ_BUILD_CLI AND NOT QZ_BUILD_TESTS)
 endif()
 
 # ============================================================================
+# qzc — qzjs bytecode compiler（qz_compile 的 CLI 形态）
+# 独立工具：qzc <in.js> [-o out.bc]；产物经 qzjs --bytecode 运行。
+# 与 qzjs-rt 同约束：链接真 libuv 传递闭包，mock 测试构建不产出。
+# ============================================================================
+if(QZ_BUILD_CLI AND NOT QZ_BUILD_TESTS)
+    add_executable(qz_qzc src/qzc.c)
+    set_target_properties(qz_qzc PROPERTIES OUTPUT_NAME qzc)
+    qz_enable_warnings(qz_qzc)
+    target_link_libraries(qz_qzc PRIVATE qz_full)
+endif()
+
+# ============================================================================
 # qzjs-ctl — control-plane endpoint client (CTL-2)
 # 纯 POSIX socket + stdio（不依赖 libuv / qzjs 库）；只在真实构建产出
 # （test 构建无控制面端点）。

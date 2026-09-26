@@ -218,7 +218,7 @@ WebSocket 客户端支持 `ws://`；`wss://` 抛 `wss:// not supported yet`。�
 ### 「怎么把预编译字节码喂给 qzjs？」
 
 `qz_compile()` 把 JS 源码编译为字节码；经 `qz_config_t.initial_bytecode`
-或 `qzjs --bytecode file.bc` 运行（`qzjs --compile` 产出文件）。字节码与
+或 `qzjs --bytecode file.bc` 运行（`qzc` 产出文件）。字节码与
 qzjs 的具体构建绑定——不兼容的字节码会让 `qz_create` 显式失败（stderr 打
 `SyntaxError: invalid version`），绝不静默回退到源码。请在部署环境按目标
 构建编译。见[字节码编译](/zh/guide/bytecode)。

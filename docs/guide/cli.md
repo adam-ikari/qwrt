@@ -23,7 +23,7 @@ cmake --build build -j$(nproc)   # produces build/qzjs
 ```bash
 qzjs script.js [args...]   # run a script file
 qzjs -e 'code' [args...]   # evaluate an expression / statement
-qzjs --compile app.js -o app.bc   # compile JS to bytecode
+qzc app.js -o app.bc              # compile JS to bytecode (qzc tool)
 qzjs --bytecode app.bc [args...]  # run precompiled bytecode
 qzjs                       # interactive REPL (Ctrl-D to exit)
 qzjs --help                # usage
@@ -65,13 +65,16 @@ qzjs 0.2.0 (WinterTC runtime) — type JS, Ctrl-D to exit
 
 ### Bytecode mode
 
-Compile once, run many — bytecode skips parsing at startup:
+Compile once, run many — bytecode skips parsing at startup. Compilation is
+its own tool, `qzc`:
 
 ```bash
-qzjs --compile app.js -o app.bc
+qzc app.js -o app.bc
 qzjs --bytecode app.bc arg1 arg2
 # hello from bytecode, 1+2 = 3 | args: ["arg1","arg2"]
 ```
+
+`qzjs --compile` still works as an alias, but `qzc` is the canonical form.
 
 Script args still work (they flow through the CLI bootstrap). Bytecode is
 bound to the exact qzjs build — an incompatible file fails with

@@ -23,7 +23,7 @@ cmake --build build -j$(nproc)   # 产物：build/qzjs
 ```bash
 qzjs script.js [args...]   # 运行脚本文件
 qzjs -e 'code' [args...]   # 求值一个表达式 / 语句
-qzjs --compile app.js -o app.bc   # 把 JS 编译为字节码
+qzc app.js -o app.bc              # 把 JS 编译为字节码（qzc 工具）
 qzjs --bytecode app.bc [args...]  # 运行预编译字节码
 qzjs                       # 交互式 REPL（Ctrl-D 退出）
 qzjs --help                # 用法
@@ -65,13 +65,15 @@ qzjs 0.2.0 (WinterTC runtime) — type JS, Ctrl-D to exit
 
 ### 字节码模式
 
-一次编译，多次运行——字节码在启动时跳过解析：
+一次编译，多次运行——字节码在启动时跳过解析。编译由独立工具 `qzc` 完成：
 
 ```bash
-qzjs --compile app.js -o app.bc
+qzc app.js -o app.bc
 qzjs --bytecode app.bc arg1 arg2
 # hello from bytecode, 1+2 = 3 | args: ["arg1","arg2"]
 ```
+
+`qzjs --compile` 仍可用作别名，但 `qzc` 是规范形式。
 
 脚本参数照常可用（经 CLI bootstrap 传入）。字节码与 qzjs 的具体构建绑定——
 不兼容的文件会在 stderr 报 `SyntaxError: invalid version` 并以非零退出。
