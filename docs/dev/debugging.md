@@ -56,7 +56,8 @@ QZ_DEBUG=1 ./myapp app.js
 existing verbose-log flag):
 
 ```c
-qz_config_t cfg = { .pal = pal, .debug = 0x2 };  /* bit 1 = debug-enable */
+qz_config_t cfg = {};
+cfg.debug = 0x2;            /* bit 1 = debug-enable (or just run with QZ_DEBUG=1) */
 cfg.initial_script = src;   /* pauses at entry, then at breakpoints */
 qz_t *rt = qz_create(&cfg);
 ```
@@ -89,7 +90,7 @@ Your program is the debug target — VS Code's `runtimeExecutable` points at
 > **Note:** `type: "qzjs"` requires a VS Code extension that registers the
 > `qzjs` debug type. Until a packaged extension ships, you can drive the DAP
 > layer directly (the adapter speaks standard DAP over stdio) or use the
-> scripted test (`test/test_dap_debugger.c`) as a reference client. The DAP
+> scripted test (`test/test_dap_gtest.cpp`) as a reference client. The DAP
 > layer implements: initialize, attach, setBreakpoints, configurationDone,
 > threads, stackTrace, scopes, variables, continue, next, stepIn, stepOut,
 > evaluate, disconnect.
@@ -142,12 +143,63 @@ exits with `n=1` rather than spinning to its cap).
 ## Test
 
 ```bash
-cd build && ctest -R test_dap_debugger --output-on-failure
+cmake -B build -DQZ_BUILD_DEBUGGER=ON -DQZ_BUILD_TESTS=ON && cmake --build build -j$(nproc)
+ctest --test-dir build -L dap --output-on-failure   # or: make -C <dir> then ctest -L dap
 ```
 
-`test/test_dap_debugger.c` is an in-process embedding host that forks a child
+`test/test_dap_gtest.cpp` is an in-process embedding host that forks a child
 running a tiny JS program under `QZ_DEBUG=1`, then acts as the VS Code
 client over a pipe: initialize → setBreakpoints → configurationDone → expects
 `stopped` at the breakpoint → stackTrace/scopes/variables/evaluate → step →
 continue → terminate. It validates the whole stack: engine patch + debug core
 + DAP layer + the auto-attach path in `qz_create`.
+
+## Troubleshooting
+
+**Breakpoints never hit / no `stopped` event / tests time out at 30 s**
+
+The engine's per-opcode breakpoint check is gated by a compile-time macro.
+If the macro the CMake passes to the engine differs from the one in
+`deps/quickjs-ng-debugger.patch`, `DEBUGGER_CHECK` compiles to a no-op and
+debugging silently does nothing — no error, breakpoints just never fire.
+
+1. Verify the macro matches in both places:
+
+   ```bash
+   grep -n DEBUG_SUPPORT deps/quickjs-ng-debugger.patch | head -4
+   grep -n "QZ_DEBUG_SUPPORT_DEFINE" CMakeLists.txt
+   ```
+
+   Both must use the same name (currently `QZ_DEBUG_SUPPORT`). A project
+   rename that misses the patch produces exactly this silent failure.
+
+2. Verify the engine code is actually compiled in (not compiled out):
+
+   ```bash
+   grep -c "js_debugger_check" deps/quickjs-ng/quickjs.c
+   ```
+
+3. Confirm the DAP layer itself is linked (it lives in `libqzjs` only with
+   `QZ_BUILD_DEBUGGER=ON`):
+
+   ```bash
+   nm build/libqzjs.a 2>/dev/null | grep -c qz_dap_attach   # or build_dbg/libqzjs.a for the debugger build
+   ```
+
+4. Run the end-to-end client — if it passes, the whole stack works and the
+   problem is in your client's protocol exchange:
+
+   ```bash
+   ctest --test-dir build -L dap --output-on-failure
+   ```
+
+**`QZ_DEBUG=1` set but program doesn't pause at entry**
+
+- Embedded host with the THREAD backend: the auto-attach happens on the
+  qzjs thread during `qz_create` and blocks on the DAP configuration
+  exchange — your client must send `initialize` + `setBreakpoints` +
+  `configurationDone` or `qz_create` never returns.
+- Worker runtimes never auto-attach (one stdio channel per process; a
+  worker would race the parent for stdin). Breakpoints only apply to the
+  attached runtime.
+- `config.debug = 1` is **not** the debug bit — use `0x2` (bit 1).

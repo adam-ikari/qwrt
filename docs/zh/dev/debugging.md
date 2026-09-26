@@ -38,7 +38,8 @@ QZ_DEBUG=1 ./myapp app.js
 **方案 B — 配置位：** 设置 `qz_config_t.debug` 的位 1（位 0 是现有的详细日志标志）：
 
 ```c
-qz_config_t cfg = { .pal = pal, .debug = 0x2 };  /* 位 1 = 启用调试 */
+qz_config_t cfg = {};
+cfg.debug = 0x2;            /* 位 1 = 启用调试（或直接以 QZ_DEBUG=1 运行） */
 qz_t *rt = qz_create(&cfg);
 qz_eval(rt, src, NULL);   /* 在入口处暂停，然后在断点处暂停 */
 ```
@@ -64,7 +65,7 @@ qz_eval(rt, src, NULL);   /* 在入口处暂停，然后在断点处暂停 */
 }
 ```
 
-> **注意：** `type: "qzjs"` 需要一个注册了 `qzjs` 调试类型的 VS Code 扩展。在打包的扩展发布之前，你可以直接驱动 DAP 层（适配器通过 stdio 使用标准 DAP）或使用脚本化测试（`test/test_dap_debugger.c`）作为参考客户端。DAP 层实现了：initialize、attach、setBreakpoints、configurationDone、threads、stackTrace、scopes、variables、continue、next、stepIn、stepOut、evaluate、disconnect。
+> **注意：** `type: "qzjs"` 需要一个注册了 `qzjs` 调试类型的 VS Code 扩展。在打包的扩展发布之前，你可以直接驱动 DAP 层（适配器通过 stdio 使用标准 DAP）或使用脚本化测试（`test/test_dap_gtest.cpp`）作为参考客户端。DAP 层实现了：initialize、attach、setBreakpoints、configurationDone、threads、stackTrace、scopes、variables、continue、next、stepIn、stepOut、evaluate、disconnect。
 
 在源代码中设置断点，按 F5，VS Code 会附加到在入口处暂停的程序。继续执行以命中断点；检查局部变量、步进、求值监视表达式。
 
@@ -95,7 +96,52 @@ qz_eval(rt, src, NULL);   /* 在入口处暂停，然后在断点处暂停 */
 ## 测试
 
 ```bash
-cd build && ctest -R test_dap_debugger --output-on-failure
+cmake -B build -DQZ_BUILD_DEBUGGER=ON -DQZ_BUILD_TESTS=ON && cmake --build build -j$(nproc)
+ctest --test-dir build -L dap --output-on-failure
 ```
 
-`test/test_dap_debugger.c` 是一个进程内嵌入宿主，它 fork 一个子进程，在 `QZ_DEBUG=1` 下运行一个小型 JS 程序，然后通过管道充当 VS Code 客户端：initialize → setBreakpoints → configurationDone → 期望在断点处 `stopped` → stackTrace/scopes/variables/evaluate → step → continue → terminate。它验证了整个技术栈：引擎补丁 + 调试核心 + DAP 层 + `qz_create` 中的自动附加路径。
+`test/test_dap_gtest.cpp` 是一个进程内嵌入宿主，它 fork 一个子进程，在 `QZ_DEBUG=1` 下运行一个小型 JS 程序，然后通过管道充当 VS Code 客户端：initialize → setBreakpoints → configurationDone → 期望在断点处 `stopped` → stackTrace/scopes/variables/evaluate → step → continue → terminate。它验证了整个技术栈：引擎补丁 + 调试核心 + DAP 层 + `qz_create` 中的自动附加路径。
+## 故障排查
+
+**断点不命中 / 无 `stopped` 事件 / 测试 30 秒超时**
+
+引擎的逐 opcode 断点检查由编译期宏门控。若 CMake 传给引擎的宏与
+`deps/quickjs-ng-debugger.patch` 里的宏不一致，`DEBUGGER_CHECK` 会编译成
+空操作——调试静默失效：不报错，断点就是不生效。
+
+1. 核对两处宏名一致：
+
+   ```bash
+   grep -n DEBUG_SUPPORT deps/quickjs-ng-debugger.patch | head -4
+   grep -n "QZ_DEBUG_SUPPORT_DEFINE" CMakeLists.txt
+   ```
+
+   两处必须同名（当前为 `QZ_DEBUG_SUPPORT`）。项目改名若漏改 patch，
+   正是这种静默失效。
+
+2. 确认引擎代码确实编入（未被编译剔除）：
+
+   ```bash
+   grep -c "js_debugger_check" deps/quickjs-ng/quickjs.c
+   ```
+
+3. 确认 DAP 层已链接（仅 `QZ_BUILD_DEBUGGER=ON` 时编入 `libqzjs`）：
+
+   ```bash
+   nm build/libqzjs.a 2>/dev/null | grep -c qz_dap_attach   # or build_dbg/libqzjs.a for the debugger build
+   ```
+
+4. 跑端到端客户端——通过则整栈没问题，问题在你的客户端协议交互：
+
+   ```bash
+   ctest --test-dir build -L dap --output-on-failure
+   ```
+
+**设置了 `QZ_DEBUG=1` 但程序不在入口暂停**
+
+- THREAD 后端嵌入式宿主：auto-attach 发生在 qzjs 线程的 `qz_create`
+  期间并阻塞等待 DAP 配置交换——客户端必须发送 `initialize` +
+  `setBreakpoints` + `configurationDone`，否则 `qz_create` 永不返回。
+- worker 运行时从不 auto-attach（每进程只有一份 stdio；worker 会与
+  父 runtime 竞争 stdin）。断点只作用于被 attach 的那个 runtime。
+- `config.debug = 1` **不是**调试位——用 `0x2`（位 1）。
