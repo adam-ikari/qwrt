@@ -14,8 +14,7 @@ qzjs 附带一个独立运行时可执行文件（默认随 `QZ_BUILD_CLI=ON` �
 CLI 属于默认构建：
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)   # 产物：build/qzjs
+make build   # 产物：build/qzjs build/qzc build/qzjs-rt
 ```
 
 ## 用法

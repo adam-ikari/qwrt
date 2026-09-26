@@ -35,9 +35,14 @@ touches JS directly.
 ```bash
 git clone --recursive https://github.com/adam-ikari/qzjs.git
 cd qzjs
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
+make build          # → build/qzjs build/qzc build/qzjs-rt
 ```
+
+`make` is the command entry point (`make help`-style target list lives in the
+`Makefile` header): `make build` / `make qzjs ARGS='...'` / `make qzc SRC=...`
+/ `make bc SRC=...` / `make example NAME=fs` / `make test-offline` /
+`make docs`. Under the hood these drive CMake/Ninja; raw CMake still works
+(see [Building](docs/guide/building.md) for every option).
 The WinterTC polyfill ships as precompiled bytecode with the JavaScript source
 stripped (`qjsc -s`), shrinking the embedded polyfill bytecode by ~87%.
 Polyfill initialization is lazy: core infrastructure (console, timers, event
@@ -88,18 +93,17 @@ be thread-safe.
 Runnable samples live in [`examples/`](examples/), built with `QZ_BUILD_EXAMPLES=ON`:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DQZ_BUILD_EXAMPLES=ON
-cmake --build build -j$(nproc)
-./build/examples/hello/qz_hello   # host ↔ JS messaging
-./build/examples/worker/qz_worker # real-thread Web Worker round-trip
+make build                          # QZ_BUILD_EXAMPLES=ON included
+./build/examples/hello/qz_hello     # host ↔ JS messaging
+./build/examples/worker/qz_worker   # real-thread Web Worker round-trip
+make example NAME=fs                # run a JS example directly
 ```
 
 ### Build with Tests
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON
-cmake --build build -j$(nproc)
-cd build && ctest --output-on-failure
+make test            # full suite (incl. test262)
+make test-offline    # offline label — right default on a fresh clone
 ```
 
 ## Standalone CLI
@@ -109,7 +113,7 @@ that runs WinterTC Web APIs directly — no Node.js APIs (`process`, `require`,
 `Buffer` are absent by design).
 
 ```bash
-cmake --build build -j$(nproc)   # produces build/qzjs
+make build                       # produces build/qzjs build/qzc build/qzjs-rt
 
 ./build/qzjs script.js a b c     # run a script, args via globalThis.arguments
 ./build/qzjs -e 'await fetch(url)' # evaluate a one-liner
@@ -344,10 +348,8 @@ Tests are GoogleTest `.cpp` suites in `test/`, linked against `qzjs` plus
 `test/mock_libuv.h` and the `HostCtx` harness in `test/test_host.h`).
 
 ```bash
-# Unit tests
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DQZ_BUILD_TESTS=ON
-cmake --build build -j$(nproc)
-cd build && ctest -L offline --output-on-failure
+# Unit tests (offline label — the right default on a fresh clone)
+make test-offline
 
 # With valgrind
 valgrind --leak-check=full ./build/test/test_qzjs_gtest

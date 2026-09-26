@@ -1061,13 +1061,20 @@ endif()
 # ============================================================================
 # qzc — qzjs bytecode compiler（qz_compile 的 CLI 形态）
 # 独立工具：qzc <in.js> [-o out.bc]；产物经 qzjs --bytecode 运行。
-# 与 qzjs-rt 同约束：链接真 libuv 传递闭包，mock 测试构建不产出。
+# 编译期只调 qz_compile（一次性 JSRuntime），不触碰 libuv 运行时 API——
+# mock 测试构建（QZ_USE_MOCK_LIBUV）也产出，链接 qzjs 即可；真实构建链
+# qz_full（真 libuv 传递闭包）。注意：mock/real 两个构建产出的 qzc 语义
+# 相同（qz_compile 不依赖 uv loop），字节码可互换（同引擎构建）。
 # ============================================================================
-if(QZ_BUILD_CLI AND NOT QZ_BUILD_TESTS)
+if(QZ_BUILD_CLI)
     add_executable(qz_qzc src/qzc.c)
     set_target_properties(qz_qzc PROPERTIES OUTPUT_NAME qzc)
     qz_enable_warnings(qz_qzc)
-    target_link_libraries(qz_qzc PRIVATE qz_full)
+    if(QZ_BUILD_TESTS)
+        target_link_libraries(qz_qzc PRIVATE qzjs mock_libuv)
+    else()
+        target_link_libraries(qz_qzc PRIVATE qz_full)
+    endif()
 endif()
 
 # ============================================================================

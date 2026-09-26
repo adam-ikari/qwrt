@@ -9,6 +9,21 @@ qzjs 使用 CMake 并通过功能开关进行配置。所有依赖从源码构�
 
 ## 基本构建
 
+`make` 是命令入口——封装 CMake/Ninja：
+
+```bash
+make build          # 配置 + 编译 Release（含 examples）→ build/qzjs qzc qzjs-rt
+make qzjs ARGS='-e "console.log(1)"'   # 运行 CLI
+make qzc SRC=app.js [OUT=app.bc]       # JS 编译为字节码
+make bc SRC=app.js [ARGS='a b']        # 编译 + 运行字节码
+make example NAME=fs                   # 运行某个示例
+make test-offline                      # 构建 + 跑 offline 测试
+make docs                              # 构建文档站
+make clean
+```
+
+直接用 CMake 等价，下文逐项列出全部选项：
+
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)

@@ -9,6 +9,21 @@ qzjs uses CMake with feature toggles. All dependencies are built from source —
 
 ## Basic Build
 
+`make` is the command entry point — it wraps CMake/Ninja:
+
+```bash
+make build          # configure + build Release with examples → build/qzjs qzc qzjs-rt
+make qzjs ARGS='-e "console.log(1)"'   # run the CLI
+make qzc SRC=app.js [OUT=app.bc]       # compile JS to bytecode
+make bc SRC=app.js [ARGS='a b']        # compile + run bytecode
+make example NAME=fs                   # run an example
+make test-offline                      # build + run offline tests
+make docs                              # build the website
+make clean
+```
+
+Raw CMake is equivalent and documented below for every option:
+
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)

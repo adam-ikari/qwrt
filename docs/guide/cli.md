@@ -14,8 +14,7 @@ that runs the full WinterTC Web API surface directly — no Node.js APIs
 The CLI is part of the default build:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)   # produces build/qzjs
+make build   # → build/qzjs build/qzc build/qzjs-rt
 ```
 
 ## Usage
